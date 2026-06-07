@@ -18,6 +18,7 @@ struct AIAssistantView: View {
     @AppStorage("hasAcceptedMedicalAIDisclaimer") private var hasAcceptedMedicalAIDisclaimer = false
     @AppStorage("hasAcknowledgedThirdPartyMedicalAgent") private var hasAcknowledgedThirdPartyMedicalAgent = false
     @AppStorage("hasPurgedPreProviderDemoMessagesV4") private var hasPurgedPreProviderDemoMessages = false
+    @AppStorage("hasPurgedUnavailableMedicalAITransportMessagesV1") private var hasPurgedUnavailableMedicalAITransportMessages = false
     @State private var draftMessage = ""
     @State private var showingConsentSheet = false
     @State private var showingThirdPartyAgentNotice = false
@@ -106,6 +107,7 @@ struct AIAssistantView: View {
         }
         .onAppear {
             purgePreProviderDemoMessagesIfNeeded()
+            purgeUnavailableMedicalAITransportMessagesIfNeeded()
             applyPendingQuestionIfNeeded()
             if !hasAcknowledgedThirdPartyMedicalAgent {
                 showingThirdPartyAgentNotice = true
@@ -321,11 +323,14 @@ struct AIAssistantView: View {
 
         do {
             let response = try await medicalAIClient(configuration: configuration, apiKey: apiKey).respond(to: request)
-            let boundaryReview = MedicalAIResponseBoundaryGuard().review(response.message)
-            logAIEvent("success provider=\(response.provider.providerName) rawLength=\(response.message.count) displayLength=\(boundaryReview.displayMessage.count) flags=\(boundaryReview.flags.joined(separator: ","))")
+            let displayMessage = response.message.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !displayMessage.isEmpty else {
+                throw DoubaoMedicalAIError.emptyMessage
+            }
+            logAIEvent("success provider=\(response.provider.providerName) rawLength=\(response.message.count) displayLength=\(displayMessage.count)")
             modelContext.insert(StoredAIChatMessage(
                 role: .assistant,
-                text: boundaryReview.displayMessage,
+                text: displayMessage,
                 providerName: response.provider.providerName,
                 modelName: response.provider.modelName,
                 sharedScopesSummary: sharedScopesSummary
@@ -377,6 +382,46 @@ struct AIAssistantView: View {
         }
         try? modelContext.save()
         hasPurgedPreProviderDemoMessages = true
+    }
+
+    private func purgeUnavailableMedicalAITransportMessagesIfNeeded() {
+        guard !hasPurgedUnavailableMedicalAITransportMessages else {
+            return
+        }
+
+        let orderedMessages = messages.sorted { $0.createdAt < $1.createdAt }
+        var messageIDsToDelete: Set<UUID> = []
+
+        for (index, message) in orderedMessages.enumerated() {
+            guard message.role == .assistant, isStaleUnavailableMedicalAIMessage(message.text) else {
+                continue
+            }
+
+            messageIDsToDelete.insert(message.id)
+            if index > 0 {
+                let previousMessage = orderedMessages[index - 1]
+                let gap = message.createdAt.timeIntervalSince(previousMessage.createdAt)
+                if previousMessage.role == .user, gap >= 0, gap <= 120 {
+                    messageIDsToDelete.insert(previousMessage.id)
+                }
+            }
+        }
+
+        for message in messages where messageIDsToDelete.contains(message.id) {
+            modelContext.delete(message)
+        }
+        if !messageIDsToDelete.isEmpty {
+            try? modelContext.save()
+        }
+        hasPurgedUnavailableMedicalAITransportMessages = true
+    }
+
+    private func isStaleUnavailableMedicalAIMessage(_ text: String) -> Bool {
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedText.contains("医疗 AI 暂不可用")
+            || trimmedText.contains("医疗 AI 暂时没有返回结果")
+            || trimmedText.contains("医疗 AI 请求失败")
+            || trimmedText.contains("医疗 AI 返回内容暂时无法读取")
     }
 
     private func buildRequest(userMessage: String, consent: StoredAIConsent) -> MedicalAIRequest {

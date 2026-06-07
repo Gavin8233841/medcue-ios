@@ -7,6 +7,7 @@ enum DemoDataSeeder {
         let existing = (try? modelContext.fetch(FetchDescriptor<StoredMedication>())) ?? []
         var medicationsByName = Dictionary(uniqueKeysWithValues: existing.map { ($0.displayName, $0) })
         migrateLegacyDemoMedications(existing, medicationsByName: &medicationsByName)
+        migrateUserVisibleSeedText(in: modelContext)
 
         for seed in demoMedicationSeeds where medicationsByName[seed.displayName] == nil {
             let medication = StoredMedication(
@@ -26,16 +27,13 @@ enum DemoDataSeeder {
 
         for medication in medicationsByName.values where demoMedicationSeeds.contains(where: { $0.displayName == medication.displayName }) {
             medication.isDemoContent = true
-            if !medication.notes.contains("演示数据") {
-                medication.notes = [medication.notes, "演示数据：用于比赛演示，正式上线前可移除。"]
-                    .filter { !$0.isEmpty }
-                    .joined(separator: "\n")
-            }
+            medication.notes = userFacingNotes(from: medication.notes, fallback: seed(forMedicationName: medication.displayName)?.notes ?? "")
         }
 
         seedMissingPlansAndTodayTasks(for: Array(medicationsByName.values), context: modelContext)
         seedMissingRiskCards(for: Array(medicationsByName.values), context: modelContext)
         seedMissingStocks(for: Array(medicationsByName.values), context: modelContext)
+        seedMissingDoseChanges(for: Array(medicationsByName.values), context: modelContext)
         try? modelContext.save()
     }
 
@@ -47,7 +45,7 @@ enum DemoDataSeeder {
             form: "片剂",
             strength: "200 mg",
             photoSymbolName: "pills.fill",
-            notes: "演示数据：仅用于说明首版流程。",
+            notes: "按药盒或说明书核对后使用；如有胃部不适、过敏或合并用药疑问，请咨询医生或药师。",
             doseUnit: "片",
             reminderTimeRaw: "08:00",
             reminderHour: 8,
@@ -62,7 +60,7 @@ enum DemoDataSeeder {
             form: "片剂",
             strength: "500 mg",
             photoSymbolName: "cross.case.fill",
-            notes: "演示数据：饮酒相关风险提示。",
+            notes: "按药盒或说明书核对后使用；饮酒、肝功能异常或合并用药时请咨询医生或药师。",
             doseUnit: "片",
             reminderTimeRaw: "13:00",
             reminderHour: 13,
@@ -77,7 +75,7 @@ enum DemoDataSeeder {
             form: "滴眼液",
             strength: "1 滴",
             photoSymbolName: "eye.fill",
-            notes: "演示数据：提醒时突出药品图像。",
+            notes: "提醒时可通过药品图片辅助识别；请按说明书或医生、药师建议核对使用间隔。",
             doseUnit: "滴",
             reminderTimeRaw: "21:00",
             reminderHour: 21,
@@ -92,7 +90,7 @@ enum DemoDataSeeder {
             form: "片剂",
             strength: "10 mg",
             photoSymbolName: "wind",
-            notes: "演示数据：用于展示季节过敏场景的长期提醒。",
+            notes: "用于长期提醒管理；如症状持续、加重或合并其他药物，请咨询医生或药师。",
             doseUnit: "片",
             reminderTimeRaw: "18:30",
             reminderHour: 18,
@@ -107,7 +105,7 @@ enum DemoDataSeeder {
             form: "软胶囊",
             strength: "400 IU",
             photoSymbolName: "sun.max.fill",
-            notes: "演示数据：用于展示长期健康管理提醒。",
+            notes: "用于长期健康管理提醒；请按说明书、医嘱或药师建议核对剂量和疗程。",
             doseUnit: "粒",
             reminderTimeRaw: "22:00",
             reminderHour: 22,
@@ -135,6 +133,57 @@ enum DemoDataSeeder {
             medication.strength = seed.strength
             medication.photoSymbolName = seed.photoSymbolName
             medication.isDemoContent = true
+        }
+    }
+
+    private static func migrateUserVisibleSeedText(in context: ModelContext) {
+        let medications = (try? context.fetch(FetchDescriptor<StoredMedication>())) ?? []
+        let seedByMedicationID = Dictionary(uniqueKeysWithValues: medications.compactMap { medication in
+            seed(forMedicationName: medication.displayName).map { (medication.id, $0) }
+        })
+
+        for medication in medications {
+            if let seed = seed(forMedicationName: medication.displayName) {
+                medication.notes = userFacingNotes(from: medication.notes, fallback: seed.notes)
+            }
+        }
+
+        let plans = (try? context.fetch(FetchDescriptor<StoredMedicationPlan>())) ?? []
+        for plan in plans where plan.sourceNote.contains("演示") {
+            plan.sourceNote = "按说明书建议建立，用户确认后提醒；可在详情页继续修改疗程、提醒和库存。"
+        }
+
+        let tasks = (try? context.fetch(FetchDescriptor<StoredDoseTask>())) ?? []
+        migrateStaleSeedPendingTasks(tasks, seedByMedicationID: seedByMedicationID)
+        for task in tasks where task.reason.contains("演示") {
+            task.reason = userFacingReason(from: task.reason, status: task.status)
+        }
+
+        let riskCards = (try? context.fetch(FetchDescriptor<StoredRiskCard>())) ?? []
+        for card in riskCards where card.reviewNote.contains("演示") {
+            card.reviewNote = "用户已导入说明书，旧说明书风险已自动归档隐藏。"
+        }
+    }
+
+    private static func migrateStaleSeedPendingTasks(
+        _ tasks: [StoredDoseTask],
+        seedByMedicationID: [UUID: DemoMedicationSeed]
+    ) {
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: Date())
+
+        for task in tasks where task.status == .pending && task.dueAt < todayStart {
+            guard let seed = seedByMedicationID[task.medicationID] else {
+                continue
+            }
+            let dueDayStart = calendar.startOfDay(for: task.dueAt)
+            guard let dayOffset = calendar.dateComponents([.day], from: dueDayStart, to: todayStart).day, dayOffset > 0 else {
+                continue
+            }
+            let status = demoStatus(for: seed, dayOffset: dayOffset)
+            task.status = status
+            task.recordedAt = recordedAt(for: status, dueAt: task.dueAt, dayOffset: dayOffset, calendar: calendar)
+            task.reason = demoReason(for: status)
         }
     }
 
@@ -186,7 +235,7 @@ enum DemoDataSeeder {
                     doseUnit: seed.doseUnit,
                     timingSummary: "每日 \(seed.reminderTimeRaw)",
                     timeZonePolicy: .localClock,
-                    sourceNote: "演示说明书建议，用户确认后提醒。",
+                    sourceNote: "按说明书建议建立，用户确认后提醒；可在详情页继续修改疗程、提醒和库存。",
                     courseStartAt: today,
                     courseEndAt: nil,
                     reminderTimesRaw: seed.reminderTimeRaw,
@@ -245,19 +294,7 @@ enum DemoDataSeeder {
 
             let status = demoStatus(for: seed, dayOffset: dayOffset)
             let dueAt = date(on: day, hour: seed.reminderHour, minute: seed.reminderMinute, calendar: calendar)
-            let recordedAt: Date?
-            switch status {
-            case .pending:
-                recordedAt = nil
-            case .taken:
-                recordedAt = calendar.date(byAdding: .minute, value: dayOffset % 2 == 0 ? 4 : -3, to: dueAt)
-            case .delayed:
-                recordedAt = calendar.date(byAdding: .minute, value: 42, to: dueAt)
-            case .skipped:
-                recordedAt = calendar.date(byAdding: .hour, value: 2, to: dueAt)
-            case .corrected:
-                recordedAt = calendar.date(byAdding: .minute, value: 15, to: dueAt)
-            }
+            let recordedAt = recordedAt(for: status, dueAt: dueAt, dayOffset: dayOffset, calendar: calendar)
 
             context.insert(StoredDoseTask(
                 medicationID: medication.id,
@@ -269,6 +306,61 @@ enum DemoDataSeeder {
                 recordedAt: recordedAt,
                 reason: demoReason(for: status)
             ))
+        }
+    }
+
+    private static func seedMissingDoseChanges(for medications: [StoredMedication], context: ModelContext) {
+        let calendar = Calendar.current
+        guard let medication = medications.first(where: { $0.displayName == "维生素 D3" }),
+              let seed = seed(forMedicationName: medication.displayName)
+        else {
+            return
+        }
+
+        let plans = (try? context.fetch(FetchDescriptor<StoredMedicationPlan>())) ?? []
+        guard let plan = plans.first(where: { $0.medicationID == medication.id }) else {
+            return
+        }
+
+        let existingChanges = (try? context.fetch(FetchDescriptor<StoredMedicationDoseChange>())) ?? []
+        let alreadySeeded = existingChanges.contains { change in
+            change.medicationID == medication.id
+                && change.planID == plan.id
+                && change.previousDoseValue == 1
+                && change.newDoseValue == 2
+                && change.newDoseUnit == seed.doseUnit
+        }
+        let effectiveFrom = calendar.startOfDay(
+            for: calendar.date(byAdding: .day, value: -14, to: Date()) ?? Date()
+        )
+
+        guard !alreadySeeded else {
+            return
+        }
+
+        context.insert(StoredMedicationDoseChange(
+            medicationID: medication.id,
+            planID: plan.id,
+            previousDoseValue: 1,
+            previousDoseUnit: seed.doseUnit,
+            newDoseValue: 2,
+            newDoseUnit: seed.doseUnit,
+            effectiveFrom: effectiveFrom,
+            note: "复诊沟通后记录为新的每日剂量；请按医嘱、说明书或药师建议核对。"
+        ))
+
+        plan.doseValue = 2
+        plan.doseUnit = seed.doseUnit
+
+        let tasks = (try? context.fetch(FetchDescriptor<StoredDoseTask>())) ?? []
+        for task in tasks where task.planID == plan.id {
+            if task.dueAt >= effectiveFrom {
+                task.doseValue = 2
+                task.doseUnit = seed.doseUnit
+            } else {
+                task.doseValue = 1
+                task.doseUnit = seed.doseUnit
+            }
         }
     }
 
@@ -288,18 +380,38 @@ enum DemoDataSeeder {
         return .taken
     }
 
+    private static func recordedAt(
+        for status: StoredDoseStatus,
+        dueAt: Date,
+        dayOffset: Int,
+        calendar: Calendar
+    ) -> Date? {
+        switch status {
+        case .pending:
+            nil
+        case .taken:
+            calendar.date(byAdding: .minute, value: dayOffset % 2 == 0 ? 4 : -3, to: dueAt)
+        case .delayed:
+            calendar.date(byAdding: .minute, value: 42, to: dueAt)
+        case .skipped:
+            calendar.date(byAdding: .hour, value: 2, to: dueAt)
+        case .corrected:
+            calendar.date(byAdding: .minute, value: 15, to: dueAt)
+        }
+    }
+
     private static func demoReason(for status: StoredDoseStatus) -> String {
         switch status {
         case .pending:
             ""
         case .taken:
-            "演示记录：按时完成。"
+            "按时完成。"
         case .delayed:
-            "演示记录：当日延后服用。"
+            "当日延后处理。"
         case .skipped:
-            "演示记录：当日未服用。"
+            "当日已忽略。"
         case .corrected:
-            "演示记录：用户修正为已完成。"
+            "用户修正为已完成。"
         }
     }
 
@@ -360,6 +472,27 @@ enum DemoDataSeeder {
         demoMedicationSeeds.first { seed in
             seed.displayName == name || seed.labelLookupName == name
         }
+    }
+
+    private static func userFacingNotes(from notes: String, fallback: String) -> String {
+        let visibleText = notes
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+            .filter { !$0.contains("演示") }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return visibleText.isEmpty ? fallback : visibleText
+    }
+
+    private static func userFacingReason(from reason: String, status: StoredDoseStatus) -> String {
+        let cleaned = reason
+            .replacingOccurrences(of: "演示记录：", with: "")
+            .replacingOccurrences(of: "演示数据：", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleaned.contains("演示"), !cleaned.isEmpty {
+            return cleaned
+        }
+        return demoReason(for: status)
     }
 }
 

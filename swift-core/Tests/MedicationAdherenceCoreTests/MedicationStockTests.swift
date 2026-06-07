@@ -84,3 +84,69 @@ import Testing
     #expect(projection.projectedRemainingQuantity == 5)
     #expect(projection.issues.contains { $0.kind == .doseUnitMismatch })
 }
+
+@Test func medicationStockProjectionEstimatesDaysRemainingFromRecordedConsumptionDays() {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    let stock = MedicationStock(
+        medicationID: UUID(),
+        remainingQuantity: 20,
+        unit: "片",
+        lowStockThreshold: 3
+    )
+    let scheduled = [
+        ScheduledDose(planID: UUID(), dueAt: makeStockDate(calendar: calendar, day: 1, hour: 8), dose: DoseAmount(value: 1, unit: "片")),
+        ScheduledDose(planID: UUID(), dueAt: makeStockDate(calendar: calendar, day: 1, hour: 20), dose: DoseAmount(value: 1, unit: "片")),
+        ScheduledDose(planID: UUID(), dueAt: makeStockDate(calendar: calendar, day: 2, hour: 8), dose: DoseAmount(value: 1, unit: "片")),
+        ScheduledDose(planID: UUID(), dueAt: makeStockDate(calendar: calendar, day: 2, hour: 20), dose: DoseAmount(value: 1, unit: "片"))
+    ]
+    let events = scheduled.map {
+        DoseEvent(scheduledDoseID: $0.id, status: .taken, recordedAt: $0.dueAt)
+    }
+
+    let projection = MedicationStockEstimator().project(
+        stock: stock,
+        scheduledDoses: scheduled,
+        events: events,
+        calendar: calendar,
+        timeZone: calendar.timeZone
+    )
+
+    #expect(projection.consumedQuantity == 4)
+    #expect(projection.averageDailyConsumption == 2)
+    #expect(projection.estimatedDaysRemaining == 8)
+    #expect(projection.trackedDayCount == 2)
+    #expect(projection.message.contains("约可用 8 天"))
+}
+
+@Test func medicationStockProjectionReportsInsufficientConsumptionDataForDaysRemaining() {
+    let scheduled = [
+        ScheduledDose(planID: UUID(), dueAt: Date(), dose: DoseAmount(value: 1, unit: "片"))
+    ]
+    let stock = MedicationStock(
+        medicationID: UUID(),
+        remainingQuantity: 20,
+        unit: "片",
+        lowStockThreshold: 3
+    )
+
+    let projection = MedicationStockEstimator().project(
+        stock: stock,
+        scheduledDoses: scheduled,
+        events: []
+    )
+
+    #expect(projection.averageDailyConsumption == nil)
+    #expect(projection.estimatedDaysRemaining == nil)
+    #expect(projection.issues.contains { $0.kind == .insufficientConsumptionData })
+}
+
+private func makeStockDate(calendar: Calendar, day: Int, hour: Int) -> Date {
+    calendar.date(from: DateComponents(
+        timeZone: calendar.timeZone,
+        year: 2026,
+        month: 6,
+        day: day,
+        hour: hour
+    ))!
+}

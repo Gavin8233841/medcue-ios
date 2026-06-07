@@ -57,6 +57,37 @@ public struct DoseAmount: Codable, Sendable, Equatable {
     }
 }
 
+public struct MedicationDoseChange: Codable, Identifiable, Sendable, Equatable {
+    public let id: UUID
+    public var medicationID: UUID
+    public var planID: UUID?
+    public var previousDose: DoseAmount?
+    public var newDose: DoseAmount
+    public var effectiveFrom: Date
+    public var changedAt: Date
+    public var note: String
+
+    public init(
+        id: UUID = UUID(),
+        medicationID: UUID,
+        planID: UUID? = nil,
+        previousDose: DoseAmount? = nil,
+        newDose: DoseAmount,
+        effectiveFrom: Date,
+        changedAt: Date = Date(),
+        note: String = ""
+    ) {
+        self.id = id
+        self.medicationID = medicationID
+        self.planID = planID
+        self.previousDose = previousDose
+        self.newDose = newDose
+        self.effectiveFrom = effectiveFrom
+        self.changedAt = changedAt
+        self.note = note
+    }
+}
+
 public struct TimeOfDay: Codable, Sendable, Equatable, Comparable {
     public var hour: Int
     public var minute: Int

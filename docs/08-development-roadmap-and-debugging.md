@@ -37,13 +37,15 @@
 - Scheme：`MedicationAdherenceApp`。
 - Bundle ID：`com.gwyy.appcontest2026.medicationadherence`。
 - 先适配 iPhone，iPad 已通过基础构建验证。
-- 主界面走 Apple 健康式信息架构，五 Tab 为：今日、药品、AI 助手、风险、设置。
+- 主界面走 Apple 健康式信息架构，五 Tab 为：今日、药品、AI 助手、风险、个人。
 - 首次启动已接入可跳过的配置引导，第一页保留小日历摆动，后续页面改为一次性推入式教程；第二页突出从右上角加号添加药品、扫描药名、规格剂型选择和照片/库存非必填。
-- 药品页已合并记录入口，并改成健康式概览，集中展示药品数、待处理任务、药盒低量和今日完成率；记录入口固定展示最近 60 天示例记录、周历、月历和每日详情；药品卡片可进入详情，详情展示用户确认药品照片、疗程、说明书摘要、风险、副作用和修改入口。药品分组使用三张状态卡展示正在服用、服用中断和归档药物，中文状态标签已改为防挤压布局。
+- 药品页改成健康式概览，集中展示药品数、待处理任务、药盒低量和趋势/完成率；四个小卡片分别进入药品总览、今日待处理、药盒管理和服用趋势详情。服药记录主入口迁移到个人页“服药日历”，记录页固定展示最近 60 天示例记录、周历、月历和每日详情；药品卡片可进入详情，详情展示用户确认药品照片、疗程、说明书摘要、风险、副作用、剂量变化记录和修改入口。药品分组使用三张状态卡展示正在服用、服用中断和归档药物，中文状态标签已改为防挤压布局。
 - 药品“服用中断”已从表面分组升级为本地可复核分类：疗程结束或历史 14 天无完成记录时归到中断复核，详情页显示原因并由用户确认后才写入状态；不会自动给出停药或处方建议。
-- 药品详情已支持从相册选择药品照片、真机拍照上传入口、编辑药品照片、疗程起止日期、多个提醒时间、剂量单位和来源说明；减少提醒时间时保留旧记录并标记原因，不直接抹掉历史。
-- 药品页已接入药盒库存提醒，卡片显示药盒低量状态，详情页支持填写和更新药盒剩余量，估算结果只用于提醒用户核对实物。
-- 记录页已接入本周折叠日历、月历展开和可点开的单日记录详情。
+- 药品详情已支持从相册选择药品照片、真机拍照上传入口、编辑药品照片、疗程起止日期、多个提醒时间、剂量单位、剂量生效日期和来源说明；修改剂量时写入旧剂量、新剂量、生效日期和备注，未来未完成任务跟随新剂量，历史已完成记录不被重写。
+- 药品页已接入药盒库存提醒，卡片显示药盒低量状态，详情页支持填写和更新药盒剩余量。药盒管理页会基于真实已服用/修正记录显示日均消耗、预计可用天数和记录天数；数据不足时只提示继续记录与核对实物，不生成假估算。
+- 服用趋势已接入核心模型和药品页详情：至少 7 个有提醒日期后才生成趋势，指标包括近 7 天完成率、前一周期变化、线性斜率、忽略/稍后比例和稳定度。剂量变化会作为解释上下文进入趋势摘要，提醒用户结合调整前后分别观察；该模型参考 PDC/MPR 的依从性衡量思路，但当前没有处方取药数据，所以明确限定为“基于提醒记录的服用趋势”，不代表疗效或处方建议。
+- 记录页已接入本周折叠日历、月历展开和可点开的单日记录详情；剂量变化会在周历/月历日期上显示标记，并在日期详情中说明从哪天开始生效。
+- 个人页已成为长期数据与账号中心：服药日历、服用趋势、复诊资料、Apple 健康、医疗智能体共享范围、账号备份和应用设置均在个人页进入；原设置页下调为应用设置二级页。
 - 今日页已支持完成后移出待办、已处理折叠区、横滑撤销/归档/详情、外用类“已使用”文案、全部服用后的绿色完成态，并把底部提示改为天气与环境用药关注，避免与风险页重复。
 - 今日页天气与环境关注已从静态演示改为真实逻辑：默认显示本地通用提醒，不打断首屏；用户点“允许天气提醒”后请求定位并通过 WeatherKit 读取今日天气，再结合本机药品信息生成用药相关环境提醒。天气失败或未授权时保留本地兜底。
 - 风险页已改成更严格的严重程度置顶：只直接展示禁忌或相互作用中最优先的 1 条，多余严重项折叠；三类竖排总览、二级分组详情和单条警示详情已接入，免责说明放在页面底部。
@@ -51,9 +53,9 @@
 ## 阶段 4：iOS 能力接入
 
 - SwiftData：已用于持久化药品、用药计划、今日任务、风险卡片、服药操作日志、AI 授权和 AI 聊天记录。
-- UserNotifications / AlarmKit：已接通知权限请求、稍后提醒安排和 iOS 26+ iPhone 闹钟提醒分支；闹钟未授权或系统不支持时自动退回推送通知。
+- UserNotifications / AlarmKit：已接通知权限请求、添加/编辑用药计划后的本地提醒排程、稍后 30 分钟重排、前台通知展示和 iOS 26+ iPhone 闹钟提醒分支；闹钟未授权或系统不支持时自动退回推送通知。重排提醒会按 `dose.<taskID>` 显式取消旧 pending request 后再添加新 request。
 - ActivityKit / WidgetKit：已接入 `MedicationReminderLiveActivityExtension`。App 声明 `NSSupportsLiveActivities = true`，今日页会在用药时间前后 5 分钟内尝试启动实况状态；用户标记已服用、忽略、撤销、归档后结束对应实况状态。扩展包含锁屏、灵动岛紧凑态、展开态和最小态展示。
-- Vision：已接入本机 OCR、药盒条码图片识别和真机相机扫码，识别结果必须进入待确认草稿；添加页已拆成手动、医嘱/OCR、药盒条码三入口。
+- Vision：已接入本机 OCR、药盒条码图片识别和真机相机扫码，识别结果必须进入待确认草稿；添加页已拆成手动、医嘱/OCR、药盒条码三入口。当前用户端暂时只开放手动添加，OCR 和条码入口保留为灰色锁定入口。
 - HealthKit：已接入授权请求、读取指标范围说明和 HealthKit entitlement；首版只做用药相关提示准备，不读取数据用于诊断或处方决策。
 - HealthKit 授权请求已增加本地持久完成态；授权请求完成后设置页会显示已完成/可重新请求状态，避免用户误以为权限流程没有生效。
 - 医疗 AI：已完成供应商无关接口、App 层首次确认弹窗、授权弹窗、聊天式界面、两列快捷入口、图片咨询入口和 Keychain 凭据读取；豆包 Ark Responses API 已接入为后台默认供应商，并使用用户授权数据构造请求提示。未取得 Keychain 密钥时不会联网发送用药数据；发送提示词约束 100 字以内纯文字，模型回复按原文展示。
@@ -97,7 +99,9 @@
 - 病症和饮食注意的说明书文字复核。
 - 说明书可读化展示卡片。
 - 依从性连续记录和漏服洞察。
-- 药品库存估算和低库存提醒。
+- 服用趋势不足一周、改善、下降和平稳判断。
+- 剂量变化记录、周/月历标记和趋势解释上下文。
+- 药品库存估算、低库存提醒、预计可用天数和消耗数据不足提示。
 - 医疗 AI 供应商无关接口和授权范围校验。
 - 医疗 AI 请求提示构造和安全边界保留。
 - 风险三类分组。
@@ -108,12 +112,12 @@
 - 首启引导第一页已接入通知权限请求入口；后续页面再承接 HealthKit、AI 数据共享和备份相关授权。
 - Apple 账号与 iCloud 备份准备页已通过 iOS 构建验证；未配置 CloudKit 容器前不会云同步。
 - 医疗 AI 直连请求、错误脱敏和豆包真实请求冒烟已通过验证。
-- Live Activities / 灵动岛扩展已通过 iPhone 17 Pro Simulator Debug build，真机上仍需检查锁屏、灵动岛紧凑态和展开态展示。
+- Live Activities / 灵动岛扩展已通过 iPhone 17 Pro Simulator Debug build，真机上仍需检查锁屏、灵动岛紧凑态和展开态展示。已按 Apple ActivityKit/WidgetKit 结构保留 Widget Extension、锁屏、紧凑、展开和最小态。
 - 真机签名与实况状态测试步骤已整理到 `docs/13-iphone-signing-and-live-activity-test.md`。
 
 最新一次 Windows SwiftPM 测试结果：16 个测试全部通过。
-最新一次新 Mac SwiftPM 测试结果：50 个测试全部通过。
-最新一次 iPhone 17 Pro Simulator Debug 构建结果：通过；若遇到 Xcode entitlements 并发打包提示，使用 `-jobs 1` 串行构建可稳定通过。
+最新一次新 Mac SwiftPM 测试结果：60 个测试全部通过。注意：系统默认 `swift` 仍是 Apple Swift 6.0，必须显式使用 Xcode 26.5 内置 Swift 6.3.2 执行 SwiftPM 测试。
+最新一次 iPhone 17 Pro Simulator Debug 构建结果：通过；若遇到 Xcode entitlements 并发打包提示，使用 `-jobs 1` 串行构建可稳定通过。若系统 DerivedData build.db 损坏，可使用项目内 `.codex-local/derived-data/MedicationAdherenceApp` 作为独立 DerivedData 路径，不删除系统缓存。
 
 ## 新 Mac 测试命令
 
@@ -148,7 +152,12 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 
 - iPhone 17 Pro 模拟器 Debug build：通过。
 - iPhone 17 Pro 模拟器 Debug build（含 MedicationReminderLiveActivityExtension）：通过。
-- 2026-06-07 天气/中断逻辑更新后，SwiftPM 50 个 Swift Testing 测试全部通过；iPhone 17 Pro Simulator Debug build 通过。
+- 2026-06-07 提醒核心补强后，App 启动、添加药品、编辑疗程均会生成未来 30 天滚动用药任务；本地通知按最近 60 个未来待处理任务安排。模拟器中点击“稍后”后，布洛芬从 08:00 延后到 22:30 并显示“30 分钟后”；重新启动 App 后未重复生成 08:00 任务。通知授权弹窗可正常触发，允许后设置页显示“已安排 60 个提醒”。
+- 2026-06-07 第三轮提醒核验后，批量重排会同步清理旧 pending notification request 和对应 AlarmKit 闹钟；跨天“稍后 30 分钟”仍保留在今日页待处理列表，避免深夜操作后记录消失；今日完成率文案改为“已按计划完成”，和“今日已处理”撤销区分开。模拟器复核个人页设置显示“通知权限已开启 · 已安排 60 个提醒”，药品添加弹层中 OCR/条码入口为灰色锁定且不可交互。
+- 2026-06-07 外部交叉核查来源：Apple UserNotifications `UNNotificationRequest`、`pendingNotificationRequests()`、`removePendingNotificationRequests(withIdentifiers:)`；Apple AlarmKit `AlarmManager`、`requestAuthorization()`、`schedule(id:configuration:)`、`cancel(id:)`、`stop(id:)`；Apple WidgetKit `ActivityConfiguration` 与 `DynamicIsland`；GitHub 上的 SwiftUI 本地通知和 ActivityKit 示例仅用于确认结构，不替换当前实现。
+- 2026-06-07 连续达标/动画/初始数据迁移更新后，SwiftPM 52 个 Swift Testing 测试全部通过；iPhone 17 Pro Simulator Debug build 通过。
+- 2026-06-07 药品页概览四入口、药盒增强和服用趋势模型更新后，SwiftPM 58 个 Swift Testing 测试全部通过；iPhone 17 Pro Simulator Debug build 通过。
+- 2026-06-07 剂量修改记录闭环更新后，SwiftPM 60 个 Swift Testing 测试全部通过；药品详情可编辑剂量生效日期，记录页周历/月历显示剂量变化标记，趋势模型纳入剂量变化解释上下文。
 - iPad Pro 13-inch (M5) 模拟器 Debug build：通过。
 - iPhone 17 Pro 模拟器可安装并启动。
 - 2026-06-07 反馈修复后启动截图：`artifacts/ios-app-20260607-post-fixes.png`。
@@ -191,8 +200,10 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
 - 注意：`backups/appcontest-2026-prep-v0.9.2-codex-handoff-before-new-api-20260605-230635.tar.gz` 和 `backups/appcontest-2026-prep-v0.9.2-codex-handoff-before-new-api-source-20260605-230635.tar.gz` 是归档工具卡住后中止留下的半成品，不作为正式备份使用。
 - v0.9.3 实机问题接力文档：`docs/16-v0.9.3-live-device-issues-handoff.md`
 - v0.9.3 已记录待修问题：今日撤销动画卡顿、实机医疗 AI 无法调用、灵动岛安全区、HealthKit 授权完成态、药品中文化、连续打卡统计、药品页记录入口背景简化、概览卡片可交互跳转和 PDF 导出报告视觉重设计。
-- 根目录接力入口：`START_HERE_NEXT_CODEX.md`。新 Codex 应先读该文件，再读 `README.md`、`docs/08-development-roadmap-and-debugging.md`、`docs/11-development-todo.md` 和 `docs/16-v0.9.3-live-device-issues-handoff.md`。
+- 根目录项目修改更新操作日志：`PROJECT_UPDATE_LOG.md`。继续工作时应先读该文件，再读 `README.md`、`docs/08-development-roadmap-and-debugging.md`、`docs/11-development-todo.md` 和 `docs/16-v0.9.3-live-device-issues-handoff.md`。
+- 2026-06-07 今日页动效补漏：标记完成/忽略保留按钮确认小特效，并通过已处理汇总条、迁移快照小条和提交后展开隐藏跨分组重排；撤销时先淡化目标行，再同时折叠已处理区与待处理区，提交后展开待处理区。Build iOS Apps `build_sim`、`build_run_sim` 和今日页 UI 快照已通过，仍需 iPhone 实机最终确认手感。
 - 当前 Google Drive 工具仍不支持任意 `.tar.gz` 原始文件上传；Google Doc 记录的是云端索引和校验信息，压缩包本体仍在本机路径。
+- 2026-06-07 提醒核心补强：滚动任务生成、授权后重排程、pending notification request 计数和“稍后 30 分钟”重启稳定性已在 iPhone 17 Pro 模拟器验证。仍需真机验证锁屏响铃、勿扰/静音、AlarmKit 闹钟和灵动岛展示。
 
 ## iPhone 真机签名与运行
 

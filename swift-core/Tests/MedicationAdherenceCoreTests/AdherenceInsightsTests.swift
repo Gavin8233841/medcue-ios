@@ -58,7 +58,7 @@ import Testing
     #expect(insight.takenCount == 1)
     #expect(insight.skippedCount == 0)
     #expect(insight.currentStreakDays == 1)
-    #expect(insight.message.contains("连续完成 1 天"))
+    #expect(insight.message.contains("连续 1 天"))
 }
 
 @Test func adherenceInsightKeepsHistoricalStreakWhenLatestDayIsStillOpen() {
@@ -114,6 +114,95 @@ import Testing
 
     #expect(insight.currentStreakDays == 2)
     #expect(insight.longestStreakDays == 2)
+}
+
+@Test func adherenceInsightCountsQualifiedDaysForCurrentStreak() {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+
+    let dayOne = (0..<5).map { offset in
+        ScheduledDose(
+            planID: UUID(),
+            dueAt: makeDate(calendar: calendar, day: 1, hour: 8 + offset),
+            dose: DoseAmount(value: 1, unit: "片")
+        )
+    }
+    let dayTwo = (0..<5).map { offset in
+        ScheduledDose(
+            planID: UUID(),
+            dueAt: makeDate(calendar: calendar, day: 2, hour: 8 + offset),
+            dose: DoseAmount(value: 1, unit: "片")
+        )
+    }
+    let scheduled = dayOne + dayTwo
+    let events = dayOne.map {
+        DoseEvent(scheduledDoseID: $0.id, status: .taken, recordedAt: $0.dueAt)
+    } + dayTwo.prefix(4).map {
+        DoseEvent(scheduledDoseID: $0.id, status: .taken, recordedAt: $0.dueAt)
+    } + [
+        DoseEvent(scheduledDoseID: dayTwo[4].id, status: .skipped, recordedAt: dayTwo[4].dueAt)
+    ]
+
+    let insight = AdherenceInsightBuilder().build(
+        scheduledDoses: scheduled,
+        events: events,
+        calendar: calendar,
+        timeZone: calendar.timeZone,
+        now: makeDate(calendar: calendar, day: 3, hour: 12)
+    )
+
+    #expect(insight.dayStatuses.last?.completionRate == 0.8)
+    #expect(insight.dayStatuses.last?.isComplete == false)
+    #expect(insight.currentStreakDays == 2)
+    #expect(insight.longestStreakDays == 2)
+    #expect(insight.message.contains("80% 以上"))
+}
+
+@Test func adherenceInsightStopsQualifiedStreakBelowThreshold() {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+
+    let dayOne = (0..<5).map { offset in
+        ScheduledDose(
+            planID: UUID(),
+            dueAt: makeDate(calendar: calendar, day: 1, hour: 8 + offset),
+            dose: DoseAmount(value: 1, unit: "片")
+        )
+    }
+    let dayTwo = (0..<5).map { offset in
+        ScheduledDose(
+            planID: UUID(),
+            dueAt: makeDate(calendar: calendar, day: 2, hour: 8 + offset),
+            dose: DoseAmount(value: 1, unit: "片")
+        )
+    }
+    let dayThree = (0..<5).map { offset in
+        ScheduledDose(
+            planID: UUID(),
+            dueAt: makeDate(calendar: calendar, day: 3, hour: 8 + offset),
+            dose: DoseAmount(value: 1, unit: "片")
+        )
+    }
+    let scheduled = dayOne + dayTwo + dayThree
+    let events = dayOne.map {
+        DoseEvent(scheduledDoseID: $0.id, status: .taken, recordedAt: $0.dueAt)
+    } + dayTwo.prefix(3).map {
+        DoseEvent(scheduledDoseID: $0.id, status: .taken, recordedAt: $0.dueAt)
+    } + dayThree.map {
+        DoseEvent(scheduledDoseID: $0.id, status: .taken, recordedAt: $0.dueAt)
+    }
+
+    let insight = AdherenceInsightBuilder().build(
+        scheduledDoses: scheduled,
+        events: events,
+        calendar: calendar,
+        timeZone: calendar.timeZone,
+        now: makeDate(calendar: calendar, day: 4, hour: 12)
+    )
+
+    #expect(insight.dayStatuses[1].completionRate == 0.6)
+    #expect(insight.currentStreakDays == 1)
+    #expect(insight.longestStreakDays == 1)
 }
 
 @Test func adherenceInsightStopsCurrentStreakAtHistoricalOpenDay() {

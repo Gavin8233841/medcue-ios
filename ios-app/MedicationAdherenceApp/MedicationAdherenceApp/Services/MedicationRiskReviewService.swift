@@ -49,7 +49,7 @@ enum MedicationRiskReviewService {
         for card in cards where card.medicationID == medication.id && !card.id.contains("-\(userLabelRiskIDPrefix)-") && !card.isArchived && isDemoLabelRisk(card) {
             card.archivedAt = now
             card.reviewedAt = card.reviewedAt ?? now
-            card.reviewNote = "用户已导入说明书，演示说明书风险自动归档隐藏。"
+            card.reviewNote = "用户已导入说明书，旧说明书风险已自动归档隐藏。"
         }
     }
 

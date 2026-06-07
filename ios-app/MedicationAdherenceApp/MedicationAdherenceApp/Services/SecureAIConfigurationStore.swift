@@ -47,21 +47,27 @@ final class SecureAIConfigurationStore: ObservableObject {
 
     init() {
         var injectionSummary = "none"
-        if let injectedArkAPIKey = Self.injectedSecret(named: injectedArkAPIKeyEnvironmentName) {
+        if let injectedArkAPIKey = Self.injectedSecret(named: injectedArkAPIKeyEnvironmentName)
+            ?? Self.bundledSecret(named: injectedArkAPIKeyEnvironmentName) {
             let status = Self.writeKeychainValue(injectedArkAPIKey, service: keychainService, account: keychainAccount)
             defaults.set(MedicalAIConfiguration.doubaoProviderName, forKey: providerNameKey)
             defaults.set(MedicalAIConfiguration.doubaoDefaultModelName, forKey: modelNameKey)
             defaults.set(MedicalAIConfiguration.doubaoResponsesEndpoint, forKey: endpointURLKey)
-            injectionSummary = "\(injectedArkAPIKeyEnvironmentName) keychainStatus=\(Self.securityStatusDescription(status))"
-        } else if let injectedAPIKey = Self.injectedSecret(named: injectedAPIKeyEnvironmentName) {
+            injectionSummary = "\(injectedArkAPIKeyEnvironmentName) source=\(Self.injectionSourceDescription(for: injectedArkAPIKeyEnvironmentName)) keychainStatus=\(Self.securityStatusDescription(status))"
+        } else if let injectedAPIKey = Self.injectedSecret(named: injectedAPIKeyEnvironmentName)
+            ?? Self.bundledSecret(named: injectedAPIKeyEnvironmentName) {
             let status = Self.writeKeychainValue(injectedAPIKey, service: keychainService, account: keychainAccount)
             defaults.set(MedicalAIConfiguration.baichuanProviderName, forKey: providerNameKey)
             defaults.set(MedicalAIConfiguration.baichuanDefaultModelName, forKey: modelNameKey)
             defaults.set(MedicalAIConfiguration.baichuanChatEndpoint, forKey: endpointURLKey)
-            injectionSummary = "\(injectedAPIKeyEnvironmentName) keychainStatus=\(Self.securityStatusDescription(status))"
+            injectionSummary = "\(injectedAPIKeyEnvironmentName) source=\(Self.injectionSourceDescription(for: injectedAPIKeyEnvironmentName)) keychainStatus=\(Self.securityStatusDescription(status))"
         }
 
         let hasKey = Self.readKeychainValue(service: keychainService, account: keychainAccount) != nil
+            || Self.injectedSecret(named: injectedArkAPIKeyEnvironmentName) != nil
+            || Self.bundledSecret(named: injectedArkAPIKeyEnvironmentName) != nil
+            || Self.injectedSecret(named: injectedAPIKeyEnvironmentName) != nil
+            || Self.bundledSecret(named: injectedAPIKeyEnvironmentName) != nil
         configuration = MedicalAIConfiguration(
             providerName: Self.defaulted(defaults.string(forKey: providerNameKey), fallback: MedicalAIConfiguration.doubaoProviderName),
             modelName: Self.defaulted(defaults.string(forKey: modelNameKey), fallback: MedicalAIConfiguration.doubaoDefaultModelName),
@@ -90,6 +96,10 @@ final class SecureAIConfigurationStore: ObservableObject {
 
     func apiKey() -> String? {
         Self.readKeychainValue(service: keychainService, account: keychainAccount)
+            ?? Self.injectedSecret(named: injectedArkAPIKeyEnvironmentName)
+            ?? Self.bundledSecret(named: injectedArkAPIKeyEnvironmentName)
+            ?? Self.injectedSecret(named: injectedAPIKeyEnvironmentName)
+            ?? Self.bundledSecret(named: injectedAPIKeyEnvironmentName)
     }
 
     func clearAPIKey() {
@@ -110,7 +120,7 @@ final class SecureAIConfigurationStore: ObservableObject {
             providerName: Self.defaulted(defaults.string(forKey: providerNameKey), fallback: MedicalAIConfiguration.doubaoProviderName),
             modelName: Self.defaulted(defaults.string(forKey: modelNameKey), fallback: MedicalAIConfiguration.doubaoDefaultModelName),
             endpointURLString: Self.defaulted(defaults.string(forKey: endpointURLKey), fallback: MedicalAIConfiguration.doubaoResponsesEndpoint),
-            hasAPIKey: Self.readKeychainValue(service: keychainService, account: keychainAccount) != nil
+            hasAPIKey: apiKey() != nil
         )
         statusMessage = status
     }
@@ -137,6 +147,33 @@ final class SecureAIConfigurationStore: ObservableObject {
             return trimmedNonEmpty(String(argument.dropFirst(assignmentPrefix.count)))
         }
         .first
+    }
+
+    private static func bundledSecret(named name: String) -> String? {
+        guard let url = Bundle.main.url(forResource: "AISecrets", withExtension: "plist"),
+              let data = try? Data(contentsOf: url),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+        else {
+            return nil
+        }
+        return trimmedNonEmpty(plist[name] as? String)
+    }
+
+    private static func injectionSourceDescription(for name: String) -> String {
+        if trimmedNonEmpty(ProcessInfo.processInfo.environment[name]) != nil {
+            return "environment"
+        }
+        if trimmedNonEmpty(UserDefaults.standard.string(forKey: name)) != nil {
+            return "user-defaults"
+        }
+        let assignmentPrefix = "\(name)="
+        if ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix(assignmentPrefix) }) {
+            return "argument"
+        }
+        if bundledSecret(named: name) != nil {
+            return "bundle"
+        }
+        return "none"
     }
 
     private static func trimmedNonEmpty(_ value: String?) -> String? {

@@ -17,14 +17,35 @@ struct TodayView: View {
     @State private var showingArchiveConfirmation = false
     @State private var showingHandledTasks = false
     @State private var pendingDoseFeedback: PendingDoseFeedback?
+    @State private var isOpenTimelineTemporarilyCollapsed = false
+    @State private var isHandledTimelineTemporarilyCollapsed = false
+    @State private var pendingHandledArrivalCount = 0
+    @State private var closingOpenTaskIDs: Set<UUID> = []
+    @State private var reopeningHandledTaskIDs: Set<UUID> = []
+    @State private var handledDropTargetPulse = false
+    @State private var doseMigrationSnapshot: DoseMigrationSnapshot?
     @State private var recentlyReopenedTaskIDs: Set<UUID> = []
     @State private var pendingDoseFeedbackTask: Task<Void, Never>?
+    @State private var doseLayoutTransitionTask: Task<Void, Never>?
     @State private var reopenHighlightTasks: [UUID: Task<Void, Never>] = [:]
     @State private var liveActivityRefreshTask: Task<Void, Never>?
     private let liveActivityRefreshTimer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     private var todayTasks: [StoredDoseTask] {
-        tasks.filter { Calendar.current.isDateInToday($0.dueAt) }
+        let calendar = Calendar.current
+        let delayedFromTodayTaskIDs = Set(actionLogs.compactMap { log -> UUID? in
+            guard log.undoneAt == nil,
+                  log.actionRaw == DoseActionKind.delay.rawValue,
+                  calendar.isDateInToday(log.previousDueAt) || calendar.isDateInToday(log.occurredAt)
+            else {
+                return nil
+            }
+            return log.taskID
+        })
+        return tasks.filter { task in
+            calendar.isDateInToday(task.dueAt)
+                || (delayedFromTodayTaskIDs.contains(task.id) && isOpenStatus(task.status))
+        }
     }
 
     private var displayTodayTasks: [StoredDoseTask] {
@@ -77,6 +98,35 @@ struct TodayView: View {
             }
     }
 
+    private var shouldShowHandledSection: Bool {
+        !handledTodayTasks.isEmpty || isHandledTimelineTemporarilyCollapsed || handledDropTargetPulse || !reopeningHandledTaskIDs.isEmpty
+    }
+
+    private var displayedOpenCount: Int {
+        guard !reopeningHandledTaskIDs.isEmpty else {
+            return visibleOpenTimelineTasks.count
+        }
+        let visibleIDs = Set(visibleOpenTimelineTasks.map(\.id))
+        let reopeningCount = reopeningHandledTaskIDs.filter { !visibleIDs.contains($0) }.count
+        return visibleOpenTimelineTasks.count + reopeningCount
+    }
+
+    private var displayedHandledCount: Int {
+        guard !closingOpenTaskIDs.isEmpty else {
+            return handledTodayTasks.count + pendingHandledArrivalCount
+        }
+        let handledIDs = Set(handledTodayTasks.map(\.id))
+        let incomingCount = closingOpenTaskIDs.filter { !handledIDs.contains($0) }.count
+        return handledTodayTasks.count + incomingCount
+    }
+
+    private var handledDisclosureBinding: Binding<Bool> {
+        Binding(
+            get: { showingHandledTasks && !isHandledTimelineTemporarilyCollapsed },
+            set: { showingHandledTasks = $0 }
+        )
+    }
+
     private var completedCount: Int {
         displayTodayTasks.filter { $0.status == .taken || $0.status == .corrected }.count
     }
@@ -116,7 +166,15 @@ struct TodayView: View {
             }
 
             Section("今日待处理") {
-                if visibleOpenTimelineTasks.isEmpty {
+                if isOpenTimelineTemporarilyCollapsed {
+                    OpenDoseSummaryRow(
+                        count: displayedOpenCount,
+                        latestText: "正在恢复待处理记录",
+                        isReceiving: !reopeningHandledTaskIDs.isEmpty,
+                        migrationSnapshot: doseMigrationSnapshot
+                    )
+                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
+                } else if visibleOpenTimelineTasks.isEmpty {
                     Text(todayTasks.isEmpty ? "今天还没有用药任务。" : "当前没有待处理用药。")
                         .foregroundStyle(.secondary)
                 } else {
@@ -128,6 +186,7 @@ struct TodayView: View {
                             statusText: statusText(for: task),
                             isOpen: task.status == .pending || task.status == .delayed,
                             feedbackAction: pendingDoseFeedback?.taskID == task.id ? pendingDoseFeedback?.action : nil,
+                            isClosing: closingOpenTaskIDs.contains(task.id),
                             isRecentlyReopened: recentlyReopenedTaskIDs.contains(task.id),
                             markTaken: {
                                 performWithDoseFeedback(task, action: .taken) {
@@ -148,10 +207,15 @@ struct TodayView: View {
                     }
                 }
             }
+            .animation(.snappy(duration: 0.26, extraBounce: 0.02), value: visibleOpenTimelineTasks.map(\.id))
+            .animation(.easeInOut(duration: 0.16), value: pendingDoseFeedback)
+            .animation(.snappy(duration: 0.24, extraBounce: 0.01), value: isOpenTimelineTemporarilyCollapsed)
+            .animation(.easeInOut(duration: 0.18), value: closingOpenTaskIDs)
+            .animation(.snappy(duration: 0.24, extraBounce: 0.02), value: recentlyReopenedTaskIDs)
 
-            if !handledTodayTasks.isEmpty {
+            if shouldShowHandledSection {
                 Section {
-                    DisclosureGroup(isExpanded: $showingHandledTasks) {
+                    DisclosureGroup(isExpanded: handledDisclosureBinding) {
                         ForEach(handledTodayTasks) { task in
                             HandledDoseTaskRow(
                                 task: task,
@@ -163,12 +227,17 @@ struct TodayView: View {
                                     showingArchiveConfirmation = true
                                 }
                             )
-                            .transition(.opacity)
+                            .opacity(reopeningHandledTaskIDs.contains(task.id) ? 0.12 : 1)
+                            .blur(radius: reopeningHandledTaskIDs.contains(task.id) ? 4 : 0)
+                            .scaleEffect(reopeningHandledTaskIDs.contains(task.id) ? 0.97 : 1)
+                            .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
                         }
                     } label: {
                         HandledDoseSummaryRow(
-                            count: handledTodayTasks.count,
-                            latestText: handledTodayTasks.first.map { handledTaskSummary(for: $0) } ?? "已处理记录可在这里找回"
+                            count: displayedHandledCount,
+                            latestText: handledDropTargetPulse ? "正在收起刚刚处理的记录" : handledTodayTasks.first.map { handledTaskSummary(for: $0) } ?? "已处理记录可在这里找回",
+                            isReceiving: handledDropTargetPulse,
+                            migrationSnapshot: handledDropTargetPulse ? doseMigrationSnapshot : nil
                         )
                     }
                 } header: {
@@ -176,6 +245,10 @@ struct TodayView: View {
                 } footer: {
                     Text("误操作可展开后撤销；归档只隐藏今日列表，不删除历史。")
                 }
+                .animation(.snappy(duration: 0.22, extraBounce: 0.01), value: handledTodayTasks.map(\.id))
+                .animation(.snappy(duration: 0.22, extraBounce: 0.01), value: isHandledTimelineTemporarilyCollapsed)
+                .animation(.easeInOut(duration: 0.18), value: reopeningHandledTaskIDs)
+                .animation(.easeInOut(duration: 0.2), value: handledDropTargetPulse)
             }
 
             if !archivedTodayTasks.isEmpty {
@@ -267,6 +340,8 @@ struct TodayView: View {
         .onDisappear {
             pendingDoseFeedbackTask?.cancel()
             pendingDoseFeedbackTask = nil
+            doseLayoutTransitionTask?.cancel()
+            doseLayoutTransitionTask = nil
             reopenHighlightTasks.values.forEach { $0.cancel() }
             reopenHighlightTasks = [:]
             liveActivityRefreshTask?.cancel()
@@ -365,6 +440,7 @@ struct TodayView: View {
             try? modelContext.save()
         }
         Task {
+            notificationService.cancelReminder(for: task.id)
             await liveActivityService.end(for: task.id)
             scheduleLiveActivityRefresh(after: 0.35)
         }
@@ -372,7 +448,7 @@ struct TodayView: View {
 
     private func delay(_ task: StoredDoseTask) {
         let occurredAt = Date()
-        let newDueAt = Calendar.current.date(byAdding: .minute, value: 15, to: Date()) ?? task.dueAt
+        let newDueAt = Calendar.current.date(byAdding: .minute, value: 30, to: occurredAt) ?? task.dueAt
         let log = StoredDoseActionLog(
             taskID: task.id,
             action: .delay,
@@ -389,7 +465,7 @@ struct TodayView: View {
         updateDoseState {
             task.status = .delayed
             task.recordedAt = occurredAt
-            task.reason = "用户选择稍后提醒"
+            task.reason = "用户选择 30 分钟后提醒"
             task.dueAt = newDueAt
             try? modelContext.save()
         }
@@ -414,10 +490,13 @@ struct TodayView: View {
 
     private func performWithDoseFeedback(_ task: StoredDoseTask, action: PendingDoseFeedback.Action, commit: @escaping () -> Void) {
         pendingDoseFeedbackTask?.cancel()
+        doseLayoutTransitionTask?.cancel()
+        resetDoseTransitionState(animated: false)
         if prefersReducedAppMotion {
             commit()
             return
         }
+        let migrationSnapshot = action.movesToHandledSection ? doseMigrationSnapshot(for: task, action: action) : nil
         withAnimation(.easeInOut(duration: 0.16)) {
             pendingDoseFeedback = PendingDoseFeedback(taskID: task.id, action: action)
         }
@@ -426,10 +505,127 @@ struct TodayView: View {
             guard !Task.isCancelled else {
                 return
             }
-            commit()
-            withAnimation(.easeOut(duration: 0.16)) {
+            withAnimation(.easeOut(duration: 0.14)) {
                 pendingDoseFeedback = nil
             }
+
+            if action.movesToHandledSection {
+                doseMigrationSnapshot = migrationSnapshot
+                prepareHandledDropTarget()
+                try? await Task.sleep(nanoseconds: 170_000_000)
+                guard !Task.isCancelled else {
+                    return
+                }
+                stageHandledArrival(for: task)
+                try? await Task.sleep(nanoseconds: 180_000_000)
+                guard !Task.isCancelled else {
+                    return
+                }
+            }
+
+            commit()
+
+            guard action.movesToHandledSection else {
+                pendingDoseFeedbackTask = nil
+                return
+            }
+
+            try? await Task.sleep(nanoseconds: 240_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+            withAnimation(.snappy(duration: 0.28, extraBounce: 0.02)) {
+                showingHandledTasks = true
+                isHandledTimelineTemporarilyCollapsed = false
+                handledDropTargetPulse = false
+                pendingHandledArrivalCount = 0
+                _ = closingOpenTaskIDs.remove(task.id)
+                doseMigrationSnapshot = nil
+            }
+            pendingDoseFeedbackTask = nil
+        }
+    }
+
+    private func prepareHandledDropTarget() {
+        guard !prefersReducedAppMotion else {
+            return
+        }
+        withAnimation(.easeInOut(duration: 0.16)) {
+            handledDropTargetPulse = true
+            pendingHandledArrivalCount = 1
+        }
+        withAnimation(.snappy(duration: 0.22, extraBounce: 0.01)) {
+            showingHandledTasks = false
+            isHandledTimelineTemporarilyCollapsed = true
+        }
+    }
+
+    private func stageHandledArrival(for task: StoredDoseTask) {
+        guard !prefersReducedAppMotion else {
+            return
+        }
+        withAnimation(.easeInOut(duration: 0.18)) {
+            _ = closingOpenTaskIDs.insert(task.id)
+        }
+    }
+
+    private func performReopenTransition(_ task: StoredDoseTask, restore: @escaping () -> Void) {
+        pendingDoseFeedbackTask?.cancel()
+        doseLayoutTransitionTask?.cancel()
+        resetDoseTransitionState(animated: false)
+        if prefersReducedAppMotion {
+            restore()
+            return
+        }
+        let migrationSnapshot = doseMigrationSnapshotForReopen(task)
+        withAnimation(.easeInOut(duration: 0.16)) {
+            _ = reopeningHandledTaskIDs.insert(task.id)
+            doseMigrationSnapshot = migrationSnapshot
+        }
+        doseLayoutTransitionTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 170_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+            withAnimation(.snappy(duration: 0.22, extraBounce: 0.01)) {
+                showingHandledTasks = false
+                isHandledTimelineTemporarilyCollapsed = true
+                isOpenTimelineTemporarilyCollapsed = true
+            }
+            try? await Task.sleep(nanoseconds: 210_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+            restore()
+            try? await Task.sleep(nanoseconds: 240_000_000)
+            guard !Task.isCancelled else {
+                return
+            }
+            withAnimation(.snappy(duration: 0.30, extraBounce: 0.02)) {
+                isOpenTimelineTemporarilyCollapsed = false
+                isHandledTimelineTemporarilyCollapsed = false
+                _ = reopeningHandledTaskIDs.remove(task.id)
+                doseMigrationSnapshot = nil
+            }
+            doseLayoutTransitionTask = nil
+        }
+    }
+
+    private func resetDoseTransitionState(animated: Bool = true) {
+        let updates = {
+            pendingDoseFeedback = nil
+            isOpenTimelineTemporarilyCollapsed = false
+            isHandledTimelineTemporarilyCollapsed = false
+            handledDropTargetPulse = false
+            pendingHandledArrivalCount = 0
+            closingOpenTaskIDs = []
+            reopeningHandledTaskIDs = []
+            doseMigrationSnapshot = nil
+        }
+        if animated {
+            withAnimation(.easeOut(duration: 0.16), updates)
+        } else {
+            updates()
         }
     }
 
@@ -453,18 +649,22 @@ struct TodayView: View {
     }
 
     private func restore(_ task: StoredDoseTask, using log: StoredDoseActionLog) {
-        updateDoseState(animated: false) {
-            task.status = log.previousStatus
-            task.dueAt = log.previousDueAt
-            task.recordedAt = log.previousRecordedAt
-            task.reason = unarchivedReason(log.previousReason)
-            log.undoneAt = Date()
-            try? modelContext.save()
-        }
-        highlightReopenedTaskIfNeeded(task)
-        Task {
-            await liveActivityService.end(for: task.id)
-            scheduleLiveActivityRefresh(after: 0.35)
+        performReopenTransition(task) {
+            prepareReopenedTaskHighlightIfNeeded(task)
+            updateDoseState(animated: true) {
+                task.status = log.previousStatus
+                task.dueAt = log.previousDueAt
+                task.recordedAt = log.previousRecordedAt
+                task.reason = unarchivedReason(log.previousReason)
+                log.undoneAt = Date()
+                try? modelContext.save()
+            }
+            clearReopenedTaskHighlightAfterDelay(task)
+            Task {
+                await rescheduleReminderIfNeeded(for: task)
+                await liveActivityService.end(for: task.id)
+                scheduleLiveActivityRefresh(after: 0.35)
+            }
         }
     }
 
@@ -483,26 +683,46 @@ struct TodayView: View {
             note: "用户将已处理记录撤销为待处理"
         )
         modelContext.insert(log)
-        updateDoseState(animated: false) {
-            task.status = .pending
-            task.recordedAt = nil
-            task.reason = unarchivedReason("")
-            try? modelContext.save()
-        }
-        highlightReopenedTaskIfNeeded(task)
-        Task {
-            await liveActivityService.end(for: task.id)
-            scheduleLiveActivityRefresh(after: 0.35)
+        performReopenTransition(task) {
+            prepareReopenedTaskHighlightIfNeeded(task)
+            updateDoseState(animated: true) {
+                task.status = .pending
+                task.recordedAt = nil
+                task.reason = unarchivedReason("")
+                try? modelContext.save()
+            }
+            clearReopenedTaskHighlightAfterDelay(task)
+            Task {
+                await rescheduleReminderIfNeeded(for: task)
+                await liveActivityService.end(for: task.id)
+                scheduleLiveActivityRefresh(after: 0.35)
+            }
         }
     }
 
-    private func highlightReopenedTaskIfNeeded(_ task: StoredDoseTask) {
-        guard isOpenStatus(task.status), !prefersReducedAppMotion else {
+    private func rescheduleReminderIfNeeded(for task: StoredDoseTask) async {
+        guard task.dueAt > Date(), isOpenStatus(task.status), let medication = medication(for: task) else {
+            notificationService.cancelReminder(for: task.id)
+            return
+        }
+        await notificationService.scheduleReminder(
+            for: task,
+            medication: medication,
+            deliveryMethod: reminderDeliveryMethod(for: task)
+        )
+    }
+
+    private func prepareReopenedTaskHighlightIfNeeded(_ task: StoredDoseTask) {
+        guard !prefersReducedAppMotion else {
             return
         }
         reopenHighlightTasks[task.id]?.cancel()
-        withAnimation(.snappy(duration: 0.22, extraBounce: 0.02)) {
-            _ = recentlyReopenedTaskIDs.insert(task.id)
+        _ = recentlyReopenedTaskIDs.insert(task.id)
+    }
+
+    private func clearReopenedTaskHighlightAfterDelay(_ task: StoredDoseTask) {
+        guard !prefersReducedAppMotion else {
+            return
         }
         reopenHighlightTasks[task.id] = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 900_000_000)
@@ -569,9 +789,46 @@ struct TodayView: View {
             return completionVerb(for: medication(for: task))
         case .skipped:
             return "已忽略"
-        case .pending, .delayed:
+        case .pending:
             return task.status.displayName
+        case .delayed:
+            return "30 分钟后"
         }
+    }
+
+    private func doseMigrationSnapshot(for task: StoredDoseTask, action: PendingDoseFeedback.Action) -> DoseMigrationSnapshot {
+        let medication = medication(for: task)
+        let statusText: String
+        switch action {
+        case .taken:
+            statusText = completionVerb(for: medication)
+        case .skip:
+            statusText = "已忽略"
+        case .delay:
+            statusText = "30 分钟后"
+        }
+        return DoseMigrationSnapshot(
+            id: task.id,
+            medicationName: medication?.displayName ?? "未知药品",
+            doseText: "\(task.doseValue.formatted()) \(localizedMedicationUnit(task.doseUnit))",
+            timeText: AppFormatters.time.string(from: task.dueAt),
+            symbolName: medication?.photoSymbolName ?? "pills.fill",
+            statusText: statusText,
+            direction: .toHandled
+        )
+    }
+
+    private func doseMigrationSnapshotForReopen(_ task: StoredDoseTask) -> DoseMigrationSnapshot {
+        let medication = medication(for: task)
+        return DoseMigrationSnapshot(
+            id: task.id,
+            medicationName: medication?.displayName ?? "未知药品",
+            doseText: "\(task.doseValue.formatted()) \(localizedMedicationUnit(task.doseUnit))",
+            timeText: AppFormatters.time.string(from: task.dueAt),
+            symbolName: medication?.photoSymbolName ?? "pills.fill",
+            statusText: "待处理",
+            direction: .toOpen
+        )
     }
 
     private func handledTaskSummary(for task: StoredDoseTask) -> String {
@@ -619,10 +876,34 @@ private struct PendingDoseFeedback: Equatable {
         case taken
         case delay
         case skip
+
+        var movesToHandledSection: Bool {
+            switch self {
+            case .taken, .skip:
+                return true
+            case .delay:
+                return false
+            }
+        }
     }
 
     let taskID: UUID
     let action: Action
+}
+
+private struct DoseMigrationSnapshot: Identifiable, Equatable {
+    enum Direction: Equatable {
+        case toHandled
+        case toOpen
+    }
+
+    let id: UUID
+    let medicationName: String
+    let doseText: String
+    let timeText: String
+    let symbolName: String
+    let statusText: String
+    let direction: Direction
 }
 
 private struct WeatherMedicationHintCard: View {
@@ -690,7 +971,7 @@ private struct TodayProgressCard: View {
             ProgressView(value: progressValue)
                 .tint(isAllTaken ? .green : .blue)
                 .accessibilityLabel("今日完成率")
-            Text(totalCount == 0 ? "暂无今日任务" : "\(completedCount) / \(totalCount) 项已处理")
+            Text(totalCount == 0 ? "暂无今日任务" : "\(completedCount) / \(totalCount) 项已按计划完成")
                 .font(.headline)
                 .foregroundStyle(isAllTaken ? .green : .secondary)
         }
@@ -707,6 +988,7 @@ private struct TimelineDoseTaskRow: View {
     let statusText: String
     let isOpen: Bool
     let feedbackAction: PendingDoseFeedback.Action?
+    let isClosing: Bool
     let isRecentlyReopened: Bool
     let markTaken: () -> Void
     let delay: () -> Void
@@ -794,12 +1076,18 @@ private struct TimelineDoseTaskRow: View {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(isRecentlyReopened ? Color.blue.opacity(0.34) : Color.clear, lineWidth: 1)
             )
-            .opacity(isRecentlyReopened ? 0.96 : 1)
-            .offset(y: isRecentlyReopened ? -2 : 0)
+            .opacity(isClosing ? 0.08 : (isRecentlyReopened ? 0.96 : 1))
+            .blur(radius: isClosing ? 4 : 0)
+            .scaleEffect(isClosing ? 0.96 : 1)
+            .offset(y: isClosing ? 14 : (isRecentlyReopened ? -2 : 0))
             .animation(.snappy(duration: 0.26, extraBounce: 0.03), value: isRecentlyReopened)
+            .animation(.easeInOut(duration: 0.18), value: isClosing)
         }
         .padding(.vertical, 4)
-        .transition(.opacity.combined(with: .move(edge: .top)))
+        .transition(.asymmetric(
+            insertion: .opacity.combined(with: .scale(scale: 0.98, anchor: .top)),
+            removal: .opacity.combined(with: .move(edge: .bottom))
+        ))
     }
 
     private var rowBackground: Color {
@@ -833,28 +1121,121 @@ private struct TimelineDoseTaskRow: View {
     }
 }
 
+private struct OpenDoseSummaryRow: View {
+    let count: Int
+    let latestText: String
+    let isReceiving: Bool
+    let migrationSnapshot: DoseMigrationSnapshot?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Image(systemName: "tray.and.arrow.up.fill")
+                    .font(.title3)
+                    .foregroundStyle(.blue)
+                    .frame(width: 30, height: 30)
+                    .background(Color.blue.opacity(isReceiving ? 0.18 : 0.12), in: Circle())
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(count) 条待处理")
+                        .font(.headline)
+                    Text(latestText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+            }
+            if let migrationSnapshot {
+                DoseMigrationPill(snapshot: migrationSnapshot, tint: .blue)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .leading)))
+            }
+        }
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.blue.opacity(isReceiving ? 0.08 : 0))
+        )
+        .scaleEffect(isReceiving ? 1.01 : 1)
+        .animation(.easeInOut(duration: 0.18), value: isReceiving)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 private struct HandledDoseSummaryRow: View {
     let count: Int
     let latestText: String
+    let isReceiving: Bool
+    let migrationSnapshot: DoseMigrationSnapshot?
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.title3)
-                .foregroundStyle(.green)
-                .frame(width: 30, height: 30)
-                .background(Color.green.opacity(0.12), in: Circle())
-            VStack(alignment: .leading, spacing: 4) {
-                Text("\(count) 条已处理")
-                    .font(.headline)
-                Text(latestText)
-                    .font(.caption)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.green)
+                    .frame(width: 30, height: 30)
+                    .background(Color.green.opacity(isReceiving ? 0.18 : 0.12), in: Circle())
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(count) 条已处理")
+                        .font(.headline)
+                    Text(latestText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+            }
+            if let migrationSnapshot {
+                DoseMigrationPill(snapshot: migrationSnapshot, tint: .green)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .leading)))
+            }
+        }
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.green.opacity(isReceiving ? 0.08 : 0))
+        )
+        .scaleEffect(isReceiving ? 1.01 : 1)
+        .animation(.easeInOut(duration: 0.18), value: isReceiving)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct DoseMigrationPill: View {
+    let snapshot: DoseMigrationSnapshot
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: snapshot.symbolName)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(width: 22, height: 22)
+                .background(tint.opacity(0.14), in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text(snapshot.medicationName)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+                Text("\(snapshot.timeText) · \(snapshot.doseText)")
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-            Spacer()
+            Spacer(minLength: 8)
+            Text(snapshot.statusText)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(tint)
+                .lineLimit(1)
         }
-        .padding(.vertical, 4)
+        .frame(height: 40)
+        .padding(.horizontal, 8)
+        .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(tint.opacity(0.12), lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
     }
 }
 

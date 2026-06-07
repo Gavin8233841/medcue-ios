@@ -1,3 +1,4 @@
+import Charts
 import MedicationAdherenceCore
 import PhotosUI
 import SwiftData
@@ -8,6 +9,7 @@ struct MedicationsView: View {
     @Query(sort: \StoredMedication.displayName) private var medications: [StoredMedication]
     @Query(sort: \StoredMedicationPlan.createdAt) private var plans: [StoredMedicationPlan]
     @Query(sort: \StoredDoseTask.dueAt, order: .reverse) private var tasks: [StoredDoseTask]
+    @Query(sort: \StoredMedicationDoseChange.effectiveFrom, order: .reverse) private var doseChanges: [StoredMedicationDoseChange]
     @Query(sort: \StoredMedicationStock.lastUpdated, order: .reverse) private var stocks: [StoredMedicationStock]
     @State private var showingAddOptions = false
     @State private var selectedAddSelection: MedicationAddSelection?
@@ -21,6 +23,14 @@ struct MedicationsView: View {
         )
     }
 
+    private var trendDashboard: MedicationTrendDashboard {
+        medicationTrendDashboard(
+            tasks: tasks,
+            doseChanges: doseChanges,
+            medications: medications
+        )
+    }
+
     private var lifecycleClassifier: MedicationLifecycleClassifier {
         MedicationLifecycleClassifier()
     }
@@ -28,33 +38,13 @@ struct MedicationsView: View {
     var body: some View {
         List {
             Section {
-                NavigationLink {
-                    RecordsView()
-                } label: {
-                    MedicationDashboardSummary(
-                        medicationCount: medications.count,
-                        activeTaskCount: tasks.filter { task in
-                            Calendar.current.isDateInToday(task.dueAt) && (task.status == .pending || task.status == .delayed)
-                        }.count,
-                        lowStockCount: medications.filter { medication in
-                            stockProjection(for: medication)?.needsRefillReminder == true
-                        }.count,
-                        completionRate: insight.completionRate
-                    )
-                }
-            }
-
-            Section("服药记录") {
-                NavigationLink {
-                    RecordsView()
-                } label: {
-                    MedicationRecordsEntryCard(
-                        dayCount: recordedDayCount,
-                        taskCount: tasks.count,
-                        completedCount: completedTaskCount,
-                        missedCount: tasks.filter { $0.status == .skipped }.count
-                    )
-                }
+                MedicationDashboardSummary(
+                    medicationCount: medications.count,
+                    activeTaskCount: activeTaskCount,
+                    lowStockCount: stockSummaries.filter(\.projection.needsRefillReminder).count,
+                    completionRate: insight.completionRate,
+                    trendDashboard: trendDashboard
+                )
             }
 
             Section("药品分组") {
@@ -123,6 +113,27 @@ struct MedicationsView: View {
         )
     }
 
+    private var activeTaskCount: Int {
+        tasks.filter { task in
+            Calendar.current.isDateInToday(task.dueAt) && (task.status == .pending || task.status == .delayed)
+        }.count
+    }
+
+    private var stockSummaries: [MedicationStockSummary] {
+        medications.compactMap { medication in
+            guard let projection = stockProjection(for: medication) else {
+                return nil
+            }
+            return MedicationStockSummary(medication: medication, projection: projection)
+        }
+        .sorted { lhs, rhs in
+            if lhs.projection.needsRefillReminder != rhs.projection.needsRefillReminder {
+                return lhs.projection.needsRefillReminder && !rhs.projection.needsRefillReminder
+            }
+            return lhs.medication.displayName < rhs.medication.displayName
+        }
+    }
+
     private func nextTask(for medication: StoredMedication) -> StoredDoseTask? {
         tasks
             .filter {
@@ -138,14 +149,6 @@ struct MedicationsView: View {
         medications.filter { displayLifecycleStatus(for: $0) == status }.count
     }
 
-    private var recordedDayCount: Int {
-        Set(tasks.map { Calendar.current.startOfDay(for: $0.dueAt) }).count
-    }
-
-    private var completedTaskCount: Int {
-        tasks.filter { $0.status == .taken || $0.status == .corrected }.count
-    }
-
     private func lifecycleClassification(for medication: StoredMedication) -> MedicationLifecycleClassification {
         lifecycleClassifier.classify(
             medication: medication,
@@ -159,56 +162,15 @@ struct MedicationsView: View {
     }
 }
 
-private struct MedicationRecordsEntryCard: View {
-    let dayCount: Int
-    let taskCount: Int
-    let completedCount: Int
-    let missedCount: Int
+private struct MedicationStockSummary: Identifiable {
+    let id: UUID
+    let medication: StoredMedication
+    let projection: MedicationStockProjection
 
-    var body: some View {
-        HStack(spacing: 14) {
-            VStack(spacing: 2) {
-                Image(systemName: "calendar")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.blue)
-                Text("\(max(dayCount, 1))")
-                    .font(.title2.weight(.bold))
-                    .monospacedDigit()
-                    .foregroundStyle(.primary)
-                Text("天")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .frame(width: 50, height: 58)
-
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("服药记录")
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text("\(completedCount) / \(taskCount) 已完成")
-                        .font(.caption.weight(.semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-                Text("查看周历、月历和每天的服药详情。")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                if missedCount > 0 {
-                    Text("含 \(missedCount) 次已忽略记录，可点开修正。")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.vertical, 8)
+    init(medication: StoredMedication, projection: MedicationStockProjection) {
+        self.id = medication.id
+        self.medication = medication
+        self.projection = projection
     }
 }
 
@@ -300,10 +262,12 @@ private struct MedicationAddOptionsSheet: View {
                                     Text(option.title)
                                         .font(.headline)
                                         .foregroundStyle(isAddOptionInDevelopment(option) ? .secondary : .primary)
-                                    Text(addOptionSubtitle(option))
-                                        .font(.footnote)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
+                                    if !isAddOptionInDevelopment(option) {
+                                        Text(addOptionSubtitle(option))
+                                            .font(.footnote)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(2)
+                                    }
                                 }
                                 Spacer()
                                 if isAddOptionInDevelopment(option) {
@@ -323,8 +287,6 @@ private struct MedicationAddOptionsSheet: View {
                         .buttonStyle(.plain)
                         .disabled(isAddOptionInDevelopment(option))
                     }
-                } footer: {
-                    Text("手动添加已可用；图片和条码路径会在接入可靠数据源后启用。")
                 }
             }
             .navigationTitle("添加药品")
@@ -344,6 +306,7 @@ private struct MedicationDashboardSummary: View {
     let activeTaskCount: Int
     let lowStockCount: Int
     let completionRate: Double
+    let trendDashboard: MedicationTrendDashboard
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -351,7 +314,7 @@ private struct MedicationDashboardSummary: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("用药概览")
                         .font(.title2.weight(.semibold))
-                    Text("提醒、药盒和记录集中管理")
+                    Text("药品、提醒、药盒和趋势概况")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -362,12 +325,39 @@ private struct MedicationDashboardSummary: View {
             }
 
             HStack(spacing: 10) {
-                MedicationMetricTile(title: "药品", value: "\(medicationCount)", iconName: "pills.fill", tint: .blue)
-                MedicationMetricTile(title: "待处理", value: "\(activeTaskCount)", iconName: "bell.badge.fill", tint: .orange)
+                NavigationLink {
+                    MedicationOverviewDetailView()
+                } label: {
+                    MedicationMetricTile(title: "药品", value: "\(medicationCount)", iconName: "pills.fill", tint: .blue)
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    MedicationPendingTasksDetailView()
+                } label: {
+                    MedicationMetricTile(title: "待处理", value: "\(activeTaskCount)", iconName: "bell.badge.fill", tint: .orange)
+                }
+                .buttonStyle(.plain)
             }
             HStack(spacing: 10) {
-                MedicationMetricTile(title: "药盒低量", value: "\(lowStockCount)", iconName: "shippingbox.fill", tint: lowStockCount > 0 ? .orange : .green)
-                MedicationMetricTile(title: "完成率", value: "\(Int(completionRate * 100))%", iconName: "chart.line.uptrend.xyaxis", tint: .green)
+                NavigationLink {
+                    MedicationStockOverviewView()
+                } label: {
+                    MedicationMetricTile(title: "药盒低量", value: "\(lowStockCount)", iconName: "shippingbox.fill", tint: lowStockCount > 0 ? .orange : .green)
+                }
+                .buttonStyle(.plain)
+
+                NavigationLink {
+                    MedicationTrendDetailView()
+                } label: {
+                    MedicationMetricTile(
+                        title: "用药趋势",
+                        value: trendDashboard.direction == .needsData ? "\(Int(completionRate * 100))%" : "\(Int((trendDashboard.overallScore * 100).rounded()))%",
+                        iconName: trendDirectionIconName(trendDashboard.direction),
+                        tint: trendDirectionTint(trendDashboard.direction)
+                    )
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(.vertical, 8)
@@ -398,6 +388,491 @@ private struct MedicationMetricTile: View {
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: 64)
         .background(tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(alignment: .trailing) {
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(tint.opacity(0.48))
+                .padding(.trailing, 9)
+        }
+    }
+}
+
+private struct MedicationOverviewDetailView: View {
+    @Query(sort: \StoredMedication.displayName) private var medications: [StoredMedication]
+    @Query(sort: \StoredMedicationPlan.createdAt) private var plans: [StoredMedicationPlan]
+    @Query(sort: \StoredDoseTask.dueAt, order: .reverse) private var tasks: [StoredDoseTask]
+    @Query(sort: \StoredMedicationStock.lastUpdated, order: .reverse) private var stocks: [StoredMedicationStock]
+
+    var body: some View {
+        List {
+            Section("药品总览") {
+                HStack(spacing: 10) {
+                    MedicationOverviewStatCard(
+                        title: "正在服用",
+                        value: "\(count(for: .active))",
+                        iconName: "pills.fill",
+                        tint: .green
+                    )
+                    MedicationOverviewStatCard(
+                        title: "需复核",
+                        value: "\(count(for: .interrupted))",
+                        iconName: "pause.circle.fill",
+                        tint: .orange
+                    )
+                    MedicationOverviewStatCard(
+                        title: "已归档",
+                        value: "\(count(for: .archived))",
+                        iconName: "archivebox.fill",
+                        tint: .gray
+                    )
+                }
+                .padding(.vertical, 4)
+            }
+
+            Section("药品详情") {
+                if medications.isEmpty {
+                    Text("还没有添加药品。")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(medications) { medication in
+                        NavigationLink {
+                            MedicationDetailView(medication: medication)
+                        } label: {
+                            MedicationOverviewMedicationRow(
+                                medication: medication,
+                                taskCount: tasks.filter { $0.medicationID == medication.id }.count,
+                                stockProjection: stockProjection(for: medication)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Section("说明") {
+                Text("这里只展示药品结构、状态和库存概况；完整服药记录仍在“服药记录”入口查看。")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("药品总览")
+    }
+
+    private func count(for status: StoredMedicationLifecycleStatus) -> Int {
+        medications.filter { medication in
+            MedicationLifecycleClassifier().classify(
+                medication: medication,
+                plans: plans,
+                tasks: tasks
+            ).displayStatus == status
+        }.count
+    }
+
+    private func stockProjection(for medication: StoredMedication) -> MedicationStockProjection? {
+        guard let stock = stocks.first(where: { $0.medicationID == medication.id }) else {
+            return nil
+        }
+        let relatedTasks = tasks.filter { $0.medicationID == medication.id }
+        return MedicationStockEstimator().project(
+            stock: stock.coreStock,
+            scheduledDoses: relatedTasks.map(\.coreScheduledDose),
+            events: relatedTasks.compactMap(\.coreDoseEvent)
+        )
+    }
+}
+
+private struct MedicationOverviewStatCard: View {
+    let title: String
+    let value: String
+    let iconName: String
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: iconName)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(tint)
+            Text(value)
+                .font(.title2.weight(.bold))
+                .monospacedDigit()
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.78)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct MedicationOverviewMedicationRow: View {
+    let medication: StoredMedication
+    let taskCount: Int
+    let stockProjection: MedicationStockProjection?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            MedicationPhotoView(photoData: medication.photoData, symbolName: medication.photoSymbolName, tint: .blue, size: 48)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(medication.displayName)
+                    .font(.headline)
+                Text([medication.strength, medication.form].filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Text("\(taskCount) 条记录")
+                    if let stockProjection {
+                        Text("药盒 \(formatDecimal(stockProjection.projectedRemainingQuantity)) \(localizedMedicationUnit(stockProjection.unit))")
+                    } else {
+                        Text("药盒未填写")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 5)
+    }
+}
+
+private struct MedicationPendingTasksDetailView: View {
+    @Query(sort: \StoredDoseTask.dueAt) private var tasks: [StoredDoseTask]
+    @Query(sort: \StoredMedication.displayName) private var medications: [StoredMedication]
+
+    private var pendingTasks: [StoredDoseTask] {
+        tasks
+            .filter { Calendar.current.isDateInToday($0.dueAt) && ($0.status == .pending || $0.status == .delayed) }
+            .sorted { $0.dueAt < $1.dueAt }
+    }
+
+    var body: some View {
+        List {
+            Section("今日待处理") {
+                if pendingTasks.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("今日暂无待处理", systemImage: "checkmark.circle.fill")
+                            .font(.headline)
+                            .foregroundStyle(.green)
+                        Text("新的提醒会继续出现在今日页。")
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 8)
+                } else {
+                    ForEach(pendingTasks) { task in
+                        if let medication = medication(for: task) {
+                            NavigationLink {
+                                MedicationDetailView(medication: medication)
+                            } label: {
+                                PendingTaskOverviewRow(task: task, medication: medication)
+                            }
+                        } else {
+                            PendingTaskOverviewRow(task: task, medication: nil)
+                        }
+                    }
+                }
+            }
+
+            Section("处理建议") {
+                Text("待处理入口只用于定位今日任务；标记已服用、稍后或忽略请回到今日页完成，避免误触。")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("今日待处理")
+    }
+
+    private func medication(for task: StoredDoseTask) -> StoredMedication? {
+        medications.first { $0.id == task.medicationID }
+    }
+}
+
+private struct PendingTaskOverviewRow: View {
+    let task: StoredDoseTask
+    let medication: StoredMedication?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(AppFormatters.time.string(from: task.dueAt))
+                .font(.headline.monospacedDigit())
+                .foregroundStyle(task.status == .delayed ? .orange : .primary)
+                .frame(width: 52, alignment: .leading)
+            MedicationPhotoView(
+                photoData: medication?.photoData,
+                symbolName: medication?.photoSymbolName ?? "pills.fill",
+                tint: task.status == .delayed ? .orange : .blue,
+                size: 44
+            )
+            VStack(alignment: .leading, spacing: 4) {
+                Text(medication?.displayName ?? "未知药品")
+                    .font(.headline)
+                Text("\(task.doseValue.formatted()) \(localizedMedicationUnit(task.doseUnit))")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 5)
+    }
+}
+
+private struct MedicationStockOverviewView: View {
+    @Query(sort: \StoredMedication.displayName) private var medications: [StoredMedication]
+    @Query(sort: \StoredDoseTask.dueAt, order: .reverse) private var tasks: [StoredDoseTask]
+    @Query(sort: \StoredMedicationStock.lastUpdated, order: .reverse) private var stocks: [StoredMedicationStock]
+
+    private var summaries: [MedicationStockSummary] {
+        medications.compactMap { medication in
+            guard let projection = stockProjection(for: medication) else {
+                return nil
+            }
+            return MedicationStockSummary(medication: medication, projection: projection)
+        }
+        .sorted { lhs, rhs in
+            if lhs.projection.needsRefillReminder != rhs.projection.needsRefillReminder {
+                return lhs.projection.needsRefillReminder && !rhs.projection.needsRefillReminder
+            }
+            return lhs.medication.displayName < rhs.medication.displayName
+        }
+    }
+
+    var body: some View {
+        List {
+            Section("药盒状态") {
+                if summaries.isEmpty {
+                    Text("还没有填写药盒库存。进入药品详情可补充剩余量和低库存阈值。")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(summaries) { summary in
+                        NavigationLink {
+                            MedicationDetailView(medication: summary.medication)
+                        } label: {
+                            StockOverviewRow(summary: summary)
+                        }
+                    }
+                }
+            }
+
+            Section("库存规则") {
+                Text("药盒会扣除已服用和已修正为服用的记录；预计可用天数来自近期真实记录，数据不足时只提示继续记录。")
+                    .foregroundStyle(.secondary)
+                Text("库存估算只提醒核对实物，不代表续方、购药或处方决策。")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("药盒管理")
+    }
+
+    private func stockProjection(for medication: StoredMedication) -> MedicationStockProjection? {
+        guard let stock = stocks.first(where: { $0.medicationID == medication.id }) else {
+            return nil
+        }
+        let relatedTasks = tasks.filter { $0.medicationID == medication.id }
+        return MedicationStockEstimator().project(
+            stock: stock.coreStock,
+            scheduledDoses: relatedTasks.map(\.coreScheduledDose),
+            events: relatedTasks.compactMap(\.coreDoseEvent)
+        )
+    }
+}
+
+private struct StockOverviewRow: View {
+    let summary: MedicationStockSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                MedicationPhotoView(
+                    photoData: summary.medication.photoData,
+                    symbolName: summary.medication.photoSymbolName,
+                    tint: summary.projection.needsRefillReminder ? .orange : .green,
+                    size: 48
+                )
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(summary.medication.displayName)
+                        .font(.headline)
+                    Text(stockRemainingText(summary.projection))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                StatusBadge(
+                    text: summary.projection.needsRefillReminder ? "需核对" : "正常",
+                    color: summary.projection.needsRefillReminder ? .orange : .green
+                )
+            }
+
+            HStack(spacing: 8) {
+                StockSmallMetric(
+                    title: "日均消耗",
+                    value: summary.projection.averageDailyConsumption.map {
+                        "\(formatDecimal($0)) \(localizedMedicationUnit(summary.projection.unit))"
+                    } ?? "待记录"
+                )
+                StockSmallMetric(
+                    title: "预计可用",
+                    value: summary.projection.estimatedDaysRemaining.map { "\($0) 天" } ?? "待记录"
+                )
+                StockSmallMetric(
+                    title: "记录天数",
+                    value: "\(summary.projection.trackedDayCount) 天"
+                )
+            }
+
+            if let issue = summary.projection.issues.first {
+                Text(issue.message)
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            }
+        }
+        .padding(.vertical, 7)
+    }
+}
+
+private struct StockSmallMetric: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(value)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+struct MedicationTrendDetailView: View {
+    @Query(sort: \StoredDoseTask.dueAt, order: .reverse) private var tasks: [StoredDoseTask]
+    @Query(sort: \StoredMedicationDoseChange.effectiveFrom, order: .reverse) private var doseChanges: [StoredMedicationDoseChange]
+
+    private var trend: AdherenceTrendInsight {
+        AdherenceTrendBuilder().build(
+            scheduledDoses: tasks.map(\.coreScheduledDose),
+            events: tasks.compactMap(\.coreDoseEvent),
+            doseChanges: doseChanges.map(\.coreDoseChange),
+            timeZone: TimeZone.current
+        )
+    }
+
+    var body: some View {
+        List {
+            Section("服用趋势") {
+                TrendSummaryCard(trend: trend)
+            }
+
+            Section("近期变化") {
+                if trend.state == .insufficientData {
+                    Text("当前已有 \(trend.daysAnalyzed) 天真实记录，达到 \(trend.minimumRequiredDays) 天后才生成趋势判断。")
+                        .foregroundStyle(.secondary)
+                } else {
+                    MedicationTrendBars(points: trend.points.suffix(14).map { $0 })
+                        .frame(height: 150)
+                        .padding(.vertical, 8)
+                    InfoRow(title: "最近完成率", value: "\(percentageText(trend.recentAverageCompletionRate))%")
+                    if let previousAverage = trend.previousAverageCompletionRate {
+                        InfoRow(title: "前一周期", value: "\(percentageText(previousAverage))%")
+                    }
+                    if let change = trend.changeFromPrevious {
+                        InfoRow(title: "周期变化", value: trendChangeText(change))
+                    }
+                    InfoRow(title: "稳定度", value: "\(percentageText(trend.consistencyScore))%")
+                    InfoRow(title: "已忽略率", value: "\(percentageText(trend.skippedRate))%")
+                    InfoRow(title: "稍后率", value: "\(percentageText(trend.delayedRate))%")
+                }
+            }
+
+            Section("模型说明") {
+                Text(trend.supportingSummary)
+                    .foregroundStyle(.secondary)
+                if !trend.doseChangeSummary.isEmpty {
+                    Text(trend.doseChangeSummary)
+                        .foregroundStyle(.secondary)
+                }
+                Text(trend.safetyNote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("服用趋势")
+    }
+}
+
+private struct TrendSummaryCard: View {
+    let trend: AdherenceTrendInsight
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: trendIconName(trend.state))
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(trendTint(trend.state))
+                    .frame(width: 42, height: 42)
+                    .background(trendTint(trend.state).opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(trendStateTitle(trend.state))
+                        .font(.title3.weight(.semibold))
+                    Text(trend.message.isEmpty ? "继续记录后生成客观趋势。" : trend.message)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            ProgressView(value: trend.recentAverageCompletionRate)
+                .tint(trendTint(trend.state))
+
+            HStack {
+                Text("\(trend.daysAnalyzed) 天记录")
+                Spacer()
+                Text("最近 \(percentageText(trend.recentAverageCompletionRate))%")
+                    .monospacedDigit()
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 8)
+    }
+}
+
+private struct MedicationTrendBars: View {
+    let points: [AdherenceTrendPoint]
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 5) {
+            ForEach(Array(points.enumerated()), id: \.offset) { _, point in
+                VStack(spacing: 6) {
+                    GeometryReader { proxy in
+                        let height = max(6, proxy.size.height * point.completionRate)
+                        VStack {
+                            Spacer(minLength: 0)
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(barColor(for: point.completionRate).gradient)
+                                .frame(height: height)
+                        }
+                    }
+                    .frame(height: 100)
+                    Text("\(point.date.day)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .accessibilityLabel("近 \(points.count) 天服用完成率柱状图")
+    }
+
+    private func barColor(for completionRate: Double) -> Color {
+        if completionRate >= 0.85 {
+            return .green
+        }
+        if completionRate >= 0.6 {
+            return .orange
+        }
+        return .red
     }
 }
 
@@ -584,6 +1059,7 @@ struct MedicationDetailView: View {
     @Query(sort: \StoredRiskCard.displayPriority) private var riskCards: [StoredRiskCard]
     @Query(sort: \StoredMedicationStock.lastUpdated, order: .reverse) private var stocks: [StoredMedicationStock]
     @Query(sort: \StoredMedicationLabel.importedAt, order: .reverse) private var labels: [StoredMedicationLabel]
+    @Query(sort: \StoredMedicationDoseChange.effectiveFrom, order: .reverse) private var doseChanges: [StoredMedicationDoseChange]
     @State private var showingEditor = false
     @State private var showingStockEditor = false
     @State private var showingPlanEditor = false
@@ -598,6 +1074,10 @@ struct MedicationDetailView: View {
 
     private var relatedTasks: [StoredDoseTask] {
         tasks.filter { $0.medicationID == medication.id }
+    }
+
+    private var relatedDoseChanges: [StoredMedicationDoseChange] {
+        doseChanges.filter { $0.medicationID == medication.id }
     }
 
     private var relatedRiskCards: [StoredRiskCard] {
@@ -728,6 +1208,24 @@ struct MedicationDetailView: View {
                     Label(relatedPlans.isEmpty ? "建立疗程与提醒" : "修改疗程与提醒", systemImage: "calendar.badge.clock")
                 }
                 Text("提醒计划必须由用户按说明书、医嘱或药师建议核对。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("剂量变化记录") {
+                if relatedDoseChanges.isEmpty {
+                    Text("暂无剂量变化记录。")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(Array(relatedDoseChanges.prefix(5))) { change in
+                        MedicationDoseChangeRow(
+                            change: change,
+                            effectiveUntil: doseChangeEffectiveUntil(change, in: relatedDoseChanges)
+                        )
+                            .padding(.vertical, 5)
+                    }
+                }
+                Text("剂量变化记录可帮助复诊时说明用药方案变化；这里只记录用户确认的信息，不生成诊断、处方或疗效判断。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -933,7 +1431,8 @@ struct MedicationDetailView: View {
             PlanEditorView(
                 medication: medication,
                 plan: relatedPlans.first,
-                tasks: relatedTasks
+                tasks: relatedTasks,
+                doseChanges: relatedDoseChanges
             )
         }
         .sheet(isPresented: $showingLabelImporter) {
@@ -1016,7 +1515,7 @@ struct MedicationDetailView: View {
         let visibleLines = notes
             .split(whereSeparator: \.isNewline)
             .map(String.init)
-            .filter { !$0.contains("演示数据") }
+            .filter { !$0.contains("演示") }
         let visibleText = visibleLines
             .joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1094,6 +1593,7 @@ private struct CameraPhotoCaptureSheet: UIViewControllerRepresentable {
 private struct AddMedicationView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @StateObject private var notificationService = NotificationService()
     let option: MedicationAddOption
     @State private var displayName = ""
     @State private var strength = ""
@@ -1528,15 +2028,11 @@ private struct AddMedicationView: View {
             reminderDelivery: reminderDeliveryMethod
         )
         modelContext.insert(plan)
-        normalizedReminderTimes.forEach { reminderTime in
-            modelContext.insert(StoredDoseTask(
-                medicationID: medication.id,
-                planID: plan.id,
-                dueAt: scheduledDate(on: courseStartDate, matching: reminderTime),
-                doseValue: doseValue,
-                doseUnit: doseUnit
-            ))
-        }
+        let reminderBatch = MedicationReminderTaskCoordinator().reconcilePlan(
+            plan,
+            medication: medication,
+            in: modelContext
+        )
 
         if initialStockQuantity > 0 || lowStockThreshold > 0 {
             modelContext.insert(StoredMedicationStock(
@@ -1548,7 +2044,15 @@ private struct AddMedicationView: View {
         }
 
         try? modelContext.save()
+        scheduleCreatedReminders(reminderBatch)
         dismiss()
+    }
+
+    private func scheduleCreatedReminders(_ batch: MedicationReminderScheduleBatch) {
+        notificationService.cancelReminders(for: batch.cancelledTaskIDs)
+        Task {
+            await notificationService.scheduleReminderBatches([batch])
+        }
     }
 
     private func analyzeSelectedImage(_ item: PhotosPickerItem?) async {
@@ -1634,6 +2138,48 @@ private struct StockProjectionView: View {
             }
         }
         .padding(.vertical, 6)
+    }
+}
+
+private struct MedicationDoseChangeRow: View {
+    let change: StoredMedicationDoseChange
+    let effectiveUntil: Date?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(.purple)
+                .frame(width: 34, height: 34)
+                .background(Color.purple.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 5) {
+                Text(doseChangeText)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(effectivePeriodText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                if !change.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(change.note)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var doseChangeText: String {
+        let newDose = "\(change.newDoseValue.formatted()) \(localizedMedicationUnit(change.newDoseUnit))"
+        guard let previousDoseValue = change.previousDoseValue else {
+            return "初始剂量 \(newDose)"
+        }
+        let previousDose = "\(previousDoseValue.formatted()) \(localizedMedicationUnit(change.previousDoseUnit))"
+        return "\(previousDose) 调整为 \(newDose)"
+    }
+
+    private var effectivePeriodText: String {
+        doseChangeEffectivePeriodText(change: change, effectiveUntil: effectiveUntil)
     }
 }
 
@@ -1864,11 +2410,15 @@ private struct StockEditorView: View {
 private struct PlanEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @StateObject private var notificationService = NotificationService()
     let medication: StoredMedication
     let plan: StoredMedicationPlan?
     let tasks: [StoredDoseTask]
+    let doseChanges: [StoredMedicationDoseChange]
     @State private var doseValue: Double
     @State private var doseUnit: String
+    @State private var doseEffectiveFrom: Date
+    @State private var doseChangeNote: String
     @State private var courseStartDate: Date
     @State private var hasCourseEndDate: Bool
     @State private var courseEndDate: Date
@@ -1876,16 +2426,24 @@ private struct PlanEditorView: View {
     @State private var reminderDeliveryMethod: StoredReminderDeliveryMethod
     @State private var sourceNote: String
 
-    init(medication: StoredMedication, plan: StoredMedicationPlan?, tasks: [StoredDoseTask]) {
+    init(
+        medication: StoredMedication,
+        plan: StoredMedicationPlan?,
+        tasks: [StoredDoseTask],
+        doseChanges: [StoredMedicationDoseChange]
+    ) {
         self.medication = medication
         self.plan = plan
         self.tasks = tasks
+        self.doseChanges = doseChanges
         let planTasks = plan.map { selectedPlan in tasks.filter { $0.planID == selectedPlan.id } } ?? tasks
         let now = Date()
         let startDate = plan?.courseStartAt ?? planTasks.first?.dueAt ?? now
         let endDate = plan?.courseEndAt ?? Calendar.current.date(byAdding: .day, value: 30, to: startDate) ?? startDate
         _doseValue = State(initialValue: plan?.doseValue ?? planTasks.first?.doseValue ?? 1)
         _doseUnit = State(initialValue: localizedMedicationUnit(plan?.doseUnit ?? planTasks.first?.doseUnit ?? "片"))
+        _doseEffectiveFrom = State(initialValue: Calendar.current.startOfDay(for: plan == nil ? startDate : now))
+        _doseChangeNote = State(initialValue: "")
         _courseStartDate = State(initialValue: startDate)
         _hasCourseEndDate = State(initialValue: plan?.courseEndAt != nil)
         _courseEndDate = State(initialValue: endDate)
@@ -1902,6 +2460,10 @@ private struct PlanEditorView: View {
                         Text("每次 \(doseValue.formatted()) \(localizedMedicationUnit(doseUnit))")
                     }
                     MedicationUnitPicker(title: "剂量单位", unit: $doseUnit)
+                    DatePicker("剂量生效日期", selection: $doseEffectiveFrom, displayedComponents: .date)
+                    Text("用于记录从哪天开始剂量发生变化；不会生成诊断、处方或剂量建议。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("疗程") {
@@ -1957,6 +2519,14 @@ private struct PlanEditorView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+
+                Section("剂量变化备注") {
+                    TextEditor(text: $doseChangeNote)
+                        .frame(minHeight: 70)
+                    Text("可记录“按复诊结果调整”“更换规格后调整”等原因，便于在周历、月历和复诊资料中回看。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
             .navigationTitle("疗程与提醒")
             .toolbar {
@@ -1977,10 +2547,17 @@ private struct PlanEditorView: View {
 
     private func save() {
         let normalizedTimes = normalizedReminderDates(reminderTimes)
+        let normalizedDoseUnit = doseUnit.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedEffectiveFrom = Calendar.current.startOfDay(for: doseEffectiveFrom)
+        let previousDoseValue = plan?.doseValue
+        let previousDoseUnit = plan.map { localizedMedicationUnit($0.doseUnit) }
+        let isDoseChanged = previousDoseValue.map {
+            abs($0 - doseValue) > 0.0001 || previousDoseUnit != normalizedDoseUnit
+        } ?? true
         let targetPlan: StoredMedicationPlan
         if let plan {
             plan.doseValue = doseValue
-            plan.doseUnit = doseUnit.trimmingCharacters(in: .whitespacesAndNewlines)
+            plan.doseUnit = normalizedDoseUnit
             plan.timingSummary = reminderSummary(from: normalizedTimes)
             plan.sourceNote = sourceNote
             plan.courseStartAt = courseStartDate
@@ -1992,7 +2569,7 @@ private struct PlanEditorView: View {
             let newPlan = StoredMedicationPlan(
                 medicationID: medication.id,
                 doseValue: doseValue,
-                doseUnit: doseUnit.trimmingCharacters(in: .whitespacesAndNewlines),
+                doseUnit: normalizedDoseUnit,
                 timingSummary: reminderSummary(from: normalizedTimes),
                 timeZonePolicy: .localClock,
                 sourceNote: sourceNote,
@@ -2006,36 +2583,88 @@ private struct PlanEditorView: View {
             targetPlan = newPlan
         }
 
-        let pendingTasks = tasks
-            .filter { $0.planID == targetPlan.id && $0.status == .pending }
-            .sorted { $0.dueAt < $1.dueAt }
-
-        for (index, task) in pendingTasks.enumerated() {
-            if index < normalizedTimes.count {
-                task.dueAt = scheduledDate(on: courseStartDate, matching: normalizedTimes[index])
-                task.doseValue = doseValue
-                task.doseUnit = doseUnit.trimmingCharacters(in: .whitespacesAndNewlines)
-            } else {
-                task.status = .skipped
-                task.recordedAt = Date()
-                task.reason = "用户修改疗程与提醒后不再使用。"
-            }
+        let reminderBatch = MedicationReminderTaskCoordinator().reconcilePlan(
+            targetPlan,
+            medication: medication,
+            in: modelContext
+        )
+        if isDoseChanged {
+            insertDoseChange(
+                planID: targetPlan.id,
+                previousDoseValue: previousDoseValue,
+                previousDoseUnit: previousDoseUnit ?? "",
+                newDoseValue: doseValue,
+                newDoseUnit: normalizedDoseUnit,
+                effectiveFrom: normalizedEffectiveFrom
+            )
         }
-
-        if pendingTasks.count < normalizedTimes.count {
-            normalizedTimes.dropFirst(pendingTasks.count).forEach { reminderTime in
-                modelContext.insert(StoredDoseTask(
-                    medicationID: medication.id,
-                    planID: targetPlan.id,
-                    dueAt: scheduledDate(on: courseStartDate, matching: reminderTime),
-                    doseValue: doseValue,
-                    doseUnit: doseUnit.trimmingCharacters(in: .whitespacesAndNewlines)
-                ))
-            }
-        }
+        applyDoseChangeToOpenTasks(
+            planID: targetPlan.id,
+            previousDoseValue: previousDoseValue,
+            previousDoseUnit: previousDoseUnit,
+            newDoseValue: doseValue,
+            newDoseUnit: normalizedDoseUnit,
+            effectiveFrom: normalizedEffectiveFrom
+        )
 
         try? modelContext.save()
+        rescheduleReminders(reminderBatch)
         dismiss()
+    }
+
+    private func insertDoseChange(
+        planID: UUID,
+        previousDoseValue: Double?,
+        previousDoseUnit: String,
+        newDoseValue: Double,
+        newDoseUnit: String,
+        effectiveFrom: Date
+    ) {
+        let trimmedNote = doseChangeNote.trimmingCharacters(in: .whitespacesAndNewlines)
+        let note = trimmedNote.isEmpty
+            ? (previousDoseValue == nil ? "初始剂量记录，用户已确认。" : "用户确认后修改剂量；请按医嘱、说明书或药师建议核对。")
+            : trimmedNote
+        modelContext.insert(StoredMedicationDoseChange(
+            medicationID: medication.id,
+            planID: planID,
+            previousDoseValue: previousDoseValue,
+            previousDoseUnit: previousDoseUnit,
+            newDoseValue: newDoseValue,
+            newDoseUnit: newDoseUnit,
+            effectiveFrom: effectiveFrom,
+            note: note
+        ))
+    }
+
+    private func applyDoseChangeToOpenTasks(
+        planID: UUID,
+        previousDoseValue: Double?,
+        previousDoseUnit: String?,
+        newDoseValue: Double,
+        newDoseUnit: String,
+        effectiveFrom: Date
+    ) {
+        let startOfEffectiveDay = Calendar.current.startOfDay(for: effectiveFrom)
+        let currentTasks = (try? modelContext.fetch(FetchDescriptor<StoredDoseTask>())) ?? tasks
+        for task in currentTasks where task.planID == planID {
+            guard task.status == .pending || task.status == .delayed else {
+                continue
+            }
+            if task.dueAt >= startOfEffectiveDay {
+                task.doseValue = newDoseValue
+                task.doseUnit = newDoseUnit
+            } else if let previousDoseValue, let previousDoseUnit {
+                task.doseValue = previousDoseValue
+                task.doseUnit = previousDoseUnit
+            }
+        }
+    }
+
+    private func rescheduleReminders(_ batch: MedicationReminderScheduleBatch) {
+        notificationService.cancelReminders(for: batch.cancelledTaskIDs)
+        Task {
+            await notificationService.scheduleReminderBatches([batch])
+        }
     }
 }
 
@@ -2217,6 +2846,68 @@ private func badgeColor(for status: StoredMedicationLifecycleStatus) -> Color {
     }
 }
 
+func trendStateTitle(_ state: AdherenceTrendState) -> String {
+    switch state {
+    case .insufficientData:
+        "数据不足"
+    case .improving:
+        "正在改善"
+    case .stable:
+        "趋势平稳"
+    case .declining:
+        "需要关注"
+    }
+}
+
+func trendTint(_ state: AdherenceTrendState) -> Color {
+    switch state {
+    case .insufficientData:
+        .gray
+    case .improving:
+        .green
+    case .stable:
+        .blue
+    case .declining:
+        .orange
+    }
+}
+
+func trendIconName(_ state: AdherenceTrendState) -> String {
+    switch state {
+    case .insufficientData:
+        "chart.bar.xaxis"
+    case .improving:
+        "chart.line.uptrend.xyaxis"
+    case .stable:
+        "equal.circle.fill"
+    case .declining:
+        "chart.line.downtrend.xyaxis"
+    }
+}
+
+private func percentageText(_ value: Double) -> String {
+    "\(Int((value * 100).rounded()))"
+}
+
+private func trendChangeText(_ value: Double) -> String {
+    let points = Int((abs(value) * 100).rounded())
+    if value > 0 {
+        return "上升 \(points) 个百分点"
+    }
+    if value < 0 {
+        return "下降 \(points) 个百分点"
+    }
+    return "无明显变化"
+}
+
+private func stockRemainingText(_ projection: MedicationStockProjection) -> String {
+    let remaining = "\(formatDecimal(projection.projectedRemainingQuantity)) \(localizedMedicationUnit(projection.unit))"
+    if let days = projection.estimatedDaysRemaining {
+        return "估算剩余 \(remaining) · 约 \(days) 天"
+    }
+    return "估算剩余 \(remaining)"
+}
+
 private func formatDecimal(_ value: Decimal) -> String {
     let number = NSDecimalNumber(decimal: value)
     let formatter = NumberFormatter()
@@ -2288,6 +2979,48 @@ private func reminderDate(from rawValue: String) -> Date? {
 
 private func defaultReminderDate(hour: Int, minute: Int) -> Date {
     Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: Date()) ?? Date()
+}
+
+private func doseChangeEffectiveUntil(
+    _ change: StoredMedicationDoseChange,
+    in changes: [StoredMedicationDoseChange]
+) -> Date? {
+    let calendar = Calendar.current
+    let currentStart = calendar.startOfDay(for: change.effectiveFrom)
+    let nextChange = changes
+        .filter {
+            $0.id != change.id
+                && $0.medicationID == change.medicationID
+                && doseChangePlanMatches($0, change)
+                && $0.effectiveFrom > change.effectiveFrom
+        }
+        .min { $0.effectiveFrom < $1.effectiveFrom }
+
+    guard let nextStart = nextChange.map({ calendar.startOfDay(for: $0.effectiveFrom) }) else {
+        return nil
+    }
+    guard nextStart > currentStart else {
+        return currentStart
+    }
+    return calendar.date(byAdding: .day, value: -1, to: nextStart)
+}
+
+private func doseChangePlanMatches(_ first: StoredMedicationDoseChange, _ second: StoredMedicationDoseChange) -> Bool {
+    guard let firstPlanID = first.planID, let secondPlanID = second.planID else {
+        return true
+    }
+    return firstPlanID == secondPlanID
+}
+
+private func doseChangeEffectivePeriodText(change: StoredMedicationDoseChange, effectiveUntil: Date?) -> String {
+    let startText = AppFormatters.day.string(from: change.effectiveFrom)
+    guard let effectiveUntil else {
+        return "生效阶段：\(startText) 至今"
+    }
+    if Calendar.current.isDate(effectiveUntil, inSameDayAs: change.effectiveFrom) {
+        return "生效阶段：\(startText) 当天，之后有新的剂量记录"
+    }
+    return "生效阶段：\(startText) 至 \(AppFormatters.day.string(from: effectiveUntil))"
 }
 
 private func scheduledDate(on day: Date, matching time: Date) -> Date {

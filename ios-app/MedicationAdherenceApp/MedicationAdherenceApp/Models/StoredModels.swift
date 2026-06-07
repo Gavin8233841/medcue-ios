@@ -286,6 +286,59 @@ final class StoredMedicationPlan {
 }
 
 @Model
+final class StoredMedicationDoseChange {
+    @Attribute(.unique) var id: UUID
+    var medicationID: UUID
+    var planID: UUID?
+    var previousDoseValue: Double?
+    var previousDoseUnit: String
+    var newDoseValue: Double
+    var newDoseUnit: String
+    var effectiveFrom: Date
+    var changedAt: Date
+    var note: String
+
+    init(
+        id: UUID = UUID(),
+        medicationID: UUID,
+        planID: UUID? = nil,
+        previousDoseValue: Double? = nil,
+        previousDoseUnit: String = "",
+        newDoseValue: Double,
+        newDoseUnit: String,
+        effectiveFrom: Date,
+        changedAt: Date = Date(),
+        note: String = ""
+    ) {
+        self.id = id
+        self.medicationID = medicationID
+        self.planID = planID
+        self.previousDoseValue = previousDoseValue
+        self.previousDoseUnit = previousDoseUnit
+        self.newDoseValue = newDoseValue
+        self.newDoseUnit = newDoseUnit
+        self.effectiveFrom = effectiveFrom
+        self.changedAt = changedAt
+        self.note = note
+    }
+
+    var coreDoseChange: MedicationDoseChange {
+        MedicationDoseChange(
+            id: id,
+            medicationID: medicationID,
+            planID: planID,
+            previousDose: previousDoseValue.map {
+                DoseAmount(value: Decimal($0), unit: previousDoseUnit)
+            },
+            newDose: DoseAmount(value: Decimal(newDoseValue), unit: newDoseUnit),
+            effectiveFrom: effectiveFrom,
+            changedAt: changedAt,
+            note: note
+        )
+    }
+}
+
+@Model
 final class StoredDoseTask {
     @Attribute(.unique) var id: UUID
     var medicationID: UUID

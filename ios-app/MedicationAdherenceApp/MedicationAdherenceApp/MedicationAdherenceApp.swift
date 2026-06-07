@@ -10,6 +10,7 @@ struct MedicationAdherenceApp: App {
             let schema = Schema([
                 StoredMedication.self,
                 StoredMedicationPlan.self,
+                StoredMedicationDoseChange.self,
                 StoredDoseTask.self,
                 StoredRiskCard.self,
                 StoredMedicationLabel.self,
@@ -20,6 +21,7 @@ struct MedicationAdherenceApp: App {
             ])
             let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
             modelContainer = try ModelContainer(for: schema, configurations: [configuration])
+            MedicationNotificationDelegate.shared.install(modelContainer: modelContainer)
         } catch {
             fatalError("Unable to create SwiftData container: \(error)")
         }

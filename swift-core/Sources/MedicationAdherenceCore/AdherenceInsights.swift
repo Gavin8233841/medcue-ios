@@ -64,6 +64,7 @@ public struct AdherenceInsight: Codable, Sendable, Equatable {
 
 public struct AdherenceInsightBuilder: Sendable {
     public static let defaultSafetyNote = "依从性数据只用于自我管理和复诊沟通，不代表疗效判断。"
+    public static let defaultStreakMinimumCompletionRate = 0.8
 
     public init() {}
 
@@ -72,11 +73,13 @@ public struct AdherenceInsightBuilder: Sendable {
         events: [DoseEvent],
         calendar baseCalendar: Calendar = Calendar(identifier: .gregorian),
         timeZone: TimeZone,
-        now: Date = Date()
+        now: Date = Date(),
+        streakMinimumCompletionRate: Double = Self.defaultStreakMinimumCompletionRate
     ) -> AdherenceInsight {
         var calendar = baseCalendar
         calendar.timeZone = timeZone
         let today = dateOnly(from: now, calendar: calendar)
+        let streakThreshold = min(max(streakMinimumCompletionRate, 0), 1)
 
         let latestEventByDoseID = Dictionary(grouping: events, by: \.scheduledDoseID).compactMapValues { doseEvents in
             doseEvents.sorted { $0.recordedAt < $1.recordedAt }.last
@@ -105,8 +108,8 @@ public struct AdherenceInsightBuilder: Sendable {
         let takenCount = dayStatuses.reduce(0) { $0 + $1.takenCount }
         let skippedCount = dayStatuses.reduce(0) { $0 + $1.skippedCount }
         let delayedCount = dayStatuses.reduce(0) { $0 + $1.delayedCount }
-        let currentStreakDays = currentStreak(in: dayStatuses, today: today)
-        let longestStreakDays = longestStreak(in: dayStatuses)
+        let currentStreakDays = currentStreak(in: dayStatuses, today: today, minimumCompletionRate: streakThreshold)
+        let longestStreakDays = longestStreak(in: dayStatuses, minimumCompletionRate: streakThreshold)
 
         return AdherenceInsight(
             scheduledCount: scheduledCount,
@@ -116,7 +119,11 @@ public struct AdherenceInsightBuilder: Sendable {
             currentStreakDays: currentStreakDays,
             longestStreakDays: longestStreakDays,
             dayStatuses: dayStatuses,
-            message: message(currentStreakDays: currentStreakDays, skippedCount: skippedCount)
+            message: message(
+                currentStreakDays: currentStreakDays,
+                skippedCount: skippedCount,
+                minimumCompletionRate: streakThreshold
+            )
         )
     }
 
@@ -129,14 +136,21 @@ public struct AdherenceInsightBuilder: Sendable {
         )
     }
 
-    private func currentStreak(in dayStatuses: [AdherenceDayStatus], today: DateOnly) -> Int {
+    private func currentStreak(
+        in dayStatuses: [AdherenceDayStatus],
+        today: DateOnly,
+        minimumCompletionRate: Double
+    ) -> Int {
         var count = 0
         var hasStartedCounting = false
         for status in dayStatuses.reversed() {
-            if !hasStartedCounting && status.shouldIgnoreForCurrentStreak(today: today) {
+            if !hasStartedCounting && status.shouldIgnoreForCurrentStreak(
+                today: today,
+                minimumCompletionRate: minimumCompletionRate
+            ) {
                 continue
             }
-            guard status.isComplete else {
+            guard status.meetsStreakGoal(minimumCompletionRate: minimumCompletionRate) else {
                 break
             }
             hasStartedCounting = true
@@ -145,11 +159,11 @@ public struct AdherenceInsightBuilder: Sendable {
         return count
     }
 
-    private func longestStreak(in dayStatuses: [AdherenceDayStatus]) -> Int {
+    private func longestStreak(in dayStatuses: [AdherenceDayStatus], minimumCompletionRate: Double) -> Int {
         var longest = 0
         var current = 0
         for status in dayStatuses {
-            if status.isComplete {
+            if status.meetsStreakGoal(minimumCompletionRate: minimumCompletionRate) {
                 current += 1
                 longest = max(longest, current)
             } else {
@@ -159,9 +173,9 @@ public struct AdherenceInsightBuilder: Sendable {
         return longest
     }
 
-    private func message(currentStreakDays: Int, skippedCount: Int) -> String {
+    private func message(currentStreakDays: Int, skippedCount: Int, minimumCompletionRate: Double) -> String {
         if currentStreakDays > 0 {
-            return "已经连续完成 \(currentStreakDays) 天用药记录，继续按已确认计划记录。"
+            return "已经连续 \(currentStreakDays) 天达到 \(Int((minimumCompletionRate * 100).rounded()))% 以上记录完成率，继续按已确认计划记录。"
         }
         if skippedCount > 0 {
             return "近期有 \(skippedCount) 次忽略记录，复诊时可带给医生或药师查看。"
@@ -171,7 +185,11 @@ public struct AdherenceInsightBuilder: Sendable {
 }
 
 private extension AdherenceDayStatus {
-    func shouldIgnoreForCurrentStreak(today: DateOnly) -> Bool {
-        date == today && scheduledCount > 0 && !isComplete
+    func meetsStreakGoal(minimumCompletionRate: Double) -> Bool {
+        scheduledCount > 0 && completionRate >= minimumCompletionRate
+    }
+
+    func shouldIgnoreForCurrentStreak(today: DateOnly, minimumCompletionRate: Double) -> Bool {
+        date == today && scheduledCount > 0 && !meetsStreakGoal(minimumCompletionRate: minimumCompletionRate)
     }
 }

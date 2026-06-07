@@ -5,6 +5,7 @@ struct AppRootView: View {
     @Environment(\.modelContext) private var modelContext
     @AppStorage("appColorSchemePreference") private var appColorSchemePreference = AppColorSchemePreference.system.rawValue
     @AppStorage("hasCompletedFirstLaunchSetup") private var hasCompletedFirstLaunchSetup = false
+    @StateObject private var notificationService = NotificationService()
     @State private var selectedTab: AppTab = .today
     @State private var pendingAIQuestion = ""
 
@@ -36,7 +37,7 @@ struct AppRootView: View {
             if shouldShowFirstLaunchSetup {
                 FirstLaunchSetupView { shouldOpenAccountSettings in
                     if shouldOpenAccountSettings {
-                        selectedTab = .settings
+                        selectedTab = .profile
                     }
                     withAnimation(.snappy(duration: 0.35)) {
                         hasCompletedFirstLaunchSetup = true
@@ -50,6 +51,7 @@ struct AppRootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task {
             DemoDataSeeder.seedIfNeeded(in: modelContext)
+            await notificationService.reconcileAndScheduleReminders(in: modelContext)
         }
         .preferredColorScheme(AppColorSchemePreference(rawValue: appColorSchemePreference)?.colorScheme)
     }
@@ -90,7 +92,7 @@ enum AppTab: String, CaseIterable, Identifiable {
     case medications
     case assistant
     case risks
-    case settings
+    case profile
 
     var id: String { rawValue }
 
@@ -105,8 +107,8 @@ enum AppTab: String, CaseIterable, Identifiable {
             AIAssistantView()
         case .risks:
             RisksView()
-        case .settings:
-            SettingsView()
+        case .profile:
+            ProfileView()
         }
     }
 
@@ -121,13 +123,14 @@ enum AppTab: String, CaseIterable, Identifiable {
             Label("AI 助手", systemImage: "stethoscope")
         case .risks:
             Label("风险", systemImage: "exclamationmark.triangle")
-        case .settings:
-            Label("设置", systemImage: "gearshape")
+        case .profile:
+            Label("个人", systemImage: "person.crop.circle")
         }
     }
 }
 
 private struct FirstLaunchSetupView: View {
+    @Environment(\.modelContext) private var modelContext
     @AppStorage("profileHeightCM") private var profileHeightCM = ""
     @AppStorage("profileWeightKG") private var profileWeightKG = ""
     @AppStorage("prefersReducedAppMotion") private var prefersReducedAppMotion = false
@@ -221,7 +224,10 @@ private struct FirstLaunchSetupView: View {
                                 iconName: "bell.badge.fill"
                             ) {
                                 Task {
-                                    await notificationService.requestAuthorization()
+                                    let granted = await notificationService.requestAuthorization()
+                                    if granted {
+                                        await notificationService.reconcileAndScheduleReminders(in: modelContext)
+                                    }
                                 }
                             }
                         }

@@ -4,20 +4,32 @@ import SwiftData
 import SwiftUI
 import UIKit
 
-struct SettingsView: View {
-    @Environment(\.modelContext) private var modelContext
+struct ProfileView: View {
     @Query(sort: \StoredAIConsent.grantedAt, order: .reverse) private var consents: [StoredAIConsent]
     @Query(sort: \StoredMedication.displayName) private var medications: [StoredMedication]
     @Query(sort: \StoredDoseTask.dueAt, order: .reverse) private var tasks: [StoredDoseTask]
-    @AppStorage("appColorSchemePreference") private var appColorSchemePreference = AppColorSchemePreference.system.rawValue
-    @AppStorage("prefersReducedAppMotion") private var prefersReducedAppMotion = false
-    @AppStorage("showsMedicationPhotosInReminders") private var showsMedicationPhotosInReminders = true
-    @AppStorage("usesLargeTouchTargets") private var usesLargeTouchTargets = true
-    @StateObject private var notificationService = NotificationService()
+    @Query(sort: \StoredMedicationDoseChange.effectiveFrom, order: .reverse) private var doseChanges: [StoredMedicationDoseChange]
     @StateObject private var healthKitService = HealthKitService()
 
     private var activeConsent: StoredAIConsent? {
         consents.first { $0.id == "medical-ai-consent" && $0.isActive }
+    }
+
+    private var insight: AdherenceInsight {
+        AdherenceInsightBuilder().build(
+            scheduledDoses: tasks.map(\.coreScheduledDose),
+            events: tasks.compactMap(\.coreDoseEvent),
+            timeZone: TimeZone.current
+        )
+    }
+
+    private var trendInsight: AdherenceTrendInsight {
+        AdherenceTrendBuilder().build(
+            scheduledDoses: tasks.map(\.coreScheduledDose),
+            events: tasks.compactMap(\.coreDoseEvent),
+            doseChanges: doseChanges.map(\.coreDoseChange),
+            timeZone: TimeZone.current
+        )
     }
 
     var body: some View {
@@ -30,6 +42,145 @@ struct SettingsView: View {
                 }
             }
 
+            Section("我的记录") {
+                NavigationLink {
+                    RecordsView()
+                } label: {
+                    ProfileActionRow(
+                        iconName: "calendar",
+                        tint: .blue,
+                        title: "服药日历",
+                        subtitle: "\(insight.currentStreakDays) 天连续达标 · \(Int((insight.completionRate * 100).rounded()))% 总体完成率",
+                        trailingText: "\(recordedDayCount) 天"
+                    )
+                }
+
+                NavigationLink {
+                    MedicationTrendDetailView()
+                } label: {
+                    ProfileActionRow(
+                        iconName: trendIconName(trendInsight.state),
+                        tint: trendTint(trendInsight.state),
+                        title: "服用趋势",
+                        subtitle: trendInsight.message.isEmpty ? "至少 7 天记录后生成趋势" : trendInsight.message,
+                        trailingText: trendStateTitle(trendInsight.state)
+                    )
+                }
+
+                NavigationLink {
+                    VisitSummaryView()
+                } label: {
+                    ProfileActionRow(
+                        iconName: "doc.text.fill",
+                        tint: .orange,
+                        title: "复诊资料",
+                        subtitle: "生成服药记录摘要，并可导出 PDF",
+                        trailingText: nil
+                    )
+                }
+            }
+
+            Section("健康与智能体") {
+                NavigationLink {
+                    HealthDataSettingsView()
+                } label: {
+                    ProfileActionRow(
+                        iconName: "heart.text.square.fill",
+                        tint: .red,
+                        title: "Apple 健康",
+                        subtitle: healthKitService.hasCompletedAuthorizationRequest ? "已完成授权请求，可管理系统权限" : "授权后用于生命体征相关提醒",
+                        trailingText: healthKitService.hasCompletedAuthorizationRequest ? "已请求" : nil
+                    )
+                }
+
+                NavigationLink {
+                    MedicalAIPrivacyView()
+                } label: {
+                    ProfileActionRow(
+                        iconName: "stethoscope",
+                        tint: .green,
+                        title: "医疗智能体",
+                        subtitle: activeConsent == nil ? "尚未共享用药数据" : "已授权读取所选用药数据",
+                        trailingText: activeConsent == nil ? nil : "已授权"
+                    )
+                }
+            }
+
+            Section("偏好") {
+                NavigationLink {
+                    SettingsView()
+                } label: {
+                    ProfileActionRow(
+                        iconName: "gearshape.fill",
+                        tint: .gray,
+                        title: "应用设置",
+                        subtitle: "外观、提醒、触控和系统设置",
+                        trailingText: nil
+                    )
+                }
+            }
+
+            Section("隐私") {
+                Text("记录默认保存在本机；只有在你主动授权、生成或分享时，才会使用对应数据。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("个人")
+    }
+
+    private var recordedDayCount: Int {
+        Set(tasks.map { Calendar.current.startOfDay(for: $0.dueAt) }).count
+    }
+}
+
+private struct ProfileActionRow: View {
+    let iconName: String
+    let tint: Color
+    let title: String
+    let subtitle: String
+    let trailingText: String?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: iconName)
+                .font(.headline)
+                .foregroundStyle(tint)
+                .frame(width: 34, height: 34)
+                .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.primary)
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            if let trailingText {
+                Text(trailingText)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(tint)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .background(tint.opacity(0.10), in: Capsule())
+            }
+        }
+        .padding(.vertical, 5)
+    }
+}
+
+struct SettingsView: View {
+    @Environment(\.modelContext) private var modelContext
+    @AppStorage("appColorSchemePreference") private var appColorSchemePreference = AppColorSchemePreference.system.rawValue
+    @AppStorage("prefersReducedAppMotion") private var prefersReducedAppMotion = false
+    @AppStorage("showsMedicationPhotosInReminders") private var showsMedicationPhotosInReminders = true
+    @AppStorage("usesLargeTouchTargets") private var usesLargeTouchTargets = true
+    @StateObject private var notificationService = NotificationService()
+
+    var body: some View {
+        List {
             Section("外观与交互") {
                 Picker("显示模式", selection: $appColorSchemePreference) {
                     ForEach(AppColorSchemePreference.allCases) { preference in
@@ -60,11 +211,14 @@ struct SettingsView: View {
                     iconName: "bell.badge.fill",
                     tint: .blue,
                     title: "提醒通知",
-                    subtitle: notificationService.authorizationMessage
+                    subtitle: notificationStatusText
                 )
                 Button {
                     Task {
-                        await notificationService.requestAuthorization()
+                        let granted = await notificationService.requestAuthorization()
+                        if granted {
+                            await notificationService.reconcileAndScheduleReminders(in: modelContext)
+                        }
                     }
                 } label: {
                     Text("开启或更新通知权限")
@@ -76,7 +230,40 @@ struct SettingsView: View {
                 }
             }
 
-            Section("健康数据") {
+            Section("隐私") {
+                Text("我们采用行业通用标准，帮助保护你的健康信息机密性。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("应用设置")
+        .task {
+            await notificationService.refreshAuthorizationStatus()
+            await notificationService.refreshPendingReminderCount()
+        }
+    }
+
+    private var notificationStatusText: String {
+        guard notificationService.pendingReminderCount > 0 else {
+            return notificationService.authorizationMessage
+        }
+        return "\(notificationService.authorizationMessage) · 已安排 \(notificationService.pendingReminderCount) 个提醒"
+    }
+
+    private func openSystemSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else {
+            return
+        }
+        UIApplication.shared.open(url)
+    }
+}
+
+private struct HealthDataSettingsView: View {
+    @StateObject private var healthKitService = HealthKitService()
+
+    var body: some View {
+        List {
+            Section {
                 SettingsStatusRow(
                     iconName: "heart.text.square.fill",
                     tint: .red,
@@ -86,6 +273,9 @@ struct SettingsView: View {
                 Text("可读取：\(healthKitService.supportedReadTypesSummary)")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            }
+
+            Section("授权") {
                 Button {
                     Task {
                         await healthKitService.requestAuthorizationEntry()
@@ -93,62 +283,17 @@ struct SettingsView: View {
                 } label: {
                     Text(healthKitService.hasCompletedAuthorizationRequest ? "重新请求或更新授权" : "授权读取健康数据")
                 }
-                if healthKitService.hasCompletedAuthorizationRequest {
-                    Text("如需关闭或调整具体健康指标，请前往系统隐私设置。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
                 Button {
                     openSystemSettings()
                 } label: {
                     Text("打开系统隐私设置")
                 }
-            }
-
-            Section("医疗智能体") {
-                SettingsStatusRow(
-                    iconName: "stethoscope",
-                    tint: .green,
-                    title: "医疗 AI",
-                    subtitle: activeConsent == nil ? "尚未共享用药数据" : "已授权读取所选用药数据"
-                )
-                if activeConsent != nil {
-                    Button(role: .destructive) {
-                        revokeAIConsent()
-                    } label: {
-                        Text("停止共享用药数据")
-                    }
-                }
-            }
-
-            Section("复诊资料") {
-                NavigationLink {
-                    VisitSummaryView()
-                } label: {
-                    SettingsStatusRow(
-                        iconName: "doc.text.fill",
-                        tint: .orange,
-                        title: "生成服药记录",
-                        subtitle: "按时间段生成纯文本摘要，并可导出 PDF"
-                    )
-                }
-                Text("记录只在你主动生成或分享时导出，用于复诊沟通。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("隐私") {
-                Text("我们采用行业通用标准，帮助保护你的健康信息机密性。")
+                Text(healthKitService.hasCompletedAuthorizationRequest ? "已完成授权请求；如需关闭或调整具体健康指标，请前往系统隐私设置。" : "授权后仅在用户允许范围内读取生命体征，并用于用药相关风险提示。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
         }
-        .navigationTitle("设置")
-    }
-
-    private func revokeAIConsent() {
-        activeConsent?.revokedAt = Date()
-        try? modelContext.save()
+        .navigationTitle("Apple 健康")
     }
 
     private func openSystemSettings() {
@@ -156,6 +301,76 @@ struct SettingsView: View {
             return
         }
         UIApplication.shared.open(url)
+    }
+}
+
+private struct MedicalAIPrivacyView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \StoredAIConsent.grantedAt, order: .reverse) private var consents: [StoredAIConsent]
+
+    private var activeConsent: StoredAIConsent? {
+        consents.first { $0.id == "medical-ai-consent" && $0.isActive }
+    }
+
+    var body: some View {
+        List {
+            Section {
+                SettingsStatusRow(
+                    iconName: "stethoscope",
+                    tint: .green,
+                    title: "医疗智能体",
+                    subtitle: activeConsent == nil ? "尚未共享用药数据" : "已授权读取所选用药数据"
+                )
+                Text("医疗智能体入口在 AI 助手页；这里仅管理数据共享状态。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("共享范围") {
+                if let activeConsent {
+                    ConsentScopeRow(title: "药品名称、规格和来源", isEnabled: activeConsent.sharesMedicationProfile)
+                    ConsentScopeRow(title: "提醒计划", isEnabled: activeConsent.sharesMedicationPlans)
+                    ConsentScopeRow(title: "服药记录", isEnabled: activeConsent.sharesDoseEvents)
+                    ConsentScopeRow(title: "风险卡片", isEnabled: activeConsent.sharesRiskCards)
+                    ConsentScopeRow(title: "说明书摘要", isEnabled: activeConsent.sharesDrugLabels)
+                    ConsentScopeRow(title: "导入草稿", isEnabled: activeConsent.sharesImportDraft)
+                } else {
+                    Text("进入 AI 助手并确认授权后，才会共享你选择的数据。")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if activeConsent != nil {
+                Section {
+                    Button(role: .destructive) {
+                        revokeAIConsent()
+                    } label: {
+                        Text("停止共享用药数据")
+                    }
+                }
+            }
+        }
+        .navigationTitle("医疗智能体")
+    }
+
+    private func revokeAIConsent() {
+        activeConsent?.revokedAt = Date()
+        try? modelContext.save()
+    }
+}
+
+private struct ConsentScopeRow: View {
+    let title: String
+    let isEnabled: Bool
+
+    var body: some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(isEnabled ? "已共享" : "未共享")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(isEnabled ? .green : .secondary)
+        }
     }
 }
 

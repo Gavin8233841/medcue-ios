@@ -6,6 +6,8 @@ DerivedData/
 xcuserdata/
 .DS_Store
 .env
+AISecrets.plist
+**/AISecrets.plist
 *.log
 *.dmg
 .agentwatch_inspect/

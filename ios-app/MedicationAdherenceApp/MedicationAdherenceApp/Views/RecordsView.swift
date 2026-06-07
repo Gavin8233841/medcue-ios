@@ -6,6 +6,7 @@ struct RecordsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \StoredDoseTask.dueAt, order: .reverse) private var tasks: [StoredDoseTask]
     @Query(sort: \StoredMedication.displayName) private var medications: [StoredMedication]
+    @Query(sort: \StoredMedicationDoseChange.effectiveFrom, order: .reverse) private var doseChanges: [StoredMedicationDoseChange]
     @State private var showingMonthCalendar = false
     @State private var selectedDate = Date()
     @State private var displayedMonth = Calendar.current.dateInterval(of: .month, for: Date())?.start ?? Date()
@@ -27,7 +28,7 @@ struct RecordsView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("\(insight.currentStreakDays) 天")
                             .font(.largeTitle.weight(.bold))
-                        Text("当前连续完成")
+                        Text("当前连续达标")
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
@@ -47,7 +48,7 @@ struct RecordsView: View {
             Section("漏服与延后") {
                 InfoRow(title: "已忽略", value: "\(insight.skippedCount) 次")
                 InfoRow(title: "稍后提醒", value: "\(insight.delayedCount) 次")
-                InfoRow(title: "最长连续完成", value: "\(insight.longestStreakDays) 天")
+                InfoRow(title: "最长连续达标", value: "\(insight.longestStreakDays) 天")
             }
 
             Section("记录日历") {
@@ -58,6 +59,7 @@ struct RecordsView: View {
                         monthRange: monthBrowsingRange,
                         days: daysInDisplayedMonth(),
                         tasksForDay: tasks(on:),
+                        doseChangesForDay: doseChanges(on:),
                         openDay: openDayDetail,
                         moveMonth: moveDisplayedMonth
                     )
@@ -65,7 +67,10 @@ struct RecordsView: View {
                     DayDoseListView(
                         date: selectedDate,
                         tasks: tasks(on: selectedDate),
+                        doseChanges: doseChanges(on: selectedDate),
+                        allDoseChanges: doseChanges,
                         medication: medication(for:),
+                        medicationForDoseChange: medication(for:),
                         openTask: { selectedTaskForCorrection = $0 }
                     )
                 } label: {
@@ -82,6 +87,7 @@ struct RecordsView: View {
                         selectedDate: $selectedDate,
                         days: daysInCurrentWeek(),
                         tasksForDay: tasks(on:),
+                        doseChangesForDay: doseChanges(on:),
                         openDay: openDayDetail
                     )
                 }
@@ -116,7 +122,10 @@ struct RecordsView: View {
             DayDoseDetailSheet(
                 date: selection.date,
                 tasks: tasks(on: selection.date),
+                doseChanges: doseChanges(on: selection.date),
+                allDoseChanges: doseChanges,
                 medication: medication(for:),
+                medicationForDoseChange: medication(for:),
                 openTask: { task in
                     selectedDateForDetail = nil
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
@@ -129,6 +138,10 @@ struct RecordsView: View {
 
     private func medication(for task: StoredDoseTask) -> StoredMedication? {
         medications.first { $0.id == task.medicationID }
+    }
+
+    private func medication(for change: StoredMedicationDoseChange) -> StoredMedication? {
+        medications.first { $0.id == change.medicationID }
     }
 
     private var weekTasks: [StoredDoseTask] {
@@ -170,6 +183,12 @@ struct RecordsView: View {
         tasks
             .filter { Calendar.current.isDate($0.dueAt, inSameDayAs: date) }
             .sorted { $0.dueAt < $1.dueAt }
+    }
+
+    private func doseChanges(on date: Date) -> [StoredMedicationDoseChange] {
+        doseChanges
+            .filter { Calendar.current.isDate($0.effectiveFrom, inSameDayAs: date) }
+            .sorted { $0.effectiveFrom < $1.effectiveFrom }
     }
 
     private func openDayDetail(_ date: Date) {
@@ -395,6 +414,7 @@ private struct WeekDoseCalendarView: View {
     @Binding var selectedDate: Date
     let days: [Date]
     let tasksForDay: (Date) -> [StoredDoseTask]
+    let doseChangesForDay: (Date) -> [StoredMedicationDoseChange]
     let openDay: (Date) -> Void
 
     var body: some View {
@@ -407,6 +427,7 @@ private struct WeekDoseCalendarView: View {
                     DoseCalendarDayButton(
                         day: day,
                         tasks: tasksForDay(day),
+                        doseChangeCount: doseChangesForDay(day).count,
                         isSelected: Calendar.current.isDate(day, inSameDayAs: selectedDate),
                         showsWeekday: true,
                         action: {
@@ -430,6 +451,7 @@ private struct MonthDoseCalendarView: View {
     let monthRange: ClosedRange<Date>
     let days: [Date]
     let tasksForDay: (Date) -> [StoredDoseTask]
+    let doseChangesForDay: (Date) -> [StoredMedicationDoseChange]
     let openDay: (Date) -> Void
     let moveMonth: (Int) -> Void
 
@@ -477,6 +499,7 @@ private struct MonthDoseCalendarView: View {
                         DoseCalendarDayButton(
                             day: day,
                             tasks: tasksForDay(day),
+                            doseChangeCount: doseChangesForDay(day).count,
                             isSelected: Calendar.current.isDate(day, inSameDayAs: selectedDate),
                             showsWeekday: false,
                             action: {
@@ -548,6 +571,7 @@ private struct MonthDoseCalendarView: View {
 private struct DoseCalendarDayButton: View {
     let day: Date
     let tasks: [StoredDoseTask]
+    let doseChangeCount: Int
     let isSelected: Bool
     let showsWeekday: Bool
     let action: () -> Void
@@ -570,6 +594,11 @@ private struct DoseCalendarDayButton: View {
                     Circle()
                         .fill(indicatorColor)
                         .frame(width: 6, height: 6)
+                    if doseChangeCount > 0 {
+                        Circle()
+                            .fill(Color.purple)
+                            .frame(width: 6, height: 6)
+                    }
                     if !tasks.isEmpty {
                         Text("\(completedCount)/\(tasks.count)")
                             .font(.caption2)
@@ -588,7 +617,13 @@ private struct DoseCalendarDayButton: View {
             }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(AppFormatters.day.string(from: day))，\(tasks.isEmpty ? "没有用药任务" : "\(completedCount) / \(tasks.count) 项已完成")")
+        .accessibilityLabel(accessibilityText)
+    }
+
+    private var accessibilityText: String {
+        let taskText = tasks.isEmpty ? "没有用药任务" : "\(completedCount) / \(tasks.count) 项已完成"
+        let doseChangeText = doseChangeCount > 0 ? "，\(doseChangeCount) 条剂量变化" : ""
+        return "\(AppFormatters.day.string(from: day))，\(taskText)\(doseChangeText)"
     }
 
     private var weekdayText: String {
@@ -614,7 +649,10 @@ private struct DoseCalendarDayButton: View {
 private struct DayDoseListView: View {
     let date: Date
     let tasks: [StoredDoseTask]
+    let doseChanges: [StoredMedicationDoseChange]
+    let allDoseChanges: [StoredMedicationDoseChange]
     let medication: (StoredDoseTask) -> StoredMedication?
+    let medicationForDoseChange: (StoredMedicationDoseChange) -> StoredMedication?
     let openTask: (StoredDoseTask) -> Void
 
     var body: some View {
@@ -635,6 +673,19 @@ private struct DayDoseListView: View {
                     .buttonStyle(.plain)
                 }
             }
+
+            if !doseChanges.isEmpty {
+                Divider()
+                Text("剂量变化")
+                    .font(.subheadline.weight(.semibold))
+                ForEach(doseChanges) { change in
+                    DoseChangeLine(
+                        change: change,
+                        effectiveUntil: doseChangeEffectiveUntil(change, in: allDoseChanges),
+                        medication: medicationForDoseChange(change)
+                    )
+                }
+            }
         }
         .padding(.vertical, 8)
     }
@@ -644,7 +695,10 @@ private struct DayDoseDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     let date: Date
     let tasks: [StoredDoseTask]
+    let doseChanges: [StoredMedicationDoseChange]
+    let allDoseChanges: [StoredMedicationDoseChange]
     let medication: (StoredDoseTask) -> StoredMedication?
+    let medicationForDoseChange: (StoredMedicationDoseChange) -> StoredMedication?
     let openTask: (StoredDoseTask) -> Void
 
     var body: some View {
@@ -653,7 +707,7 @@ private struct DayDoseDetailSheet: View {
                 Section {
                     Text(AppFormatters.day.string(from: date))
                         .font(.title3.weight(.semibold))
-                    Text(tasks.isEmpty ? "这一天没有用药任务。" : "\(tasks.count) 项用药记录，可点开修正。")
+                    Text(daySummaryText)
                         .foregroundStyle(.secondary)
                 }
 
@@ -672,6 +726,21 @@ private struct DayDoseDetailSheet: View {
                         }
                     }
                 }
+
+                if !doseChanges.isEmpty {
+                    Section("剂量变化") {
+                        ForEach(doseChanges) { change in
+                            DoseChangeLine(
+                                change: change,
+                                effectiveUntil: doseChangeEffectiveUntil(change, in: allDoseChanges),
+                                medication: medicationForDoseChange(change)
+                            )
+                        }
+                        Text("此处记录从当天开始生效的剂量变化，便于回看用药方案调整时间段；不代表诊断、处方、剂量建议或疗效判断。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
             .navigationTitle("日期详情")
             .toolbar {
@@ -682,6 +751,59 @@ private struct DayDoseDetailSheet: View {
                 }
             }
         }
+    }
+
+    private var daySummaryText: String {
+        var parts: [String] = []
+        parts.append(tasks.isEmpty ? "这一天没有用药任务。" : "\(tasks.count) 项用药记录，可点开修正。")
+        if !doseChanges.isEmpty {
+            parts.append("\(doseChanges.count) 条剂量变化。")
+        }
+        return parts.joined(separator: " ")
+    }
+}
+
+private struct DoseChangeLine: View {
+    let change: StoredMedicationDoseChange
+    let effectiveUntil: Date?
+    let medication: StoredMedication?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.purple)
+                .frame(width: 30, height: 30)
+                .background(Color.purple.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(medication?.displayName ?? "未知药品")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(doseChangeText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Text(doseChangeEffectivePeriodText(change: change, effectiveUntil: effectiveUntil))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                if !change.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text(change.note)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var doseChangeText: String {
+        let newDose = "\(change.newDoseValue.formatted()) \(localizedMedicationUnit(change.newDoseUnit))"
+        guard let previousDoseValue = change.previousDoseValue else {
+            return "初始剂量 \(newDose)"
+        }
+        let previousDose = "\(previousDoseValue.formatted()) \(localizedMedicationUnit(change.previousDoseUnit))"
+        return "\(previousDose) 调整为 \(newDose)"
     }
 }
 
@@ -715,4 +837,46 @@ private struct DayDoseTaskLine: View {
         .padding(.vertical, 4)
         .contentShape(Rectangle())
     }
+}
+
+private func doseChangeEffectiveUntil(
+    _ change: StoredMedicationDoseChange,
+    in changes: [StoredMedicationDoseChange]
+) -> Date? {
+    let calendar = Calendar.current
+    let currentStart = calendar.startOfDay(for: change.effectiveFrom)
+    let nextChange = changes
+        .filter {
+            $0.id != change.id
+                && $0.medicationID == change.medicationID
+                && doseChangePlanMatches($0, change)
+                && $0.effectiveFrom > change.effectiveFrom
+        }
+        .min { $0.effectiveFrom < $1.effectiveFrom }
+
+    guard let nextStart = nextChange.map({ calendar.startOfDay(for: $0.effectiveFrom) }) else {
+        return nil
+    }
+    guard nextStart > currentStart else {
+        return currentStart
+    }
+    return calendar.date(byAdding: .day, value: -1, to: nextStart)
+}
+
+private func doseChangePlanMatches(_ first: StoredMedicationDoseChange, _ second: StoredMedicationDoseChange) -> Bool {
+    guard let firstPlanID = first.planID, let secondPlanID = second.planID else {
+        return true
+    }
+    return firstPlanID == secondPlanID
+}
+
+private func doseChangeEffectivePeriodText(change: StoredMedicationDoseChange, effectiveUntil: Date?) -> String {
+    let startText = AppFormatters.day.string(from: change.effectiveFrom)
+    guard let effectiveUntil else {
+        return "生效阶段：\(startText) 至今"
+    }
+    if Calendar.current.isDate(effectiveUntil, inSameDayAs: change.effectiveFrom) {
+        return "生效阶段：\(startText) 当天，之后有新的剂量记录"
+    }
+    return "生效阶段：\(startText) 至 \(AppFormatters.day.string(from: effectiveUntil))"
 }

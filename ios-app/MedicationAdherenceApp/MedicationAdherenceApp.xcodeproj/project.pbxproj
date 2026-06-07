@@ -79,15 +79,16 @@
 		A20000000000000000000014 /* MedicationAdherenceApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MedicationAdherenceApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000015 /* SecureAIConfigurationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecureAIConfigurationStore.swift; sourceTree = "<group>"; };
 		A20000000000000000000016 /* AIAssistantView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAssistantView.swift; sourceTree = "<group>"; };
-		A20000000000000000000017 /* BarcodeScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarcodeScannerView.swift; sourceTree = "<group>"; };
-		A20000000000000000000018 /* MedicationAdherenceApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MedicationAdherenceApp.entitlements; sourceTree = "<group>"; };
-		A20000000000000000000019 /* BaichuanMedicalAIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaichuanMedicalAIClient.swift; sourceTree = "<group>"; };
-		A20000000000000000000020 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+			A20000000000000000000017 /* BarcodeScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BarcodeScannerView.swift; sourceTree = "<group>"; };
+			A20000000000000000000018 /* MedicationAdherenceApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = MedicationAdherenceApp.entitlements; sourceTree = "<group>"; };
+			A20000000000000000000019 /* BaichuanMedicalAIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaichuanMedicalAIClient.swift; sourceTree = "<group>"; };
+			A20000000000000000000020 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000000000000000000021 /* DoubaoMedicalAIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubaoMedicalAIClient.swift; sourceTree = "<group>"; };
 		A20000000000000000000022 /* MedicationLiveActivityService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationLiveActivityService.swift; sourceTree = "<group>"; };
-		A20000000000000000000023 /* MedicationRiskReviewService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationRiskReviewService.swift; sourceTree = "<group>"; };
-		A20000000000000000000024 /* MedicationLifecycleClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationLifecycleClassifier.swift; sourceTree = "<group>"; };
-		A20000000000000000000025 /* WeatherMedicationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherMedicationService.swift; sourceTree = "<group>"; };
+			A20000000000000000000023 /* MedicationRiskReviewService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationRiskReviewService.swift; sourceTree = "<group>"; };
+			A20000000000000000000024 /* MedicationLifecycleClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationLifecycleClassifier.swift; sourceTree = "<group>"; };
+			A20000000000000000000025 /* WeatherMedicationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherMedicationService.swift; sourceTree = "<group>"; };
+			A20000000000000000000026 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B20000000000000000000001 /* MedicationReminderActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationReminderActivityAttributes.swift; sourceTree = "<group>"; };
 		B20000000000000000000002 /* MedicationReminderLiveActivityBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationReminderLiveActivityBundle.swift; sourceTree = "<group>"; };
 		B20000000000000000000003 /* MedicationReminderLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationReminderLiveActivity.swift; sourceTree = "<group>"; };
@@ -126,12 +127,13 @@
 		A40000000000000000000002 /* MedicationAdherenceApp */ = {
 			isa = PBXGroup;
 			children = (
-				A20000000000000000000001 /* MedicationAdherenceApp.swift */,
-				A20000000000000000000002 /* AppRootView.swift */,
-				A20000000000000000000018 /* MedicationAdherenceApp.entitlements */,
-				A20000000000000000000020 /* Assets.xcassets */,
-				B40000000000000000000001 /* Shared */,
-				A40000000000000000000003 /* Models */,
+					A20000000000000000000001 /* MedicationAdherenceApp.swift */,
+					A20000000000000000000002 /* AppRootView.swift */,
+					A20000000000000000000018 /* MedicationAdherenceApp.entitlements */,
+					A20000000000000000000026 /* Info.plist */,
+					A20000000000000000000020 /* Assets.xcassets */,
+					B40000000000000000000001 /* Shared */,
+					A40000000000000000000003 /* Models */,
 				A40000000000000000000004 /* Services */,
 				A40000000000000000000005 /* Views */,
 			);
@@ -216,6 +218,7 @@
 				A80000000000000000000001 /* Sources */,
 				A30000000000000000000001 /* Frameworks */,
 				A80000000000000000000002 /* Resources */,
+				A80000000000000000000003 /* Copy Local AI Secrets */,
 				B80000000000000000000004 /* Embed App Extensions */,
 			);
 			buildRules = (
@@ -308,6 +311,28 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		A80000000000000000000003 /* Copy Local AI Secrets */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Local AI Secrets";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nSECRETS_FILE=\"${PROJECT_DIR}/MedicationAdherenceApp/AISecrets.plist\"\nDESTINATION=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/AISecrets.plist\"\nif [ -f \"${SECRETS_FILE}\" ]; then\n    mkdir -p \"$(dirname \"${DESTINATION}\")\"\n    cp \"${SECRETS_FILE}\" \"${DESTINATION}\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		A80000000000000000000001 /* Sources */ = {
@@ -482,21 +507,14 @@
 				CODE_SIGN_ENTITLEMENTS = MedicationAdherenceApp/MedicationAdherenceApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = M74Y4RX827;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "用药跟踪";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.medical";
-				INFOPLIST_KEY_NSCameraUsageDescription = "用于在用户主动触发时扫描药盒条码或拍摄药品照片；识别结果和照片仅用于待确认录入、提醒和辅助核对。";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "用于在用户授权后读取健康数据并辅助复诊沟通。";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "用于在用户授权后读取当前位置天气，并生成与用药记录相关的环境提醒。";
-				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.gwyy.appcontest2026.medicationadherence;
+					DEVELOPMENT_ASSET_PATHS = "";
+					DEVELOPMENT_TEAM = M74Y4RX827;
+					ENABLE_PREVIEWS = YES;
+					GENERATE_INFOPLIST_FILE = NO;
+					INFOPLIST_FILE = MedicationAdherenceApp/Info.plist;
+					IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+					MARKETING_VERSION = 1.0;
+					PRODUCT_BUNDLE_IDENTIFIER = com.gwyy.appcontest2026.medicationadherence;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -514,21 +532,14 @@
 				CODE_SIGN_ENTITLEMENTS = MedicationAdherenceApp/MedicationAdherenceApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = M74Y4RX827;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "用药跟踪";
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.medical";
-				INFOPLIST_KEY_NSCameraUsageDescription = "用于在用户主动触发时扫描药盒条码或拍摄药品照片；识别结果和照片仅用于待确认录入、提醒和辅助核对。";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "用于在用户授权后读取健康数据并辅助复诊沟通。";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "用于在用户授权后读取当前位置天气，并生成与用药记录相关的环境提醒。";
-				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.gwyy.appcontest2026.medicationadherence;
+					DEVELOPMENT_ASSET_PATHS = "";
+					DEVELOPMENT_TEAM = M74Y4RX827;
+					ENABLE_PREVIEWS = YES;
+					GENERATE_INFOPLIST_FILE = NO;
+					INFOPLIST_FILE = MedicationAdherenceApp/Info.plist;
+					IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+					MARKETING_VERSION = 1.0;
+					PRODUCT_BUNDLE_IDENTIFIER = com.gwyy.appcontest2026.medicationadherence;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
