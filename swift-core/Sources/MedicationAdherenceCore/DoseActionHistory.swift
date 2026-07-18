@@ -5,6 +5,8 @@ public enum DoseActionKind: String, Codable, Sendable, Equatable {
     case delay
     case skip
     case correct
+    case archiveToday
+    case restoreArchive
 }
 
 public struct DoseActionRecord: Codable, Identifiable, Sendable, Equatable {
@@ -63,14 +65,14 @@ public struct DoseActionHistoryBuilder: Sendable {
             scheduledDoseID: scheduledDoseID,
             action: action,
             previousStatus: previousStatus,
-            newStatus: status(for: action),
+            newStatus: status(for: action, previousStatus: previousStatus),
             occurredAt: occurredAt,
             undoExpiresAt: occurredAt.addingTimeInterval(undoWindowSeconds),
             note: note
         )
     }
 
-    private func status(for action: DoseActionKind) -> DoseEventStatus {
+    private func status(for action: DoseActionKind, previousStatus: DoseEventStatus?) -> DoseEventStatus {
         switch action {
         case .markTaken:
             .taken
@@ -80,6 +82,8 @@ public struct DoseActionHistoryBuilder: Sendable {
             .skipped
         case .correct:
             .corrected
+        case .archiveToday, .restoreArchive:
+            previousStatus ?? .corrected
         }
     }
 }

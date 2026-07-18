@@ -143,7 +143,7 @@ public struct RiskAssessmentEngine: Sendable {
                 kind: .labelRisk,
                 displayPriority: priority(for: notice.kind),
                 title: notice.title,
-                message: "说明书“\(notice.sourceTitle)”中提到相关风险，请按原文核对，并向医生或药师确认。",
+                message: labelRiskMessage(for: notice),
                 evidence: RiskAssessmentEvidence(
                     sourceTitle: notice.sourceTitle,
                     excerpt: notice.excerpt,
@@ -153,6 +153,41 @@ public struct RiskAssessmentEngine: Sendable {
                 requiresProfessionalReview: true
             )
         }
+    }
+
+    private func labelRiskMessage(for notice: RiskNotice) -> String {
+        let sourceTitle = normalized(notice.sourceTitle) ?? "相关章节"
+        let excerpt = displayExcerpt(from: notice.excerpt)
+        let sourceText = "说明书“\(sourceTitle)”指出：\(excerpt)"
+
+        switch notice.kind {
+        case .contraindication:
+            return "\(sourceText) 请核对你是否属于上述人群、成分过敏或用药条件，并向医生或药师确认。"
+        case .interaction:
+            return "\(sourceText) 请带着当前正在使用的药品、保健品和外用药清单咨询医生或药师。"
+        case .foodWarning:
+            return "\(sourceText) 请核对近期饮食、饮酒或生活方式记录，并向医生或药师确认是否需要调整安排。"
+        case .adverseReaction:
+            return "\(sourceText) 若出现相似不适，请记录时间、症状和正在使用的药品，并咨询医生或药师。"
+        case .generalWarning:
+            return "\(sourceText) 请按原文核对适用条件，并在不确定时咨询医生或药师。"
+        }
+    }
+
+    private func displayExcerpt(from excerpt: String, fallback: String = "该章节含有需要复核的用药提醒。") -> String {
+        let normalizedExcerpt = excerpt
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedExcerpt.isEmpty else {
+            return fallback
+        }
+        let finalPunctuation: Set<Character> = ["。", "！", "？", ".", "!", "?"]
+        return finalPunctuation.contains(normalizedExcerpt.last ?? "。")
+            ? normalizedExcerpt
+            : "\(normalizedExcerpt)。"
     }
 
     private func reviewCards(
@@ -217,7 +252,7 @@ public struct RiskAssessmentEngine: Sendable {
                 kind: .medicationSourceReview,
                 displayPriority: 26,
                 title: "处方识别结果待核对",
-                message: "拍照或 OCR 识别结果必须按原始处方或医嘱逐项核对，确认后才能作为提醒计划依据。",
+                message: "拍照识别结果必须按原始处方或医嘱逐项核对，确认后才能作为提醒计划依据。",
                 requiresProfessionalReview: true
             ))
         }
@@ -228,7 +263,7 @@ public struct RiskAssessmentEngine: Sendable {
                 kind: .medicationSourceReview,
                 displayPriority: 30,
                 title: "说明书来源待核对",
-                message: "当前说明书内容来自用户提供文本，请核对药品包装、说明书原件或权威来源后再用于复核。",
+                message: "当前说明书内容来自本地保存或用户提供文本，请核对药品包装、说明书原件或权威来源后再用于复核。",
                 requiresProfessionalReview: true
             ))
         }

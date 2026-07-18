@@ -25,4 +25,6 @@ import Testing
     #expect(builder.record(scheduledDoseID: doseID, action: .delay, previousStatus: nil).newStatus == .delayed)
     #expect(builder.record(scheduledDoseID: doseID, action: .skip, previousStatus: nil).newStatus == .skipped)
     #expect(builder.record(scheduledDoseID: doseID, action: .correct, previousStatus: .skipped).newStatus == .corrected)
+    #expect(builder.record(scheduledDoseID: doseID, action: .archiveToday, previousStatus: .taken).newStatus == .taken)
+    #expect(builder.record(scheduledDoseID: doseID, action: .restoreArchive, previousStatus: .skipped).newStatus == .skipped)
 }

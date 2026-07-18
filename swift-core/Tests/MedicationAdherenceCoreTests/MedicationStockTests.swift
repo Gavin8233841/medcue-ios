@@ -33,6 +33,169 @@ import Testing
     #expect(projection.issues.isEmpty)
 }
 
+@Test func medicationStockProjectionUsesPhysicalCountAsCheckpointWithoutResettingConsumptionHistory() {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    let checkpoint = makeStockDate(calendar: calendar, day: 2, hour: 0)
+    let stock = MedicationStock(
+        medicationID: UUID(),
+        remainingQuantity: 9,
+        unit: "片",
+        lowStockThreshold: 3,
+        lastUpdated: checkpoint
+    )
+    let scheduled = [
+        ScheduledDose(
+            planID: UUID(),
+            dueAt: makeStockDate(calendar: calendar, day: 1, hour: 8),
+            dose: DoseAmount(value: 1, unit: "片")
+        ),
+        ScheduledDose(
+            planID: UUID(),
+            dueAt: makeStockDate(calendar: calendar, day: 2, hour: 8),
+            dose: DoseAmount(value: 1, unit: "片")
+        )
+    ]
+    let events = [
+        DoseEvent(
+            scheduledDoseID: scheduled[0].id,
+            status: .taken,
+            recordedAt: checkpoint.addingTimeInterval(-60)
+        ),
+        DoseEvent(
+            scheduledDoseID: scheduled[1].id,
+            status: .taken,
+            recordedAt: checkpoint.addingTimeInterval(60)
+        )
+    ]
+
+    let projection = MedicationStockEstimator().project(
+        stock: stock,
+        scheduledDoses: scheduled,
+        events: events,
+        calendar: calendar,
+        timeZone: calendar.timeZone
+    )
+
+    #expect(projection.consumedQuantity == 1)
+    #expect(projection.projectedRemainingQuantity == 8)
+    #expect(projection.averageDailyConsumption == 1)
+    #expect(projection.trackedDayCount == 2)
+    #expect(projection.estimatedDaysRemaining == 8)
+}
+
+@Test func medicationStockProjectionDoesNotDeductEventRecordedAtCheckpoint() {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    let checkpoint = makeStockDate(calendar: calendar, day: 2, hour: 8)
+    let scheduled = ScheduledDose(
+        planID: UUID(),
+        dueAt: checkpoint,
+        dose: DoseAmount(value: 1, unit: "片")
+    )
+    let stock = MedicationStock(
+        medicationID: UUID(),
+        remainingQuantity: 9,
+        unit: "片",
+        lowStockThreshold: 3,
+        lastUpdated: checkpoint
+    )
+
+    let projection = MedicationStockEstimator().project(
+        stock: stock,
+        scheduledDoses: [scheduled],
+        events: [DoseEvent(
+            scheduledDoseID: scheduled.id,
+            status: .taken,
+            recordedAt: checkpoint
+        )],
+        calendar: calendar,
+        timeZone: calendar.timeZone
+    )
+
+    #expect(projection.consumedQuantity == 0)
+    #expect(projection.projectedRemainingQuantity == 9)
+    #expect(projection.averageDailyConsumption == 1)
+    #expect(projection.trackedDayCount == 1)
+    #expect(projection.estimatedDaysRemaining == 9)
+}
+
+@Test func medicationStockProjectionDoesNotDeductDoseWhoseLatestEventIsSkipped() {
+    let checkpoint = Date(timeIntervalSince1970: 1_750_000_000)
+    let scheduled = ScheduledDose(
+        planID: UUID(),
+        dueAt: checkpoint.addingTimeInterval(60),
+        dose: DoseAmount(value: 1, unit: "tablet")
+    )
+    let stock = MedicationStock(
+        medicationID: UUID(),
+        remainingQuantity: 9,
+        unit: "tablet",
+        lowStockThreshold: 3,
+        lastUpdated: checkpoint
+    )
+    let events = [
+        DoseEvent(
+            scheduledDoseID: scheduled.id,
+            status: .taken,
+            recordedAt: checkpoint.addingTimeInterval(60)
+        ),
+        DoseEvent(
+            scheduledDoseID: scheduled.id,
+            status: .skipped,
+            recordedAt: checkpoint.addingTimeInterval(120)
+        )
+    ]
+
+    let projection = MedicationStockEstimator().project(
+        stock: stock,
+        scheduledDoses: [scheduled],
+        events: events
+    )
+
+    #expect(projection.consumedQuantity == 0)
+    #expect(projection.projectedRemainingQuantity == 9)
+}
+
+@Test func medicationStockProjectionDeductsLatestCorrectedDoseOnlyOnce() {
+    let checkpoint = Date(timeIntervalSince1970: 1_750_000_000)
+    let scheduled = ScheduledDose(
+        planID: UUID(),
+        dueAt: checkpoint.addingTimeInterval(60),
+        dose: DoseAmount(value: 2, unit: "tablet")
+    )
+    let stock = MedicationStock(
+        medicationID: UUID(),
+        remainingQuantity: 10,
+        unit: "tablet",
+        lowStockThreshold: 3,
+        lastUpdated: checkpoint
+    )
+    let events = [
+        DoseEvent(
+            scheduledDoseID: scheduled.id,
+            status: .taken,
+            recordedAt: checkpoint.addingTimeInterval(60)
+        ),
+        DoseEvent(
+            scheduledDoseID: scheduled.id,
+            status: .corrected,
+            recordedAt: checkpoint.addingTimeInterval(120)
+        )
+    ]
+
+    let projection = MedicationStockEstimator().project(
+        stock: stock,
+        scheduledDoses: [scheduled],
+        events: events
+    )
+
+    #expect(projection.consumedQuantity == 2)
+    #expect(projection.projectedRemainingQuantity == 8)
+    #expect(projection.averageDailyConsumption == 2)
+    #expect(projection.trackedDayCount == 1)
+}
+
 @Test func medicationStockProjectionFlagsLowStock() {
     let medicationID = UUID()
     let stock = MedicationStock(
@@ -92,7 +255,8 @@ import Testing
         medicationID: UUID(),
         remainingQuantity: 20,
         unit: "片",
-        lowStockThreshold: 3
+        lowStockThreshold: 3,
+        lastUpdated: makeStockDate(calendar: calendar, day: 1, hour: 0)
     )
     let scheduled = [
         ScheduledDose(planID: UUID(), dueAt: makeStockDate(calendar: calendar, day: 1, hour: 8), dose: DoseAmount(value: 1, unit: "片")),

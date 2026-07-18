@@ -13,6 +13,10 @@ final class MedicationLiveActivityService: ObservableObject {
         guard #available(iOS 16.2, *) else {
             return
         }
+        guard medication?.lifecycleStatus == .active else {
+            await end(for: task.id)
+            return
+        }
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
             return
         }
@@ -27,7 +31,7 @@ final class MedicationLiveActivityService: ObservableObject {
             return
         }
 
-        let medicationName = medication?.displayName ?? "用药提醒"
+        let medicationName = medication.map(userFacingMedicationName(for:)) ?? "用药提醒"
         let attributes = MedicationReminderActivityAttributes(
             taskID: task.id,
             medicationName: medicationName,
@@ -35,7 +39,8 @@ final class MedicationLiveActivityService: ObservableObject {
         )
         let state = MedicationReminderActivityAttributes.ContentState(
             dueAt: task.dueAt,
-            statusText: task.status == .delayed ? "稍后提醒" : "该服药了"
+            statusText: task.status == .delayed ? "稍后提醒" : "该服药了",
+            completedAt: nil
         )
         do {
             _ = try Activity.request(
@@ -57,7 +62,8 @@ final class MedicationLiveActivityService: ObservableObject {
         for activity in Activity<MedicationReminderActivityAttributes>.activities where activity.attributes.taskID == taskID {
             let state = MedicationReminderActivityAttributes.ContentState(
                 dueAt: Date(),
-                statusText: "已处理"
+                statusText: "已完成",
+                completedAt: Date()
             )
             await activity.end(
                 ActivityContent(state: state, staleDate: nil),

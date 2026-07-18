@@ -4,41 +4,32 @@ import SwiftData
 
 enum DemoDataSeeder {
     static func seedIfNeeded(in modelContext: ModelContext) {
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains("--seed-demo-data")
+                || arguments.contains("--reminder-live-activity-smoke-test") else {
+            return
+        }
+        seed(in: modelContext)
+        #endif
+    }
+
+    private static func seed(in modelContext: ModelContext) {
         let existing = (try? modelContext.fetch(FetchDescriptor<StoredMedication>())) ?? []
-        var medicationsByName = Dictionary(uniqueKeysWithValues: existing.map { ($0.displayName, $0) })
-        migrateLegacyDemoMedications(existing, medicationsByName: &medicationsByName)
-        migrateUserVisibleSeedText(in: modelContext)
+        let demoMedications = resolveDemoMedications(from: existing, context: modelContext)
+        migrateUserVisibleSeedText(for: demoMedications, in: modelContext)
 
-        for seed in demoMedicationSeeds where medicationsByName[seed.displayName] == nil {
-            let medication = StoredMedication(
-                displayName: seed.displayName,
-                genericName: seed.genericName,
-                kind: .overTheCounter,
-                form: seed.form,
-                strength: seed.strength,
-                inputSource: .demoData,
-                photoSymbolName: seed.photoSymbolName,
-                notes: seed.notes,
-                isDemoContent: true
-            )
-            modelContext.insert(medication)
-            medicationsByName[seed.displayName] = medication
-        }
-
-        for medication in medicationsByName.values where demoMedicationSeeds.contains(where: { $0.displayName == medication.displayName }) {
-            medication.isDemoContent = true
-            medication.notes = userFacingNotes(from: medication.notes, fallback: seed(forMedicationName: medication.displayName)?.notes ?? "")
-        }
-
-        seedMissingPlansAndTodayTasks(for: Array(medicationsByName.values), context: modelContext)
-        seedMissingRiskCards(for: Array(medicationsByName.values), context: modelContext)
-        seedMissingStocks(for: Array(medicationsByName.values), context: modelContext)
-        seedMissingDoseChanges(for: Array(medicationsByName.values), context: modelContext)
+        seedMissingPlansAndTodayTasks(for: demoMedications, context: modelContext)
+        seedMissingMedicationLabels(for: demoMedications, context: modelContext)
+        seedMissingRiskCards(for: demoMedications, context: modelContext)
+        seedMissingStocks(for: demoMedications, context: modelContext)
+        seedMissingDoseChanges(for: demoMedications, context: modelContext)
         try? modelContext.save()
     }
 
     private static let demoMedicationSeeds = [
         DemoMedicationSeed(
+            id: UUID(uuidString: "44454D4F-4D45-4443-5545-000000000001")!,
             displayName: "布洛芬",
             labelLookupName: "Ibuprofen",
             genericName: "ibuprofen",
@@ -51,9 +42,11 @@ enum DemoDataSeeder {
             reminderHour: 8,
             reminderMinute: 0,
             initialStock: 90,
-            lowStockThreshold: 12
+            lowStockThreshold: 12,
+            boxNumber: "A1"
         ),
         DemoMedicationSeed(
+            id: UUID(uuidString: "44454D4F-4D45-4443-5545-000000000002")!,
             displayName: "对乙酰氨基酚",
             labelLookupName: "Acetaminophen",
             genericName: "acetaminophen",
@@ -66,9 +59,11 @@ enum DemoDataSeeder {
             reminderHour: 13,
             reminderMinute: 0,
             initialStock: 90,
-            lowStockThreshold: 12
+            lowStockThreshold: 12,
+            boxNumber: "A2"
         ),
         DemoMedicationSeed(
+            id: UUID(uuidString: "44454D4F-4D45-4443-5545-000000000003")!,
             displayName: "人工泪液",
             labelLookupName: "Artificial Tears",
             genericName: "",
@@ -81,9 +76,11 @@ enum DemoDataSeeder {
             reminderHour: 21,
             reminderMinute: 0,
             initialStock: 90,
-            lowStockThreshold: 10
+            lowStockThreshold: 10,
+            boxNumber: "B1"
         ),
         DemoMedicationSeed(
+            id: UUID(uuidString: "44454D4F-4D45-4443-5545-000000000004")!,
             displayName: "氯雷他定",
             labelLookupName: "Loratadine",
             genericName: "loratadine",
@@ -96,9 +93,11 @@ enum DemoDataSeeder {
             reminderHour: 18,
             reminderMinute: 30,
             initialStock: 90,
-            lowStockThreshold: 10
+            lowStockThreshold: 10,
+            boxNumber: "B2"
         ),
         DemoMedicationSeed(
+            id: UUID(uuidString: "44454D4F-4D45-4443-5545-000000000005")!,
             displayName: "维生素 D3",
             labelLookupName: "Vitamin D3",
             genericName: "cholecalciferol",
@@ -111,57 +110,109 @@ enum DemoDataSeeder {
             reminderHour: 22,
             reminderMinute: 0,
             initialStock: 90,
-            lowStockThreshold: 12
+            lowStockThreshold: 12,
+            boxNumber: "C1"
         )
     ]
 
-    private static func migrateLegacyDemoMedications(
-        _ medications: [StoredMedication],
-        medicationsByName: inout [String: StoredMedication]
-    ) {
-        for medication in medications {
-            guard let seed = seed(forMedicationName: medication.displayName) else {
-                continue
+    private static func resolveDemoMedications(
+        from existing: [StoredMedication],
+        context: ModelContext
+    ) -> [StoredMedication] {
+        var resolved: [StoredMedication] = []
+        var claimedMedicationIDs = Set<UUID>()
+
+        for seed in demoMedicationSeeds {
+            let stableDemo = existing.first { medication in
+                medication.id == seed.id && medication.isDemoContent
             }
-            if medication.displayName != seed.displayName {
-                medicationsByName[medication.displayName] = nil
-                medication.displayName = seed.displayName
-                medicationsByName[seed.displayName] = medication
+            let legacyDemo = existing
+                .filter { medication in
+                    medication.isDemoContent
+                        && !claimedMedicationIDs.contains(medication.id)
+                        && seedDefinition(forMedicationName: medication.displayName)?.id == seed.id
+                }
+                .min { $0.id.uuidString < $1.id.uuidString }
+
+            let medication: StoredMedication
+            if let stableDemo {
+                medication = stableDemo
+            } else if let legacyDemo {
+                medication = legacyDemo
+            } else {
+                guard !existing.contains(where: { $0.id == seed.id }) else {
+                    continue
+                }
+                let newMedication = StoredMedication(
+                    id: seed.id,
+                    displayName: seed.displayName,
+                    genericName: seed.genericName,
+                    kind: .overTheCounter,
+                    form: seed.form,
+                    strength: seed.strength,
+                    inputSource: .demoData,
+                    photoSymbolName: seed.photoSymbolName,
+                    boxNumber: seed.boxNumber,
+                    notes: seed.notes,
+                    isDemoContent: true
+                )
+                context.insert(newMedication)
+                medication = newMedication
             }
-            medication.genericName = seed.genericName
-            medication.form = seed.form
-            medication.strength = seed.strength
-            medication.photoSymbolName = seed.photoSymbolName
-            medication.isDemoContent = true
+
+            refreshDemoMedication(medication, from: seed)
+            claimedMedicationIDs.insert(medication.id)
+            resolved.append(medication)
         }
+
+        return resolved
     }
 
-    private static func migrateUserVisibleSeedText(in context: ModelContext) {
-        let medications = (try? context.fetch(FetchDescriptor<StoredMedication>())) ?? []
-        let seedByMedicationID = Dictionary(uniqueKeysWithValues: medications.compactMap { medication in
-            seed(forMedicationName: medication.displayName).map { (medication.id, $0) }
-        })
+    private static func refreshDemoMedication(_ medication: StoredMedication, from seed: DemoMedicationSeed) {
+        guard medication.isDemoContent else {
+            return
+        }
+        if medication.displayName == seed.labelLookupName {
+            medication.displayName = seed.displayName
+        }
+        medication.genericName = seed.genericName
+        medication.form = seed.form
+        medication.strength = seed.strength
+        medication.photoSymbolName = seed.photoSymbolName
+        if medication.boxNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            medication.boxNumber = seed.boxNumber
+        }
+        medication.notes = userFacingNotes(from: medication.notes, fallback: seed.notes)
+    }
 
+    private static func migrateUserVisibleSeedText(
+        for medications: [StoredMedication],
+        in context: ModelContext
+    ) {
+        let demoMedicationIDs = Set(medications.map(\.id))
+        var seedByMedicationID: [UUID: DemoMedicationSeed] = [:]
         for medication in medications {
-            if let seed = seed(forMedicationName: medication.displayName) {
-                medication.notes = userFacingNotes(from: medication.notes, fallback: seed.notes)
+            guard let seed = seed(for: medication) else {
+                continue
             }
+            seedByMedicationID[medication.id] = seed
+            medication.notes = userFacingNotes(from: medication.notes, fallback: seed.notes)
         }
 
         let plans = (try? context.fetch(FetchDescriptor<StoredMedicationPlan>())) ?? []
-        for plan in plans where plan.sourceNote.contains("演示") {
+        for plan in plans where demoMedicationIDs.contains(plan.medicationID) && plan.sourceNote.contains("演示") {
             plan.sourceNote = "按说明书建议建立，用户确认后提醒；可在详情页继续修改疗程、提醒和库存。"
         }
 
         let tasks = (try? context.fetch(FetchDescriptor<StoredDoseTask>())) ?? []
         migrateStaleSeedPendingTasks(tasks, seedByMedicationID: seedByMedicationID)
-        for task in tasks where task.reason.contains("演示") {
+        for task in tasks where demoMedicationIDs.contains(task.medicationID) && task.reason.contains("演示") {
             task.reason = userFacingReason(from: task.reason, status: task.status)
         }
 
         let riskCards = (try? context.fetch(FetchDescriptor<StoredRiskCard>())) ?? []
-        for card in riskCards where card.reviewNote.contains("演示") {
-            card.reviewNote = "用户已导入说明书，旧说明书风险已自动归档隐藏。"
+        for card in riskCards where demoMedicationIDs.contains(card.medicationID) {
+            migrateUserVisibleRiskCardText(card)
         }
     }
 
@@ -192,20 +243,78 @@ enum DemoDataSeeder {
         let stockedMedicationIDs = Set(existingStocks.map(\.medicationID))
 
         for medication in medications where !stockedMedicationIDs.contains(medication.id) {
-            let stock = demoStock(for: medication)
+            guard let stock = demoStock(for: medication) else {
+                continue
+            }
             context.insert(stock)
         }
 
         try? context.save()
     }
 
-    private static func demoStock(for medication: StoredMedication) -> StoredMedicationStock {
-        let seed = seed(forMedicationName: medication.displayName)
+    private static func seedMissingMedicationLabels(for medications: [StoredMedication], context: ModelContext) {
+        let existingLabels = (try? context.fetch(FetchDescriptor<StoredMedicationLabel>())) ?? []
+        let labeledMedicationIDs = Set(existingLabels.map(\.medicationID))
+        let demoMedicationIDs = Set(medications.filter(\.isDemoContent).map(\.id))
+        let now = Date()
+
+        for label in existingLabels where demoMedicationIDs.contains(label.medicationID) && label.sourceTitle == "本地保存说明书摘要" {
+            label.sourceRaw = DrugLabelSource.demo.rawValue
+        }
+
+        for medication in medications where !labeledMedicationIDs.contains(medication.id) {
+            guard let seed = seed(for: medication),
+                  let rawText = savedLabelText(for: seed)
+            else {
+                continue
+            }
+            context.insert(StoredMedicationLabel(
+                medicationID: medication.id,
+                medicationName: medication.displayName,
+                rawText: rawText,
+                sourceTitle: "本地保存说明书摘要",
+                source: .demo,
+                averageOCRConfidence: 1,
+                importedAt: now,
+                lastRiskReviewAt: now
+            ))
+        }
+
+        archiveDemoSourceReviewCards(for: demoMedicationIDs, context: context)
+        try? context.save()
+    }
+
+    private static func archiveDemoSourceReviewCards(for demoMedicationIDs: Set<UUID>, context: ModelContext) {
+        guard !demoMedicationIDs.isEmpty else {
+            return
+        }
+        let now = Date()
+        let riskCards = (try? context.fetch(FetchDescriptor<StoredRiskCard>())) ?? []
+        for card in riskCards where demoMedicationIDs.contains(card.medicationID) && isDemoSourceReviewCard(card) && card.isActive {
+            card.resolvedAt = now
+            card.archivedAt = now
+            card.reviewedAt = card.reviewedAt ?? now
+            card.resolutionNote = "内置说明书样本已确认来源，来源核对提醒已自动解除。"
+            card.reviewNote = "内置说明书样本已确认来源，来源核对提醒已自动归档隐藏。"
+        }
+    }
+
+    private static func isDemoSourceReviewCard(_ card: StoredRiskCard) -> Bool {
+        guard card.kindRaw == RiskAssessmentCardKind.medicationSourceReview.rawValue else {
+            return false
+        }
+        return card.id.contains("source-user-provided-label") || card.title == "说明书来源待核对"
+    }
+
+    private static func demoStock(for medication: StoredMedication) -> StoredMedicationStock? {
+        guard let seed = seed(for: medication) else {
+            return nil
+        }
         return StoredMedicationStock(
             medicationID: medication.id,
-            remainingQuantity: seed?.initialStock ?? 0,
-            unit: seed?.doseUnit ?? "个",
-            lowStockThreshold: seed?.lowStockThreshold ?? 0
+            remainingQuantity: seed.initialStock,
+            unit: seed.doseUnit,
+            lowStockThreshold: seed.lowStockThreshold
         )
     }
 
@@ -216,7 +325,7 @@ enum DemoDataSeeder {
         let existingTasks = (try? context.fetch(FetchDescriptor<StoredDoseTask>())) ?? []
 
         for medication in medications {
-            guard let seed = seed(forMedicationName: medication.displayName) else {
+            guard let seed = seed(for: medication) else {
                 continue
             }
 
@@ -311,8 +420,8 @@ enum DemoDataSeeder {
 
     private static func seedMissingDoseChanges(for medications: [StoredMedication], context: ModelContext) {
         let calendar = Calendar.current
-        guard let medication = medications.first(where: { $0.displayName == "维生素 D3" }),
-              let seed = seed(forMedicationName: medication.displayName)
+        guard let medication = medications.first(where: { seed(for: $0)?.labelLookupName == "Vitamin D3" }),
+              let seed = seed(for: medication)
         else {
             return
         }
@@ -416,34 +525,35 @@ enum DemoDataSeeder {
     }
 
     private static func seedMissingRiskCards(for medications: [StoredMedication], context: ModelContext) {
-        let existingRiskIDs = Set(((try? context.fetch(FetchDescriptor<StoredRiskCard>())) ?? []).map(\.id))
+        let existingRiskCards = (try? context.fetch(FetchDescriptor<StoredRiskCard>())) ?? []
+        var existingRiskCardsByID: [String: StoredRiskCard] = [:]
+        for riskCard in existingRiskCards where existingRiskCardsByID[riskCard.id] == nil {
+            existingRiskCardsByID[riskCard.id] = riskCard
+        }
         for medication in medications {
-            guard seed(forMedicationName: medication.displayName) != nil else {
+            guard seed(for: medication) != nil else {
                 continue
             }
-            seedRiskCards(for: medication, existingRiskIDs: existingRiskIDs, context: context)
+            seedRiskCards(for: medication, existingRiskCardsByID: existingRiskCardsByID, context: context)
         }
     }
 
-    private static func seedRiskCards(for medication: StoredMedication, existingRiskIDs: Set<String>, context: ModelContext) {
-        let seed = seed(forMedicationName: medication.displayName)
-        let label = seed.flatMap { seed in DemoDrugLabels.all.first { $0.name == seed.labelLookupName } }
+    private static func seedRiskCards(for medication: StoredMedication, existingRiskCardsByID: [String: StoredRiskCard], context: ModelContext) {
+        let seed = seed(for: medication)
+        let storedLabel = ((try? context.fetch(FetchDescriptor<StoredMedicationLabel>())) ?? [])
+            .first { $0.medicationID == medication.id }
+        let label = storedLabel?.coreLabel
         let input = RiskAssessmentInput(
             medication: medication.coreMedication,
             label: label,
             drugClasses: seed?.labelLookupName == "Ibuprofen"
                 ? [DrugClass(classID: "N0000175722", name: "Analgesics", source: "MEDRT")]
-                : [],
-            healthConditionEntries: seed?.labelLookupName == "Ibuprofen"
-                ? [UserRiskContextEntry(name: "stroke")]
-                : [],
-            dietaryConcernEntries: [
-                UserRiskContextEntry(name: "alcohol")
-            ]
+                : []
         )
         RiskAssessmentEngine().assess(input).forEach { card in
             let storedID = "\(medication.id.uuidString)-\(card.id)"
-            guard !existingRiskIDs.contains(storedID) else {
+            if let existingCard = existingRiskCardsByID[storedID] {
+                updateDemoRiskCard(existingCard, from: card, medicationID: medication.id)
                 return
             }
             context.insert(StoredRiskCard(
@@ -461,6 +571,37 @@ enum DemoDataSeeder {
         }
     }
 
+    private static func updateDemoRiskCard(_ storedCard: StoredRiskCard, from card: RiskAssessmentCard, medicationID: UUID) {
+        storedCard.kindRaw = card.kind.rawValue
+        storedCard.displayPriority = card.displayPriority
+        storedCard.title = card.title
+        storedCard.message = card.message
+        storedCard.sourceTitle = card.evidence?.sourceTitle ?? ""
+        storedCard.sourceExcerpt = card.evidence?.excerpt ?? ""
+        storedCard.requiresProfessionalReview = card.requiresProfessionalReview
+        storedCard.safetyNote = card.safetyNote
+        storedCard.detectionSignature = StoredRiskCard.makeDetectionSignature(
+            medicationID: medicationID,
+            kindRaw: card.kind.rawValue,
+            title: card.title,
+            message: card.message,
+            sourceExcerpt: card.evidence?.excerpt ?? ""
+        )
+        storedCard.severityRaw = StoredRiskCard.inferredSeverityRaw(
+            kindRaw: card.kind.rawValue,
+            displayPriority: card.displayPriority,
+            title: card.title,
+            message: card.message,
+            sourceExcerpt: card.evidence?.excerpt ?? "",
+            requiresProfessionalReview: card.requiresProfessionalReview
+        )
+        storedCard.sourceKindRaw = StoredRiskCard.inferredSourceKindRaw(
+            kindRaw: card.kind.rawValue,
+            sourceTitle: card.evidence?.sourceTitle ?? "",
+            sourceExcerpt: card.evidence?.excerpt ?? ""
+        )
+    }
+
     private static func date(on baseDate: Date, hour: Int, minute: Int, calendar: Calendar) -> Date {
         var components = calendar.dateComponents([.year, .month, .day], from: baseDate)
         components.hour = hour
@@ -468,9 +609,85 @@ enum DemoDataSeeder {
         return calendar.date(from: components) ?? baseDate
     }
 
-    private static func seed(forMedicationName name: String) -> DemoMedicationSeed? {
+    private static func seedDefinition(forMedicationName name: String) -> DemoMedicationSeed? {
         demoMedicationSeeds.first { seed in
             seed.displayName == name || seed.labelLookupName == name
+        }
+    }
+
+    private static func seed(for medication: StoredMedication) -> DemoMedicationSeed? {
+        guard medication.isDemoContent else {
+            return nil
+        }
+        return demoMedicationSeeds.first(where: { $0.id == medication.id })
+            ?? seedDefinition(forMedicationName: medication.displayName)
+    }
+
+    private static func savedLabelText(for seed: DemoMedicationSeed) -> String? {
+        switch seed.labelLookupName {
+        case "Ibuprofen":
+            return """
+            禁忌或不得使用
+            曾对布洛芬、阿司匹林或其他止痛退热药发生过敏反应者不应使用；冠状动脉搭桥手术前后不应使用。
+            警示
+            布洛芬属于 NSAID，可能导致严重胃出血。60 岁及以上、既往胃溃疡或出血、每日饮酒 3 杯以上、超过说明书用量或时间时风险更高。
+            药物相互作用
+            正在使用阿司匹林预防心梗或卒中、抗凝药、激素类药物，或其他含 NSAID 药物时，使用前应咨询医生或药师。
+            不良反应
+            若出现胃痛、呕血、黑便、持续胃部不适、胸痛、呼吸困难、皮疹或面部肿胀等，应停止使用并尽快寻求医疗帮助。
+            用法用量
+            请按药盒或说明书方向使用；如医生另有医嘱，应以医嘱为准。App 只记录提醒，不自动改变剂量。
+            """
+        case "Acetaminophen":
+            return """
+            警示
+            对乙酰氨基酚可能导致严重肝损伤，尤其是 24 小时内超过 4000 mg、同时使用其他含对乙酰氨基酚药物，或每日饮酒 3 杯以上时。
+            禁忌或不得使用
+            正在使用其他含对乙酰氨基酚的处方或非处方药时，使用前必须核对成分，避免重复用药。
+            不良反应
+            可能出现严重皮肤反应，如皮肤发红、水疱、皮疹；若出现应停止使用并尽快寻求医疗帮助。
+            用法用量
+            请按药盒、说明书或医嘱确认剂量和间隔；App 只提供提醒和记录。
+            """
+        case "Artificial Tears":
+            return """
+            适应症
+            用于暂时缓解眼睛干涩、灼热或刺激感。
+            警示
+            仅供外用。为避免污染，不要让瓶口接触任何表面；溶液变色或浑浊时不要使用。
+            不良反应
+            若出现眼痛、视力变化、持续红肿或刺激，或症状加重、持续超过 72 小时，应停止使用并咨询医生。
+            用法用量
+            可按需向受影响眼睛滴入 1 到 2 滴；具体频次以说明书、医生或药师建议为准。
+            """
+        case "Loratadine":
+            return """
+            适应症
+            用于暂时缓解花粉症或其他上呼吸道过敏相关的流涕、眼痒流泪、打喷嚏、鼻或咽喉发痒。
+            禁忌或不得使用
+            曾对氯雷他定或本品任何成分发生过敏反应者不应使用。
+            注意事项
+            有肝病或肾病者使用前应咨询医生，由医生判断是否需要不同剂量；妊娠期或哺乳期使用前应咨询专业人员。
+            不良反应
+            不要超过说明书用量；超过用量可能导致嗜睡。若发生过敏反应，应停止使用并尽快寻求医疗帮助。
+            用法用量
+            按说明书或医生、药师建议使用；App 只记录提醒，不自动改变剂量。
+            """
+        case "Vitamin D3":
+            return """
+            注意事项
+            维生素 D 过量可能导致血钙升高。已有高钙血症、高磷血症、肾功能不全或正在接受相关治疗者，使用前应咨询医生或药师。
+            药物相互作用
+            与高剂量含钙制剂、其他维生素 D 制剂、噻嗪类利尿药或洋地黄类药物合用时，需咨询医生或药师并关注血钙风险。
+            不良反应
+            若出现明显乏力、食欲下降、恶心、便秘、口渴或尿量增多等疑似高钙相关表现，应记录并咨询医生或药师。
+            儿童用药
+            儿童应在成人监护下使用，并按说明书或医生、药师建议核对剂量。
+            老年用药
+            老年人长期使用前请咨询医生或药师。
+            """
+        default:
+            return nil
         }
     }
 
@@ -494,9 +711,171 @@ enum DemoDataSeeder {
         }
         return demoReason(for: status)
     }
+
+    private static func migrateUserVisibleRiskCardText(_ card: StoredRiskCard) {
+        let defaultSafetyNote = "以上内容仅用于风险提示和复诊沟通，不能替代医生或药师判断。"
+        let genericSourceExcerpt = "说明书提示禁忌、慎用或相互作用信息，需要结合个人情况由医生或药师复核。"
+
+        card.title = sanitizedRequiredRiskText(
+            card.title,
+            fallback: card.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "用药风险提醒" : card.title
+        )
+        card.message = sanitizedRequiredRiskText(
+            card.message,
+            fallback: "已根据药品资料生成用药风险提醒，请结合说明书并咨询医生或药师。"
+        )
+        card.sourceTitle = sanitizedOptionalRiskText(
+            card.sourceTitle,
+            fallback: ""
+        )
+        card.sourceExcerpt = sanitizedOptionalRiskText(
+            card.sourceExcerpt,
+            fallback: genericSourceExcerpt
+        )
+        if card.sourceTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && card.sourceExcerpt == genericSourceExcerpt {
+            card.sourceExcerpt = ""
+        }
+        migrateConcreteLabelRiskMessageIfNeeded(card)
+        card.safetyNote = sanitizedRequiredRiskText(card.safetyNote, fallback: defaultSafetyNote)
+        card.reviewNote = sanitizedOptionalRiskText(card.reviewNote, fallback: "用户已复核并归档。")
+        card.resolutionNote = sanitizedOptionalRiskText(card.resolutionNote, fallback: "相关风险已更新，请以当前说明书和医生或药师意见为准。")
+        card.detectionSignature = StoredRiskCard.makeDetectionSignature(
+            medicationID: card.medicationID,
+            kindRaw: card.kindRaw,
+            title: card.title,
+            message: card.message,
+            sourceExcerpt: card.sourceExcerpt
+        )
+        card.severityRaw = StoredRiskCard.inferredSeverityRaw(
+            kindRaw: card.kindRaw,
+            displayPriority: card.displayPriority,
+            title: card.title,
+            message: card.message,
+            sourceExcerpt: card.sourceExcerpt,
+            requiresProfessionalReview: card.requiresProfessionalReview
+        )
+        card.sourceKindRaw = StoredRiskCard.inferredSourceKindRaw(
+            kindRaw: card.kindRaw,
+            sourceTitle: card.sourceTitle,
+            sourceExcerpt: card.sourceExcerpt
+        )
+    }
+
+    private static func migrateConcreteLabelRiskMessageIfNeeded(_ card: StoredRiskCard) {
+        guard RiskAssessmentCardKind(rawValue: card.kindRaw) == .labelRisk,
+              !card.sourceExcerpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return
+        }
+
+        let currentText = "\(card.title) \(card.message)".folding(
+            options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
+            locale: .current
+        )
+        let shouldRefresh = currentText.contains("相关风险")
+            || currentText.contains("相关警示")
+            || currentText.contains("相关提醒")
+            || currentText.contains("说明书提示需要复核")
+            || currentText.contains("已根据药品资料和用户记录生成用药风险提醒")
+            || currentText.contains("已根据药品资料生成用药风险提醒")
+        guard shouldRefresh else {
+            return
+        }
+
+        let sourceTitle = card.sourceTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "相关章节"
+            : card.sourceTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        let excerpt = normalizedRiskExcerpt(card.sourceExcerpt)
+        let sourceText = "说明书“\(sourceTitle)”指出：\(excerpt)"
+        let lowerText = "\(card.title) \(sourceTitle) \(card.sourceExcerpt)"
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .lowercased()
+
+        if lowerText.contains("禁忌")
+            || lowerText.contains("禁用")
+            || lowerText.contains("不得使用")
+            || lowerText.contains("contraindication")
+            || lowerText.contains("do not use") {
+            card.message = "\(sourceText) 请核对你是否属于上述人群、成分过敏或用药条件，并向医生或药师确认。"
+        } else if lowerText.contains("相互作用")
+            || lowerText.contains("合用")
+            || lowerText.contains("同用")
+            || lowerText.contains("interaction")
+            || lowerText.contains("ask a doctor or pharmacist") {
+            card.message = "\(sourceText) 请带着当前正在使用的药品、保健品和外用药清单咨询医生或药师。"
+        } else if lowerText.contains("饮酒")
+            || lowerText.contains("酒精")
+            || lowerText.contains("葡萄柚")
+            || lowerText.contains("食物")
+            || lowerText.contains("饮食")
+            || lowerText.contains("alcohol")
+            || lowerText.contains("grapefruit")
+            || lowerText.contains("food") {
+            card.message = "\(sourceText) 请核对近期饮食、饮酒或生活方式记录，并向医生或药师确认是否需要调整安排。"
+        } else if lowerText.contains("不良反应")
+            || lowerText.contains("副作用")
+            || lowerText.contains("adverse")
+            || lowerText.contains("side effect") {
+            card.message = "\(sourceText) 若出现相似不适，请记录时间、症状和正在使用的药品，并咨询医生或药师。"
+        } else {
+            card.message = "\(sourceText) 请按原文核对适用条件，并在不确定时咨询医生或药师。"
+        }
+    }
+
+    private static func normalizedRiskExcerpt(_ excerpt: String) -> String {
+        let normalized = excerpt
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            return "该章节含有需要复核的用药提醒。"
+        }
+        let finalPunctuation: Set<Character> = ["。", "！", "？", ".", "!", "?"]
+        return finalPunctuation.contains(normalized.last ?? "。") ? normalized : "\(normalized)。"
+    }
+
+    private static func sanitizedRequiredRiskText(_ text: String, fallback: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return fallback
+        }
+        if containsSeedTrace(trimmed) {
+            return fallback
+        }
+        return trimmed
+    }
+
+    private static func sanitizedOptionalRiskText(_ text: String, fallback: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return ""
+        }
+        if containsSeedTrace(trimmed) {
+            return fallback
+        }
+        return trimmed
+    }
+
+    private static func containsSeedTrace(_ text: String) -> Bool {
+        [
+            "验证用",
+            "验证提醒",
+            "此验证提醒",
+            "确认风险生命周期链路",
+            "风险生命周期",
+            "生命周期验证",
+            "验证说明书",
+            "演示",
+            "开发",
+            "调试"
+        ].contains { text.contains($0) }
+    }
 }
 
 private struct DemoMedicationSeed {
+    let id: UUID
     let displayName: String
     let labelLookupName: String
     let genericName: String
@@ -510,4 +889,5 @@ private struct DemoMedicationSeed {
     let reminderMinute: Int
     let initialStock: Double
     let lowStockThreshold: Double
+    let boxNumber: String
 }

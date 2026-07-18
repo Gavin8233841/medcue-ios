@@ -25,9 +25,21 @@ public struct MedicalAIRequestPromptBuilder: Sendable {
             }
         }
 
+        if !request.environmentInsights.isEmpty {
+            lines.append("")
+            lines.append("今日环境关注：")
+            lines.append("回答天气、环境、气温、湿度、降水、风或紫外线相关问题时，必须优先结合这些环境关注和已授权用药数据，避免只给泛泛提醒。")
+            for insight in request.environmentInsights.prefix(4) {
+                lines.append("- \(limited(insight.title, maxLength: 80))（\(limited(insight.severityText, maxLength: 20))）：\(limited(insight.message, maxLength: 220))")
+                if !insight.sourceSummary.isEmpty {
+                    lines.append("  - 环境来源：\(limited(insight.sourceSummary, maxLength: 120))")
+                }
+            }
+        }
+
         if let importReview = request.importReview {
             lines.append("")
-            lines.append("导入草稿复核：")
+            lines.append("导入识别内容核对：")
             lines.append("- 来源：\(importReview.draft.source.rawValue)")
             if !importReview.draft.confidenceByField.isEmpty {
                 let confidenceSummary = importReview.draft.confidenceByField
@@ -50,7 +62,7 @@ public struct MedicalAIRequestPromptBuilder: Sendable {
     private func append(snapshot: MedicalAIMedicationSnapshot, index: Int, to lines: inout [String]) {
         let medication = snapshot.medication
         lines.append("")
-        lines.append("\(index). \(medication.displayName)")
+        lines.append("\(index). \(MedicationNamePolicy.aiDisplayName(for: medication))")
         if let genericName = medication.genericName, !genericName.isEmpty {
             lines.append("- 通用名：\(genericName)")
         }
@@ -68,7 +80,9 @@ public struct MedicalAIRequestPromptBuilder: Sendable {
         if !snapshot.plans.isEmpty {
             lines.append("- 提醒计划：")
             snapshot.plans.prefix(6).forEach { plan in
-                lines.append("  - \(plan.dose.value) \(plan.dose.unit)，\(String(describing: plan.timingRule))，来源：\(limited(plan.sourceNote, maxLength: 180))")
+                let sourceNote = plan.sourceNote.trimmingCharacters(in: .whitespacesAndNewlines)
+                let sourceSuffix = sourceNote.isEmpty ? "" : "，备注：\(limited(sourceNote, maxLength: 180))"
+                lines.append("  - \(plan.dose.value) \(plan.dose.unit)，\(String(describing: plan.timingRule))\(sourceSuffix)")
             }
         }
 
@@ -84,11 +98,19 @@ public struct MedicalAIRequestPromptBuilder: Sendable {
         }
 
         if !snapshot.riskCards.isEmpty {
-            lines.append("- 风险卡片：")
+            lines.append("- 风险提醒：")
             snapshot.riskCards.prefix(8).forEach { card in
                 lines.append("  - \(card.title)：\(limited(card.message, maxLength: 240))")
+                if let evidence = card.evidence {
+                    if !evidence.sourceTitle.isEmpty {
+                        lines.append("    - 来源章节：\(limited(evidence.sourceTitle, maxLength: 80))")
+                    }
+                    if !evidence.excerpt.isEmpty {
+                        lines.append("    - 依据片段：\(limited(evidence.excerpt, maxLength: 180))")
+                    }
+                }
                 if card.requiresProfessionalReview {
-                    lines.append("    - 需要医生或药师复核")
+                    lines.append("    - 建议咨询医生或药师")
                 }
             }
         }
@@ -108,9 +130,9 @@ public struct MedicalAIRequestPromptBuilder: Sendable {
         case .riskOptimization:
             return "风险提醒优化"
         case .prescriptionOCRReview:
-            return "医嘱 OCR 导入复核"
+            return "医嘱图片导入核对"
         case .barcodeImportReview:
-            return "药盒条码导入复核"
+            return "药盒条码导入核对"
         }
     }
 

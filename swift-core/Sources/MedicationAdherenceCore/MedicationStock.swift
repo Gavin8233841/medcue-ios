@@ -95,6 +95,7 @@ public struct MedicationStockEstimator: Sendable {
         }
 
         var consumedQuantity = Decimal(0)
+        var historicalConsumedQuantity = Decimal(0)
         var hasUnitMismatch = false
         var consumedDayKeys: Set<String> = []
 
@@ -109,8 +110,11 @@ public struct MedicationStockEstimator: Sendable {
                 hasUnitMismatch = true
                 continue
             }
-            consumedQuantity += dose.dose.value
+            historicalConsumedQuantity += dose.dose.value
             consumedDayKeys.insert(dayKey(for: dose.dueAt, calendar: calendar))
+            if event.recordedAt > stock.lastUpdated {
+                consumedQuantity += dose.dose.value
+            }
         }
 
         let projectedRemaining = stock.remainingQuantity - consumedQuantity
@@ -133,8 +137,8 @@ public struct MedicationStockEstimator: Sendable {
         let trackedDayCount = consumedDayKeys.count
         let averageDailyConsumption: Decimal?
         let estimatedDaysRemaining: Int?
-        if trackedDayCount > 0 && consumedQuantity > 0 {
-            averageDailyConsumption = consumedQuantity / Decimal(trackedDayCount)
+        if trackedDayCount > 0 && historicalConsumedQuantity > 0 {
+            averageDailyConsumption = historicalConsumedQuantity / Decimal(trackedDayCount)
             if let averageDailyConsumption, averageDailyConsumption > 0, projectedRemaining > 0 {
                 estimatedDaysRemaining = max(0, Int(ceil((projectedRemaining / averageDailyConsumption).doubleValue)))
             } else {

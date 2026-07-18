@@ -85,8 +85,14 @@ public struct AdherenceInsightBuilder: Sendable {
             doseEvents.sorted { $0.recordedAt < $1.recordedAt }.last
         }
 
-        let dosesByDate = Dictionary(grouping: scheduledDoses) { dose in
-            dateOnly(from: dose.dueAt, calendar: calendar)
+        let measurableDoses = scheduledDoses.filter { dose in
+            dose.dueAt <= now || latestEventByDoseID[dose.id] != nil
+        }
+        let dosesByDate = Dictionary(grouping: measurableDoses) { dose -> DateOnly in
+            if let event = latestEventByDoseID[dose.id], dose.dueAt > now {
+                return dateOnly(from: event.recordedAt, calendar: calendar)
+            }
+            return dateOnly(from: dose.dueAt, calendar: calendar)
         }
 
         let dayStatuses = dosesByDate.keys.sorted().map { date in

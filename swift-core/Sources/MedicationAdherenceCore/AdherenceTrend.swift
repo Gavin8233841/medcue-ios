@@ -98,7 +98,7 @@ public struct AdherenceTrendBuilder: Sendable {
     public static let defaultRecentWindowDays = 7
     public static let defaultMaximumAnalysisDays = 28
     public static let defaultMeaningfulChange = 0.08
-    public static let defaultSafetyNote = "服用趋势只反映用户记录与提醒完成情况，不代表疗效、诊断或处方建议。"
+    public static let defaultSafetyNote = "用药趋势只反映用户记录与提醒完成情况，不代表疗效、诊断或处方建议。"
 
     public init() {}
 
@@ -235,7 +235,7 @@ public struct AdherenceTrendBuilder: Sendable {
             consistencyScore: points.isEmpty ? 0 : consistencyScore(in: points),
             doseChangeCount: doseChangeContext.count,
             doseChangeSummary: doseChangeContext.summary,
-            message: "至少记录 \(requiredDays) 个有提醒的日期后，才生成服用趋势。当前已有 \(points.count) 天。",
+            message: "至少记录 \(requiredDays) 个有提醒的日期后，才生成用药趋势。当前已有 \(points.count) 天。",
             supportingSummary: "趋势需要真实服药记录支撑；数据不足时不生成改善或下降判断。\(doseChangeContext.summary)",
             points: points
         )

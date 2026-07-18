@@ -53,7 +53,9 @@ struct MedicationLifecycleClassifier {
         }
 
         let relatedPlans = plans.filter { $0.medicationID == medication.id }
-        let relatedTasks = tasks.filter { $0.medicationID == medication.id }
+        let relatedTasks = tasks
+            .filter { $0.medicationID == medication.id }
+            .filter(\.isAdherenceMeasurable)
 
         if let daysAgo = daysSinceMostRecentCourseEnd(relatedPlans, now: now), daysAgo >= courseEndGraceDays {
             return MedicationLifecycleClassification(displayStatus: .interrupted, reason: .courseEnded(daysAgo: daysAgo), shouldPromptReview: true)

@@ -6,76 +6,149 @@ import SwiftUI
 import UIKit
 
 struct MedicationsView: View {
+    @Environment(\.activeAppTab) private var activeAppTab
     @Query(sort: \StoredMedication.displayName) private var medications: [StoredMedication]
     @Query(sort: \StoredMedicationPlan.createdAt) private var plans: [StoredMedicationPlan]
     @Query(sort: \StoredDoseTask.dueAt, order: .reverse) private var tasks: [StoredDoseTask]
     @Query(sort: \StoredMedicationDoseChange.effectiveFrom, order: .reverse) private var doseChanges: [StoredMedicationDoseChange]
     @Query(sort: \StoredMedicationStock.lastUpdated, order: .reverse) private var stocks: [StoredMedicationStock]
+    @Query(sort: \StoredRiskCard.displayPriority) private var riskCards: [StoredRiskCard]
     @State private var showingAddOptions = false
+    @State private var pendingAddSelection: MedicationAddSelection?
     @State private var selectedAddSelection: MedicationAddSelection?
     @State private var selectedLifecycleStatus: StoredMedicationLifecycleStatus = .active
+    @State private var showingMedicationList = false
+    @State private var listSnapshot = MedicationListSnapshot.empty
+    @State private var lastSnapshotRefreshToken = ""
+    @State private var lastSnapshotRefreshAt = Date(timeIntervalSinceReferenceDate: 0)
 
-    private var insight: AdherenceInsight {
-        AdherenceInsightBuilder().build(
-            scheduledDoses: tasks.map(\.coreScheduledDose),
-            events: tasks.compactMap(\.coreDoseEvent),
-            timeZone: TimeZone.current
+    init() {
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: Date())
+        let queryStart = calendar.date(byAdding: .day, value: -90, to: todayStart) ?? todayStart.addingTimeInterval(-7_776_000)
+        let queryEnd = calendar.date(byAdding: .day, value: 8, to: todayStart) ?? todayStart.addingTimeInterval(691_200)
+        _tasks = Query(
+            filter: #Predicate<StoredDoseTask> { task in
+                task.dueAt >= queryStart && task.dueAt < queryEnd
+            },
+            sort: \StoredDoseTask.dueAt,
+            order: .reverse
         )
     }
 
-    private var trendDashboard: MedicationTrendDashboard {
-        medicationTrendDashboard(
+    private var isActiveTab: Bool {
+        activeAppTab == nil || activeAppTab == .medications
+    }
+
+    private var refreshToken: String {
+        MedicationListSnapshot.refreshID(
+            medications: medications,
+            plans: plans,
             tasks: tasks,
             doseChanges: doseChanges,
-            medications: medications
+            stocks: stocks
         )
     }
 
-    private var lifecycleClassifier: MedicationLifecycleClassifier {
-        MedicationLifecycleClassifier()
+    private var refreshTaskID: String {
+        "\(isActiveTab ? "active" : "inactive")|\(refreshToken)"
+    }
+
+    private var shouldPrepareSnapshot: Bool {
+        isActiveTab || listSnapshot.isPlaceholder
+    }
+
+    private var activeRiskCards: [StoredRiskCard] {
+        riskCards.filter(\.isActive)
     }
 
     var body: some View {
+        let snapshot = listSnapshot
+        let activeRiskCards = activeRiskCards
         List {
             Section {
                 MedicationDashboardSummary(
-                    medicationCount: medications.count,
-                    activeTaskCount: activeTaskCount,
-                    lowStockCount: stockSummaries.filter(\.projection.needsRefillReminder).count,
-                    completionRate: insight.completionRate,
-                    trendDashboard: trendDashboard
+                    medicationCount: snapshot.medications.count,
+                    activeTaskCount: snapshot.activeTaskCount,
+                    stockCount: snapshot.stockSummaries.count,
+                    lowStockCount: snapshot.lowStockCount,
+                    activeRiskCount: activeRiskCards.count,
+                    priorityRiskCount: activeRiskCards.filter(\.requiresProfessionalReview).count
                 )
+                .background(alignment: .top) {
+                    AppTopGradientScrollReader(tab: .medications, coordinateSpaceName: "MedicationsTopGradientList")
+                }
             }
 
             Section("药品分组") {
                 MedicationLifecycleSelector(
                     selectedStatus: $selectedLifecycleStatus,
-                    count: count(for:)
+                    count: { snapshot.count(for: $0) }
                 )
             }
 
             Section(selectedLifecycleStatus.displayName) {
-                let visibleMedications = medications.filter { displayLifecycleStatus(for: $0) == selectedLifecycleStatus }
-                if visibleMedications.isEmpty {
+                let visibleMedications = snapshot.visibleMedications(for: selectedLifecycleStatus)
+                let firstMedication = visibleMedications.first
+                let nextTask = firstMedication.flatMap { snapshot.nextTask(for: $0) }
+                if snapshot.isPlaceholder && !medications.isEmpty {
+                    Label("正在整理药品", systemImage: "hourglass")
+                        .foregroundStyle(.secondary)
+                } else if visibleMedications.isEmpty {
                     Text("还没有添加药品。")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(visibleMedications) { medication in
-                        NavigationLink {
-                            MedicationDetailView(medication: medication)
-                        } label: {
-                            MedicationCardRow(
-                                medication: medication,
-                                plan: plans.first(where: { $0.medicationID == medication.id }),
-                                taskCount: tasks.filter { $0.medicationID == medication.id }.count,
-                                nextTask: nextTask(for: medication),
-                                stockProjection: stockProjection(for: medication),
-                                lifecycleClassification: lifecycleClassification(for: medication)
+                    Button {
+                        withAnimation(.snappy(duration: 0.24, extraBounce: 0.01)) {
+                            showingMedicationList.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            MedicationLifecycleGroupSummaryRow(
+                                status: selectedLifecycleStatus,
+                                count: visibleMedications.count,
+                                firstMedication: firstMedication,
+                                nextTask: nextTask
                             )
+                            Image(systemName: showingMedicationList ? "chevron.up" : "chevron.down")
+                                .font(.footnote.weight(.bold))
+                                .foregroundStyle(.secondary)
+                                .accessibilityHidden(true)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(
+                        medicationLifecycleGroupAccessibilityLabel(
+                            status: selectedLifecycleStatus,
+                            count: visibleMedications.count,
+                            firstMedication: firstMedication,
+                            nextTask: nextTask
+                        )
+                    )
+                    .accessibilityValue(showingMedicationList ? "已展开" : "已折叠")
+
+                    if showingMedicationList {
+                        ForEach(visibleMedications) { medication in
+                            NavigationLink(value: MedicationDetailRoute(medicationID: medication.id)) {
+                                MedicationCardRow(
+                                    medication: medication,
+                                    plan: snapshot.plan(for: medication),
+                                    taskCount: snapshot.taskCount(for: medication),
+                                    nextTask: snapshot.nextTask(for: medication),
+                                    stockProjection: snapshot.stockProjection(for: medication),
+                                    lifecycleClassification: snapshot.lifecycleClassification(for: medication)
+                                )
+                            }
                         }
                     }
                 }
             }
+        }
+        .coordinateSpace(name: "MedicationsTopGradientList")
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 96)
         }
         .navigationTitle("药品")
         .toolbar {
@@ -90,38 +163,286 @@ struct MedicationsView: View {
         }
         .sheet(isPresented: $showingAddOptions) {
             MedicationAddOptionsSheet { option in
+                pendingAddSelection = MedicationAddSelection(option: option)
                 showingAddOptions = false
-                selectedAddSelection = MedicationAddSelection(option: option)
             }
             .presentationDetents([.height(360)])
             .presentationDragIndicator(.visible)
         }
+        .onChange(of: showingAddOptions) { _, isPresented in
+            guard !isPresented, let pendingAddSelection else {
+                return
+            }
+            self.pendingAddSelection = nil
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(180))
+                selectedAddSelection = pendingAddSelection
+            }
+        }
         .sheet(item: $selectedAddSelection) { selection in
             AddMedicationView(option: selection.option)
         }
+        .navigationDestination(for: MedicationDetailRoute.self) { route in
+            MedicationDetailResolverView(medicationID: route.medicationID)
+        }
+        .onAppear {
+            restoreMedicationSnapshotFromCacheIfAvailable()
+        }
+        .onChange(of: selectedLifecycleStatus) { _, _ in
+            withAnimation(.snappy(duration: 0.24, extraBounce: 0.01)) {
+                showingMedicationList = false
+            }
+        }
+        .task(id: refreshTaskID) {
+            guard shouldPrepareSnapshot else {
+                return
+            }
+            let delay: Duration = isActiveTab
+                ? .milliseconds(listSnapshot.isPlaceholder ? 40 : 120)
+                : .milliseconds(180)
+            await refreshMedicationSnapshot(token: refreshToken, after: delay)
+        }
     }
 
-    private func stockProjection(for medication: StoredMedication) -> MedicationStockProjection? {
-        guard let stock = stocks.first(where: { $0.medicationID == medication.id }) else {
+    @MainActor
+    private func refreshMedicationSnapshot(token: String, after delay: Duration) async {
+        if restoreMedicationSnapshotFromCacheIfAvailable(for: token),
+           !listSnapshot.isPlaceholder,
+           isActiveTab {
+            return
+        }
+        if lastSnapshotRefreshToken == token,
+           !listSnapshot.isPlaceholder,
+           Date().timeIntervalSince(lastSnapshotRefreshAt) < 15 {
+            return
+        }
+        let medications = medications
+        let plans = plans
+        let tasks = tasks
+        let doseChanges = doseChanges
+        let stocks = stocks
+        try? await Task.sleep(for: delay)
+        guard !Task.isCancelled else {
+            return
+        }
+        let refreshedSnapshot = MedicationListSnapshot(
+            medications: medications,
+            plans: plans,
+            tasks: tasks,
+            doseChanges: doseChanges,
+            stocks: stocks,
+            now: Date()
+        )
+        guard !Task.isCancelled else {
+            return
+        }
+        listSnapshot = refreshedSnapshot
+        lastSnapshotRefreshToken = token
+        lastSnapshotRefreshAt = Date()
+        MedicationListSnapshotCache.store(snapshot: refreshedSnapshot, token: token)
+    }
+
+    private func medicationLifecycleGroupAccessibilityLabel(
+        status: StoredMedicationLifecycleStatus,
+        count: Int,
+        firstMedication: StoredMedication?,
+        nextTask: StoredDoseTask?
+    ) -> String {
+        var parts = ["\(status.displayName)药品", "\(count) 个"]
+        if let firstMedication {
+            let medicationName = userFacingMedicationName(for: firstMedication)
+            if let nextTask {
+                parts.append("\(medicationName)，下次 \(AppFormatters.time.string(from: nextTask.dueAt))")
+            } else {
+                parts.append("\(medicationName)，暂无今日待处理")
+            }
+        }
+        return parts.joined(separator: "，")
+    }
+
+    @MainActor
+    @discardableResult
+    private func restoreMedicationSnapshotFromCacheIfAvailable(for token: String? = nil) -> Bool {
+        let lookupToken = token ?? refreshToken
+        guard let cachedEntry = MedicationListSnapshotCache.entry(for: lookupToken) else {
+            return false
+        }
+        listSnapshot = cachedEntry.snapshot
+        lastSnapshotRefreshToken = lookupToken
+        lastSnapshotRefreshAt = Date()
+        return true
+    }
+}
+
+@MainActor
+private enum MedicationListSnapshotCache {
+    struct Entry {
+        let snapshot: MedicationListSnapshot
+    }
+
+    private static var token = ""
+    private static var storedAt = Date(timeIntervalSinceReferenceDate: 0)
+    private static var entry = Entry(snapshot: .empty)
+    private static let timeToLive: TimeInterval = 300
+
+    static func store(snapshot: MedicationListSnapshot, token: String) {
+        self.token = token
+        self.entry = Entry(snapshot: snapshot)
+        storedAt = Date()
+    }
+
+    static func entry(for token: String) -> Entry? {
+        guard self.token == token,
+              !entry.snapshot.isPlaceholder,
+              Date().timeIntervalSince(storedAt) <= timeToLive
+        else {
             return nil
         }
-        let relatedTasks = tasks.filter { $0.medicationID == medication.id }
-        return MedicationStockEstimator().project(
-            stock: stock.coreStock,
-            scheduledDoses: relatedTasks.map(\.coreScheduledDose),
-            events: relatedTasks.compactMap(\.coreDoseEvent)
+        return entry
+    }
+}
+
+private struct MedicationDetailRoute: Hashable {
+    let medicationID: UUID
+}
+
+private struct MedicationDetailResolverView: View {
+    let medicationID: UUID
+    @Query(sort: \StoredMedication.displayName) private var medications: [StoredMedication]
+
+    var body: some View {
+        if let medication = medications.first(where: { $0.id == medicationID }) {
+            MedicationDetailView(medication: medication)
+        } else {
+            List {
+                Text("没有找到这项药品，可能已被归档或删除。")
+                    .foregroundStyle(.secondary)
+            }
+            .navigationTitle("药品详情")
+        }
+    }
+}
+
+private struct MedicationListSnapshot {
+    static let empty = MedicationListSnapshot(
+        medications: [],
+        plans: [],
+        tasks: [],
+        doseChanges: [],
+        stocks: [],
+        now: Date(timeIntervalSinceReferenceDate: 0),
+        isPlaceholder: true
+    )
+
+    let medications: [StoredMedication]
+    let measurableTasks: [StoredDoseTask]
+    let stockSummaries: [MedicationStockSummary]
+    let activeTaskCount: Int
+    let lowStockCount: Int
+    let completionRate: Double
+    let trendInputID: String
+    let trendInput: MedicationListTrendInput
+    let isPlaceholder: Bool
+
+    private let plansByMedicationID: [UUID: StoredMedicationPlan]
+    private let tasksByMedicationID: [UUID: [StoredDoseTask]]
+    private let nextTasksByMedicationID: [UUID: StoredDoseTask]
+    private let stockProjectionByMedicationID: [UUID: MedicationStockProjection]
+    private let lifecycleByMedicationID: [UUID: MedicationLifecycleClassification]
+    private let lifecycleCounts: [StoredMedicationLifecycleStatus: Int]
+
+    static func refreshID(
+        medications: [StoredMedication],
+        plans: [StoredMedicationPlan],
+        tasks: [StoredDoseTask],
+        doseChanges: [StoredMedicationDoseChange],
+        stocks: [StoredMedicationStock],
+        calendar: Calendar = .current
+    ) -> String {
+        let todayStart = calendar.startOfDay(for: Date())
+        let todayTaskMarker = tasks.reduce(into: TodayTaskMarker()) { marker, task in
+            guard calendar.isDate(task.dueAt, inSameDayAs: todayStart) else {
+                return
+            }
+            marker.count += 1
+            if task.status == .pending || task.status == .delayed {
+                marker.openCount += 1
+            }
+            marker.statusVersion &+= task.status.versionValue
+            marker.recordedVersion &+= Int(task.recordedAt?.timeIntervalSinceReferenceDate.rounded() ?? 0)
+        }
+        var parts: [String] = []
+        parts.reserveCapacity(14)
+        parts.append(String(stableMedicationSignature(medications)))
+        parts.append(String(stablePlanSignature(plans)))
+        parts.append(String(stableTaskSignature(tasks)))
+        parts.append(String(todayTaskMarker.count))
+        parts.append(String(todayTaskMarker.openCount))
+        parts.append(String(todayTaskMarker.statusVersion))
+        parts.append(String(todayTaskMarker.recordedVersion))
+        parts.append(String(stableDoseChangeSignature(doseChanges)))
+        parts.append(String(stableStockSignature(stocks)))
+        return parts.joined(separator: "|")
+    }
+
+    init(
+        medications: [StoredMedication],
+        plans: [StoredMedicationPlan],
+        tasks: [StoredDoseTask],
+        doseChanges: [StoredMedicationDoseChange],
+        stocks: [StoredMedicationStock],
+        now: Date,
+        calendar: Calendar = .current,
+        isPlaceholder: Bool = false
+    ) {
+        self.medications = medications
+        self.isPlaceholder = isPlaceholder
+        let activeMedicationIDs = Set(
+            medications
+                .filter { $0.lifecycleStatus == .active }
+                .map(\.id)
         )
-    }
+        let measurableTasks = tasks.adherenceMeasurableTasks
+        self.measurableTasks = measurableTasks
+        self.plansByMedicationID = Dictionary(
+            plans.reversed().map { ($0.medicationID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        self.tasksByMedicationID = Dictionary(grouping: measurableTasks, by: \.medicationID)
+        let todayOpenTasks = measurableTasks
+            .filter { task in
+                activeMedicationIDs.contains(task.medicationID)
+                    && calendar.isDateInToday(task.dueAt)
+                    && (task.status == .pending || task.status == .delayed)
+            }
+            .sorted { lhs, rhs in
+                if lhs.dueAt != rhs.dueAt {
+                    return lhs.dueAt < rhs.dueAt
+                }
+                return lhs.id.uuidString < rhs.id.uuidString
+            }
+        self.activeTaskCount = todayOpenTasks.count
+        self.nextTasksByMedicationID = Dictionary(
+            todayOpenTasks.map { ($0.medicationID, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
 
-    private var activeTaskCount: Int {
-        tasks.filter { task in
-            Calendar.current.isDateInToday(task.dueAt) && (task.status == .pending || task.status == .delayed)
-        }.count
-    }
-
-    private var stockSummaries: [MedicationStockSummary] {
-        medications.compactMap { medication in
-            guard let projection = stockProjection(for: medication) else {
+        let estimator = MedicationStockEstimator()
+        var projectionByMedicationID: [UUID: MedicationStockProjection] = [:]
+        for stock in stocks {
+            guard projectionByMedicationID[stock.medicationID] == nil else {
+                continue
+            }
+            let relatedTasks = tasksByMedicationID[stock.medicationID] ?? []
+            projectionByMedicationID[stock.medicationID] = estimator.project(
+                stock: stock.coreStock,
+                scheduledDoses: relatedTasks.map(\.coreScheduledDose),
+                events: relatedTasks.compactMap(\.coreDoseEventUsingEffectiveAdherenceDate)
+            )
+        }
+        self.stockProjectionByMedicationID = projectionByMedicationID
+        self.stockSummaries = medications.filter { $0.lifecycleStatus == .active }.compactMap { medication in
+            guard let projection = projectionByMedicationID[medication.id] else {
                 return nil
             }
             return MedicationStockSummary(medication: medication, projection: projection)
@@ -132,33 +453,255 @@ struct MedicationsView: View {
             }
             return lhs.medication.displayName < rhs.medication.displayName
         }
-    }
+        self.lowStockCount = stockSummaries.filter(\.projection.needsRefillReminder).count
 
-    private func nextTask(for medication: StoredMedication) -> StoredDoseTask? {
-        tasks
-            .filter {
-                $0.medicationID == medication.id
-                    && Calendar.current.isDateInToday($0.dueAt)
-                    && ($0.status == .pending || $0.status == .delayed)
-            }
-            .sorted { $0.dueAt < $1.dueAt }
-            .first
-    }
+        let scheduledDoses = measurableTasks.map(\.coreScheduledDose)
+        let doseEvents = measurableTasks.compactMap(\.coreDoseEventUsingEffectiveAdherenceDate)
+        self.completionRate = AdherenceInsightBuilder().build(
+            scheduledDoses: scheduledDoses,
+            events: doseEvents,
+            timeZone: TimeZone.current,
+            now: now
+        ).completionRate
 
-    private func count(for status: StoredMedicationLifecycleStatus) -> Int {
-        medications.filter { displayLifecycleStatus(for: $0) == status }.count
-    }
-
-    private func lifecycleClassification(for medication: StoredMedication) -> MedicationLifecycleClassification {
-        lifecycleClassifier.classify(
-            medication: medication,
+        let classifier = MedicationLifecycleClassifier()
+        var lifecycleByMedicationID: [UUID: MedicationLifecycleClassification] = [:]
+        var lifecycleCounts: [StoredMedicationLifecycleStatus: Int] = [:]
+        for medication in medications {
+            let classification = classifier.classify(
+                medication: medication,
+                plans: plans,
+                tasks: tasksByMedicationID[medication.id] ?? [],
+                now: now
+            )
+            lifecycleByMedicationID[medication.id] = classification
+            lifecycleCounts[classification.displayStatus, default: 0] += 1
+        }
+        self.lifecycleByMedicationID = lifecycleByMedicationID
+        self.lifecycleCounts = lifecycleCounts
+        self.trendInput = MedicationListTrendInput(
+            medications: medications,
             plans: plans,
-            tasks: tasks
+            tasks: measurableTasks,
+            doseChanges: doseChanges
+        )
+        self.trendInputID = medications.isEmpty
+            && plans.isEmpty
+            && measurableTasks.isEmpty
+            && doseChanges.isEmpty
+            && stocks.isEmpty
+            ? "empty"
+            : "ready"
+    }
+
+    func visibleMedications(for status: StoredMedicationLifecycleStatus) -> [StoredMedication] {
+        medications.filter { lifecycleClassification(for: $0).displayStatus == status }
+    }
+
+    func count(for status: StoredMedicationLifecycleStatus) -> Int {
+        lifecycleCounts[status, default: 0]
+    }
+
+    func plan(for medication: StoredMedication) -> StoredMedicationPlan? {
+        plansByMedicationID[medication.id]
+    }
+
+    func taskCount(for medication: StoredMedication) -> Int {
+        tasksByMedicationID[medication.id]?.count ?? 0
+    }
+
+    func nextTask(for medication: StoredMedication) -> StoredDoseTask? {
+        nextTasksByMedicationID[medication.id]
+    }
+
+    func stockProjection(for medication: StoredMedication) -> MedicationStockProjection? {
+        stockProjectionByMedicationID[medication.id]
+    }
+
+    func lifecycleClassification(for medication: StoredMedication) -> MedicationLifecycleClassification {
+        lifecycleByMedicationID[medication.id] ?? MedicationLifecycleClassification(
+            displayStatus: medication.lifecycleStatus,
+            reason: medication.lifecycleStatus == .archived ? .archived : .ongoing,
+            shouldPromptReview: false
         )
     }
+}
 
-    private func displayLifecycleStatus(for medication: StoredMedication) -> StoredMedicationLifecycleStatus {
-        lifecycleClassification(for: medication).displayStatus
+private struct MedicationListTrendInput {
+    let medications: [StoredMedication]
+    let plans: [StoredMedicationPlan]
+    let tasks: [StoredDoseTask]
+    let doseChanges: [StoredMedicationDoseChange]
+}
+
+func stableMedicationSignature(_ medications: [StoredMedication]) -> Int {
+    var hasher = Hasher()
+    hasher.combine(medications.count)
+    for medication in medications {
+        hasher.combine(medication.id)
+        hasher.combine(medication.displayName)
+        hasher.combine(medication.genericName)
+        hasher.combine(medication.kindRaw)
+        hasher.combine(medication.form)
+        hasher.combine(medication.strength)
+        hasher.combine(medication.inputSourceRaw)
+        hasher.combine(medication.photoSymbolName)
+        hasher.combine(medication.photoData?.count ?? 0)
+        hasher.combine(medication.boxNumber)
+        hasher.combine(medication.notes)
+        hasher.combine(medication.lifecycleStatusRaw)
+        hasher.combine(medication.isDemoContent)
+        hasher.combine(Int(medication.createdAt.timeIntervalSinceReferenceDate.rounded()))
+    }
+    return hasher.finalize()
+}
+
+func stablePlanSignature(_ plans: [StoredMedicationPlan]) -> Int {
+    var hasher = Hasher()
+    hasher.combine(plans.count)
+    for plan in plans {
+        hasher.combine(plan.id)
+        hasher.combine(plan.medicationID)
+        hasher.combine(plan.doseValue)
+        hasher.combine(plan.doseUnit)
+        hasher.combine(plan.timingSummary)
+        hasher.combine(plan.timeZonePolicyRaw)
+        hasher.combine(plan.sourceNote)
+        hasher.combine(plan.requiresUserConfirmation)
+        hasher.combine(plan.courseStartAt.map { Int($0.timeIntervalSinceReferenceDate.rounded()) } ?? 0)
+        hasher.combine(plan.courseEndAt.map { Int($0.timeIntervalSinceReferenceDate.rounded()) } ?? 0)
+        hasher.combine(plan.reminderTimesRaw ?? "")
+        hasher.combine(plan.reminderDeliveryRaw ?? "")
+        hasher.combine(Int(plan.createdAt.timeIntervalSinceReferenceDate.rounded()))
+    }
+    return hasher.finalize()
+}
+
+func stableTaskSignature(_ tasks: [StoredDoseTask]) -> Int {
+    var hasher = Hasher()
+    hasher.combine(tasks.count)
+    for task in tasks {
+        hasher.combine(task.id)
+        hasher.combine(task.medicationID)
+        hasher.combine(task.planID)
+        hasher.combine(Int(task.dueAt.timeIntervalSinceReferenceDate.rounded()))
+        hasher.combine(task.doseValue)
+        hasher.combine(task.doseUnit)
+        hasher.combine(task.statusRaw)
+        hasher.combine(task.recordedAt.map { Int($0.timeIntervalSinceReferenceDate.rounded()) } ?? 0)
+        hasher.combine(task.reason)
+    }
+    return hasher.finalize()
+}
+
+func stableDoseChangeSignature(_ doseChanges: [StoredMedicationDoseChange]) -> Int {
+    var hasher = Hasher()
+    hasher.combine(doseChanges.count)
+    for change in doseChanges {
+        hasher.combine(change.id)
+        hasher.combine(change.medicationID)
+        hasher.combine(change.planID)
+        hasher.combine(change.previousDoseValue)
+        hasher.combine(change.previousDoseUnit)
+        hasher.combine(change.newDoseValue)
+        hasher.combine(change.newDoseUnit)
+        hasher.combine(Int(change.effectiveFrom.timeIntervalSinceReferenceDate.rounded()))
+        hasher.combine(Int(change.changedAt.timeIntervalSinceReferenceDate.rounded()))
+        hasher.combine(change.note)
+    }
+    return hasher.finalize()
+}
+
+func stableStockSignature(_ stocks: [StoredMedicationStock]) -> Int {
+    var hasher = Hasher()
+    hasher.combine(stocks.count)
+    for stock in stocks {
+        hasher.combine(stock.id)
+        hasher.combine(stock.medicationID)
+        hasher.combine(stock.remainingQuantity)
+        hasher.combine(stock.unit)
+        hasher.combine(stock.lowStockThreshold)
+        hasher.combine(Int(stock.lastUpdated.timeIntervalSinceReferenceDate.rounded()))
+    }
+    return hasher.finalize()
+}
+
+func stableRiskCardSignature(_ riskCards: [StoredRiskCard]) -> Int {
+    var hasher = Hasher()
+    hasher.combine(riskCards.count)
+    for card in riskCards {
+        hasher.combine(card.id)
+        hasher.combine(card.medicationID)
+        hasher.combine(card.kindRaw)
+        hasher.combine(card.severityRaw)
+        hasher.combine(card.sourceKindRaw)
+        hasher.combine(card.displayPriority)
+        hasher.combine(card.title)
+        hasher.combine(card.message)
+        hasher.combine(card.sourceTitle)
+        hasher.combine(card.sourceExcerpt)
+        hasher.combine(card.detectionSignature)
+        hasher.combine(card.requiresProfessionalReview)
+        hasher.combine(card.safetyNote)
+        hasher.combine(Int(card.firstDetectedAt.timeIntervalSinceReferenceDate.rounded()))
+        hasher.combine(Int(card.lastDetectedAt.timeIntervalSinceReferenceDate.rounded()))
+        hasher.combine(card.readAt.map { Int($0.timeIntervalSinceReferenceDate.rounded()) } ?? 0)
+        hasher.combine(card.resolvedAt.map { Int($0.timeIntervalSinceReferenceDate.rounded()) } ?? 0)
+        hasher.combine(card.resolutionNote)
+        hasher.combine(card.reviewedAt.map { Int($0.timeIntervalSinceReferenceDate.rounded()) } ?? 0)
+        hasher.combine(card.archivedAt.map { Int($0.timeIntervalSinceReferenceDate.rounded()) } ?? 0)
+        hasher.combine(card.reviewNote)
+    }
+    return hasher.finalize()
+}
+
+func stableLifecycleEventSignature(_ lifecycleEvents: [StoredMedicationLifecycleEvent]) -> Int {
+    var hasher = Hasher()
+    hasher.combine(lifecycleEvents.count)
+    for event in lifecycleEvents {
+        hasher.combine(event.id)
+        hasher.combine(event.medicationID)
+        hasher.combine(event.statusRaw)
+        hasher.combine(Int(event.occurredAt.timeIntervalSinceReferenceDate.rounded()))
+        hasher.combine(event.note)
+    }
+    return hasher.finalize()
+}
+
+func stableHealthSignalSignature(_ healthSignals: [HealthSignalSample]) -> Int {
+    var hasher = Hasher()
+    hasher.combine(healthSignals.count)
+    for signal in healthSignals {
+        hasher.combine(signal.id)
+        hasher.combine(signal.kind.rawValue)
+        hasher.combine(Int(signal.measuredAt.timeIntervalSinceReferenceDate.rounded()))
+        hasher.combine(signal.value)
+        hasher.combine(signal.unit)
+    }
+    return hasher.finalize()
+}
+
+private struct TodayTaskMarker {
+    var count = 0
+    var openCount = 0
+    var statusVersion = 0
+    var recordedVersion = 0
+}
+
+private extension StoredDoseStatus {
+    var versionValue: Int {
+        switch self {
+        case .pending:
+            1
+        case .taken:
+            2
+        case .delayed:
+            3
+        case .skipped:
+            4
+        case .corrected:
+            5
+        }
     }
 }
 
@@ -187,14 +730,14 @@ private struct MedicationLifecycleSelector: View {
                         selectedStatus = status
                     }
                 } label: {
-                    VStack(spacing: 7) {
+                    VStack(spacing: 5) {
                         Image(systemName: lifecycleIconName(for: status))
-                            .font(.headline.weight(.semibold))
-                            .frame(height: 20)
+                            .font(.subheadline.weight(.semibold))
+                            .frame(height: 18)
                         Text("\(count(status))")
-                            .font(.title2.weight(.bold))
+                            .font(.title3.weight(.bold))
                             .monospacedDigit()
-                            .frame(height: 24)
+                            .frame(height: 22)
                         Text(status.displayName)
                             .font(.caption.weight(.semibold))
                             .lineLimit(1)
@@ -204,8 +747,8 @@ private struct MedicationLifecycleSelector: View {
                     }
                     .foregroundStyle(isSelected ? Color.white : badgeColor(for: status))
                     .padding(.horizontal, 4)
-                    .padding(.vertical, 9)
-                    .frame(maxWidth: .infinity, minHeight: 86)
+                    .padding(.vertical, 7)
+                    .frame(maxWidth: .infinity, minHeight: 74)
                     .background(
                         isSelected ? badgeColor(for: status) : badgeColor(for: status).opacity(0.10),
                         in: RoundedRectangle(cornerRadius: 8)
@@ -234,6 +777,67 @@ private struct MedicationLifecycleSelector: View {
     }
 }
 
+private struct MedicationLifecycleGroupSummaryRow: View {
+    let status: StoredMedicationLifecycleStatus
+    let count: Int
+    let firstMedication: StoredMedication?
+    let nextTask: StoredDoseTask?
+
+    private var tint: Color {
+        badgeColor(for: status)
+    }
+
+    private var subtitle: String {
+        if let firstMedication {
+            let name = userFacingMedicationName(for: firstMedication)
+            if let nextTask {
+                return "\(name) · 下次 \(AppFormatters.time.string(from: nextTask.dueAt))"
+            }
+            return "\(name) · 暂无今日待处理"
+        }
+        return "暂无药品"
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: iconName)
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(width: 42, height: 42)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(status.displayName)药品")
+                    .font(.headline)
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            Text("\(count)")
+                .font(.system(.headline, design: .rounded).weight(.bold))
+                .foregroundStyle(tint)
+                .monospacedDigit()
+                .contentTransition(.numericText())
+        }
+        .padding(.vertical, 5)
+    }
+
+    private var iconName: String {
+        switch status {
+        case .active:
+            return "pills.fill"
+        case .interrupted:
+            return "pause.circle.fill"
+        case .archived:
+            return "archivebox.fill"
+        }
+    }
+}
+
 private struct MedicationAddOptionsSheet: View {
     @Environment(\.dismiss) private var dismiss
     let select: (MedicationAddOption) -> Void
@@ -243,49 +847,44 @@ private struct MedicationAddOptionsSheet: View {
             List {
                 Section {
                     ForEach(MedicationAddWorkflow.options) { option in
+                        let isEnabled = isMedicationAddOptionEnabled(option)
                         Button {
-                            guard !isAddOptionInDevelopment(option) else {
-                                return
-                            }
                             select(option)
                         } label: {
                             HStack(spacing: 14) {
                                 Image(systemName: addOptionIconName(option))
                                     .font(.title3.weight(.semibold))
-                                    .foregroundStyle(isAddOptionInDevelopment(option) ? Color.gray : Color.blue)
+                                    .foregroundStyle(isEnabled ? Color.blue : Color.secondary)
                                     .frame(width: 36, height: 36)
                                     .background(
-                                        (isAddOptionInDevelopment(option) ? Color.secondary.opacity(0.12) : Color.blue.opacity(0.12)),
+                                        (isEnabled ? Color.blue : Color.secondary).opacity(isEnabled ? 0.12 : 0.10),
                                         in: RoundedRectangle(cornerRadius: 8)
                                     )
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(option.title)
                                         .font(.headline)
-                                        .foregroundStyle(isAddOptionInDevelopment(option) ? .secondary : .primary)
-                                    if !isAddOptionInDevelopment(option) {
-                                        Text(addOptionSubtitle(option))
-                                            .font(.footnote)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(2)
-                                    }
+                                        .foregroundStyle(isEnabled ? .primary : .secondary)
+                                    Text(addOptionSubtitle(option))
+                                        .font(.footnote)
+                                        .foregroundStyle(isEnabled ? .secondary : .tertiary)
+                                        .lineLimit(2)
                                 }
                                 Spacer()
-                                if isAddOptionInDevelopment(option) {
-                                    Image(systemName: "lock.fill")
-                                        .font(.footnote.weight(.semibold))
-                                        .foregroundStyle(.secondary)
-                                } else {
+                                if isEnabled {
                                     Image(systemName: "chevron.right")
                                         .font(.footnote.weight(.bold))
                                         .foregroundStyle(.secondary)
+                                } else {
+                                    Text("暂不可用")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.tertiary)
                                 }
                             }
                             .padding(.vertical, 4)
                             .contentShape(Rectangle())
-                            .opacity(isAddOptionInDevelopment(option) ? 0.56 : 1)
                         }
                         .buttonStyle(.plain)
-                        .disabled(isAddOptionInDevelopment(option))
+                        .disabled(!isEnabled)
                     }
                 }
             }
@@ -301,12 +900,22 @@ private struct MedicationAddOptionsSheet: View {
     }
 }
 
+private func isMedicationAddOptionEnabled(_ option: MedicationAddOption) -> Bool {
+    option.id == .manual
+}
+
 private struct MedicationDashboardSummary: View {
     let medicationCount: Int
     let activeTaskCount: Int
+    let stockCount: Int
     let lowStockCount: Int
-    let completionRate: Double
-    let trendDashboard: MedicationTrendDashboard
+    let activeRiskCount: Int
+    let priorityRiskCount: Int
+    @State private var selectedDestination: MedicationDashboardDestination?
+    private let columns = [
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10)
+    ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -314,7 +923,7 @@ private struct MedicationDashboardSummary: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("用药概览")
                         .font(.title2.weight(.semibold))
-                    Text("药品、提醒、药盒和趋势概况")
+                    Text("药品、提醒、药盒和风险复核")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -324,76 +933,131 @@ private struct MedicationDashboardSummary: View {
                     .foregroundStyle(.blue)
             }
 
-            HStack(spacing: 10) {
-                NavigationLink {
-                    MedicationOverviewDetailView()
-                } label: {
-                    MedicationMetricTile(title: "药品", value: "\(medicationCount)", iconName: "pills.fill", tint: .blue)
-                }
-                .buttonStyle(.plain)
-
-                NavigationLink {
-                    MedicationPendingTasksDetailView()
-                } label: {
-                    MedicationMetricTile(title: "待处理", value: "\(activeTaskCount)", iconName: "bell.badge.fill", tint: .orange)
-                }
-                .buttonStyle(.plain)
-            }
-            HStack(spacing: 10) {
-                NavigationLink {
-                    MedicationStockOverviewView()
-                } label: {
-                    MedicationMetricTile(title: "药盒低量", value: "\(lowStockCount)", iconName: "shippingbox.fill", tint: lowStockCount > 0 ? .orange : .green)
-                }
-                .buttonStyle(.plain)
-
-                NavigationLink {
-                    MedicationTrendDetailView()
+            LazyVGrid(columns: columns, spacing: 10) {
+                Button {
+                    selectedDestination = .overview
                 } label: {
                     MedicationMetricTile(
-                        title: "用药趋势",
-                        value: trendDashboard.direction == .needsData ? "\(Int(completionRate * 100))%" : "\(Int((trendDashboard.overallScore * 100).rounded()))%",
-                        iconName: trendDirectionIconName(trendDashboard.direction),
-                        tint: trendDirectionTint(trendDashboard.direction)
+                        title: "药品",
+                        value: "\(medicationCount)",
+                        subtitle: medicationCount == 0 ? "等待添加" : "查看详情",
+                        iconName: "pills.fill",
+                        tint: .blue
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    selectedDestination = .pendingTasks
+                } label: {
+                    MedicationMetricTile(
+                        title: "待处理",
+                        value: "\(activeTaskCount)",
+                        subtitle: activeTaskCount == 0 ? "今日清空" : "去今日页",
+                        iconName: "bell.badge.fill",
+                        tint: activeTaskCount > 0 ? .orange : .green
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    selectedDestination = .stock
+                } label: {
+                    MedicationMetricTile(
+                        title: "药盒",
+                        value: "\(stockCount)",
+                        subtitle: lowStockCount > 0 ? "\(lowStockCount) 项需核对" : "均正常",
+                        iconName: "shippingbox.fill",
+                        tint: lowStockCount > 0 ? .orange : .green
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    selectedDestination = .risk
+                } label: {
+                    MedicationMetricTile(
+                        title: "风险复核",
+                        value: "\(priorityRiskCount > 0 ? priorityRiskCount : activeRiskCount)",
+                        subtitle: priorityRiskCount > 0 ? "需重点查看" : (activeRiskCount > 0 ? "可查看" : "暂无活跃"),
+                        iconName: "shield.lefthalf.filled",
+                        tint: priorityRiskCount > 0 ? .orange : (activeRiskCount > 0 ? .indigo : .secondary)
                     )
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(.vertical, 8)
+        .navigationDestination(item: $selectedDestination) { destination in
+            switch destination {
+            case .overview:
+                MedicationOverviewDetailView()
+            case .pendingTasks:
+                MedicationPendingTasksDetailView()
+            case .stock:
+                MedicationStockOverviewView()
+            case .risk:
+                RisksView()
+            }
+        }
     }
+}
+
+private enum MedicationDashboardDestination: Hashable, Identifiable {
+    case overview
+    case pendingTasks
+    case stock
+    case risk
+
+    var id: Self { self }
 }
 
 private struct MedicationMetricTile: View {
     let title: String
     let value: String
+    var subtitle: String? = nil
     let iconName: String
     let tint: Color
+    var compact = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: iconName)
-                .font(.headline)
-                .foregroundStyle(tint)
-                .frame(width: 28, height: 28)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(value)
-                    .font(.headline.weight(.semibold))
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        let iconSize: CGFloat = compact ? 24 : 28
+        let minHeight: CGFloat = compact ? 66 : 76
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: compact ? 5 : 7) {
+                HStack(spacing: 8) {
+                    Image(systemName: iconName)
+                        .font(compact ? .subheadline.weight(.semibold) : .headline)
+                        .foregroundStyle(tint)
+                        .frame(width: iconSize, height: iconSize)
+                        .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                    Text(title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                }
+                if let subtitle, !compact {
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
+                }
             }
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(value)
+                .font((compact ? Font.title2 : Font.title).weight(.bold))
+                .monospacedDigit()
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
+                .frame(minWidth: 36, alignment: .trailing)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 64)
+        .padding(compact ? 9 : 12)
+        .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .leading)
         .background(tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(alignment: .trailing) {
-            Image(systemName: "chevron.right")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(tint.opacity(0.48))
-                .padding(.trailing, 9)
-        }
     }
 }
 
@@ -440,7 +1104,7 @@ private struct MedicationOverviewDetailView: View {
                         } label: {
                             MedicationOverviewMedicationRow(
                                 medication: medication,
-                                taskCount: tasks.filter { $0.medicationID == medication.id }.count,
+                                taskCount: tasks.adherenceMeasurableTasks.filter { $0.medicationID == medication.id }.count,
                                 stockProjection: stockProjection(for: medication)
                             )
                         }
@@ -448,10 +1112,6 @@ private struct MedicationOverviewDetailView: View {
                 }
             }
 
-            Section("说明") {
-                Text("这里只展示药品结构、状态和库存概况；完整服药记录仍在“服药记录”入口查看。")
-                    .foregroundStyle(.secondary)
-            }
         }
         .navigationTitle("药品总览")
     }
@@ -470,11 +1130,11 @@ private struct MedicationOverviewDetailView: View {
         guard let stock = stocks.first(where: { $0.medicationID == medication.id }) else {
             return nil
         }
-        let relatedTasks = tasks.filter { $0.medicationID == medication.id }
+        let relatedTasks = tasks.adherenceMeasurableTasks.filter { $0.medicationID == medication.id }
         return MedicationStockEstimator().project(
             stock: stock.coreStock,
             scheduledDoses: relatedTasks.map(\.coreScheduledDose),
-            events: relatedTasks.compactMap(\.coreDoseEvent)
+            events: relatedTasks.compactMap(\.coreDoseEventUsingEffectiveAdherenceDate)
         )
     }
 }
@@ -501,7 +1161,7 @@ private struct MedicationOverviewStatCard: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, minHeight: 92, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+        .medicationGlassSurface(cornerRadius: 8, tint: tint, fallbackMaterial: .thinMaterial)
     }
 }
 
@@ -512,15 +1172,26 @@ private struct MedicationOverviewMedicationRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            MedicationPhotoView(photoData: medication.photoData, symbolName: medication.photoSymbolName, tint: .blue, size: 48)
+            MedicationPhotoView(photoData: medication.photoData, symbolName: medication.photoSymbolName, tint: medicationColor(for: medication), size: 48)
             VStack(alignment: .leading, spacing: 5) {
-                Text(medication.displayName)
-                    .font(.headline)
+                HStack(spacing: 7) {
+                    MedicationColorMarker(color: medicationColor(for: medication), size: 9)
+                    Text(userFacingMedicationName(for: medication))
+                        .font(.headline)
+                }
+                if medicationNeedsNameReview(medication) {
+                    Text("药名待补全")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                }
                 Text([medication.strength, medication.form].filter { !$0.isEmpty }.joined(separator: " · "))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 HStack(spacing: 8) {
                     Text("\(taskCount) 条记录")
+                    if !medication.boxNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text("药盒编号 \(medication.boxNumber)")
+                    }
                     if let stockProjection {
                         Text("药盒 \(formatDecimal(stockProjection.projectedRemainingQuantity)) \(localizedMedicationUnit(stockProjection.unit))")
                     } else {
@@ -536,12 +1207,23 @@ private struct MedicationOverviewMedicationRow: View {
 }
 
 private struct MedicationPendingTasksDetailView: View {
+    @Environment(\.openMedicationToday) private var openMedicationToday
     @Query(sort: \StoredDoseTask.dueAt) private var tasks: [StoredDoseTask]
     @Query(sort: \StoredMedication.displayName) private var medications: [StoredMedication]
 
     private var pendingTasks: [StoredDoseTask] {
-        tasks
-            .filter { Calendar.current.isDateInToday($0.dueAt) && ($0.status == .pending || $0.status == .delayed) }
+        let activeMedicationIDs = Set(
+            medications
+                .filter { $0.lifecycleStatus == .active }
+                .map(\.id)
+        )
+        return tasks
+            .filter {
+                $0.isAdherenceMeasurable
+                    && activeMedicationIDs.contains($0.medicationID)
+                    && Calendar.current.isDateInToday($0.dueAt)
+                    && ($0.status == .pending || $0.status == .delayed)
+            }
             .sorted { $0.dueAt < $1.dueAt }
     }
 
@@ -572,9 +1254,17 @@ private struct MedicationPendingTasksDetailView: View {
                 }
             }
 
-            Section("处理建议") {
-                Text("待处理入口只用于定位今日任务；标记已服用、稍后或忽略请回到今日页完成，避免误触。")
-                    .foregroundStyle(.secondary)
+            if !pendingTasks.isEmpty {
+                Section("处理") {
+                    Button {
+                        openMedicationToday()
+                    } label: {
+                        Label("去今日页处理", systemImage: "calendar")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
         .navigationTitle("今日待处理")
@@ -598,12 +1288,17 @@ private struct PendingTaskOverviewRow: View {
             MedicationPhotoView(
                 photoData: medication?.photoData,
                 symbolName: medication?.photoSymbolName ?? "pills.fill",
-                tint: task.status == .delayed ? .orange : .blue,
+                tint: medication.map(medicationColor(for:)) ?? (task.status == .delayed ? .orange : .blue),
                 size: 44
             )
             VStack(alignment: .leading, spacing: 4) {
-                Text(medication?.displayName ?? "未知药品")
-                    .font(.headline)
+                HStack(spacing: 7) {
+                    if let medication {
+                        MedicationColorMarker(color: medicationColor(for: medication), size: 8)
+                    }
+                    Text(medication.map(userFacingMedicationName(for:)) ?? "未知药品")
+                        .font(.headline)
+                }
                 Text("\(task.doseValue.formatted()) \(localizedMedicationUnit(task.doseUnit))")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -619,7 +1314,7 @@ private struct MedicationStockOverviewView: View {
     @Query(sort: \StoredMedicationStock.lastUpdated, order: .reverse) private var stocks: [StoredMedicationStock]
 
     private var summaries: [MedicationStockSummary] {
-        medications.compactMap { medication in
+        medications.filter { $0.lifecycleStatus == .active }.compactMap { medication in
             guard let projection = stockProjection(for: medication) else {
                 return nil
             }
@@ -637,7 +1332,7 @@ private struct MedicationStockOverviewView: View {
         List {
             Section("药盒状态") {
                 if summaries.isEmpty {
-                    Text("还没有填写药盒库存。进入药品详情可补充剩余量和低库存阈值。")
+                    Text("暂无药盒库存")
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(summaries) { summary in
@@ -646,16 +1341,11 @@ private struct MedicationStockOverviewView: View {
                         } label: {
                             StockOverviewRow(summary: summary)
                         }
+                        .accessibilityHint("打开药品详情，更新药盒库存")
                     }
                 }
             }
 
-            Section("库存规则") {
-                Text("药盒会扣除已服用和已修正为服用的记录；预计可用天数来自近期真实记录，数据不足时只提示继续记录。")
-                    .foregroundStyle(.secondary)
-                Text("库存估算只提醒核对实物，不代表续方、购药或处方决策。")
-                    .foregroundStyle(.secondary)
-            }
         }
         .navigationTitle("药盒管理")
     }
@@ -664,11 +1354,11 @@ private struct MedicationStockOverviewView: View {
         guard let stock = stocks.first(where: { $0.medicationID == medication.id }) else {
             return nil
         }
-        let relatedTasks = tasks.filter { $0.medicationID == medication.id }
+        let relatedTasks = tasks.adherenceMeasurableTasks.filter { $0.medicationID == medication.id }
         return MedicationStockEstimator().project(
             stock: stock.coreStock,
             scheduledDoses: relatedTasks.map(\.coreScheduledDose),
-            events: relatedTasks.compactMap(\.coreDoseEvent)
+            events: relatedTasks.compactMap(\.coreDoseEventUsingEffectiveAdherenceDate)
         )
     }
 }
@@ -682,12 +1372,20 @@ private struct StockOverviewRow: View {
                 MedicationPhotoView(
                     photoData: summary.medication.photoData,
                     symbolName: summary.medication.photoSymbolName,
-                    tint: summary.projection.needsRefillReminder ? .orange : .green,
+                    tint: medicationColor(for: summary.medication),
                     size: 48
                 )
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(summary.medication.displayName)
-                        .font(.headline)
+                    HStack(spacing: 7) {
+                        MedicationColorMarker(color: medicationColor(for: summary.medication), size: 9)
+                        Text(userFacingMedicationName(for: summary.medication))
+                            .font(.headline)
+                    }
+                    if medicationNeedsNameReview(summary.medication) {
+                        Text("药名待补全")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.orange)
+                    }
                     Text(stockRemainingText(summary.projection))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -723,6 +1421,28 @@ private struct StockOverviewRow: View {
             }
         }
         .padding(.vertical, 7)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilitySummary)
+    }
+
+    private var accessibilitySummary: String {
+        var parts = [
+            userFacingMedicationName(for: summary.medication),
+            stockRemainingText(summary.projection),
+            summary.projection.needsRefillReminder ? "需要核对" : "正常"
+        ]
+        if let averageDailyConsumption = summary.projection.averageDailyConsumption {
+            parts.append("日均消耗 \(formatDecimal(averageDailyConsumption)) \(localizedMedicationUnit(summary.projection.unit))")
+        } else {
+            parts.append("日均消耗待记录")
+        }
+        if let estimatedDaysRemaining = summary.projection.estimatedDaysRemaining {
+            parts.append("预计可用 \(estimatedDaysRemaining) 天")
+        } else {
+            parts.append("预计可用待记录")
+        }
+        parts.append("记录天数 \(summary.projection.trackedDayCount) 天")
+        return parts.joined(separator: "，")
     }
 }
 
@@ -750,85 +1470,132 @@ private struct StockSmallMetric: View {
 struct MedicationTrendDetailView: View {
     @Query(sort: \StoredDoseTask.dueAt, order: .reverse) private var tasks: [StoredDoseTask]
     @Query(sort: \StoredMedicationDoseChange.effectiveFrom, order: .reverse) private var doseChanges: [StoredMedicationDoseChange]
+    @Query(sort: \StoredMedication.displayName) private var medications: [StoredMedication]
+    @Query(sort: \StoredMedicationPlan.createdAt) private var plans: [StoredMedicationPlan]
+    @Query(sort: \StoredMedicationLifecycleEvent.occurredAt, order: .reverse) private var lifecycleEvents: [StoredMedicationLifecycleEvent]
+    @StateObject private var healthKitService = HealthKitService()
+    @State private var selectedTopic: MedicationTrendTopic = .discipline
+    @State private var selectedDate: Date?
 
-    private var trend: AdherenceTrendInsight {
-        AdherenceTrendBuilder().build(
-            scheduledDoses: tasks.map(\.coreScheduledDose),
-            events: tasks.compactMap(\.coreDoseEvent),
-            doseChanges: doseChanges.map(\.coreDoseChange),
-            timeZone: TimeZone.current
+    init() {
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: Date())
+        let queryStart = calendar.date(byAdding: .day, value: -120, to: todayStart) ?? todayStart.addingTimeInterval(-10_368_000)
+        let queryEnd = calendar.date(byAdding: .day, value: 1, to: todayStart) ?? todayStart.addingTimeInterval(86_400)
+        _tasks = Query(
+            filter: #Predicate<StoredDoseTask> { task in
+                task.dueAt >= queryStart && task.dueAt < queryEnd
+            },
+            sort: \StoredDoseTask.dueAt,
+            order: .reverse
         )
+    }
+
+    private var dashboard: MedicationTrendDashboard {
+        medicationTrendDashboard(
+            tasks: tasks.adherenceMeasurableTasks,
+            doseChanges: doseChanges,
+            medications: medications,
+            plans: plans,
+            lifecycleEvents: lifecycleEvents,
+            healthSignals: healthKitService.recentTrendSamples
+        )
+    }
+
+    private var selectedMetric: MedicationTrendMetric {
+        dashboard.metrics.first { $0.topic == selectedTopic } ?? dashboard.metrics.first ?? emptyTrendMetric(topic: selectedTopic)
+    }
+
+    private var selectedPoint: MedicationTrendPoint? {
+        let points = selectedMetric.points
+        guard !points.isEmpty else {
+            return nil
+        }
+        guard let selectedDate else {
+            return points.last
+        }
+        return points.min { lhs, rhs in
+            abs(trendDate(from: lhs.date).timeIntervalSince(selectedDate)) < abs(trendDate(from: rhs.date).timeIntervalSince(selectedDate))
+        }
     }
 
     var body: some View {
         List {
-            Section("服用趋势") {
-                TrendSummaryCard(trend: trend)
+            Section("用药趋势") {
+                MedicationTrendDashboardCard(dashboard: dashboard)
             }
 
-            Section("近期变化") {
-                if trend.state == .insufficientData {
-                    Text("当前已有 \(trend.daysAnalyzed) 天真实记录，达到 \(trend.minimumRequiredDays) 天后才生成趋势判断。")
+            Section("趋势主题") {
+                MedicationTrendTopicPicker(selectedTopic: $selectedTopic, metrics: dashboard.metrics)
+                    .padding(.vertical, 4)
+                MedicationTrendMetricSummary(metric: selectedMetric)
+            }
+
+            Section("近期曲线") {
+                if selectedMetric.points.isEmpty {
+                    Text("还没有可用于趋势计算的服药记录。")
                         .foregroundStyle(.secondary)
                 } else {
-                    MedicationTrendBars(points: trend.points.suffix(14).map { $0 })
-                        .frame(height: 150)
-                        .padding(.vertical, 8)
-                    InfoRow(title: "最近完成率", value: "\(percentageText(trend.recentAverageCompletionRate))%")
-                    if let previousAverage = trend.previousAverageCompletionRate {
-                        InfoRow(title: "前一周期", value: "\(percentageText(previousAverage))%")
+                    MedicationTrendLineChart(
+                        metric: selectedMetric,
+                        selectedDate: $selectedDate
+                    )
+                    .padding(.vertical, 8)
+
+                    MedicationTrendEventLegend(metric: selectedMetric)
+
+                    if let selectedPoint {
+                        MedicationTrendPointDetail(point: selectedPoint, topic: selectedMetric.topic)
                     }
-                    if let change = trend.changeFromPrevious {
-                        InfoRow(title: "周期变化", value: trendChangeText(change))
-                    }
-                    InfoRow(title: "稳定度", value: "\(percentageText(trend.consistencyScore))%")
-                    InfoRow(title: "已忽略率", value: "\(percentageText(trend.skippedRate))%")
-                    InfoRow(title: "稍后率", value: "\(percentageText(trend.delayedRate))%")
                 }
             }
 
-            Section("模型说明") {
-                Text(trend.supportingSummary)
-                    .foregroundStyle(.secondary)
-                if !trend.doseChangeSummary.isEmpty {
-                    Text(trend.doseChangeSummary)
-                        .foregroundStyle(.secondary)
-                }
-                Text(trend.safetyNote)
-                    .foregroundStyle(.secondary)
+            Section("周期对比") {
+                TrendPeriodComparisonPanel(metric: selectedMetric)
             }
+
         }
-        .navigationTitle("服用趋势")
+        .safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: 84)
+        }
+        .navigationTitle("用药趋势")
+        .toolbar(.hidden, for: .tabBar)
+        .task {
+            await healthKitService.refreshRecentTrendSamples()
+        }
     }
 }
 
-private struct TrendSummaryCard: View {
-    let trend: AdherenceTrendInsight
+private struct MedicationTrendDashboardCard: View {
+    let dashboard: MedicationTrendDashboard
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                Image(systemName: trendIconName(trend.state))
+                Image(systemName: trendDirectionIconName(dashboard.direction))
                     .font(.title2.weight(.semibold))
-                    .foregroundStyle(trendTint(trend.state))
+                    .foregroundStyle(trendDirectionTint(dashboard.direction))
                     .frame(width: 42, height: 42)
-                    .background(trendTint(trend.state).opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                    .background(trendDirectionTint(dashboard.direction).opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(trendStateTitle(trend.state))
+                    Text(dashboard.title)
                         .font(.title3.weight(.semibold))
-                    Text(trend.message.isEmpty ? "继续记录后生成客观趋势。" : trend.message)
+                    Text(dashboard.summary)
                         .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Text(dashboard.dataQualitySummary)
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
             }
 
-            ProgressView(value: trend.recentAverageCompletionRate)
-                .tint(trendTint(trend.state))
+            ProgressView(value: dashboard.overallScore)
+                .tint(trendDirectionTint(dashboard.direction))
 
             HStack {
-                Text("\(trend.daysAnalyzed) 天记录")
+                Text(trendDirectionTitle(dashboard.direction))
                 Spacer()
-                Text("最近 \(percentageText(trend.recentAverageCompletionRate))%")
+                Text("综合 \(percentageText(dashboard.overallScore))%")
                     .monospacedDigit()
             }
             .font(.caption.weight(.semibold))
@@ -838,42 +1605,964 @@ private struct TrendSummaryCard: View {
     }
 }
 
-private struct MedicationTrendBars: View {
-    let points: [AdherenceTrendPoint]
+private struct MedicationTrendTopicPicker: View {
+    @Binding var selectedTopic: MedicationTrendTopic
+    let metrics: [MedicationTrendMetric]
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 5) {
-            ForEach(Array(points.enumerated()), id: \.offset) { _, point in
-                VStack(spacing: 6) {
-                    GeometryReader { proxy in
-                        let height = max(6, proxy.size.height * point.completionRate)
-                        VStack {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+            ForEach(metrics) { metric in
+                Button {
+                    selectedTopic = metric.topic
+                } label: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Image(systemName: trendTopicIconName(metric.topic))
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(trendDirectionTint(metric.direction))
+                            Text(metric.title)
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.82)
                             Spacer(minLength: 0)
-                            RoundedRectangle(cornerRadius: 4)
-                                .fill(barColor(for: point.completionRate).gradient)
-                                .frame(height: height)
+                        }
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(trendMetricValueText(metric))
+                                .font(.headline.monospacedDigit().weight(.semibold))
+                            Spacer()
+                            Text(trendDirectionTitle(metric.direction))
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    .frame(height: 100)
-                    Text("\(point.date.day)")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+                    .background(
+                        selectedTopic == metric.topic ? trendDirectionTint(metric.direction).opacity(0.16) : Color(.secondarySystemGroupedBackground),
+                        in: RoundedRectangle(cornerRadius: 8)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(selectedTopic == metric.topic ? trendDirectionTint(metric.direction).opacity(0.45) : .clear, lineWidth: 1)
+                    )
                 }
-                .frame(maxWidth: .infinity)
+                .buttonStyle(.plain)
             }
         }
-        .accessibilityLabel("近 \(points.count) 天服用完成率柱状图")
+    }
+}
+
+private struct MedicationTrendMetricSummary: View {
+    let metric: MedicationTrendMetric
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label(metric.title, systemImage: trendTopicIconName(metric.topic))
+                    .font(.headline)
+                    .foregroundStyle(trendDirectionTint(metric.direction))
+                Spacer()
+                StatusBadge(text: trendDirectionTitle(metric.direction), color: trendDirectionTint(metric.direction))
+            }
+            Text(metric.summary)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 6)
+    }
+}
+
+private struct TrendPeriodComparisonPanel: View {
+    let metric: MedicationTrendMetric
+
+    private var tint: Color {
+        trendDirectionTint(metric.direction)
     }
 
-    private func barColor(for completionRate: Double) -> Color {
-        if completionRate >= 0.85 {
-            return .green
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .center, spacing: 10) {
+                Label("周期对比", systemImage: "chart.bar.xaxis")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                TrendDeltaChip(comparison: metric.comparison, tint: tint)
+            }
+
+            HStack(alignment: .lastTextBaseline, spacing: 10) {
+                Text(trendMetricValueText(metric))
+                    .font(.system(size: 36, weight: .bold, design: .rounded))
+                    .foregroundStyle(tint)
+                    .monospacedDigit()
+                    .contentTransition(.numericText(value: metric.comparison.recentScore))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+                Text(trendMetricPrimaryValueTitle(metric))
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+
+            VStack(spacing: 12) {
+                TrendPeriodBar(
+                    title: metric.comparison.recentPeriodTitle,
+                    value: metric.comparison.recentScore,
+                    dayCount: metric.comparison.recentDayCount,
+                    scheduledCount: metric.comparison.recentScheduledCount,
+                    tint: tint,
+                    isPrimary: true
+                )
+
+                if let previousScore = metric.comparison.previousScore {
+                    TrendPeriodBar(
+                        title: metric.comparison.previousPeriodTitle,
+                        value: previousScore,
+                        dayCount: metric.comparison.previousDayCount,
+                        scheduledCount: metric.comparison.previousScheduledCount,
+                        tint: .secondary,
+                        isPrimary: false
+                    )
+                } else {
+                    TrendPreviousPeriodPlaceholder(title: metric.comparison.previousPeriodTitle)
+                }
+            }
         }
-        if completionRate >= 0.6 {
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(tint.opacity(0.14), lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct TrendDeltaChip: View {
+    let comparison: MedicationTrendPeriodComparison
+    let tint: Color
+
+    private var title: String {
+        guard comparison.previousScore != nil, let delta = comparison.delta else {
+            return "等待对比"
+        }
+        return trendDeltaText(delta)
+    }
+
+    private var chipTint: Color {
+        guard comparison.previousScore != nil, let delta = comparison.delta else {
+            return .secondary
+        }
+        if abs(delta) < 0.005 {
+            return .secondary
+        }
+        return delta > 0 ? .green : .orange
+    }
+
+    var body: some View {
+        Label(title, systemImage: comparison.delta.map { $0 >= 0 ? "arrow.up.right" : "arrow.down.right" } ?? "minus")
+            .font(.caption.monospacedDigit().weight(.semibold))
+            .foregroundStyle(chipTint)
+            .lineLimit(1)
+            .minimumScaleFactor(0.78)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(chipTint.opacity(0.12), in: Capsule())
+            .overlay(
+                Capsule()
+                    .stroke(chipTint.opacity(0.18), lineWidth: 1)
+            )
+            .accessibilityLabel("周期对比 \(title)")
+    }
+}
+
+private struct TrendPeriodBar: View {
+    let title: String
+    let value: Double
+    let dayCount: Int
+    let scheduledCount: Int
+    let tint: Color
+    let isPrimary: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(title)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text("\(percentageText(value))%")
+                    .font((isPrimary ? Font.headline : Font.subheadline).monospacedDigit().weight(.semibold))
+                    .foregroundStyle(isPrimary ? tint : .secondary)
+                    .lineLimit(1)
+            }
+            Text("\(dayCount) 天 · \(scheduledCount) 次计划")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.secondary.opacity(0.12))
+                    Capsule()
+                        .fill(isPrimary ? tint.opacity(0.82) : Color.secondary.opacity(0.45))
+                        .frame(width: max(8, proxy.size.width * normalizedTrendScore(value)))
+                }
+            }
+            .frame(height: isPrimary ? 10 : 8)
+        }
+    }
+}
+
+private struct TrendPreviousPeriodPlaceholder: View {
+    let title: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 9) {
+            Image(systemName: "clock.badge.questionmark")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 22)
+                .background(Color.secondary.opacity(0.10), in: Circle())
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text("记录不足时不强行生成周期结论。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+private struct MedicationTrendLineChart: View {
+    let metric: MedicationTrendMetric
+    @Binding var selectedDate: Date?
+
+    private var points: [MedicationTrendChartPoint] {
+        metric.points.map {
+            MedicationTrendChartPoint(
+                date: trendDate(from: $0.date),
+                score: $0.score,
+                doseChangeCount: $0.doseChangeCount,
+                archivedMedicationCount: $0.archivedMedicationCount,
+                interruptedMedicationCount: $0.interruptedMedicationCount,
+                healthSignalCount: $0.healthSignalCount,
+                annotation: $0.annotation
+            )
+        }
+    }
+
+    private var sortedPoints: [MedicationTrendChartPoint] {
+        points.sorted { $0.date < $1.date }
+    }
+
+    private var renderedPoints: [MedicationTrendRenderedPoint] {
+        sortedPoints.enumerated().map { index, point in
+            let startIndex = max(0, index - 2)
+            let endIndex = min(sortedPoints.count - 1, index + 1)
+            let window = sortedPoints[startIndex...endIndex]
+            let smoothedScore = window.reduce(0) { partialResult, item in
+                partialResult + item.chartScore
+            } / Double(window.count)
+            return MedicationTrendRenderedPoint(point: point, visualScore: smoothedScore)
+        }
+    }
+
+    private var eventPoints: [MedicationTrendRenderedPoint] {
+        renderedPoints.filter(\.point.hasEventMarker)
+    }
+
+    private var selectedPoint: MedicationTrendChartPoint? {
+        guard let selectedDate else {
+            return sortedPoints.last
+        }
+        return sortedPoints.min { lhs, rhs in
+            abs(lhs.date.timeIntervalSince(selectedDate)) < abs(rhs.date.timeIntervalSince(selectedDate))
+        }
+    }
+
+    private var selectedRenderedPoint: MedicationTrendRenderedPoint? {
+        guard let selectedPoint else {
+            return renderedPoints.last
+        }
+        return renderedPoints.first { $0.point.id == selectedPoint.id }
+    }
+
+    private var chartAxisValues: [Double] {
+        [0, 0.5, 0.8, 1]
+    }
+
+    private var chartXDomain: ClosedRange<Date> {
+        guard let first = sortedPoints.first?.date, let last = sortedPoints.last?.date else {
+            let today = Calendar.current.startOfDay(for: Date())
+            return today...today
+        }
+        let calendar = Calendar.current
+        let start = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: first)) ?? first
+        let end = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: last)) ?? last
+        return start...end
+    }
+
+    private var chartXAxisLabelDates: [Date] {
+        guard let first = sortedPoints.first?.date, let last = sortedPoints.last?.date else {
+            return []
+        }
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: first)
+        let end = calendar.startOfDay(for: last)
+        let daySpan = max(1, calendar.dateComponents([.day], from: start, to: end).day ?? sortedPoints.count)
+        let step = max(2, Int(ceil(Double(daySpan) / 4.0)))
+        var dates: [Date] = []
+        var current = start
+        while current < end {
+            dates.append(current)
+            guard let next = calendar.date(byAdding: .day, value: step, to: current), next > current else {
+                break
+            }
+            current = next
+        }
+        return dates
+    }
+
+    private var visibleDomainLength: Int {
+        let visibleDays = min(14, max(7, sortedPoints.count))
+        return visibleDays * 24 * 60 * 60
+    }
+
+    private var chartInitialScrollDate: Date {
+        guard let last = sortedPoints.last?.date else {
+            return Date()
+        }
+        let calendar = Calendar.current
+        return calendar.date(byAdding: .day, value: -min(13, max(6, sortedPoints.count - 1)), to: last) ?? last
+    }
+
+    var body: some View {
+        let tint = trendDirectionTint(metric.direction)
+        VStack(alignment: .leading, spacing: 14) {
+            if let selectedPoint {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(AppFormatters.day.string(from: selectedPoint.date))
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(selectedPointValueText(selectedPoint))
+                            .font(.title2.monospacedDigit().weight(.bold))
+                            .foregroundStyle(tint)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    if selectedPoint.hasEventMarker {
+                        Image(systemName: eventMarkerIconName(for: selectedPoint))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(eventMarkerTint(for: selectedPoint))
+                            .frame(width: 30, height: 30)
+                            .background(eventMarkerTint(for: selectedPoint).opacity(0.12), in: Circle())
+                    }
+                }
+            }
+
+            Chart {
+                ForEach(renderedPoints) { renderedPoint in
+                    AreaMark(
+                        x: .value("日期", renderedPoint.date),
+                        yStart: .value("下限", 0),
+                        yEnd: .value("分数", renderedPoint.visualScore)
+                    )
+                    .interpolationMethod(.monotone)
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [tint.opacity(0.20), tint.opacity(0.04)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+
+                    LineMark(
+                        x: .value("日期", renderedPoint.date),
+                        y: .value("分数", renderedPoint.visualScore)
+                    )
+                    .interpolationMethod(.monotone)
+                    .foregroundStyle(tint)
+                    .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                }
+
+                ForEach(eventPoints) { renderedPoint in
+                    PointMark(
+                        x: .value("事件日期", renderedPoint.date),
+                        y: .value("事件分数", renderedPoint.visualScore)
+                    )
+                    .symbolSize(selectedPoint?.id == renderedPoint.id ? 82 : 52)
+                    .foregroundStyle(eventMarkerTint(for: renderedPoint.point))
+                }
+
+                RuleMark(y: .value("参考线", 0.8))
+                    .foregroundStyle(Color.secondary.opacity(0.26))
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
+
+                if let selectedPoint, let selectedRenderedPoint {
+                    RuleMark(x: .value("选中日期", selectedPoint.date))
+                        .foregroundStyle(tint.opacity(0.42))
+                        .lineStyle(StrokeStyle(lineWidth: 1))
+
+                    PointMark(
+                        x: .value("选中日期", selectedPoint.date),
+                        y: .value("选中趋势", selectedRenderedPoint.visualScore)
+                    )
+                    .symbolSize(64)
+                    .foregroundStyle(tint)
+                }
+            }
+            .chartXScale(domain: chartXDomain)
+            .chartYScale(domain: 0...1)
+            .chartScrollableAxes(.horizontal)
+            .chartXVisibleDomain(length: visibleDomainLength)
+            .chartScrollPosition(initialX: chartInitialScrollDate)
+            .chartXSelection(value: $selectedDate)
+            .chartYAxis {
+                AxisMarks(position: .leading, values: chartAxisValues) { value in
+                    AxisGridLine()
+                        .foregroundStyle(Color.secondary.opacity(0.16))
+                    AxisValueLabel {
+                        if let score = value.as(Double.self) {
+                            Text("\(percentageText(score))%")
+                                .font(.caption2.monospacedDigit())
+                        }
+                    }
+                }
+            }
+            .chartXAxis {
+                AxisMarks(values: chartXAxisLabelDates) {
+                    AxisGridLine()
+                        .foregroundStyle(Color.secondary.opacity(0.10))
+                    AxisValueLabel(format: .dateTime.month(.defaultDigits).day())
+                        .font(.caption2)
+                }
+            }
+            .frame(height: 230)
+        }
+        .padding(14)
+        .medicationGlassSurface(cornerRadius: 18, tint: tint, fallbackMaterial: .regularMaterial, isInteractive: true)
+        .accessibilityLabel("\(metric.title)趋势曲线")
+    }
+
+    private func selectedPointValueText(_ point: MedicationTrendChartPoint) -> String {
+        if metric.topic == .healthSignal && point.healthSignalCount == 0 {
+            return "暂无数据"
+        }
+        return "\(percentageText(point.score))%"
+    }
+
+    private func eventMarkerTint(for point: MedicationTrendChartPoint) -> Color {
+        if point.doseChangeCount > 0 {
+            return .purple
+        }
+        if point.archivedMedicationCount > 0 || point.interruptedMedicationCount > 0 {
             return .orange
         }
-        return .red
+        if point.healthSignalCount > 0 {
+            return .teal
+        }
+        return trendDirectionTint(metric.direction)
     }
+
+    private func eventMarkerIconName(for point: MedicationTrendChartPoint) -> String {
+        if point.doseChangeCount > 0 {
+            return "arrow.triangle.2.circlepath"
+        }
+        if point.archivedMedicationCount > 0 {
+            return "archivebox.fill"
+        }
+        if point.interruptedMedicationCount > 0 {
+            return "pause.circle.fill"
+        }
+        if point.healthSignalCount > 0 {
+            return "heart.text.square.fill"
+        }
+        return "circle.fill"
+    }
+}
+
+private struct MedicationTrendRenderedPoint: Identifiable {
+    let point: MedicationTrendChartPoint
+    let visualScore: Double
+
+    var id: Date { point.id }
+    var date: Date { point.date }
+}
+
+private struct MedicationTrendEventLegend: View {
+    let metric: MedicationTrendMetric
+
+    private var items: [TrendEventLegendItem] {
+        var result: [TrendEventLegendItem] = []
+        if metric.points.contains(where: { $0.doseChangeCount > 0 }) {
+            result.append(TrendEventLegendItem(title: "剂量变化", color: .purple, iconName: "arrow.triangle.2.circlepath"))
+        }
+        if metric.points.contains(where: { $0.interruptedMedicationCount > 0 || $0.archivedMedicationCount > 0 }) {
+            result.append(TrendEventLegendItem(title: "状态变化", color: .orange, iconName: "pause.circle.fill"))
+        }
+        if metric.points.contains(where: { $0.healthSignalCount > 0 }) {
+            result.append(TrendEventLegendItem(title: "健康数据", color: .teal, iconName: "heart.text.square.fill"))
+        }
+        return result
+    }
+
+    var body: some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("事件标记")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    ForEach(items) { item in
+                        Label {
+                            Text(item.title)
+                                .font(.caption.weight(.semibold))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.82)
+                        } icon: {
+                            Image(systemName: item.iconName)
+                                .font(.caption.weight(.bold))
+                        }
+                        .foregroundStyle(item.color)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 6)
+                        .background(item.color.opacity(0.12), in: Capsule())
+                    }
+                }
+            }
+            .padding(.bottom, 4)
+            .accessibilityElement(children: .combine)
+        }
+    }
+}
+
+private struct TrendEventLegendItem: Identifiable {
+    let title: String
+    let color: Color
+    let iconName: String
+
+    var id: String { title }
+}
+
+private struct MedicationTrendPointDetail: View {
+    let point: MedicationTrendPoint
+    let topic: MedicationTrendTopic
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(AppFormatters.day.string(from: trendDate(from: point.date)))
+                    .font(.headline)
+                Spacer()
+                Text(pointValueText)
+                    .font(.headline.monospacedDigit())
+            }
+
+            TrendPointStatGrid(point: point)
+
+            if !detailText.isEmpty {
+                Text(detailText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            if !eventBadges.isEmpty {
+                VStack(alignment: .leading, spacing: 7) {
+                    Text("当日事件")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    StatusBadgeFlow {
+                        ForEach(eventBadges, id: \.text) { badge in
+                            StatusBadge(text: badge.text, color: badge.color)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .padding(12)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var pointValueText: String {
+        if topic == .healthSignal && point.healthSignalCount == 0 {
+            return "暂无数据"
+        }
+        return "\(percentageText(point.score))%"
+    }
+
+    private var detailText: String {
+        if !point.annotation.isEmpty {
+            return point.annotation
+        }
+        switch topic {
+        case .discipline:
+            return ""
+        case .timing:
+            return ""
+        case .doseChange:
+            return point.doseChangeCount == 0 ? "" : "当天记录 \(point.doseChangeCount) 次剂量变化。"
+        case .regimenLoad:
+            var parts: [String] = []
+            if point.prescriptionMedicationCount > 0 {
+                parts.append("\(point.prescriptionMedicationCount) 个处方药计划")
+            }
+            if point.nonPrescriptionMedicationCount > 0 {
+                parts.append("\(point.nonPrescriptionMedicationCount) 个非处方药计划")
+            }
+            if point.interruptedMedicationCount > 0 {
+                parts.append("\(point.interruptedMedicationCount) 个中断状态")
+            }
+            if point.archivedMedicationCount > 0 {
+                parts.append("\(point.archivedMedicationCount) 个归档状态或操作")
+            }
+            if point.importedMedicationCount > 0 {
+                parts.append("\(point.importedMedicationCount) 个导入来源计划")
+            }
+            return parts.joined(separator: "，")
+        case .healthSignal:
+            return point.healthSignalCount == 0 ? "" : "当天有 \(point.healthSignalCount) 条授权健康数据。"
+        }
+    }
+
+    private var eventBadges: [TrendEventBadge] {
+        var badges: [TrendEventBadge] = []
+        if point.doseChangeCount > 0 {
+            badges.append(TrendEventBadge(text: "\(point.doseChangeCount) 次剂量变化", color: .purple))
+        }
+        if point.interruptedMedicationCount > 0 {
+            badges.append(TrendEventBadge(text: "\(point.interruptedMedicationCount) 个中断状态", color: .orange))
+        }
+        if point.archivedMedicationCount > 0 {
+            badges.append(TrendEventBadge(text: "\(point.archivedMedicationCount) 个归档状态", color: .gray))
+        }
+        if point.healthSignalCount > 0 {
+            badges.append(TrendEventBadge(text: "\(point.healthSignalCount) 条健康数据", color: .teal))
+        }
+        return badges
+    }
+}
+
+private struct TrendPointStatGrid: View {
+    let point: MedicationTrendPoint
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+            TrendPointMiniStat(title: "计划", value: "\(point.scheduledCount)", tint: .blue)
+            TrendPointMiniStat(title: "完成", value: "\(point.completedCount)", tint: .green)
+            TrendPointMiniStat(title: "稍后", value: "\(point.delayedCount)", tint: .orange)
+            TrendPointMiniStat(title: "忽略", value: "\(point.skippedCount)", tint: .red)
+        }
+    }
+}
+
+private struct TrendEventBadge {
+    let text: String
+    let color: Color
+}
+
+private struct TrendPointMiniStat: View {
+    let title: String
+    let value: String
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.headline.monospacedDigit().weight(.bold))
+                .foregroundStyle(tint)
+                .contentTransition(.numericText())
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(tint.opacity(0.10), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(tint.opacity(0.12), lineWidth: 1)
+        )
+    }
+}
+
+private struct MedicationTrendChartPoint: Identifiable {
+    let date: Date
+    let score: Double
+    let doseChangeCount: Int
+    let archivedMedicationCount: Int
+    let interruptedMedicationCount: Int
+    let healthSignalCount: Int
+    let annotation: String
+
+    var id: Date { date }
+
+    var hasEventMarker: Bool {
+        doseChangeCount > 0
+            || archivedMedicationCount > 0
+            || interruptedMedicationCount > 0
+            || healthSignalCount > 0
+    }
+
+    var chartScore: Double {
+        min(1, max(0, score))
+    }
+}
+
+private func emptyTrendMetric(topic: MedicationTrendTopic) -> MedicationTrendMetric {
+    MedicationTrendMetric(
+        topic: topic,
+        title: trendTopicTitle(topic),
+        score: 0,
+        direction: .needsData,
+        summary: "继续记录后生成趋势。",
+        dataSourceSummary: "",
+        formulaSummary: "继续记录后生成透明的权重说明。",
+        comparison: MedicationTrendPeriodComparison(
+            recentScore: 0,
+            confidenceScore: 0,
+            recentDayCount: 0,
+            previousDayCount: 0,
+            recentScheduledCount: 0,
+            previousScheduledCount: 0,
+            evidenceSummary: "继续记录后生成数据质量说明。"
+        ),
+        contributorSummary: [],
+        formulaComponents: [],
+        points: []
+    )
+}
+
+private func trendTopicTitle(_ topic: MedicationTrendTopic) -> String {
+    switch topic {
+    case .discipline:
+        "用药纪律"
+    case .timing:
+        "时间稳定"
+    case .doseChange:
+        "剂量变化"
+    case .regimenLoad:
+        "用药负担"
+    case .healthSignal:
+        "健康信号"
+    }
+}
+
+private func trendTopicIconName(_ topic: MedicationTrendTopic) -> String {
+    switch topic {
+    case .discipline:
+        "checklist.checked"
+    case .timing:
+        "clock.badge.checkmark"
+    case .doseChange:
+        "arrow.triangle.2.circlepath"
+    case .regimenLoad:
+        "pills.fill"
+    case .healthSignal:
+        "heart.text.square.fill"
+    }
+}
+
+private func trendDate(from date: DateOnly) -> Date {
+    Calendar.current.date(from: DateComponents(year: date.year, month: date.month, day: date.day, hour: 12)) ?? Date()
+}
+
+func medicationTrendDashboard(
+    tasks: [StoredDoseTask],
+    doseChanges: [StoredMedicationDoseChange],
+    medications: [StoredMedication],
+    plans: [StoredMedicationPlan],
+    lifecycleEvents: [StoredMedicationLifecycleEvent] = [],
+    healthSignals: [HealthSignalSample] = []
+) -> MedicationTrendDashboard {
+    MedicationTrendDashboardBuilder().build(
+        scheduledDoses: tasks.map(\.coreScheduledDose),
+        events: tasks.compactMap(\.coreDoseEventUsingEffectiveAdherenceDate),
+        doseChanges: doseChanges.map(\.coreDoseChange),
+        planContexts: medicationTrendPlanContexts(tasks: tasks, medications: medications, plans: plans),
+        lifecycleEvents: medicationTrendLifecycleEvents(tasks: tasks, storedEvents: lifecycleEvents),
+        healthSignals: healthSignals,
+        timeZone: TimeZone.current
+    )
+}
+
+private func medicationTrendPlanContexts(
+    tasks: [StoredDoseTask],
+    medications: [StoredMedication],
+    plans: [StoredMedicationPlan]
+) -> [MedicationTrendPlanContext] {
+    var medicationIDByPlanID = Dictionary(uniqueKeysWithValues: plans.map { ($0.id, $0.medicationID) })
+    for task in tasks where medicationIDByPlanID[task.planID] == nil {
+        medicationIDByPlanID[task.planID] = task.medicationID
+    }
+
+    return medicationIDByPlanID.compactMap { planID, medicationID in
+        guard let medication = medications.first(where: { $0.id == medicationID }) else {
+            return nil
+        }
+        return MedicationTrendPlanContext(
+            planID: planID,
+            medicationID: medicationID,
+            medicationKind: MedicationKind(rawValue: medication.kindRaw) ?? .unknown,
+            inputSource: MedicationInputSource(rawValue: medication.inputSourceRaw) ?? .manual,
+            lifecycleState: medicationTrendLifecycleState(for: medication.lifecycleStatus)
+        )
+    }
+}
+
+private func medicationTrendLifecycleEvents(
+    tasks: [StoredDoseTask],
+    storedEvents: [StoredMedicationLifecycleEvent]
+) -> [MedicationLifecycleEvent] {
+    let taskArchiveEvents = tasks
+        .filter { $0.reason.contains("用户已归档") }
+        .map {
+            MedicationLifecycleEvent(
+                medicationID: $0.medicationID,
+                state: .archived,
+                occurredAt: $0.effectiveAdherenceDate,
+                note: "用户归档今日记录"
+            )
+        }
+    return storedEvents.map(\.coreLifecycleEvent) + taskArchiveEvents
+}
+
+private func medicationTrendLifecycleState(for status: StoredMedicationLifecycleStatus) -> MedicationLifecycleState {
+    switch status {
+    case .active:
+        .active
+    case .interrupted:
+        .interrupted
+    case .archived:
+        .archived
+    }
+}
+
+func trendDirectionTitle(_ direction: MedicationTrendDirection) -> String {
+    switch direction {
+    case .improving:
+        "正在改善"
+    case .stable:
+        "趋势平稳"
+    case .fluctuating:
+        "近期波动"
+    case .declining:
+        "需要关注"
+    case .needsData:
+        "继续记录"
+    }
+}
+
+func trendDirectionTint(_ direction: MedicationTrendDirection) -> Color {
+    switch direction {
+    case .improving:
+        .green
+    case .stable:
+        .blue
+    case .fluctuating:
+        .teal
+    case .declining:
+        .orange
+    case .needsData:
+        .gray
+    }
+}
+
+func trendDirectionIconName(_ direction: MedicationTrendDirection) -> String {
+    switch direction {
+    case .improving:
+        "chart.line.uptrend.xyaxis"
+    case .stable:
+        "equal.circle.fill"
+    case .fluctuating:
+        "waveform.path.ecg"
+    case .declining:
+        "chart.line.downtrend.xyaxis"
+    case .needsData:
+        "chart.xyaxis.line"
+    }
+}
+
+private func metricComparisonText(_ comparison: MedicationTrendPeriodComparison) -> String {
+    let recent = "\(comparison.recentPeriodTitle) \(percentageText(comparison.recentScore))%"
+    guard comparison.previousScore != nil, let delta = comparison.delta else {
+        return "\(recent)，前一周期不足"
+    }
+    return "\(recent)，较\(comparison.previousPeriodTitle) \(trendDeltaText(delta))"
+}
+
+private func trendMetricValueText(_ metric: MedicationTrendMetric) -> String {
+    if metric.direction == .needsData {
+        return "暂无数据"
+    }
+    return "\(percentageText(metric.comparison.recentScore))%"
+}
+
+private func trendMetricPrimaryValueTitle(_ metric: MedicationTrendMetric) -> String {
+    metric.direction == .needsData ? "当前状态" : "近 7 天"
+}
+
+private func trendMetricRecordDaysText(_ metric: MedicationTrendMetric) -> String {
+    if metric.topic == .healthSignal {
+        let daysWithSamples = metric.points.filter { $0.healthSignalCount > 0 }.count
+        return daysWithSamples == 0 ? "等待授权样本" : "\(daysWithSamples) 天有健康数据"
+    }
+    return "\(metric.points.count) 天"
+}
+
+private func normalizedTrendScore(_ value: Double) -> Double {
+    min(1, max(0, value))
+}
+
+private func trendScoreTint(_ score: Double) -> Color {
+    if score >= 0.86 {
+        return .green
+    }
+    if score >= 0.68 {
+        return .blue
+    }
+    if score >= 0.48 {
+        return .orange
+    }
+    return .red
+}
+
+private func trendSlopeShortText(_ comparison: MedicationTrendPeriodComparison) -> String {
+    if comparison.trendStrengthScore < 0.04 {
+        return "近 7 天内部平稳"
+    }
+    let direction = comparison.trendSlopePerDay > 0 ? "上行" : "下行"
+    let dailyPoints = Int((abs(comparison.trendSlopePerDay) * 100).rounded())
+    return "\(direction)约 \(dailyPoints) 点/天"
+}
+
+private func trendSlopeSummaryText(_ comparison: MedicationTrendPeriodComparison) -> String {
+    let strength = percentageText(comparison.trendStrengthScore)
+    if comparison.trendStrengthScore < 0.04 {
+        return "近 7 天内部走势平稳，方向强度 \(strength)%"
+    }
+    let direction = comparison.trendSlopePerDay > 0 ? "上行" : "下行"
+    let dailyPoints = Int((abs(comparison.trendSlopePerDay) * 100).rounded())
+    return "近 7 天呈\(direction)，约 \(dailyPoints) 个百分点/天，方向强度 \(strength)%"
+}
+
+private func trendDeltaText(_ delta: Double) -> String {
+    let points = Int((abs(delta) * 100).rounded())
+    if points == 0 {
+        return "持平"
+    }
+    return delta > 0 ? "上升 \(points) 个百分点" : "下降 \(points) 个百分点"
 }
 
 private struct MedicationCardRow: View {
@@ -887,15 +2576,24 @@ private struct MedicationCardRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 14) {
-                MedicationPhotoView(photoData: medication.photoData, symbolName: medication.photoSymbolName, tint: .blue)
+                MedicationPhotoView(photoData: medication.photoData, symbolName: medication.photoSymbolName, tint: medicationColor(for: medication))
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(medication.displayName)
-                        .font(.headline)
+                    HStack(spacing: 7) {
+                        MedicationColorMarker(color: medicationColor(for: medication), size: 9)
+                        Text(userFacingMedicationName(for: medication))
+                            .font(.headline)
+                    }
+                    if medicationNeedsNameReview(medication) {
+                        StatusBadge(text: "药名待补全", color: .orange)
+                    }
                     Text([medication.strength, medication.form].filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     StatusBadgeFlow {
                         StatusBadge(text: medication.kindDisplayName, color: .green)
+                        if !medication.boxNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            StatusBadge(text: "编号 \(medication.boxNumber)", color: .blue)
+                        }
                         if medication.lifecycleStatus != .active || lifecycleClassification.shouldPromptReview {
                             StatusBadge(
                                 text: lifecycleClassification.displayStatus.displayName,
@@ -935,6 +2633,12 @@ private struct MedicationCardRow: View {
                 Text(plan.timingSummary)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+            }
+            if !medication.boxNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Label("药盒编号 \(medication.boxNumber)", systemImage: "number.square.fill")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
             if lifecycleClassification.shouldPromptReview {
                 Text(lifecycleClassification.explanation)
@@ -1008,24 +2712,42 @@ private struct LifecycleReviewPanel: View {
                 Button {
                     markInterrupted()
                 } label: {
-                    Label("确认标记为服用中断", systemImage: "pause.circle")
+                    LifecycleActionButton(
+                        title: "确认服用中断",
+                        subtitle: "停用未来提醒，保留既有记录",
+                        systemImage: "pause.circle.fill",
+                        tint: .orange
+                    )
                 }
+                .buttonStyle(.plain)
             }
 
             if medication.lifecycleStatus == .interrupted {
                 Button {
                     markActive()
                 } label: {
-                    Label("恢复为正在服用", systemImage: "play.circle")
+                    LifecycleActionButton(
+                        title: "恢复正在服用",
+                        subtitle: "重新纳入今日和提醒计划",
+                        systemImage: "play.circle.fill",
+                        tint: .green
+                    )
                 }
+                .buttonStyle(.plain)
             }
 
             if medication.lifecycleStatus != .archived {
                 Button(role: .destructive) {
                     archive()
                 } label: {
-                    Label("归档药物", systemImage: "archivebox")
+                    LifecycleActionButton(
+                        title: "归档药物",
+                        subtitle: "从今日提醒移出，归档后可删除",
+                        systemImage: "archivebox.fill",
+                        tint: .orange
+                    )
                 }
+                .buttonStyle(.plain)
             }
 
             Text("状态用于列表归类和提醒管理，不代表停药、换药或处方建议；有疑问请咨询医生或药师。")
@@ -1051,8 +2773,49 @@ private struct LifecycleReviewPanel: View {
     }
 }
 
+private struct LifecycleActionButton: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(width: 34, height: 34)
+                .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 8)
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(12)
+        .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(tint.opacity(0.12), lineWidth: 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
 struct MedicationDetailView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
     let medication: StoredMedication
     @Query(sort: \StoredMedicationPlan.createdAt) private var plans: [StoredMedicationPlan]
     @Query(sort: \StoredDoseTask.dueAt, order: .reverse) private var tasks: [StoredDoseTask]
@@ -1067,6 +2830,9 @@ struct MedicationDetailView: View {
     @State private var showingCameraPhotoCapture = false
     @State private var selectedDetailPhotoItem: PhotosPickerItem?
     @State private var photoStatusMessage = ""
+    @State private var riskReviewStatusMessage = ""
+    @State private var showingDeleteConfirmation = false
+    @State private var pendingPermissionGate: AppPermissionGate?
 
     private var relatedPlans: [StoredMedicationPlan] {
         plans.filter { $0.medicationID == medication.id }
@@ -1076,12 +2842,24 @@ struct MedicationDetailView: View {
         tasks.filter { $0.medicationID == medication.id }
     }
 
+    private var relatedMeasurableTasks: [StoredDoseTask] {
+        relatedTasks.adherenceMeasurableTasks
+    }
+
     private var relatedDoseChanges: [StoredMedicationDoseChange] {
         doseChanges.filter { $0.medicationID == medication.id }
     }
 
     private var relatedRiskCards: [StoredRiskCard] {
         riskCards.filter { $0.medicationID == medication.id }
+    }
+
+    private var activeRelatedRiskCards: [StoredRiskCard] {
+        relatedRiskCards.filter(\.isActive).sorted(by: riskCardSort)
+    }
+
+    private var archivedRelatedRiskCards: [StoredRiskCard] {
+        relatedRiskCards.filter { $0.isArchived || $0.isResolved }.sorted(by: riskCardSort)
     }
 
     private var relatedStock: StoredMedicationStock? {
@@ -1098,13 +2876,13 @@ struct MedicationDetailView: View {
         }
         return MedicationStockEstimator().project(
             stock: relatedStock.coreStock,
-            scheduledDoses: relatedTasks.map(\.coreScheduledDose),
-            events: relatedTasks.compactMap(\.coreDoseEvent)
+            scheduledDoses: relatedMeasurableTasks.map(\.coreScheduledDose),
+            events: relatedMeasurableTasks.compactMap(\.coreDoseEventUsingEffectiveAdherenceDate)
         )
     }
 
     private var effectiveLabel: MedicationLabel? {
-        relatedLabel?.coreLabel ?? DemoDrugLabels.all.first { $0.name == medicationDemoLabelLookupName(for: medication) }
+        relatedLabel?.coreLabel
     }
 
     private var labelSummary: ReadableLabelSummary? {
@@ -1122,11 +2900,32 @@ struct MedicationDetailView: View {
     var body: some View {
         List {
             Section {
-                HStack(alignment: .top, spacing: 16) {
-                    MedicationPhotoView(photoData: medication.photoData, symbolName: medication.photoSymbolName, tint: .blue, size: 84)
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(medication.displayName)
-                            .font(.title2.weight(.semibold))
+                VStack(alignment: .leading, spacing: 14) {
+                    MedicationHeroPhotoView(
+                        photoData: medication.photoData,
+                        symbolName: medication.photoSymbolName,
+                        tint: medicationColor(for: medication),
+                        title: medication.photoData == nil ? "添加药盒或药品照片" : "药盒或药品照片",
+                        subtitle: medication.photoData == nil ? "建议拍药盒正面或药品实物，提醒时便于核对。" : "提醒和记录中会优先显示这张本机照片。",
+                        boxNumber: medication.boxNumber
+                    )
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            MedicationColorMarker(color: medicationColor(for: medication), size: 11)
+                            Text(userFacingMedicationName(for: medication))
+                                .font(.title2.weight(.semibold))
+                        }
+                        if !medication.genericName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                           medication.genericName != medication.displayName {
+                            Text("通用名 \(medication.genericName)")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        if medicationNeedsNameReview(medication) {
+                            Label(medicationNameReviewHint(for: medication), systemImage: "exclamationmark.triangle")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.orange)
+                        }
                         Text([medication.strength, medication.form].filter { !$0.isEmpty }.joined(separator: " · "))
                             .foregroundStyle(.secondary)
                         StatusBadgeFlow {
@@ -1135,31 +2934,36 @@ struct MedicationDetailView: View {
                                 text: lifecycleClassification.displayStatus.displayName,
                                 color: badgeColor(for: lifecycleClassification.displayStatus)
                             )
+                            if !medication.boxNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                StatusBadge(text: "编号 \(medication.boxNumber)", color: .blue)
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        PhotosPicker(selection: $selectedDetailPhotoItem, matching: .images) {
-                            Label(medication.photoData == nil ? "选择药品照片" : "更换药品照片", systemImage: "photo")
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        Button {
-                            showingCameraPhotoCapture = true
-                        } label: {
-                            Label("拍照上传", systemImage: "camera")
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
-                        if medication.photoData != nil {
-                            Button(role: .destructive) {
-                                medication.photoData = nil
-                                photoStatusMessage = "已清除药品照片。"
-                                try? modelContext.save()
-                            } label: {
-                                Label("清除照片", systemImage: "trash")
+                        HStack {
+                            PhotosPicker(selection: $selectedDetailPhotoItem, matching: .images) {
+                                Label(medication.photoData == nil ? "选择照片" : "更换照片", systemImage: "photo")
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
+                            Button {
+                                startDetailPhotoCameraFlow()
+                            } label: {
+                                Label("拍照", systemImage: "camera")
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
+                            if medication.photoData != nil {
+                                Button(role: .destructive) {
+                                    medication.photoData = nil
+                                    photoStatusMessage = "已清除药品照片。"
+                                    try? modelContext.save()
+                                } label: {
+                                    Label("清除", systemImage: "trash")
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            }
                         }
                     }
                 }
@@ -1169,16 +2973,24 @@ struct MedicationDetailView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
-                Text("药品照片只保存在本机，用于提醒时辅助识别实物；请按药盒或说明书核对。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
 
             Section("药品信息") {
+                HStack {
+                    Text("颜色标识")
+                    Spacer()
+                    HStack(spacing: 8) {
+                        MedicationColorMarker(color: medicationColor(for: medication), size: 12)
+                        Text(medicationColorOption(for: medication).displayName)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                InfoRow(title: "通用名", value: medication.genericName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "未填写" : medication.genericName)
                 InfoRow(title: "规格", value: medication.strength.isEmpty ? "未填写" : medication.strength)
                 InfoRow(title: "剂型", value: medication.form.isEmpty ? "未填写" : medication.form)
+                InfoRow(title: "药盒编号", value: medication.boxNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "未填写" : medication.boxNumber)
                 InfoRow(title: "来源", value: sourceDisplayName(medication.inputSourceRaw))
-                if let visibleNotes = userVisibleMedicationNotes(medication.notes) {
+                if let visibleNotes = MedicationNotesDisplayPolicy.visibleText(from: medication.notes) {
                     Text(visibleNotes)
                         .foregroundStyle(.secondary)
                 }
@@ -1194,10 +3006,10 @@ struct MedicationDetailView: View {
                             InfoRow(title: "剂量", value: "\(plan.doseValue.formatted()) \(localizedMedicationUnit(plan.doseUnit))")
                             InfoRow(title: "疗程", value: courseSummary(for: plan))
                             InfoRow(title: "时间", value: reminderSummary(for: plan, tasks: relatedTasks))
-                            InfoRow(title: "时区规则", value: plan.timeZonePolicyRaw)
-                            Text(plan.sourceNote)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
+                            InfoRow(title: "时区规则", value: timeZonePolicyDisplayName(plan.timeZonePolicyRaw))
+                            if let visiblePlanNote = userVisiblePlanSourceNote(plan.sourceNote) {
+                                InfoRow(title: "备注", value: visiblePlanNote)
+                            }
                         }
                         .padding(.vertical, 6)
                     }
@@ -1207,9 +3019,6 @@ struct MedicationDetailView: View {
                 } label: {
                     Label(relatedPlans.isEmpty ? "建立疗程与提醒" : "修改疗程与提醒", systemImage: "calendar.badge.clock")
                 }
-                Text("提醒计划必须由用户按说明书、医嘱或药师建议核对。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
 
             Section("剂量变化记录") {
@@ -1225,9 +3034,6 @@ struct MedicationDetailView: View {
                             .padding(.vertical, 5)
                     }
                 }
-                Text("剂量变化记录可帮助复诊时说明用药方案变化；这里只记录用户确认的信息，不生成诊断、处方或疗效判断。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
 
             Section("药盒库存") {
@@ -1242,17 +3048,14 @@ struct MedicationDetailView: View {
                 } label: {
                     Label(relatedStock == nil ? "填写药盒" : "更新药盒", systemImage: "shippingbox")
                 }
-                Text("药盒库存估算只用于提醒你核对实物，不代表处方续药、购药或采购建议。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
 
             Section("近期记录") {
-                if relatedTasks.isEmpty {
+                if relatedMeasurableTasks.isEmpty {
                     Text("暂无服药记录。")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(Array(relatedTasks.prefix(5))) { task in
+                    ForEach(Array(relatedMeasurableTasks.prefix(5))) { task in
                         HStack(spacing: 12) {
                             MedicationPhotoView(
                                 photoData: medication.photoData,
@@ -1278,12 +3081,12 @@ struct MedicationDetailView: View {
             Section("说明书与风险识别") {
                 if let relatedLabel {
                     VStack(alignment: .leading, spacing: 8) {
-                        Label("已导入说明书", systemImage: "doc.text.magnifyingglass")
+                        Label(labelStatusTitle(for: relatedLabel), systemImage: "doc.text.magnifyingglass")
                             .font(.headline)
                         Text(relatedLabel.sourceTitle)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        Text("导入时间：\(AppFormatters.day.string(from: relatedLabel.importedAt)) \(AppFormatters.time.string(from: relatedLabel.importedAt))")
+                        Text(labelTimestampText(for: relatedLabel))
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                         if let reviewedAt = relatedLabel.lastRiskReviewAt {
@@ -1291,16 +3094,20 @@ struct MedicationDetailView: View {
                                 .font(.footnote)
                                 .foregroundStyle(.green)
                         }
-                        StatusBadge(text: "\(relatedRiskCards.count) 条警示", color: relatedRiskCards.isEmpty ? .blue : .orange)
+                        StatusBadge(
+                            text: activeRelatedRiskCards.isEmpty ? "暂无活跃警示" : "\(activeRelatedRiskCards.count) 条活跃警示",
+                            color: activeRelatedRiskCards.isEmpty ? .blue : .orange
+                        )
+                        if !archivedRelatedRiskCards.isEmpty {
+                            StatusBadge(text: "\(archivedRelatedRiskCards.count) 条已归档", color: .secondary)
+                        }
                     }
                     .padding(.vertical, 6)
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
                         Label("建议导入说明书", systemImage: "doc.badge.plus")
                             .font(.headline)
-                        Text("导入药盒或说明书照片后，App 会用本机 OCR 识别文字，并在本地生成可复核的风险卡片。")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                        StatusBadge(text: "未导入", color: .secondary)
                     }
                     .padding(.vertical, 6)
                 }
@@ -1319,30 +3126,33 @@ struct MedicationDetailView: View {
                     }
                 }
 
-                Text("说明书识别和风险卡片只用于风险提示与复诊沟通，不能替代医生或药师判断。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                if !riskReviewStatusMessage.isEmpty {
+                    Text(riskReviewStatusMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
             }
 
             Section("风险与副作用") {
-                if relatedRiskCards.isEmpty {
-                    Text("暂无风险卡片。")
+                if activeRelatedRiskCards.isEmpty {
+                    Text("暂无风险提醒。")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(Array(relatedRiskCards.prefix(4))) { card in
-                        VStack(alignment: .leading, spacing: 7) {
-                            Text(card.title)
-                                .font(.headline)
-                            Text(card.message)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                            if !card.safetyNote.isEmpty {
-                                Text(card.safetyNote)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
+                    ForEach(Array(activeRelatedRiskCards.prefix(4))) { card in
+                        NavigationLink {
+                            RiskCardDetailView(card: card, medicationName: userFacingMedicationName(for: medication))
+                        } label: {
+                            MedicationRiskCardRow(card: card)
                         }
-                        .padding(.vertical, 6)
+                    }
+                }
+
+                if activeRelatedRiskCards.count > 4 {
+                    NavigationLink {
+                        RisksView()
+                    } label: {
+                        Label("查看全部风险提醒", systemImage: "exclamationmark.triangle")
                     }
                 }
 
@@ -1387,23 +3197,19 @@ struct MedicationDetailView: View {
                     medication: medication,
                     classification: lifecycleClassification,
                     markInterrupted: {
-                        medication.lifecycleStatus = .interrupted
-                        try? modelContext.save()
+                        updateLifecycleStatus(.interrupted, note: "用户在药品详情标记服用中断")
                     },
                     markActive: {
-                        medication.lifecycleStatus = .active
-                        try? modelContext.save()
+                        updateLifecycleStatus(.active, note: "用户在药品详情恢复正在服用")
                     },
                     archive: {
-                        medication.lifecycleStatus = .archived
-                        try? modelContext.save()
+                        updateLifecycleStatus(.archived, note: "用户在药品详情归档药物")
                     }
                 )
                 Picker("药品状态", selection: Binding(
                     get: { medication.lifecycleStatus },
                     set: { newValue in
-                        medication.lifecycleStatus = newValue
-                        try? modelContext.save()
+                        updateLifecycleStatus(newValue, note: "用户在药品详情修改药品状态")
                     }
                 )) {
                     ForEach(StoredMedicationLifecycleStatus.allCases) { status in
@@ -1415,9 +3221,13 @@ struct MedicationDetailView: View {
                 } label: {
                     Label("修改药品信息", systemImage: "pencil")
                 }
-                Text("修改后仍需按药盒、说明书、医嘱或药师建议核对。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                if medication.lifecycleStatus == .archived {
+                    Button(role: .destructive) {
+                        showingDeleteConfirmation = true
+                    } label: {
+                        Label("删除归档药物", systemImage: "trash")
+                    }
+                }
             }
         }
         .navigationTitle("药品详情")
@@ -1455,6 +3265,173 @@ struct MedicationDetailView: View {
                 try? modelContext.save()
             }
         }
+        .appPermissionPrimer(pendingGate: $pendingPermissionGate) { gate in
+            guard gate == .camera else {
+                return
+            }
+            Task {
+                await requestDetailPhotoCameraAccess()
+            }
+        }
+        .confirmationDialog("删除归档药物？", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
+            Button("删除药物和相关记录", role: .destructive) {
+                deleteArchivedMedication()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("会删除该药物的提醒、记录、说明书、风险提醒、库存和剂量变化。")
+        }
+    }
+
+    private func startDetailPhotoCameraFlow() {
+        guard AppPermissionGate.isCameraAvailable() else {
+            photoStatusMessage = "当前设备没有可用相机。"
+            return
+        }
+        if AppPermissionGate.isCameraAuthorized() {
+            showingCameraPhotoCapture = true
+            return
+        }
+        if AppPermissionGate.hasCompletedAuthorization(for: .camera) {
+            Task {
+                await requestDetailPhotoCameraAccess()
+            }
+        } else {
+            pendingPermissionGate = .camera
+        }
+    }
+
+    @MainActor
+    private func requestDetailPhotoCameraAccess() async {
+        guard await AppPermissionGate.requestCameraAccess() else {
+            photoStatusMessage = "相机权限未开启，无法拍摄药盒或药品照片。"
+            return
+        }
+        showingCameraPhotoCapture = true
+    }
+
+    private func updateLifecycleStatus(_ status: StoredMedicationLifecycleStatus, note: String) {
+        guard medication.lifecycleStatus != status else {
+            return
+        }
+        let previousStatus = medication.lifecycleStatus
+        medication.lifecycleStatus = status
+        modelContext.insert(
+            StoredMedicationLifecycleEvent(
+                medicationID: medication.id,
+                status: status,
+                note: note
+            )
+        )
+        try? modelContext.save()
+        if status == .archived || status == .interrupted {
+            disableFutureTasksForInactiveMedication(status)
+        } else if previousStatus == .archived || previousStatus == .interrupted {
+            rebuildFutureTasksForReactivatedMedication()
+        }
+    }
+
+    private func disableFutureTasksForInactiveMedication(_ status: StoredMedicationLifecycleStatus) {
+        let now = Calendar.current.startOfDay(for: Date())
+        let affectedTasks = relatedTasks.filter { task in
+            (task.status == .pending || task.status == .delayed)
+                && task.dueAt >= now
+        }
+        guard !affectedTasks.isEmpty else {
+            return
+        }
+        let notificationService = NotificationService()
+        for task in affectedTasks {
+            notificationService.cancelReminder(for: task.id)
+            task.status = .skipped
+            task.recordedAt = nil
+            task.reason = status == .interrupted ? "药物已中断，未来提醒已停用。" : "药物已归档，未来提醒已停用。"
+        }
+        try? modelContext.save()
+        Task {
+            let liveActivityService = MedicationLiveActivityService()
+            for task in affectedTasks {
+                await liveActivityService.end(for: task.id)
+            }
+        }
+    }
+
+    private func rebuildFutureTasksForReactivatedMedication() {
+        let coordinator = MedicationReminderTaskCoordinator()
+        let notificationService = NotificationService()
+        let batches = relatedPlans.map { plan in
+            coordinator.reconcilePlan(plan, medication: medication, in: modelContext)
+        }
+        try? modelContext.save()
+        let cancelledTaskIDs = batches.flatMap(\.cancelledTaskIDs)
+        if !cancelledTaskIDs.isEmpty {
+            notificationService.cancelReminders(for: cancelledTaskIDs)
+        }
+        Task {
+            for batch in batches {
+                for task in batch.tasks {
+                    await notificationService.scheduleReminder(
+                        for: task,
+                        medication: batch.medication,
+                        deliveryMethod: batch.deliveryMethod
+                    )
+                }
+            }
+            await notificationService.refreshPendingReminderCount()
+        }
+    }
+
+    private func deleteArchivedMedication() {
+        guard medication.lifecycleStatus == .archived else {
+            return
+        }
+        let medicationID = medication.id
+        let relatedTaskIDs = Set(tasks.filter { $0.medicationID == medicationID }.map(\.id))
+        let notificationService = NotificationService()
+        for taskID in relatedTaskIDs {
+            notificationService.cancelReminder(for: taskID)
+        }
+        Task {
+            let liveActivityService = MedicationLiveActivityService()
+            for taskID in relatedTaskIDs {
+                await liveActivityService.end(for: taskID)
+            }
+        }
+        for log in fetchAllDoseActionLogs() where relatedTaskIDs.contains(log.taskID) {
+            modelContext.delete(log)
+        }
+        for task in tasks where task.medicationID == medicationID {
+            modelContext.delete(task)
+        }
+        for plan in plans where plan.medicationID == medicationID {
+            modelContext.delete(plan)
+        }
+        for change in doseChanges where change.medicationID == medicationID {
+            modelContext.delete(change)
+        }
+        for card in riskCards where card.medicationID == medicationID {
+            modelContext.delete(card)
+        }
+        for stock in stocks where stock.medicationID == medicationID {
+            modelContext.delete(stock)
+        }
+        for label in labels where label.medicationID == medicationID {
+            modelContext.delete(label)
+        }
+        for event in fetchAllLifecycleEvents() where event.medicationID == medicationID {
+            modelContext.delete(event)
+        }
+        modelContext.delete(medication)
+        try? modelContext.save()
+        dismiss()
+    }
+
+    private func fetchAllDoseActionLogs() -> [StoredDoseActionLog] {
+        (try? modelContext.fetch(FetchDescriptor<StoredDoseActionLog>())) ?? []
+    }
+
+    private func fetchAllLifecycleEvents() -> [StoredMedicationLifecycleEvent] {
+        (try? modelContext.fetch(FetchDescriptor<StoredMedicationLifecycleEvent>())) ?? []
     }
 
     private func saveUserProvidedLabel(rawText: String, sourceTitle: String, confidence: Double) {
@@ -1462,26 +3439,29 @@ struct MedicationDetailView: View {
         guard !trimmedText.isEmpty else {
             return
         }
+        let labelMedicationName = userFacingMedicationName(for: medication)
         let label = relatedLabel ?? StoredMedicationLabel(
             medicationID: medication.id,
-            medicationName: medication.displayName,
+            medicationName: labelMedicationName,
             rawText: trimmedText,
             sourceTitle: sourceTitle,
             averageOCRConfidence: confidence
         )
-        label.medicationName = medication.displayName
+        label.medicationName = labelMedicationName
         label.rawText = trimmedText
-        label.sourceTitle = sourceTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "用户导入说明书" : sourceTitle
+        let normalizedSourceTitle = normalizedUserConfirmedLabelSourceTitle(sourceTitle)
+        label.sourceTitle = normalizedSourceTitle
         label.averageOCRConfidence = confidence
         label.importedAt = Date()
         if relatedLabel == nil {
             modelContext.insert(label)
         }
-        MedicationRiskReviewService.rebuildUserLabelRisks(
+        let result = MedicationRiskReviewService.rebuildUserLabelRisks(
             medication: medication,
             label: label,
             in: modelContext
         )
+        riskReviewStatusMessage = result.userFacingSummary
         try? modelContext.save()
     }
 
@@ -1489,11 +3469,12 @@ struct MedicationDetailView: View {
         guard let relatedLabel else {
             return
         }
-        MedicationRiskReviewService.rebuildUserLabelRisks(
+        let result = MedicationRiskReviewService.rebuildUserLabelRisks(
             medication: medication,
             label: relatedLabel,
             in: modelContext
         )
+        riskReviewStatusMessage = result.userFacingSummary
     }
 
     private func sourceDisplayName(_ rawValue: String) -> String {
@@ -1503,23 +3484,40 @@ struct MedicationDetailView: View {
         case .barcode:
             "药盒条码"
         case .prescriptionImage:
-            "医嘱/OCR"
+            "医嘱图片导入"
         case .demoData:
-            "本机记录"
+            "已保存记录"
         case nil:
             rawValue
         }
     }
 
-    private func userVisibleMedicationNotes(_ notes: String) -> String? {
-        let visibleLines = notes
-            .split(whereSeparator: \.isNewline)
-            .map(String.init)
-            .filter { !$0.contains("演示") }
-        let visibleText = visibleLines
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return visibleText.isEmpty ? nil : visibleText
+    private func timeZonePolicyDisplayName(_ rawValue: String) -> String {
+        switch ReminderTimeZonePolicy(rawValue: rawValue) {
+        case .localClock:
+            "按当地时间提醒"
+        case .fixedInterval:
+            "按固定间隔提醒"
+        case nil:
+            "需核对提醒规则"
+        }
+    }
+
+    private func labelStatusTitle(for label: StoredMedicationLabel) -> String {
+        label.sourceTitle == "本地保存说明书摘要" ? "已保存说明书摘要" : "已导入说明书"
+    }
+
+    private func labelTimestampText(for label: StoredMedicationLabel) -> String {
+        let timestamp = "\(AppFormatters.day.string(from: label.importedAt)) \(AppFormatters.time.string(from: label.importedAt))"
+        return label.sourceTitle == "本地保存说明书摘要" ? "保存时间：\(timestamp)" : "导入时间：\(timestamp)"
+    }
+
+    private func normalizedUserConfirmedLabelSourceTitle(_ title: String) -> String {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedTitle.isEmpty || trimmedTitle == "本地保存说明书摘要" {
+            return "用户确认说明书"
+        }
+        return trimmedTitle
     }
 
     private func loadDetailPhoto(_ item: PhotosPickerItem?) async {
@@ -1545,6 +3543,27 @@ struct MedicationDetailView: View {
             }
         }
     }
+}
+
+private func userVisiblePlanSourceNote(_ note: String) -> String? {
+    let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmedNote.isEmpty else {
+        return nil
+    }
+
+    let hiddenFragments = [
+        "用户二次确认后建立",
+        "可在详情页继续修改疗程、提醒和库存",
+        "按说明书建议建立，用户确认后提醒"
+    ]
+    guard !hiddenFragments.contains(where: { trimmedNote.contains($0) }) else {
+        return nil
+    }
+    return trimmedNote
+}
+
+private func storedPlanSourceNote(from visibleNote: String) -> String {
+    visibleNote.trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
 private struct CameraPhotoCaptureSheet: UIViewControllerRepresentable {
@@ -1590,12 +3609,114 @@ private struct CameraPhotoCaptureSheet: UIViewControllerRepresentable {
     }
 }
 
+private enum AddMedicationCameraAction {
+    case barcodeScanner
+    case prescriptionImage
+    case nameScan
+    case medicationPhoto
+}
+
+private struct MedicationPhotoSourceSheet: View {
+    let hasPhoto: Bool
+    let canUseCamera: Bool
+    @Binding var selectedPhotoItem: PhotosPickerItem?
+    let takePhoto: () -> Void
+    let clearPhoto: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 14) {
+                Button(action: takePhoto) {
+                    MedicationPhotoSourceButtonLabel(
+                        title: "拍照",
+                        subtitle: canUseCamera ? "拍摄药盒正面或药品实物" : "当前设备没有可用相机",
+                        systemImage: "camera.fill",
+                        tint: .blue
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(!canUseCamera)
+                .opacity(canUseCamera ? 1 : 0.5)
+
+                PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                    MedicationPhotoSourceButtonLabel(
+                        title: hasPhoto ? "更换照片" : "选择照片",
+                        subtitle: "从相册选择一张用于提醒核对",
+                        systemImage: "photo.fill.on.rectangle.fill",
+                        tint: .blue
+                    )
+                }
+                .buttonStyle(.plain)
+
+                if hasPhoto {
+                    Button(role: .destructive, action: clearPhoto) {
+                        MedicationPhotoSourceButtonLabel(
+                            title: "清除当前照片",
+                            subtitle: "保留药品资料，只移除照片",
+                            systemImage: "trash.fill",
+                            tint: .red
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+            .padding(.bottom, 24)
+            .navigationTitle("添加药品照片")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        dismiss()
+                    }
+                }
+            }
+            .onChange(of: selectedPhotoItem) { _, newItem in
+                if newItem != nil {
+                    dismiss()
+                }
+            }
+        }
+    }
+}
+
+private struct MedicationPhotoSourceButtonLabel: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(width: 36, height: 36)
+                .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text(subtitle)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(14)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
 private struct AddMedicationView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @StateObject private var notificationService = NotificationService()
     let option: MedicationAddOption
     @State private var displayName = ""
+    @State private var genericName = ""
     @State private var strength = ""
     @State private var form = ""
     @State private var doseValue = 1.0
@@ -1608,6 +3729,7 @@ private struct AddMedicationView: View {
     @State private var courseEndDate: Date
     @State private var reminderTimes: [Date]
     @State private var reminderDeliveryMethod: StoredReminderDeliveryMethod = .notification
+    @State private var escalatesToAlarmWhenUnhandled = true
     @State private var kind: MedicationKind
     @State private var importedText = ""
     @State private var barcodeValue = ""
@@ -1615,14 +3737,23 @@ private struct AddMedicationView: View {
     @State private var showingSaveConfirmation = false
     @State private var selectedImageItem: PhotosPickerItem?
     @State private var selectedMedicationPhotoItem: PhotosPickerItem?
+    @State private var showingMedicationPhotoSourceDialog = false
     @State private var medicationPhotoData: Data?
     @State private var selectedPhotoSymbolName = "pills.fill"
+    @State private var boxNumber = ""
     @State private var isAnalyzingImage = false
     @State private var visionStatusMessage = ""
     @State private var importReview: MedicationImportReview?
     @State private var recognizedBarcodes: [VisionBarcodeRecognitionResult] = []
     @State private var showingCameraScanner = false
+    @State private var showingPrescriptionImageCamera = false
     @State private var showingNameScanCamera = false
+    @State private var showingMedicationPhotoCamera = false
+    @State private var pendingPermissionGate: AppPermissionGate?
+    @State private var pendingCameraAction: AddMedicationCameraAction?
+    @State private var shouldSaveAfterPermissionGrant = false
+    @State private var hasShownNameScanSuggestion = false
+    @State private var showingNameScanSuggestion = false
 
     private let commonStrengthPresets = ["100 mg", "200 mg", "500 mg", "1 g", "10 ml", "1 滴"]
     private let commonFormPresets = ["片剂", "胶囊", "颗粒剂", "口服液", "滴眼液", "外用", "吸入剂"]
@@ -1660,9 +3791,17 @@ private struct AddMedicationView: View {
                 }
 
                 if option.id == .prescriptionDocumentOCR {
-                    Section("医嘱识别草稿") {
+                    Section("医嘱识别内容") {
+                        Button {
+                            startCameraFlow(.prescriptionImage)
+                        } label: {
+                            Label("拍摄医嘱图片识别", systemImage: "camera.viewfinder")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
+
                         PhotosPicker(selection: $selectedImageItem, matching: .images) {
-                            Label("选择医嘱图片进行 OCR", systemImage: "photo.badge.magnifyingglass")
+                            Label("选择医嘱图片识别", systemImage: "photo.badge.magnifyingglass")
                         }
                         .buttonStyle(.borderedProminent)
 
@@ -1678,15 +3817,15 @@ private struct AddMedicationView: View {
                         TextEditor(text: $importedText)
                             .frame(minHeight: 96)
                         ImportReviewSummaryView(review: importReview)
-                        Label("OCR 结果和医疗 AI 复核内容都必须按原始医嘱二次确认。", systemImage: "doc.text.magnifyingglass")
+                        Label("提取内容必须按原始医嘱二次确认。", systemImage: "doc.text.magnifyingglass")
                             .foregroundStyle(.secondary)
                     }
                 }
 
                 if option.id == .barcodeScan {
-                    Section("条码录入草稿") {
+                    Section("条码待确认信息") {
                         Button {
-                            showingCameraScanner = true
+                            startCameraFlow(.barcodeScanner)
                         } label: {
                             Label("打开相机扫码", systemImage: "camera.viewfinder")
                         }
@@ -1714,7 +3853,7 @@ private struct AddMedicationView: View {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(barcode.payload)
                                             .font(.body.monospaced())
-                                        Text("\(barcode.symbology) · 置信度 \(Int(barcode.confidence * 100))%")
+                                        Text("识别结果 · 点击填入")
                                             .font(.footnote)
                                             .foregroundStyle(.secondary)
                                     }
@@ -1727,80 +3866,98 @@ private struct AddMedicationView: View {
                         Button {
                             makeManualBarcodeReview()
                         } label: {
-                            Text("生成条码草稿复核")
+                            Text("生成待确认信息")
                         }
                         .disabled(barcodeValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         ImportReviewSummaryView(review: importReview)
-                        Label("条码结果只辅助补全信息，可结合药品追溯码、GS1 或其他可靠数据源核对。", systemImage: "barcode.viewfinder")
+                        Label("条码结果用于记录药盒来源，保存前请按药盒和说明书核对。", systemImage: "barcode.viewfinder")
                             .foregroundStyle(.secondary)
                     }
                 }
 
                 Section("药品信息") {
-                    if option.id == .manual {
-                        Button {
-                            showingNameScanCamera = true
-                        } label: {
-                            Label("从 iPhone 扫描药名", systemImage: "camera.viewfinder")
-                        }
-                        .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
-                        if isAnalyzingImage {
-                            ProgressView("正在扫描药名")
-                        }
-                        if !visionStatusMessage.isEmpty {
-                            Text(visionStatusMessage)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    TextField("药品名称", text: $displayName)
-                        .textInputAutocapitalization(.words)
-                    Picker("常用规格", selection: $strength) {
-                        Text("未选择").tag("")
-                        ForEach(commonStrengthPresets, id: \.self) { preset in
-                            Text(preset).tag(preset)
+                    HStack(spacing: 10) {
+                        Text("名称")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .frame(width: 44, alignment: .leading)
+                        TextField("药品名称", text: displayNameBinding)
+                            .textInputAutocapitalization(.words)
+                            .multilineTextAlignment(.leading)
+                        if option.id == .manual {
+                            Button {
+                                startCameraFlow(.nameScan)
+                            } label: {
+                                Image(systemName: "camera.viewfinder")
+                                    .font(.title3.weight(.semibold))
+                                    .foregroundStyle(UIImagePickerController.isSourceTypeAvailable(.camera) ? .blue : .secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
+                            .accessibilityLabel("从 iPhone 扫描药名")
                         }
                     }
-                    TextField("规格，可按药盒补充", text: $strength)
-                    Picker("常用剂型", selection: $form) {
-                        Text("未选择").tag("")
-                        ForEach(commonFormPresets, id: \.self) { preset in
-                            Text(preset).tag(preset)
-                        }
+                    .padding(.vertical, 2)
+                    if isAnalyzingImage {
+                        ProgressView("正在扫描药名")
                     }
-                    TextField("剂型，可按说明书补充", text: $form)
+                    if !visionStatusMessage.isEmpty {
+                        Text(visionStatusMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    if !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !hasMeaningfulDisplayName {
+                        Text("请输入可核对的药品名称。")
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                    }
+                    if option.id != .manual || !genericName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        TextField("通用名（可选）", text: $genericName)
+                            .textInputAutocapitalization(.words)
+                    }
+                    MedicationPresetTextField(
+                        title: "规格",
+                        placeholder: "例如 200 mg 或 10 ml",
+                        presets: commonStrengthPresets,
+                        text: $strength
+                    )
+                    MedicationFormAndUnitRow(
+                        title: "形态/单位",
+                        placeholder: "例如 片剂、滴眼液",
+                        presets: commonFormPresets,
+                        form: $form,
+                        unit: $doseUnit
+                    )
                     Picker("类型", selection: $kind) {
                         Text("非处方药").tag(MedicationKind.overTheCounter)
                         Text("处方药").tag(MedicationKind.prescription)
                         Text("待确认").tag(MedicationKind.unknown)
                     }
                     Stepper(value: $doseValue, in: 0.5...10, step: 0.5) {
-                        Text("每次 \(doseValue.formatted()) \(localizedMedicationUnit(doseUnit))")
+                        Text("每次 \(doseValue.formatted())")
                     }
-                    MedicationUnitPicker(title: "剂量单位", unit: $doseUnit)
                 }
 
-                Section("药品图片") {
-                    Text("非必填；用于提醒时辅助识别实物。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    HStack(spacing: 14) {
-                        MedicationPhotoView(
+                Section("药盒照片与编号") {
+                    TextField("药盒编号，例如 A1", text: $boxNumber)
+                        .textInputAutocapitalization(.characters)
+                    Button {
+                        showingMedicationPhotoSourceDialog = true
+                    } label: {
+                        MedicationHeroPhotoView(
                             photoData: medicationPhotoData,
                             symbolName: selectedPhotoSymbolName,
-                            tint: .blue
+                            tint: .blue,
+                            title: medicationPhotoData == nil ? "在此处添加照片" : "药盒或药品照片",
+                            subtitle: boxNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "用于提醒和记录核对。" : "药盒编号已记录。",
+                            boxNumber: boxNumber
                         )
-                        VStack(alignment: .leading, spacing: 8) {
-                            MedicationIconPicker(symbolName: $selectedPhotoSymbolName)
-                            PhotosPicker(selection: $selectedMedicationPhotoItem, matching: .images) {
-                                Label(medicationPhotoData == nil ? "选择药品图片" : "更换药品图片", systemImage: "photo")
-                            }
-                            if medicationPhotoData != nil {
-                                Button("清除当前图片") {
-                                    medicationPhotoData = nil
-                                    selectedMedicationPhotoItem = nil
-                                }
-                            }
+                    }
+                    .buttonStyle(.plain)
+                    if medicationPhotoData != nil {
+                        Button("清除当前图片") {
+                            medicationPhotoData = nil
+                            selectedMedicationPhotoItem = nil
                         }
                     }
                 }
@@ -1811,36 +3968,7 @@ private struct AddMedicationView: View {
                     if hasCourseEndDate {
                         DatePicker("疗程结束", selection: $courseEndDate, in: courseStartDate..., displayedComponents: .date)
                     }
-                    ForEach(reminderTimes.indices, id: \.self) { index in
-                        DatePicker(
-                            "提醒 \(index + 1)",
-                            selection: Binding(
-                                get: { reminderTimes[index] },
-                                set: { reminderTimes[index] = $0 }
-                            ),
-                            displayedComponents: .hourAndMinute
-                        )
-                    }
-                    HStack {
-                        Button {
-                            reminderTimes.append(defaultReminderDate(hour: 21, minute: 0))
-                        } label: {
-                            Label("添加提醒", systemImage: "plus.circle")
-                        }
-                        .disabled(reminderTimes.count >= 4)
-                        Spacer()
-                        Button {
-                            if reminderTimes.count > 1 {
-                                reminderTimes.removeLast()
-                            }
-                        } label: {
-                            Label("减少", systemImage: "minus.circle")
-                        }
-                        .disabled(reminderTimes.count <= 1)
-                    }
-                    Text("多次提醒只生成待确认计划；处方药必须按医嘱核对。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    ReminderTimesEditor(reminderTimes: $reminderTimes)
                     Picker("提醒方式", selection: $reminderDeliveryMethod) {
                         ForEach(StoredReminderDeliveryMethod.allCases) { method in
                             Text(method.displayName).tag(method)
@@ -1849,22 +3977,34 @@ private struct AddMedicationView: View {
                     Text(reminderDeliveryMethod.detailText)
                         .font(.footnote)
                         .foregroundStyle(reminderDeliveryMethod == .alarm ? .orange : .secondary)
+                    Toggle("未处理时使用 iPhone 闹钟再提醒", isOn: $escalatesToAlarmWhenUnhandled)
+                    Text("普通提醒 5 分钟内未处理时，可用 iPhone 闹钟加强提醒；关闭后只保留普通提醒。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
-                Section("药盒库存") {
-                    Text("非必填；填写后可提示核对药盒剩余量。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    Stepper(value: $initialStockQuantity, in: 0...999, step: 1) {
-                        Text("药盒剩余 \(initialStockQuantity.formatted()) \(localizedMedicationUnit(stockUnit))")
+                Section("药盒库存（可选）") {
+                    HStack {
+                        Text("剩余数量")
+                        Spacer()
+                        TextField("0", value: $initialStockQuantity, format: .number.precision(.fractionLength(0...1)))
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: 92)
+                        Text(localizedMedicationUnit(stockUnit))
+                            .foregroundStyle(.secondary)
                     }
-                    Stepper(value: $lowStockThreshold, in: 0...999, step: 1) {
-                        Text("低库存阈值 \(lowStockThreshold.formatted()) \(localizedMedicationUnit(stockUnit))")
+                    HStack {
+                        Text("低量提醒")
+                        Spacer()
+                        TextField("0", value: $lowStockThreshold, format: .number.precision(.fractionLength(0...1)))
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: 92)
+                        Text(localizedMedicationUnit(stockUnit))
+                            .foregroundStyle(.secondary)
                     }
                     MedicationUnitPicker(title: "库存单位", unit: $stockUnit)
-                    Text("药盒提醒只用于提示用户核对实物，不代表处方续药或采购建议。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("添加药品")
@@ -1894,10 +4034,41 @@ private struct AddMedicationView: View {
             .alert("确认保存药品？", isPresented: $showingSaveConfirmation) {
                 Button("返回核对", role: .cancel) {}
                 Button("已核对，保存") {
-                    saveMedication()
+                    beginSaveMedicationFlow()
                 }
             } message: {
-                Text("请确认药品名称、规格、剂型、剂量和提醒时间已按药盒、说明书、医生或药师建议核对。")
+                Text("请确认药品名称、规格、药品形态、每次用量和提醒时间已按药盒、说明书、医生或药师建议核对。")
+            }
+            .alert("也可以扫描药品名称", isPresented: $showingNameScanSuggestion) {
+                Button("继续输入", role: .cancel) {}
+                Button("使用扫描") {
+                    startCameraFlow(.nameScan)
+                }
+            } message: {
+                Text("你可以点名称右侧的相机图标，扫描药盒上的药品名称。扫描文字仍需按药盒或说明书二次核查。")
+            }
+            .sheet(isPresented: $showingMedicationPhotoSourceDialog) {
+                MedicationPhotoSourceSheet(
+                    hasPhoto: medicationPhotoData != nil,
+                    canUseCamera: UIImagePickerController.isSourceTypeAvailable(.camera),
+                    selectedPhotoItem: $selectedMedicationPhotoItem,
+                    takePhoto: {
+                        showingMedicationPhotoSourceDialog = false
+                        startCameraFlow(.medicationPhoto)
+                    },
+                    clearPhoto: {
+                        medicationPhotoData = nil
+                        selectedMedicationPhotoItem = nil
+                        showingMedicationPhotoSourceDialog = false
+                    }
+                )
+                .presentationDetents([.height(medicationPhotoData == nil ? 240 : 300)])
+                .presentationDragIndicator(.visible)
+            }
+            .appPermissionPrimer(pendingGate: $pendingPermissionGate) { gate in
+                Task {
+                    await continueAfterPermissionPrimer(gate)
+                }
             }
             .sheet(isPresented: $showingCameraScanner) {
                 BarcodeScannerSheet { payload, symbology in
@@ -1912,12 +4083,29 @@ private struct AddMedicationView: View {
                     visionStatusMessage = "已通过相机识别条码，保存前仍需核对药盒与说明书。"
                 }
             }
+            .sheet(isPresented: $showingPrescriptionImageCamera) {
+                CameraPhotoCaptureSheet { image in
+                    guard let data = image.jpegData(compressionQuality: 0.9) else {
+                        visionStatusMessage = "没有读取到医嘱图片，请重新拍摄。"
+                        return
+                    }
+                    Task {
+                        await analyzeImageData(data)
+                    }
+                }
+            }
             .sheet(isPresented: $showingNameScanCamera) {
                 CameraPhotoCaptureSheet { image in
                     let data = image.jpegData(compressionQuality: 0.9) ?? Data()
                     Task {
                         await scanMedicationName(from: data)
                     }
+                }
+            }
+            .sheet(isPresented: $showingMedicationPhotoCamera) {
+                CameraPhotoCaptureSheet { image in
+                    let data = image.jpegData(compressionQuality: 0.9) ?? Data()
+                    medicationPhotoData = normalizedPhotoData(data)
                 }
             }
             .onChange(of: selectedImageItem) { _, newItem in
@@ -1933,8 +4121,28 @@ private struct AddMedicationView: View {
         }
     }
 
+    private var displayNameBinding: Binding<String> {
+        Binding(
+            get: { displayName },
+            set: { newValue in
+                if option.id == .manual,
+                   !hasShownNameScanSuggestion,
+                   displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    hasShownNameScanSuggestion = true
+                    showingNameScanSuggestion = true
+                }
+                displayName = newValue
+            }
+        )
+    }
+
     private var canSave: Bool {
-        !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        hasMeaningfulDisplayName
+    }
+
+    private var hasMeaningfulDisplayName: Bool {
+        MedicationNamePolicy.normalizedDisplayName(displayName) != nil
     }
 
     private var inputSource: MedicationInputSource {
@@ -1960,7 +4168,165 @@ private struct AddMedicationView: View {
         )
         recognizedBarcodes = [barcode]
         importReview = VisionImportService().makeBarcodeReview(barcode: barcode)
-        visionStatusMessage = "已生成条码草稿，保存前仍需核对药盒与说明书。"
+        visionStatusMessage = "已生成待确认信息，请核对药盒与说明书。"
+    }
+
+    private func startCameraFlow(_ action: AddMedicationCameraAction) {
+        guard AppPermissionGate.isCameraAvailable() else {
+            visionStatusMessage = "当前设备没有可用相机。"
+            return
+        }
+        if AppPermissionGate.isCameraAuthorized() {
+            openCameraAction(action)
+            return
+        }
+        pendingCameraAction = action
+        if AppPermissionGate.hasCompletedAuthorization(for: .camera) {
+            Task {
+                await requestCameraAccessAndOpenPendingAction()
+            }
+        } else {
+            pendingPermissionGate = .camera
+        }
+    }
+
+    private func openCameraAction(_ action: AddMedicationCameraAction) {
+        switch action {
+        case .barcodeScanner:
+            showingCameraScanner = true
+        case .prescriptionImage:
+            showingPrescriptionImageCamera = true
+        case .nameScan:
+            showingNameScanCamera = true
+        case .medicationPhoto:
+            showingMedicationPhotoCamera = true
+        }
+    }
+
+    @MainActor
+    private func requestCameraAccessAndOpenPendingAction() async {
+        guard let action = pendingCameraAction else {
+            return
+        }
+        guard await AppPermissionGate.requestCameraAccess() else {
+            visionStatusMessage = "相机权限未开启，无法使用拍摄或扫码。"
+            pendingCameraAction = nil
+            return
+        }
+        pendingCameraAction = nil
+        openCameraAction(action)
+    }
+
+    private func beginSaveMedicationFlow() {
+        Task {
+            await saveMedicationAfterPermissionCheck()
+        }
+    }
+
+    @MainActor
+    private func saveMedicationAfterPermissionCheck() async {
+        shouldSaveAfterPermissionGrant = true
+        guard await ensureReminderPermissionForSave() else {
+            if pendingPermissionGate == nil {
+                shouldSaveAfterPermissionGrant = false
+            }
+            return
+        }
+        guard await ensureEscalationAlarmPermissionForSave() else {
+            if pendingPermissionGate == nil {
+                shouldSaveAfterPermissionGrant = false
+            }
+            return
+        }
+        shouldSaveAfterPermissionGrant = false
+        saveMedication()
+    }
+
+    @MainActor
+    private func ensureReminderPermissionForSave() async -> Bool {
+        switch reminderDeliveryMethod {
+        case .notification:
+            if await notificationService.hasUsableNotificationAuthorization() {
+                AppPermissionGate.markAuthorizationCompleted(for: .notifications)
+                return true
+            }
+            if AppPermissionGate.hasCompletedAuthorization(for: .notifications) {
+                return await requestReminderPermissionForSave(.notifications)
+            }
+            pendingPermissionGate = .notifications
+            return false
+        case .alarm:
+            if AppPermissionGate.isAlarmAuthorized() {
+                AppPermissionGate.markAuthorizationCompleted(for: .alarm)
+                return true
+            }
+            if AppPermissionGate.hasCompletedAuthorization(for: .alarm) {
+                return await requestReminderPermissionForSave(.alarm)
+            }
+            pendingPermissionGate = .alarm
+            return false
+        }
+    }
+
+    @MainActor
+    private func ensureEscalationAlarmPermissionForSave() async -> Bool {
+        guard escalatesToAlarmWhenUnhandled,
+              reminderDeliveryMethod == .notification
+        else {
+            return true
+        }
+        if AppPermissionGate.isAlarmAuthorized() {
+            AppPermissionGate.markAuthorizationCompleted(for: .alarm)
+            return true
+        }
+        if AppPermissionGate.hasCompletedAuthorization(for: .alarm) {
+            return await requestReminderPermissionForSave(.alarm)
+        }
+        pendingPermissionGate = .alarm
+        return false
+    }
+
+    @MainActor
+    private func requestReminderPermissionForSave(_ gate: AppPermissionGate) async -> Bool {
+        switch gate {
+        case .notifications:
+            let granted = await notificationService.requestAuthorization()
+            if granted {
+                AppPermissionGate.markAuthorizationCompleted(for: .notifications)
+            } else {
+                visionStatusMessage = "通知权限未开启，暂不能保存为推送提醒。"
+            }
+            return granted
+        case .alarm:
+            let granted = await AppPermissionGate.requestAlarmAccess()
+            if granted {
+                AppPermissionGate.markAuthorizationCompleted(for: .alarm)
+            } else {
+                visionStatusMessage = "iPhone 闹钟权限未开启，暂不能保存为闹钟提醒。"
+            }
+            return granted
+        case .camera, .health, .location:
+            return false
+        }
+    }
+
+    @MainActor
+    private func continueAfterPermissionPrimer(_ gate: AppPermissionGate) async {
+        switch gate {
+        case .camera:
+            await requestCameraAccessAndOpenPendingAction()
+        case .notifications, .alarm:
+            guard shouldSaveAfterPermissionGrant else {
+                return
+            }
+            guard await requestReminderPermissionForSave(gate) else {
+                shouldSaveAfterPermissionGrant = false
+                return
+            }
+            await saveMedicationAfterPermissionCheck()
+        case .health, .location:
+            break
+        }
     }
 
     private func scanMedicationName(from data: Data) async {
@@ -1975,14 +4341,16 @@ private struct AddMedicationView: View {
         }
         do {
             let result = try await VisionImportService().recognizePrescriptionText(from: data)
-            let firstLine = result.text
-                .split(separator: "\n")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .first { !$0.isEmpty }
+            let scannedName = MedicationImportTextExtractor.scannedDisplayName(fromText: result.text)
+            let structuredFields = MedicationImportTextExtractor.structuredFields(fromPrescriptionText: result.text)
             await MainActor.run {
-                if let firstLine {
-                    displayName = firstLine
-                    visionStatusMessage = "已扫描到疑似药品名称，保存前请按药盒核对。"
+                if let scannedName {
+                    displayName = scannedName
+                    if genericName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                       let extractedGenericName = structuredFields.genericName {
+                        genericName = extractedGenericName
+                    }
+                    visionStatusMessage = "已扫描到药品名称，保存前请按药盒核对。"
                 } else {
                     visionStatusMessage = "未识别到清晰药名，请手动输入。"
                 }
@@ -1995,20 +4363,25 @@ private struct AddMedicationView: View {
     }
 
     private func saveMedication() {
+        guard let normalizedDisplayName = MedicationNamePolicy.normalizedDisplayName(displayName) else {
+            return
+        }
         let noteParts = [
             option.disclaimer,
-            importedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : "识别草稿：\(importedText.trimmingCharacters(in: .whitespacesAndNewlines))",
-            barcodeValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : "条码草稿：\(barcodeValue.trimmingCharacters(in: .whitespacesAndNewlines))"
+            importedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : "识别文字：\(importedText.trimmingCharacters(in: .whitespacesAndNewlines))",
+            barcodeValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : "条码信息：\(barcodeValue.trimmingCharacters(in: .whitespacesAndNewlines))"
         ].compactMap { $0 }
 
         let medication = StoredMedication(
-            displayName: displayName.trimmingCharacters(in: .whitespacesAndNewlines),
+            displayName: normalizedDisplayName,
+            genericName: genericName.trimmingCharacters(in: .whitespacesAndNewlines),
             kind: kind,
             form: form,
             strength: strength,
             inputSource: inputSource,
             photoSymbolName: selectedPhotoSymbolName,
             photoData: medicationPhotoData,
+            boxNumber: boxNumber.trimmingCharacters(in: .whitespacesAndNewlines),
             notes: noteParts.joined(separator: "\n")
         )
         modelContext.insert(medication)
@@ -2020,12 +4393,13 @@ private struct AddMedicationView: View {
             doseUnit: doseUnit,
             timingSummary: reminderSummary(from: normalizedReminderTimes),
             timeZonePolicy: .localClock,
-            sourceNote: "用户二次确认后建立；可在详情页继续修改疗程、提醒和库存。",
+            sourceNote: "",
             requiresUserConfirmation: true,
             courseStartAt: courseStartDate,
             courseEndAt: hasCourseEndDate ? courseEndDate : nil,
             reminderTimesRaw: encodedReminderTimes(normalizedReminderTimes),
-            reminderDelivery: reminderDeliveryMethod
+            reminderDelivery: reminderDeliveryMethod,
+            escalatesToAlarmWhenUnhandled: escalatesToAlarmWhenUnhandled
         )
         modelContext.insert(plan)
         let reminderBatch = MedicationReminderTaskCoordinator().reconcilePlan(
@@ -2059,6 +4433,17 @@ private struct AddMedicationView: View {
         guard let item else {
             return
         }
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self) else {
+                throw VisionImportError.imageDataUnavailable
+            }
+            await analyzeImageData(data)
+        } catch {
+            visionStatusMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private func analyzeImageData(_ data: Data) async {
         isAnalyzingImage = true
         visionStatusMessage = ""
         importReview = nil
@@ -2068,30 +4453,93 @@ private struct AddMedicationView: View {
         }
 
         do {
-            guard let data = try await item.loadTransferable(type: Data.self) else {
-                throw VisionImportError.imageDataUnavailable
-            }
             let service = VisionImportService()
             switch option.id {
             case .manual:
                 visionStatusMessage = "手动添加不需要图片识别。"
             case .prescriptionDocumentOCR:
                 let result = try await service.recognizePrescriptionText(from: data)
+                let review = service.makePrescriptionReview(textResult: result)
                 importedText = result.text
-                importReview = service.makePrescriptionReview(textResult: result)
-                visionStatusMessage = "已识别 \(result.lineCount) 行文字，平均置信度 \(Int(result.averageConfidence * 100))%。"
+                importReview = review
+                if let extractedDisplayName = review.draft.displayName,
+                   !extractedDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   !hasMeaningfulDisplayName {
+                    displayName = extractedDisplayName
+                }
+                if genericName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let extractedGenericName = review.draft.genericName,
+                   !extractedGenericName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    genericName = extractedGenericName
+                }
+                if strength.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let extractedStrength = review.draft.strength,
+                   !extractedStrength.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    strength = extractedStrength
+                }
+                if form.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let extractedForm = review.draft.form,
+                   !extractedForm.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    form = extractedForm
+                }
+                if isDefaultDoseInput,
+                   let extractedDoseValue = review.draft.doseValue,
+                   let extractedDoseUnit = review.draft.doseUnit,
+                   !extractedDoseUnit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    doseValue = extractedDoseValue
+                    doseUnit = extractedDoseUnit
+                    stockUnit = extractedDoseUnit
+                }
+                let extractedFieldTitles = importFieldTitles(from: review.draft)
+                if extractedFieldTitles.isEmpty {
+                    visionStatusMessage = "已识别图片文字，请按原始医嘱核对后保存。"
+                } else {
+                    visionStatusMessage = "已提取到\(extractedFieldTitles.joined(separator: "、"))；请按原始医嘱核对。"
+                }
             case .barcodeScan:
                 let barcodes = try await service.recognizeBarcodes(from: data)
                 recognizedBarcodes = barcodes
                 if let first = barcodes.first {
                     barcodeValue = first.payload
                     importReview = service.makeBarcodeReview(barcode: first)
-                    visionStatusMessage = "已识别 \(barcodes.count) 个条码，已填入第一个结果。"
+                    visionStatusMessage = "已识别条码并填入待确认信息。"
                 }
             }
         } catch {
             visionStatusMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
+    }
+
+    private var isDefaultDoseInput: Bool {
+        abs(doseValue - 1) < 0.0001 && localizedMedicationUnit(doseUnit) == "片"
+    }
+
+    private func importFieldTitles(from draft: MedicationImportDraft) -> [String] {
+        [
+            ("药品名称", draft.displayName),
+            ("通用名", draft.genericName),
+            ("规格", draft.strength),
+            ("剂型", draft.form),
+            ("每次剂量", formattedImportedDose(from: draft)),
+            ("用法用量", draft.directionsText)
+        ].compactMap { title, value in
+            guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty
+            else {
+                return nil
+            }
+            return title
+        }
+    }
+
+    private func formattedImportedDose(from draft: MedicationImportDraft) -> String? {
+        guard let doseValue = draft.doseValue,
+              let doseUnit = draft.doseUnit?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !doseUnit.isEmpty
+        else {
+            return nil
+        }
+        return "\(doseValue.formatted()) \(localizedMedicationUnit(doseUnit))"
     }
 
     private func loadMedicationPhoto(_ item: PhotosPickerItem?) async {
@@ -2195,6 +4643,8 @@ private struct MedicationLabelImporterView: View {
     @State private var isRecognizing = false
     @State private var statusMessage = ""
     @State private var showingCameraCapture = false
+    @State private var showingSaveConfirmation = false
+    @State private var pendingPermissionGate: AppPermissionGate?
 
     init(
         medication: StoredMedication,
@@ -2205,7 +4655,7 @@ private struct MedicationLabelImporterView: View {
         self.existingLabel = existingLabel
         self.save = save
         _rawText = State(initialValue: existingLabel?.rawText ?? "")
-        _sourceTitle = State(initialValue: existingLabel?.sourceTitle ?? "用户导入说明书")
+        _sourceTitle = State(initialValue: Self.initialSourceTitle(for: existingLabel))
         _confidence = State(initialValue: existingLabel?.averageOCRConfidence ?? 1)
     }
 
@@ -2213,12 +4663,19 @@ private struct MedicationLabelImporterView: View {
         !rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private static func initialSourceTitle(for label: StoredMedicationLabel?) -> String {
+        guard let sourceTitle = label?.sourceTitle.trimmingCharacters(in: .whitespacesAndNewlines), !sourceTitle.isEmpty else {
+            return "用户导入说明书"
+        }
+        return sourceTitle == "本地保存说明书摘要" ? "用户确认说明书" : sourceTitle
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 Section("导入方式") {
                     Button {
-                        showingCameraCapture = true
+                        startCameraCaptureFlow()
                     } label: {
                         Label("拍摄说明书", systemImage: "camera")
                     }
@@ -2239,16 +4696,16 @@ private struct MedicationLabelImporterView: View {
                     }
                 }
 
-                Section("识别文字") {
+                Section("说明书内容") {
                     TextEditor(text: $rawText)
                         .frame(minHeight: 220)
-                    Text("请按药盒或说明书原件核对文字；保存后 App 会在本地生成风险卡片。")
+                    Text("请先按药盒或说明书原件核对文字。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
 
-                Section("安全边界") {
-                    Text("风险识别只根据导入文本做关键词和章节复核，不代表诊断、处方或剂量建议；如有不适、禁忌或相互作用疑问，应咨询医生或药师。")
+                Section("保存后用于") {
+                    Text("App 会根据说明书内容生成风险提醒；不会自动诊断、处方或调整剂量。如有禁忌、相互作用或不适，请咨询医生或药师。")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -2261,11 +4718,19 @@ private struct MedicationLabelImporterView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存并识别") {
-                        save(rawText, sourceTitle, confidence)
-                        dismiss()
+                        showingSaveConfirmation = true
                     }
                     .disabled(!canSave)
                 }
+            }
+            .alert("确认保存说明书？", isPresented: $showingSaveConfirmation) {
+                Button("取消", role: .cancel) {}
+                Button("已核对，保存") {
+                    save(rawText, sourceTitle, confidence)
+                    dismiss()
+                }
+            } message: {
+                Text("请确认已按药盒或说明书原件核对文字。保存后会更新本药品的说明书摘要，并重新生成风险提醒。")
             }
             .onChange(of: selectedImageItem) { _, newItem in
                 Task {
@@ -2280,7 +4745,42 @@ private struct MedicationLabelImporterView: View {
                     }
                 }
             }
+            .appPermissionPrimer(pendingGate: $pendingPermissionGate) { gate in
+                guard gate == .camera else {
+                    return
+                }
+                Task {
+                    await requestCameraCaptureAccess()
+                }
+            }
         }
+    }
+
+    private func startCameraCaptureFlow() {
+        guard AppPermissionGate.isCameraAvailable() else {
+            statusMessage = "当前设备没有可用相机。"
+            return
+        }
+        if AppPermissionGate.isCameraAuthorized() {
+            showingCameraCapture = true
+            return
+        }
+        if AppPermissionGate.hasCompletedAuthorization(for: .camera) {
+            Task {
+                await requestCameraCaptureAccess()
+            }
+        } else {
+            pendingPermissionGate = .camera
+        }
+    }
+
+    @MainActor
+    private func requestCameraCaptureAccess() async {
+        guard await AppPermissionGate.requestCameraAccess() else {
+            statusMessage = "相机权限未开启，无法拍摄说明书。"
+            return
+        }
+        showingCameraCapture = true
     }
 
     private func recognizeSelectedImage(_ item: PhotosPickerItem?) async {
@@ -2314,8 +4814,8 @@ private struct MedicationLabelImporterView: View {
             await MainActor.run {
                 rawText = result.text
                 confidence = result.averageConfidence
-                sourceTitle = sourceTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "说明书 OCR 导入" : sourceTitle
-                statusMessage = "已识别 \(result.lineCount) 行文字，保存前请核对原文。"
+                sourceTitle = sourceTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "说明书图片导入" : sourceTitle
+                statusMessage = "已识别说明书文字，请按原文核对后保存。"
             }
         } catch {
             await MainActor.run {
@@ -2354,7 +4854,7 @@ private struct StockEditorView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section(medication.displayName) {
+                Section(userFacingMedicationName(for: medication)) {
                     Stepper(value: $remainingQuantity, in: 0...9999, step: 1) {
                         Text("药盒剩余 \(remainingQuantity.formatted()) \(localizedMedicationUnit(unit))")
                     }
@@ -2364,12 +4864,6 @@ private struct StockEditorView: View {
                     MedicationUnitPicker(title: "单位", unit: $unit)
                 }
 
-                Section("说明") {
-                    Text("药盒估算会扣除已服用或已修正为服用的记录；单位不一致时会提示复核。")
-                        .foregroundStyle(.secondary)
-                    Text("此功能只用于依从性提醒和复诊沟通，不代表续方、购药或处方决策。")
-                        .foregroundStyle(.secondary)
-                }
             }
             .navigationTitle("药盒库存")
             .toolbar {
@@ -2424,7 +4918,11 @@ private struct PlanEditorView: View {
     @State private var courseEndDate: Date
     @State private var reminderTimes: [Date]
     @State private var reminderDeliveryMethod: StoredReminderDeliveryMethod
+    @State private var escalatesToAlarmWhenUnhandled: Bool
     @State private var sourceNote: String
+    @State private var pendingPermissionGate: AppPermissionGate?
+    @State private var shouldSaveAfterPermissionGrant = false
+    @State private var permissionStatusMessage = ""
 
     init(
         medication: StoredMedication,
@@ -2449,19 +4947,20 @@ private struct PlanEditorView: View {
         _courseEndDate = State(initialValue: endDate)
         _reminderTimes = State(initialValue: reminderDates(for: plan, tasks: planTasks))
         _reminderDeliveryMethod = State(initialValue: plan?.reminderDeliveryMethod ?? .notification)
-        _sourceNote = State(initialValue: plan?.sourceNote ?? "用户二次确认后建立；可在详情页继续修改疗程、提醒和库存。")
+        _escalatesToAlarmWhenUnhandled = State(initialValue: plan?.escalatesToAlarmWhenUnhandled ?? true)
+        _sourceNote = State(initialValue: userVisiblePlanSourceNote(plan?.sourceNote ?? "") ?? "")
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section(medication.displayName) {
+                Section(userFacingMedicationName(for: medication)) {
                     Stepper(value: $doseValue, in: 0.5...20, step: 0.5) {
                         Text("每次 \(doseValue.formatted()) \(localizedMedicationUnit(doseUnit))")
                     }
                     MedicationUnitPicker(title: "剂量单位", unit: $doseUnit)
                     DatePicker("剂量生效日期", selection: $doseEffectiveFrom, displayedComponents: .date)
-                    Text("用于记录从哪天开始剂量发生变化；不会生成诊断、处方或剂量建议。")
+                    Text("仅记录剂量变化时间，不生成医疗建议。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -2475,33 +4974,7 @@ private struct PlanEditorView: View {
                 }
 
                 Section("提醒时间") {
-                    ForEach(reminderTimes.indices, id: \.self) { index in
-                        DatePicker(
-                            "提醒 \(index + 1)",
-                            selection: Binding(
-                                get: { reminderTimes[index] },
-                                set: { reminderTimes[index] = $0 }
-                            ),
-                            displayedComponents: .hourAndMinute
-                        )
-                    }
-                    HStack {
-                        Button {
-                            reminderTimes.append(defaultReminderDate(hour: 21, minute: 0))
-                        } label: {
-                            Label("添加提醒", systemImage: "plus.circle")
-                        }
-                        .disabled(reminderTimes.count >= 4)
-                        Spacer()
-                        Button {
-                            if reminderTimes.count > 1 {
-                                reminderTimes.removeLast()
-                            }
-                        } label: {
-                            Label("减少", systemImage: "minus.circle")
-                        }
-                        .disabled(reminderTimes.count <= 1)
-                    }
+                    ReminderTimesEditor(reminderTimes: $reminderTimes)
                     Picker("提醒方式", selection: $reminderDeliveryMethod) {
                         ForEach(StoredReminderDeliveryMethod.allCases) { method in
                             Text(method.displayName).tag(method)
@@ -2510,12 +4983,21 @@ private struct PlanEditorView: View {
                     Text(reminderDeliveryMethod.detailText)
                         .font(.footnote)
                         .foregroundStyle(reminderDeliveryMethod == .alarm ? .orange : .secondary)
+                    Toggle("未处理时使用 iPhone 闹钟再提醒", isOn: $escalatesToAlarmWhenUnhandled)
+                    Text("普通提醒 5 分钟内未处理时，可用 iPhone 闹钟加强提醒；关闭后只保留普通提醒。")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    if !permissionStatusMessage.isEmpty {
+                        Text(permissionStatusMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                    }
                 }
 
-                Section("来源说明") {
+                Section("备注（可选）") {
                     TextEditor(text: $sourceNote)
                         .frame(minHeight: 90)
-                    Text("处方药提醒必须按医嘱核对；非处方药也应按说明书、医生或药师建议确认。")
+                    Text("可以记录医生、药师或复诊时调整提醒的原因。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -2523,7 +5005,7 @@ private struct PlanEditorView: View {
                 Section("剂量变化备注") {
                     TextEditor(text: $doseChangeNote)
                         .frame(minHeight: 70)
-                    Text("可记录“按复诊结果调整”“更换规格后调整”等原因，便于在周历、月历和复诊资料中回看。")
+                    Text("可记录复诊调整或规格变化原因。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -2537,12 +5019,125 @@ private struct PlanEditorView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
-                        save()
+                        beginSaveFlow()
                     }
                     .disabled(doseUnit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || reminderTimes.isEmpty)
                 }
             }
+            .appPermissionPrimer(pendingGate: $pendingPermissionGate) { gate in
+                Task {
+                    await continuePlanSaveAfterPermissionPrimer(gate)
+                }
+            }
         }
+    }
+
+    private func beginSaveFlow() {
+        Task {
+            await saveAfterPermissionCheck()
+        }
+    }
+
+    @MainActor
+    private func saveAfterPermissionCheck() async {
+        permissionStatusMessage = ""
+        shouldSaveAfterPermissionGrant = true
+        guard await ensureReminderPermissionForSave() else {
+            if pendingPermissionGate == nil {
+                shouldSaveAfterPermissionGrant = false
+            }
+            return
+        }
+        guard await ensureEscalationAlarmPermissionForSave() else {
+            if pendingPermissionGate == nil {
+                shouldSaveAfterPermissionGrant = false
+            }
+            return
+        }
+        shouldSaveAfterPermissionGrant = false
+        save()
+    }
+
+    @MainActor
+    private func ensureReminderPermissionForSave() async -> Bool {
+        switch reminderDeliveryMethod {
+        case .notification:
+            if await notificationService.hasUsableNotificationAuthorization() {
+                AppPermissionGate.markAuthorizationCompleted(for: .notifications)
+                return true
+            }
+            if AppPermissionGate.hasCompletedAuthorization(for: .notifications) {
+                return await requestReminderPermissionForSave(.notifications)
+            }
+            pendingPermissionGate = .notifications
+            return false
+        case .alarm:
+            if AppPermissionGate.isAlarmAuthorized() {
+                AppPermissionGate.markAuthorizationCompleted(for: .alarm)
+                return true
+            }
+            if AppPermissionGate.hasCompletedAuthorization(for: .alarm) {
+                return await requestReminderPermissionForSave(.alarm)
+            }
+            pendingPermissionGate = .alarm
+            return false
+        }
+    }
+
+    @MainActor
+    private func ensureEscalationAlarmPermissionForSave() async -> Bool {
+        guard escalatesToAlarmWhenUnhandled,
+              reminderDeliveryMethod == .notification
+        else {
+            return true
+        }
+        if AppPermissionGate.isAlarmAuthorized() {
+            AppPermissionGate.markAuthorizationCompleted(for: .alarm)
+            return true
+        }
+        if AppPermissionGate.hasCompletedAuthorization(for: .alarm) {
+            return await requestReminderPermissionForSave(.alarm)
+        }
+        pendingPermissionGate = .alarm
+        return false
+    }
+
+    @MainActor
+    private func requestReminderPermissionForSave(_ gate: AppPermissionGate) async -> Bool {
+        switch gate {
+        case .notifications:
+            let granted = await notificationService.requestAuthorization()
+            if granted {
+                AppPermissionGate.markAuthorizationCompleted(for: .notifications)
+            } else {
+                permissionStatusMessage = "通知权限未开启，暂不能保存为推送提醒。"
+            }
+            return granted
+        case .alarm:
+            let granted = await AppPermissionGate.requestAlarmAccess()
+            if granted {
+                AppPermissionGate.markAuthorizationCompleted(for: .alarm)
+            } else {
+                permissionStatusMessage = "iPhone 闹钟权限未开启，暂不能保存为闹钟提醒。"
+            }
+            return granted
+        case .camera, .health, .location:
+            return false
+        }
+    }
+
+    @MainActor
+    private func continuePlanSaveAfterPermissionPrimer(_ gate: AppPermissionGate) async {
+        guard gate == .notifications || gate == .alarm,
+              shouldSaveAfterPermissionGrant
+        else {
+            return
+        }
+        guard await requestReminderPermissionForSave(gate) else {
+            shouldSaveAfterPermissionGrant = false
+            return
+        }
+        await saveAfterPermissionCheck()
     }
 
     private func save() {
@@ -2559,11 +5154,12 @@ private struct PlanEditorView: View {
             plan.doseValue = doseValue
             plan.doseUnit = normalizedDoseUnit
             plan.timingSummary = reminderSummary(from: normalizedTimes)
-            plan.sourceNote = sourceNote
+            plan.sourceNote = storedPlanSourceNote(from: sourceNote)
             plan.courseStartAt = courseStartDate
             plan.courseEndAt = hasCourseEndDate ? courseEndDate : nil
             plan.reminderTimesRaw = encodedReminderTimes(normalizedTimes)
             plan.reminderDeliveryMethod = reminderDeliveryMethod
+            plan.escalatesToAlarmWhenUnhandled = escalatesToAlarmWhenUnhandled
             targetPlan = plan
         } else {
             let newPlan = StoredMedicationPlan(
@@ -2572,22 +5168,18 @@ private struct PlanEditorView: View {
                 doseUnit: normalizedDoseUnit,
                 timingSummary: reminderSummary(from: normalizedTimes),
                 timeZonePolicy: .localClock,
-                sourceNote: sourceNote,
+                sourceNote: storedPlanSourceNote(from: sourceNote),
                 requiresUserConfirmation: true,
                 courseStartAt: courseStartDate,
                 courseEndAt: hasCourseEndDate ? courseEndDate : nil,
                 reminderTimesRaw: encodedReminderTimes(normalizedTimes),
-                reminderDelivery: reminderDeliveryMethod
+                reminderDelivery: reminderDeliveryMethod,
+                escalatesToAlarmWhenUnhandled: escalatesToAlarmWhenUnhandled
             )
             modelContext.insert(newPlan)
             targetPlan = newPlan
         }
 
-        let reminderBatch = MedicationReminderTaskCoordinator().reconcilePlan(
-            targetPlan,
-            medication: medication,
-            in: modelContext
-        )
         if isDoseChanged {
             insertDoseChange(
                 planID: targetPlan.id,
@@ -2598,14 +5190,12 @@ private struct PlanEditorView: View {
                 effectiveFrom: normalizedEffectiveFrom
             )
         }
-        applyDoseChangeToOpenTasks(
-            planID: targetPlan.id,
-            previousDoseValue: previousDoseValue,
-            previousDoseUnit: previousDoseUnit,
-            newDoseValue: doseValue,
-            newDoseUnit: normalizedDoseUnit,
-            effectiveFrom: normalizedEffectiveFrom
+        let reminderBatch = MedicationReminderTaskCoordinator().reconcilePlan(
+            targetPlan,
+            medication: medication,
+            in: modelContext
         )
+        applyDoseTimelineToOpenTasks(planID: targetPlan.id)
 
         try? modelContext.save()
         rescheduleReminders(reminderBatch)
@@ -2636,28 +5226,40 @@ private struct PlanEditorView: View {
         ))
     }
 
-    private func applyDoseChangeToOpenTasks(
-        planID: UUID,
-        previousDoseValue: Double?,
-        previousDoseUnit: String?,
-        newDoseValue: Double,
-        newDoseUnit: String,
-        effectiveFrom: Date
-    ) {
-        let startOfEffectiveDay = Calendar.current.startOfDay(for: effectiveFrom)
+    private func applyDoseTimelineToOpenTasks(planID: UUID) {
         let currentTasks = (try? modelContext.fetch(FetchDescriptor<StoredDoseTask>())) ?? tasks
+        let changes = ((try? modelContext.fetch(FetchDescriptor<StoredMedicationDoseChange>())) ?? doseChanges)
+            .filter { $0.medicationID == medication.id && ($0.planID == nil || $0.planID == planID) }
+            .sorted { lhs, rhs in
+                if lhs.effectiveFrom != rhs.effectiveFrom {
+                    return lhs.effectiveFrom < rhs.effectiveFrom
+                }
+                return lhs.changedAt < rhs.changedAt
+            }
         for task in currentTasks where task.planID == planID {
             guard task.status == .pending || task.status == .delayed else {
                 continue
             }
-            if task.dueAt >= startOfEffectiveDay {
-                task.doseValue = newDoseValue
-                task.doseUnit = newDoseUnit
-            } else if let previousDoseValue, let previousDoseUnit {
-                task.doseValue = previousDoseValue
-                task.doseUnit = previousDoseUnit
-            }
+            let effectiveDose = effectiveDoseAmount(for: task, changes: changes)
+            task.doseValue = effectiveDose.value
+            task.doseUnit = effectiveDose.unit
         }
+    }
+
+    private func effectiveDoseAmount(
+        for task: StoredDoseTask,
+        changes: [StoredMedicationDoseChange]
+    ) -> (value: Double, unit: String) {
+        let taskDay = Calendar.current.startOfDay(for: task.dueAt)
+        if let latestAppliedChange = changes.last(where: { Calendar.current.startOfDay(for: $0.effectiveFrom) <= taskDay }) {
+            return (latestAppliedChange.newDoseValue, latestAppliedChange.newDoseUnit)
+        }
+        if let firstFutureChange = changes.first(where: {
+            Calendar.current.startOfDay(for: $0.effectiveFrom) > taskDay && $0.previousDoseValue != nil
+        }) {
+            return (firstFutureChange.previousDoseValue ?? task.doseValue, firstFutureChange.previousDoseUnit)
+        }
+        return (task.doseValue, task.doseUnit)
     }
 
     private func rescheduleReminders(_ batch: MedicationReminderScheduleBatch) {
@@ -2668,26 +5270,377 @@ private struct PlanEditorView: View {
     }
 }
 
+private struct MedicationPresetTextField: View {
+    let title: String
+    let placeholder: String
+    let presets: [String]
+    @Binding var text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 44, alignment: .leading)
+
+                TextField(placeholder, text: $text)
+                    .textInputAutocapitalization(.never)
+                    .multilineTextAlignment(.leading)
+
+                Menu {
+                    Button("清空") {
+                        text = ""
+                    }
+                    ForEach(presets, id: \.self) { preset in
+                        Button(preset) {
+                            text = preset
+                        }
+                    }
+                } label: {
+                    Image(systemName: "chevron.down.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("选择\(title)")
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+private struct MedicationFormAndUnitRow: View {
+    let title: String
+    let placeholder: String
+    let presets: [String]
+    @Binding var form: String
+    @Binding var unit: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: 72, alignment: .leading)
+
+                TextField(placeholder, text: $form)
+                    .textInputAutocapitalization(.never)
+                    .multilineTextAlignment(.leading)
+
+                Menu {
+                    Button("清空形态") {
+                        form = ""
+                    }
+                    ForEach(presets, id: \.self) { preset in
+                        Button(preset) {
+                            form = preset
+                        }
+                    }
+                } label: {
+                    Image(systemName: "chevron.down.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("选择药品形态")
+                }
+
+                Divider()
+                    .frame(height: 22)
+
+                Menu {
+                    ForEach(MedicationDoseUnitOption.common) { option in
+                        Button(option.displayName) {
+                            unit = option.id
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(localizedMedicationUnit(unit))
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(.blue)
+                            .lineLimit(1)
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.blue)
+                    }
+                    .accessibilityLabel("选择剂量单位，当前为\(localizedMedicationUnit(unit))")
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
 private struct ImportReviewSummaryView: View {
     let review: MedicationImportReview?
 
     var body: some View {
         if let review {
             VStack(alignment: .leading, spacing: 8) {
-                Label(review.canCreateMedication ? "草稿可继续补全" : "草稿仍需补全", systemImage: review.canCreateMedication ? "checkmark.circle" : "exclamationmark.triangle")
+                Label(review.canCreateMedication ? "信息可继续补全" : "信息仍需补全", systemImage: review.canCreateMedication ? "checkmark.circle" : "exclamationmark.triangle")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(review.canCreateMedication ? .green : .orange)
+                let recognizedFields = recognizedFieldRows(for: review.draft)
+                if !recognizedFields.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(recognizedFields) { field in
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(field.title)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 56, alignment: .leading)
+                                Text(field.value)
+                                    .font(.caption)
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(2)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
                 ForEach(Array(review.issues.enumerated()), id: \.offset) { _, issue in
                     Text(issue.message)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
-                Text("保存前仍需用户手动核对并勾选二次确认。")
+                Text("保存前请核对药盒、说明书或医嘱原件。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
             .padding(.vertical, 6)
         }
+    }
+
+    private func recognizedFieldRows(for draft: MedicationImportDraft) -> [ImportReviewFieldRow] {
+        [
+            ("药名", draft.displayName),
+            ("通用名", draft.genericName),
+            ("规格", draft.strength),
+            ("剂型", draft.form),
+            ("剂量", formattedDoseAmount(from: draft)),
+            ("用法", draft.directionsText)
+        ].compactMap { title, value in
+            guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !value.isEmpty
+            else {
+                return nil
+            }
+            return ImportReviewFieldRow(title: title, value: value)
+        }
+    }
+
+    private func formattedDoseAmount(from draft: MedicationImportDraft) -> String? {
+        guard let doseValue = draft.doseValue,
+              let doseUnit = draft.doseUnit?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !doseUnit.isEmpty
+        else {
+            return nil
+        }
+        return "\(doseValue.formatted()) \(localizedMedicationUnit(doseUnit))"
+    }
+}
+
+private struct ImportReviewFieldRow: Identifiable {
+    var title: String
+    var value: String
+    var id: String { title }
+}
+
+private struct ReminderTimesEditor: View {
+    @Binding var reminderTimes: [Date]
+
+    private let preferredReminderTimes: [(hour: Int, minute: Int)] = [
+        (8, 0),
+        (13, 0),
+        (18, 0),
+        (21, 0)
+    ]
+
+    var body: some View {
+        ForEach(Array(reminderTimes.indices), id: \.self) { index in
+            DatePicker(
+                "提醒 \(index + 1)",
+                selection: Binding(
+                    get: {
+                        guard reminderTimes.indices.contains(index) else {
+                            return defaultReminderDate(hour: 21, minute: 0)
+                        }
+                        return reminderTimes[index]
+                    },
+                    set: { newValue in
+                        guard reminderTimes.indices.contains(index) else {
+                            return
+                        }
+                        reminderTimes[index] = newValue
+                    }
+                ),
+                displayedComponents: .hourAndMinute
+            )
+            .id("reminder-\(index)-\(reminderTimes.count)")
+        }
+
+        Button {
+            addReminder()
+        } label: {
+            ReminderActionRow(
+                title: "添加提醒",
+                detail: "已设置 \(reminderTimes.count) 条",
+                systemImage: "plus.circle.fill",
+                tint: .blue,
+                isDisabled: false
+            )
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+
+        Button {
+            removeReminder()
+        } label: {
+            ReminderActionRow(
+                title: "减少提醒",
+                detail: reminderTimes.count > 1 ? "删除最后一条" : "至少保留一条",
+                systemImage: "minus.circle.fill",
+                tint: .red,
+                isDisabled: reminderTimes.count <= 1
+            )
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .disabled(reminderTimes.count <= 1)
+    }
+
+    private func addReminder() {
+        let nextReminder = nextAvailableReminderTime()
+        withAnimation(.snappy(duration: 0.2, extraBounce: 0.02)) {
+            reminderTimes.append(nextReminder)
+            reminderTimes = normalizedReminderDates(reminderTimes)
+        }
+    }
+
+    private func removeReminder() {
+        guard reminderTimes.count > 1 else {
+            return
+        }
+        withAnimation(.snappy(duration: 0.2, extraBounce: 0.02)) {
+            _ = reminderTimes.removeLast()
+            reminderTimes = normalizedReminderDates(reminderTimes)
+        }
+    }
+
+    private func nextAvailableReminderTime() -> Date {
+        let occupiedTimes = Set(normalizedReminderDates(reminderTimes).map(AppFormatters.time.string(from:)))
+        for preferredTime in preferredReminderTimes {
+            let date = defaultReminderDate(hour: preferredTime.hour, minute: preferredTime.minute)
+            if !occupiedTimes.contains(AppFormatters.time.string(from: date)) {
+                return date
+            }
+        }
+
+        let calendar = Calendar.current
+        let normalizedDates = normalizedReminderDates(reminderTimes)
+        var proposedDate = calendar.date(
+            byAdding: .hour,
+            value: 2,
+            to: normalizedDates.last ?? defaultReminderDate(hour: 21, minute: 0)
+        ) ?? defaultReminderDate(hour: 23, minute: 0)
+
+        for _ in 0..<24 {
+            let components = calendar.dateComponents([.hour, .minute], from: proposedDate)
+            let date = defaultReminderDate(
+                hour: components.hour ?? 21,
+                minute: components.minute ?? 0
+            )
+            if !occupiedTimes.contains(AppFormatters.time.string(from: date)) {
+                return date
+            }
+            proposedDate = calendar.date(byAdding: .minute, value: 30, to: proposedDate) ?? date
+        }
+
+        let fallbackMinute = min(59, reminderTimes.count)
+        return defaultReminderDate(hour: 23, minute: fallbackMinute)
+    }
+}
+
+private struct ReminderActionRow: View {
+    let title: String
+    let detail: String
+    let systemImage: String
+    let tint: Color
+    let isDisabled: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(isDisabled ? .secondary : tint)
+                .frame(width: 22)
+            Text(title)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(isDisabled ? .secondary : .primary)
+            Spacer()
+            Text(detail)
+                .font(.footnote.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 5)
+    }
+}
+
+private enum MedicationNotesDisplayPolicy {
+    static func visibleText(from notes: String) -> String? {
+        let visibleLines = noteLines(from: notes).filter(isUserVisibleLine)
+        return normalizedText(from: visibleLines)
+    }
+
+    static func hiddenText(from notes: String) -> String? {
+        let hiddenLines = noteLines(from: notes).filter { !isUserVisibleLine($0) }
+        return normalizedText(from: hiddenLines)
+    }
+
+    static func mergedNotes(visibleText: String, hiddenText: String?) -> String {
+        [
+            normalizedText(from: [visibleText]),
+            hiddenText?.trimmingCharacters(in: .whitespacesAndNewlines)
+        ]
+            .compactMap { text in
+                guard let text, !text.isEmpty else {
+                    return nil
+                }
+                return text
+            }
+            .joined(separator: "\n")
+    }
+
+    private static func noteLines(from notes: String) -> [String] {
+        notes
+            .split(whereSeparator: \.isNewline)
+            .map(String.init)
+    }
+
+    private static func normalizedText(from lines: [String]) -> String? {
+        let text = lines
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
+    private static func isUserVisibleLine(_ line: String) -> Bool {
+        let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedLine.isEmpty else {
+            return false
+        }
+        let hiddenFragments = [
+            "演示",
+            "手动录入内容需要按药品包装、说明书或医嘱核对",
+            "识别结果仅用于辅助录入",
+            "条码结果只用于辅助核对药盒来源",
+            "识别文字：",
+            "条码信息："
+        ]
+        return !hiddenFragments.contains { trimmedLine.contains($0) }
     }
 }
 
@@ -2695,24 +5648,32 @@ private struct EditMedicationView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     let medication: StoredMedication
+    private let preservedHiddenNotes: String?
     @State private var displayName: String
+    @State private var genericName: String
     @State private var strength: String
     @State private var form: String
     @State private var kind: MedicationKind
     @State private var photoData: Data?
     @State private var photoSymbolName: String
     @State private var selectedMedicationPhotoItem: PhotosPickerItem?
+    @State private var colorTagRaw: String
+    @State private var boxNumber: String
     @State private var notes: String
 
     init(medication: StoredMedication) {
         self.medication = medication
-        _displayName = State(initialValue: medication.displayName)
+        preservedHiddenNotes = MedicationNotesDisplayPolicy.hiddenText(from: medication.notes)
+        _displayName = State(initialValue: MedicationNamePolicy.normalizedDisplayName(medication.displayName) ?? "")
+        _genericName = State(initialValue: medication.genericName)
         _strength = State(initialValue: medication.strength)
         _form = State(initialValue: medication.form)
         _kind = State(initialValue: MedicationKind(rawValue: medication.kindRaw) ?? .unknown)
         _photoData = State(initialValue: medication.photoData)
         _photoSymbolName = State(initialValue: medication.photoSymbolName)
-        _notes = State(initialValue: medication.notes)
+        _colorTagRaw = State(initialValue: MedicationColorOption.resolved(for: medication).id)
+        _boxNumber = State(initialValue: medication.boxNumber)
+        _notes = State(initialValue: MedicationNotesDisplayPolicy.visibleText(from: medication.notes) ?? "")
     }
 
     var body: some View {
@@ -2720,6 +5681,16 @@ private struct EditMedicationView: View {
             Form {
                 Section("药品信息") {
                     TextField("药品名称", text: $displayName)
+                    if displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && medicationNeedsNameReview(medication) {
+                        Text("原药名无法核对，请补全真实药品名称。")
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                    } else if !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !hasMeaningfulDisplayName {
+                        Text("请输入可核对的药品名称。")
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                    }
+                    TextField("通用名（可选）", text: $genericName)
                     TextField("规格", text: $strength)
                     TextField("剂型", text: $form)
                     Picker("类型", selection: $kind) {
@@ -2729,25 +5700,30 @@ private struct EditMedicationView: View {
                     }
                 }
 
-                Section("药品图片") {
-                    HStack(spacing: 14) {
-                        MedicationPhotoView(photoData: photoData, symbolName: photoSymbolName, tint: .blue)
-                        VStack(alignment: .leading, spacing: 8) {
-                            MedicationIconPicker(symbolName: $photoSymbolName)
-                            PhotosPicker(selection: $selectedMedicationPhotoItem, matching: .images) {
-                                Label(photoData == nil ? "选择药品图片" : "更换药品图片", systemImage: "photo")
-                            }
-                            if photoData != nil {
-                                Button("清除当前图片") {
-                                    photoData = nil
-                                    selectedMedicationPhotoItem = nil
-                                }
-                            }
+                Section("颜色标识") {
+                    MedicationColorSelectionGrid(selection: $colorTagRaw)
+                }
+
+                Section("药盒照片与编号") {
+                    TextField("药盒编号，例如 A1", text: $boxNumber)
+                        .textInputAutocapitalization(.characters)
+                    MedicationHeroPhotoView(
+                        photoData: photoData,
+                        symbolName: photoSymbolName,
+                        tint: selectedMedicationColor,
+                        title: photoData == nil ? "添加药盒或药品照片" : "药盒或药品照片",
+                        subtitle: boxNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "用于提醒和记录核对。" : "药盒编号已记录。",
+                        boxNumber: boxNumber
+                    )
+                    PhotosPicker(selection: $selectedMedicationPhotoItem, matching: .images) {
+                        Label(photoData == nil ? "选择照片" : "更换照片", systemImage: "photo")
+                    }
+                    if photoData != nil {
+                        Button("清除当前图片") {
+                            photoData = nil
+                            selectedMedicationPhotoItem = nil
                         }
                     }
-                    Text("图片只保存在本机，用于提醒时辅助识别药品实物。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
 
                 Section("备注") {
@@ -2764,17 +5740,26 @@ private struct EditMedicationView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
-                        medication.displayName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard let normalizedDisplayName = MedicationNamePolicy.normalizedDisplayName(displayName) else {
+                            return
+                        }
+                        medication.displayName = normalizedDisplayName
+                        medication.genericName = genericName.trimmingCharacters(in: .whitespacesAndNewlines)
                         medication.strength = strength
                         medication.form = form
                         medication.kindRaw = kind.rawValue
                         medication.photoSymbolName = photoSymbolName
                         medication.photoData = photoData
-                        medication.notes = notes
+                        medication.colorTagRaw = colorTagRaw
+                        medication.boxNumber = boxNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+                        medication.notes = MedicationNotesDisplayPolicy.mergedNotes(
+                            visibleText: notes,
+                            hiddenText: preservedHiddenNotes
+                        )
                         try? modelContext.save()
                         dismiss()
                     }
-                    .disabled(displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(!hasMeaningfulDisplayName)
                 }
             }
             .onChange(of: selectedMedicationPhotoItem) { _, newItem in
@@ -2798,15 +5783,57 @@ private struct EditMedicationView: View {
             photoData = nil
         }
     }
+
+    private var hasMeaningfulDisplayName: Bool {
+        MedicationNamePolicy.normalizedDisplayName(displayName) != nil
+    }
+
+    private var selectedMedicationColor: Color {
+        MedicationColorOption.option(forRawValue: colorTagRaw)?.color ?? MedicationColorOption.common[0].color
+    }
+}
+
+private struct MedicationColorSelectionGrid: View {
+    @Binding var selection: String
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 10)], spacing: 10) {
+            ForEach(MedicationColorOption.common) { option in
+                Button {
+                    selection = option.id
+                } label: {
+                    HStack(spacing: 8) {
+                        MedicationColorMarker(color: option.color, size: 13)
+                        Text(option.displayName)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Spacer(minLength: 0)
+                        if selection == option.id {
+                            Image(systemName: "checkmark")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(option.color)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(option.color.opacity(selection == option.id ? 0.15 : 0.08), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(option.color.opacity(selection == option.id ? 0.38 : 0.14), lineWidth: 1)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("颜色标识 \(option.displayName)")
+                .accessibilityAddTraits(selection == option.id ? .isSelected : [])
+            }
+        }
+        .padding(.vertical, 4)
+    }
 }
 
 private struct MedicationAddSelection: Identifiable {
     var option: MedicationAddOption
     var id: String { option.id.rawValue }
-}
-
-private func isAddOptionInDevelopment(_ option: MedicationAddOption) -> Bool {
-    option.id == .prescriptionDocumentOCR || option.id == .barcodeScan
 }
 
 private func addOptionTitle(_ option: MedicationAddOption) -> String {
@@ -2818,9 +5845,9 @@ private func addOptionSubtitle(_ option: MedicationAddOption) -> String {
     case .manual:
         "逐项填写药名、剂量、疗程和提醒。"
     case .prescriptionDocumentOCR:
-        "识别医嘱图片后生成待确认草稿。"
+        "识别医嘱图片后生成待确认信息。"
     case .barcodeScan:
-        "扫描药盒条码后辅助补全信息。"
+        "扫描或输入药盒条码，保存前再核对药盒信息。"
     }
 }
 

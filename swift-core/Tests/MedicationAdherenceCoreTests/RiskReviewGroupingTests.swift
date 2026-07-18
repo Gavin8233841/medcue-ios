@@ -41,6 +41,9 @@ import Testing
     #expect(RiskReviewGroup.drugInteraction.title == "药物相互作用")
     #expect(RiskReviewGroup.foodAndLifestyleInteraction.title.contains("饮食"))
     #expect(RiskReviewGroup.conditionAndSymptomAttention.title.contains("病症"))
+    #expect(RiskReviewGroup.drugInteraction.description.contains("说明书提示"))
+    #expect(RiskReviewGroup.foodAndLifestyleInteraction.description.contains("用药体验"))
+    #expect(RiskReviewGroup.conditionAndSymptomAttention.description.contains("处方来源"))
 }
 
 @Test func riskReviewGrouperMapsContraindicationAndAdverseReactionToConditionSection() {

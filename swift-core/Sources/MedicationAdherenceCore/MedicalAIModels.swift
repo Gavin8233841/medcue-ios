@@ -82,12 +82,63 @@ public struct MedicalAIMedicationSnapshot: Codable, Sendable, Equatable {
     }
 }
 
+public struct MedicalAIEnvironmentInsight: Codable, Sendable, Equatable {
+    public var title: String
+    public var message: String
+    public var sourceSummary: String
+    public var severityText: String
+
+    public init(
+        title: String,
+        message: String,
+        sourceSummary: String,
+        severityText: String
+    ) {
+        self.title = title
+        self.message = message
+        self.sourceSummary = sourceSummary
+        self.severityText = severityText
+    }
+}
+
+public struct MedicalAIEnvironmentQuestionDetector: Sendable {
+    public init() {}
+
+    public func shouldAttachEnvironmentContext(to userMessage: String) -> Bool {
+        let normalizedMessage = userMessage
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .lowercased()
+            .filter { !$0.isWhitespace && !$0.isPunctuation }
+
+        guard !normalizedMessage.isEmpty else {
+            return false
+        }
+
+        let directKeywords = [
+            "天气", "环境", "气温", "温度", "湿度", "降水", "下雨", "下雪", "雨天", "雪天",
+            "紫外线", "日晒", "高温", "低温", "天热", "太热", "天冷", "太冷", "干燥", "潮湿",
+            "气候", "空气", "空气质量", "空气不好", "污染", "沙尘", "雾霾", "花粉", "暴晒",
+            "晒太阳", "日照", "闷热", "寒潮", "降温", "温差", "冷空气", "暴雨", "雷雨", "台风",
+            "外出", "出门",
+            "weather", "temperature", "humidity", "rain", "snow", "uv", "pollen", "airquality",
+            "pollution", "smog", "dust", "storm", "typhoon", "sunlight", "heat", "cold", "dry", "humid"
+        ]
+        if directKeywords.contains(where: { normalizedMessage.contains($0) }) {
+            return true
+        }
+
+        let windKeywords = ["大风", "风力", "刮风", "wind"]
+        return windKeywords.contains { normalizedMessage.contains($0) }
+    }
+}
+
 public struct MedicalAIRequest: Codable, Identifiable, Sendable, Equatable {
     public let id: UUID
     public var kind: MedicalAIRequestKind
     public var userMessage: String
     public var authorization: MedicalAIUserAuthorization
     public var medicationSnapshots: [MedicalAIMedicationSnapshot]
+    public var environmentInsights: [MedicalAIEnvironmentInsight]
     public var importReview: MedicationImportReview?
     public var localeIdentifier: String
     public var createdAt: Date
@@ -98,6 +149,7 @@ public struct MedicalAIRequest: Codable, Identifiable, Sendable, Equatable {
         userMessage: String,
         authorization: MedicalAIUserAuthorization,
         medicationSnapshots: [MedicalAIMedicationSnapshot] = [],
+        environmentInsights: [MedicalAIEnvironmentInsight] = [],
         importReview: MedicationImportReview? = nil,
         localeIdentifier: String = "zh_CN",
         createdAt: Date = Date()
@@ -107,6 +159,7 @@ public struct MedicalAIRequest: Codable, Identifiable, Sendable, Equatable {
         self.userMessage = userMessage
         self.authorization = authorization
         self.medicationSnapshots = medicationSnapshots
+        self.environmentInsights = environmentInsights
         self.importReview = importReview
         self.localeIdentifier = localeIdentifier
         self.createdAt = createdAt
@@ -182,9 +235,9 @@ public struct UnconfiguredMedicalAIClient: MedicalAIClient {
     public var provider: MedicalAIProviderProfile
 
     public init(provider: MedicalAIProviderProfile = MedicalAIProviderProfile(
-        providerName: "未配置医疗 AI 服务",
+        providerName: "医疗智能体",
         modelName: "unconfigured",
-        serviceLicenseSummary: "等待供应商 API 文档和鉴权信息。"
+        serviceLicenseSummary: "医疗智能体连接暂未完成。"
     )) {
         self.provider = provider
     }
@@ -193,7 +246,7 @@ public struct UnconfiguredMedicalAIClient: MedicalAIClient {
         MedicalAIResponse(
             requestID: request.id,
             provider: provider,
-            message: "医疗 AI 服务尚未配置。请在 App 层接入已确认的供应商适配器后重试。"
+            message: "医疗智能体暂时无法连接，未发送任何用药数据。请稍后重试。"
         )
     }
 }

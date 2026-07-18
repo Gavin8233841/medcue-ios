@@ -42,6 +42,83 @@ enum StoredDoseStatus: String, CaseIterable, Identifiable {
     }
 }
 
+enum StoredRiskSeverity: String, CaseIterable, Identifiable {
+    case critical
+    case high
+    case medium
+    case low
+    case info
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .critical:
+            "紧急"
+        case .high:
+            "高"
+        case .medium:
+            "中"
+        case .low:
+            "低"
+        case .info:
+            "提示"
+        }
+    }
+
+    var badgePriority: Int {
+        switch self {
+        case .critical:
+            0
+        case .high:
+            1
+        case .medium:
+            2
+        case .low:
+            3
+        case .info:
+            4
+        }
+    }
+
+    var isActionable: Bool {
+        switch self {
+        case .critical, .high:
+            true
+        case .medium, .low, .info:
+            false
+        }
+    }
+}
+
+enum StoredRiskSourceKind: String, CaseIterable, Identifiable {
+    case drugLabel
+    case medicationProfile
+    case weather
+    case healthKit
+    case userContext
+    case localRule
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .drugLabel:
+            "说明书"
+        case .medicationProfile:
+            "药品资料"
+        case .weather:
+            "天气变化"
+        case .healthKit:
+            "健康数据"
+        case .userContext:
+            "用户记录"
+        case .localRule:
+            "系统提醒"
+        }
+    }
+}
+
 enum StoredAIChatRole: String, CaseIterable, Identifiable {
     case user
     case assistant
@@ -54,7 +131,7 @@ enum StoredAIChatRole: String, CaseIterable, Identifiable {
         case .user:
             "用户"
         case .assistant:
-            "医疗 AI"
+            "医疗智能体"
         case .system:
             "系统"
         }
@@ -117,6 +194,55 @@ enum StoredMedicationLifecycleStatus: String, CaseIterable, Identifiable {
 }
 
 @Model
+final class StoredMedicationLifecycleEvent {
+    @Attribute(.unique) var id: UUID
+    var medicationID: UUID
+    var statusRaw: String
+    var occurredAt: Date
+    var note: String
+
+    init(
+        id: UUID = UUID(),
+        medicationID: UUID,
+        status: StoredMedicationLifecycleStatus,
+        occurredAt: Date = Date(),
+        note: String = ""
+    ) {
+        self.id = id
+        self.medicationID = medicationID
+        self.statusRaw = status.rawValue
+        self.occurredAt = occurredAt
+        self.note = note
+    }
+
+    var status: StoredMedicationLifecycleStatus {
+        get { StoredMedicationLifecycleStatus(rawValue: statusRaw) ?? .active }
+        set { statusRaw = newValue.rawValue }
+    }
+
+    var coreLifecycleEvent: MedicationLifecycleEvent {
+        MedicationLifecycleEvent(
+            id: id,
+            medicationID: medicationID,
+            state: coreLifecycleState,
+            occurredAt: occurredAt,
+            note: note
+        )
+    }
+
+    private var coreLifecycleState: MedicationLifecycleState {
+        switch status {
+        case .active:
+            .active
+        case .interrupted:
+            .interrupted
+        case .archived:
+            .archived
+        }
+    }
+}
+
+@Model
 final class StoredMedication {
     @Attribute(.unique) var id: UUID
     var displayName: String
@@ -127,6 +253,8 @@ final class StoredMedication {
     var inputSourceRaw: String
     var photoSymbolName: String
     var photoData: Data?
+    var colorTagRaw: String = ""
+    var boxNumber: String = ""
     var notes: String
     var lifecycleStatusRaw: String = StoredMedicationLifecycleStatus.active.rawValue
     var isDemoContent: Bool = false
@@ -142,6 +270,8 @@ final class StoredMedication {
         inputSource: MedicationInputSource,
         photoSymbolName: String = "pills.fill",
         photoData: Data? = nil,
+        colorTagRaw: String = "",
+        boxNumber: String = "",
         notes: String = "",
         lifecycleStatus: StoredMedicationLifecycleStatus = .active,
         isDemoContent: Bool = false,
@@ -156,6 +286,8 @@ final class StoredMedication {
         self.inputSourceRaw = inputSource.rawValue
         self.photoSymbolName = photoSymbolName
         self.photoData = photoData
+        self.colorTagRaw = colorTagRaw
+        self.boxNumber = boxNumber
         self.notes = notes
         self.lifecycleStatusRaw = lifecycleStatus.rawValue
         self.isDemoContent = isDemoContent
@@ -206,6 +338,7 @@ final class StoredMedicationPlan {
     var courseEndAt: Date?
     var reminderTimesRaw: String?
     var reminderDeliveryRaw: String?
+    var escalatesToAlarmWhenUnhandledRaw: Bool?
     var createdAt: Date
 
     init(
@@ -221,6 +354,7 @@ final class StoredMedicationPlan {
         courseEndAt: Date? = nil,
         reminderTimesRaw: String? = nil,
         reminderDelivery: StoredReminderDeliveryMethod = .notification,
+        escalatesToAlarmWhenUnhandled: Bool = true,
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -235,12 +369,18 @@ final class StoredMedicationPlan {
         self.courseEndAt = courseEndAt
         self.reminderTimesRaw = reminderTimesRaw
         self.reminderDeliveryRaw = reminderDelivery.rawValue
+        self.escalatesToAlarmWhenUnhandledRaw = escalatesToAlarmWhenUnhandled
         self.createdAt = createdAt
     }
 
     var reminderDeliveryMethod: StoredReminderDeliveryMethod {
         get { StoredReminderDeliveryMethod(rawValue: reminderDeliveryRaw ?? "") ?? .notification }
         set { reminderDeliveryRaw = newValue.rawValue }
+    }
+
+    var escalatesToAlarmWhenUnhandled: Bool {
+        get { escalatesToAlarmWhenUnhandledRaw ?? true }
+        set { escalatesToAlarmWhenUnhandledRaw = newValue }
     }
 
     func corePlan(using scheduledDoses: [StoredDoseTask], calendar: Calendar = .current) -> MedicationPlan? {
@@ -404,13 +544,21 @@ final class StoredRiskCard {
     @Attribute(.unique) var id: String
     var medicationID: UUID
     var kindRaw: String
+    var severityRaw: String = StoredRiskSeverity.medium.rawValue
+    var sourceKindRaw: String = StoredRiskSourceKind.localRule.rawValue
     var displayPriority: Int
     var title: String
     var message: String
     var sourceTitle: String
     var sourceExcerpt: String
+    var detectionSignature: String = ""
     var requiresProfessionalReview: Bool
     var safetyNote: String
+    var firstDetectedAt: Date = Date()
+    var lastDetectedAt: Date = Date()
+    var readAt: Date?
+    var resolvedAt: Date?
+    var resolutionNote: String = ""
     var reviewedAt: Date?
     var archivedAt: Date?
     var reviewNote: String = ""
@@ -419,13 +567,21 @@ final class StoredRiskCard {
         id: String,
         medicationID: UUID,
         kindRaw: String,
+        severityRaw: String? = nil,
+        sourceKindRaw: String? = nil,
         displayPriority: Int,
         title: String,
         message: String,
         sourceTitle: String = "",
         sourceExcerpt: String = "",
+        detectionSignature: String = "",
         requiresProfessionalReview: Bool,
         safetyNote: String,
+        firstDetectedAt: Date = Date(),
+        lastDetectedAt: Date = Date(),
+        readAt: Date? = nil,
+        resolvedAt: Date? = nil,
+        resolutionNote: String = "",
         reviewedAt: Date? = nil,
         archivedAt: Date? = nil,
         reviewNote: String = ""
@@ -433,13 +589,40 @@ final class StoredRiskCard {
         self.id = id
         self.medicationID = medicationID
         self.kindRaw = kindRaw
+        self.severityRaw = severityRaw ?? StoredRiskCard.inferredSeverityRaw(
+            kindRaw: kindRaw,
+            displayPriority: displayPriority,
+            title: title,
+            message: message,
+            sourceExcerpt: sourceExcerpt,
+            requiresProfessionalReview: requiresProfessionalReview
+        )
+        self.sourceKindRaw = sourceKindRaw ?? StoredRiskCard.inferredSourceKindRaw(
+            kindRaw: kindRaw,
+            sourceTitle: sourceTitle,
+            sourceExcerpt: sourceExcerpt
+        )
         self.displayPriority = displayPriority
         self.title = title
         self.message = message
         self.sourceTitle = sourceTitle
         self.sourceExcerpt = sourceExcerpt
+        self.detectionSignature = detectionSignature.isEmpty
+            ? StoredRiskCard.makeDetectionSignature(
+                medicationID: medicationID,
+                kindRaw: kindRaw,
+                title: title,
+                message: message,
+                sourceExcerpt: sourceExcerpt
+            )
+            : detectionSignature
         self.requiresProfessionalReview = requiresProfessionalReview
         self.safetyNote = safetyNote
+        self.firstDetectedAt = firstDetectedAt
+        self.lastDetectedAt = lastDetectedAt
+        self.readAt = readAt
+        self.resolvedAt = resolvedAt
+        self.resolutionNote = resolutionNote
         self.reviewedAt = reviewedAt
         self.archivedAt = archivedAt
         self.reviewNote = reviewNote
@@ -451,6 +634,45 @@ final class StoredRiskCard {
 
     var isArchived: Bool {
         archivedAt != nil
+    }
+
+    var isResolved: Bool {
+        resolvedAt != nil
+    }
+
+    var isActive: Bool {
+        !isArchived && !isResolved
+    }
+
+    var isUnread: Bool {
+        readAt == nil && isActive
+    }
+
+    var severity: StoredRiskSeverity {
+        StoredRiskSeverity(rawValue: severityRaw) ?? .medium
+    }
+
+    var sourceKind: StoredRiskSourceKind {
+        StoredRiskSourceKind(rawValue: sourceKindRaw) ?? .localRule
+    }
+
+    var countsForRiskBadge: Bool {
+        isUnread && isActive && riskPriorityDecision.countsForUnreadBadge
+    }
+
+    var shouldAnnounceAsPriorityReminder: Bool {
+        isActive && riskPriorityDecision.shouldAnnounce
+    }
+
+    var riskPriorityDecision: RiskPriorityDecision {
+        RiskPriorityPolicy().evaluate(RiskPriorityInput(
+            kindRaw: kindRaw,
+            displayPriority: displayPriority,
+            title: title,
+            message: message,
+            sourceExcerpt: sourceExcerpt,
+            requiresProfessionalReview: requiresProfessionalReview
+        ))
     }
 
     var coreRiskCard: RiskAssessmentCard {
@@ -470,6 +692,57 @@ final class StoredRiskCard {
             requiresProfessionalReview: requiresProfessionalReview,
             safetyNote: safetyNote
         )
+    }
+
+    static func inferredSeverityRaw(
+        kindRaw: String,
+        displayPriority: Int,
+        title: String,
+        message: String,
+        sourceExcerpt: String,
+        requiresProfessionalReview: Bool
+    ) -> String {
+        RiskPriorityPolicy()
+            .inferredSeverity(for: RiskPriorityInput(
+                kindRaw: kindRaw,
+                displayPriority: displayPriority,
+                title: title,
+                message: message,
+                sourceExcerpt: sourceExcerpt,
+                requiresProfessionalReview: requiresProfessionalReview
+            ))
+            .rawValue
+    }
+
+    static func inferredSourceKindRaw(
+        kindRaw: String,
+        sourceTitle: String,
+        sourceExcerpt: String
+    ) -> String {
+        if kindRaw == RiskAssessmentCardKind.medicationSourceReview.rawValue || kindRaw == RiskAssessmentCardKind.drugClassContext.rawValue {
+            return StoredRiskSourceKind.medicationProfile.rawValue
+        }
+        if !sourceTitle.isEmpty || !sourceExcerpt.isEmpty {
+            return StoredRiskSourceKind.drugLabel.rawValue
+        }
+        return StoredRiskSourceKind.localRule.rawValue
+    }
+
+    static func makeDetectionSignature(
+        medicationID: UUID,
+        kindRaw: String,
+        title: String,
+        message: String,
+        sourceExcerpt: String
+    ) -> String {
+        let normalizedText = [kindRaw, title, message, sourceExcerpt]
+            .joined(separator: "|")
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .lowercased()
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return "\(medicationID.uuidString)|\(normalizedText)"
     }
 }
 
@@ -508,11 +781,15 @@ final class StoredMedicationLabel {
     }
 
     var coreLabel: MedicationLabel? {
-        UserProvidedLabelBuilder().build(
+        guard var label = UserProvidedLabelBuilder().build(
             medicationName: medicationName,
             rawText: rawText,
             reviewedAt: importedAt
-        )
+        ) else {
+            return nil
+        }
+        label.source = source
+        return label
     }
 
     var source: DrugLabelSource {
@@ -617,6 +894,10 @@ final class StoredDoseActionLog {
             "忽略"
         case .correct:
             "修正记录"
+        case .archiveToday:
+            "归档今日记录"
+        case .restoreArchive:
+            "恢复今日归档"
         case nil:
             "用药记录操作"
         }
@@ -646,7 +927,7 @@ final class StoredAIConsent {
         sharesImportDraft: Bool = false,
         grantedAt: Date = Date(),
         revokedAt: Date? = nil,
-        note: String = "用户授权医疗 AI 助手读取选定范围的数据。"
+        note: String = "用户授权医疗智能体读取选定范围的数据。"
     ) {
         self.id = id
         self.sharesMedicationProfile = sharesMedicationProfile
@@ -699,13 +980,13 @@ final class StoredAIConsent {
             names.append("服药记录")
         }
         if sharesRiskCards {
-            names.append("风险卡片")
+            names.append("风险提醒")
         }
         if sharesDrugLabels {
             names.append("说明书摘要")
         }
         if sharesImportDraft {
-            names.append("导入草稿")
+            names.append("导入识别内容")
         }
         return names.isEmpty ? "未共享任何数据" : names.joined(separator: "、")
     }

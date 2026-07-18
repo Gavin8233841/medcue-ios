@@ -230,6 +230,60 @@ import Testing
     #expect(insight.longestStreakDays == 1)
 }
 
+@Test func adherenceInsightIgnoresFutureDosesWithoutEvents() {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+
+    let scheduled = [
+        ScheduledDose(planID: UUID(), dueAt: makeDate(calendar: calendar, day: 1, hour: 8), dose: DoseAmount(value: 1, unit: "片")),
+        ScheduledDose(planID: UUID(), dueAt: makeDate(calendar: calendar, day: 2, hour: 8), dose: DoseAmount(value: 1, unit: "片")),
+        ScheduledDose(planID: UUID(), dueAt: makeDate(calendar: calendar, day: 10, hour: 8), dose: DoseAmount(value: 1, unit: "片"))
+    ]
+    let events = [
+        DoseEvent(scheduledDoseID: scheduled[0].id, status: .taken, recordedAt: scheduled[0].dueAt),
+        DoseEvent(scheduledDoseID: scheduled[1].id, status: .taken, recordedAt: scheduled[1].dueAt)
+    ]
+
+    let insight = AdherenceInsightBuilder().build(
+        scheduledDoses: scheduled,
+        events: events,
+        calendar: calendar,
+        timeZone: calendar.timeZone,
+        now: makeDate(calendar: calendar, day: 2, hour: 12)
+    )
+
+    #expect(insight.scheduledCount == 2)
+    #expect(insight.currentStreakDays == 2)
+    #expect(insight.dayStatuses.count == 2)
+}
+
+@Test func adherenceInsightGroupsFutureDelayedDoseByRecordedDate() {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+
+    let scheduled = [
+        ScheduledDose(planID: UUID(), dueAt: makeDate(calendar: calendar, day: 1, hour: 8), dose: DoseAmount(value: 1, unit: "片")),
+        ScheduledDose(planID: UUID(), dueAt: makeDate(calendar: calendar, day: 2, hour: 0), dose: DoseAmount(value: 1, unit: "片"))
+    ]
+    let events = [
+        DoseEvent(scheduledDoseID: scheduled[0].id, status: .taken, recordedAt: scheduled[0].dueAt),
+        DoseEvent(scheduledDoseID: scheduled[1].id, status: .delayed, recordedAt: makeDate(calendar: calendar, day: 1, hour: 23))
+    ]
+
+    let insight = AdherenceInsightBuilder().build(
+        scheduledDoses: scheduled,
+        events: events,
+        calendar: calendar,
+        timeZone: calendar.timeZone,
+        now: makeDate(calendar: calendar, day: 1, hour: 23)
+    )
+
+    #expect(insight.dayStatuses.count == 1)
+    #expect(insight.dayStatuses[0].date.day == 1)
+    #expect(insight.dayStatuses[0].delayedCount == 1)
+    #expect(insight.scheduledCount == 2)
+}
+
 private func makeDate(calendar: Calendar, day: Int, hour: Int) -> Date {
     calendar.date(from: DateComponents(
         timeZone: calendar.timeZone,

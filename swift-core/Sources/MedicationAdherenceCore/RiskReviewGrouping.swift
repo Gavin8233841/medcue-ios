@@ -19,11 +19,11 @@ public enum RiskReviewGroup: String, Codable, Sendable, CaseIterable, Equatable 
     public var description: String {
         switch self {
         case .drugInteraction:
-            "汇总说明书、药品类别和用户用药清单中需要进一步核对的药物相互作用信息。"
+            "查看同时使用多种药品时需要留意的说明书提示。"
         case .foodAndLifestyleInteraction:
-            "汇总饮酒、食物、生活方式等与药品说明书相关的注意事项。"
+            "查看饮酒、食物和生活方式可能影响用药体验的提醒。"
         case .conditionAndSymptomAttention:
-            "汇总用户记录的病症、症状或处方来源中需要进一步核对的注意事项。"
+            "查看与既往病症、症状或处方来源有关的注意事项。"
         }
     }
 }

@@ -98,13 +98,41 @@ struct VisionImportService {
     }
 
     func makePrescriptionReview(textResult: VisionTextRecognitionResult) -> MedicationImportReview {
+        let extractedFields = MedicationImportTextExtractor.structuredFields(
+            fromPrescriptionText: textResult.text
+        )
+        var confidenceByField: [MedicationImportField: Double] = [.prescriptionText: textResult.averageConfidence]
+        if extractedFields.displayName != nil {
+            confidenceByField[.displayName] = textResult.averageConfidence
+        }
+        if extractedFields.genericName != nil {
+            confidenceByField[.genericName] = textResult.averageConfidence
+        }
+        if extractedFields.strength != nil {
+            confidenceByField[.strength] = textResult.averageConfidence
+        }
+        if extractedFields.form != nil {
+            confidenceByField[.form] = textResult.averageConfidence
+        }
+        if extractedFields.directionsText != nil {
+            confidenceByField[.directions] = textResult.averageConfidence
+        }
+        if extractedFields.doseAmount != nil {
+            confidenceByField[.doseAmount] = textResult.averageConfidence
+        }
         let draft = MedicationImportDraft(
             source: .prescriptionImage,
-            displayName: nil,
+            displayName: extractedFields.displayName,
+            genericName: extractedFields.genericName,
             kind: .unknown,
+            form: extractedFields.form,
+            strength: extractedFields.strength,
+            doseValue: extractedFields.doseAmount.map { NSDecimalNumber(decimal: $0.value).doubleValue },
+            doseUnit: extractedFields.doseAmount?.unit,
+            directionsText: extractedFields.directionsText,
             prescriptionText: textResult.text,
-            confidenceByField: [.prescriptionText: textResult.averageConfidence],
-            sourceNote: "Vision 本机 OCR 识别，共 \(textResult.lineCount) 行；必须按原始医嘱逐项核对。"
+            confidenceByField: confidenceByField,
+            sourceNote: "来自用户确认的医嘱图片；保存前需按原始医嘱逐项核对。"
         )
         return MedicationImportReviewEngine().review(draft)
     }
@@ -116,7 +144,7 @@ struct VisionImportService {
             kind: .unknown,
             barcodeValue: barcode.payload,
             confidenceByField: [.barcodeValue: barcode.confidence],
-            sourceNote: "Vision 本机条码识别，类型：\(barcode.symbology)。可靠药品数据源未接入前，只能作为辅助录入草稿。"
+            sourceNote: "来自用户确认的药盒条码；保存前请按药盒和说明书核对。"
         )
         return MedicationImportReviewEngine().review(draft)
     }
