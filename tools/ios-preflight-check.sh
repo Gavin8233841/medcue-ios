@@ -4,7 +4,9 @@ set -u
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT_DIR="$ROOT_DIR/ios-app/MedicationAdherenceApp"
 PROJECT_FILE="$PROJECT_DIR/MedicationAdherenceApp.xcodeproj/project.pbxproj"
+SHARED_SCHEME="$PROJECT_DIR/MedicationAdherenceApp.xcodeproj/xcshareddata/xcschemes/MedicationAdherenceApp.xcscheme"
 APP_DIR="$PROJECT_DIR/MedicationAdherenceApp"
+IOS_TEST_SOURCE="$PROJECT_DIR/MedicationAdherenceAppTests/MedicationAdherenceAppTests.swift"
 APP_INFO="$APP_DIR/Info.plist"
 APP_ENTITLEMENTS="$APP_DIR/MedicationAdherenceApp.entitlements"
 AI_SECRETS="$APP_DIR/AISecrets.plist"
@@ -109,6 +111,8 @@ project_object_block_by_id() {
 
 section "Paths"
 require_file "$PROJECT_FILE" "Xcode project"
+require_file "$SHARED_SCHEME" "Shared MedicationAdherenceApp scheme"
+require_file "$IOS_TEST_SOURCE" "iOS unit test source"
 require_file "$APP_INFO" "Main app Info.plist"
 require_file "$APP_ENTITLEMENTS" "Main app entitlements"
 require_file "$LIVE_ACTIVITY_INFO" "Live Activity extension Info.plist"
@@ -150,7 +154,7 @@ section "Medical AI Secret Boundary"
 if [[ -f "$AI_SECRETS" ]]; then
 	pass "Debug-only local AI configuration exists (contents intentionally not inspected)"
 else
-	warn "Debug-only local AI configuration is absent; Debug builds will fail by design"
+	warn "Debug-only local AI configuration is absent; ordinary Debug builds fail by design, while explicitly marked simulator unit-test hosts exclude it"
 fi
 
 section "Local Medical Model"
@@ -194,15 +198,19 @@ require_text "$ROOT_DIR/.gitignore" "/DerivedModels/" "Derived model cache direc
 require_text "$ROOT_DIR/.gitignore" "/ApplicationSupportModels/" "Application Support model staging directory is ignored by Git"
 
 section "Project Wiring"
+if [[ -f "$SHARED_SCHEME" ]]; then
+    require_text "$SHARED_SCHEME" 'BlueprintIdentifier = "A50000000000000000000001"' "Shared scheme references the main app target"
+    require_text "$SHARED_SCHEME" 'BlueprintIdentifier = "A89A5AD0300B790100BD46AA"' "Shared scheme includes the iOS unit test target"
+fi
 if [[ -f "$PROJECT_FILE" ]]; then
     require_text "$PROJECT_FILE" "Copy Local AI Secrets" "Copy Local AI Secrets build phase wired"
 	secrets_phase_block="$(project_object_block_by_id "A80000000000000000000003")"
 	if [[ -z "$secrets_phase_block" ]]; then
 		fail "Unable to inspect local AI configuration build phase"
-	elif [[ "$secrets_phase_block" == *'if [ \"${CONFIGURATION}\" != \"Debug\" ]; then\n'*'exit 0\nfi\n\nSECRETS_FILE='*'if [ ! -f \"${SECRETS_FILE}\" ]; then\n'*'cp \"${SECRETS_FILE}\" \"${DESTINATION}\"'* ]]; then
-		pass "Local AI configuration is copied only after the Debug configuration guard"
+	elif [[ "$secrets_phase_block" == *'if [ \"${CONFIGURATION}\" != \"Debug\" ]; then\n'*'exit 0\nfi\n\nif [ \"${MEDCUE_SIMULATOR_UNIT_TEST_BUILD:-NO}\" = \"YES\" ]; then\n'*'if [ \"${PLATFORM_NAME}\" != \"iphonesimulator\" ]; then\n'*'MEDCUE_SIMULATOR_UNIT_TEST_BUILD may only be used for iOS Simulator unit tests.'*'Local AI configuration excluded from simulator unit-test host.'*'exit 0\nfi\n\nSECRETS_FILE='*'if [ ! -f \"${SECRETS_FILE}\" ]; then\n'*'cp \"${SECRETS_FILE}\" \"${DESTINATION}\"'* ]]; then
+		pass "Local AI configuration is excluded only for explicitly marked simulator unit-test hosts and otherwise copied after the Debug guard"
 	else
-		fail "Local AI configuration build phase does not enforce the Debug-only copy boundary"
+		fail "Local AI configuration build phase does not enforce the Debug and simulator unit-test boundaries"
 	fi
 	if [[ "$secrets_phase_block" == *'echo \"${'* ]] ||
 		[[ "$secrets_phase_block" == *'cat \"${SECRETS_FILE}\"'* ]] ||
@@ -223,6 +231,8 @@ if [[ -f "$PROJECT_FILE" ]]; then
     require_text "$PROJECT_FILE" "MedicationReminderLiveActivityExtension.appex in Embed App Extensions" "Live Activity extension embedded in main app"
     require_text "$PROJECT_FILE" "PRODUCT_BUNDLE_IDENTIFIER = com.gwyy.appcontest2026.medicationadherence;" "Main app bundle identifier configured"
     require_text "$PROJECT_FILE" "PRODUCT_BUNDLE_IDENTIFIER = com.gwyy.appcontest2026.medicationadherence.MedicationReminderLiveActivityExtension;" "Live Activity extension bundle identifier configured"
+    require_text "$PROJECT_FILE" "PRODUCT_BUNDLE_IDENTIFIER = com.gwyy.appcontest2026.MedicationAdherenceAppTests;" "iOS unit test bundle identifier configured"
+    require_text "$PROJECT_FILE" "TestTargetID = A50000000000000000000001;" "iOS unit test target associated with the main app"
 	main_target_block="$(project_object_block_by_id "A50000000000000000000001")"
 	if [[ -z "$main_target_block" ]]; then
 		fail "Unable to inspect main app target wiring"

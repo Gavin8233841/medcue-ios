@@ -5,9 +5,9 @@ SwiftUI iOS App 工程。默认中文展示名为“用药跟踪”，英文兼�
 ## 工程信息
 
 - Xcode 工程：`ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj`
-- Target：`MedicationAdherenceApp`
-- Scheme：`MedicationAdherenceApp`
-- Bundle ID：`com.gwyy.appcontest2026.medicationadherence`
+- App target：`MedicationAdherenceApp`，Bundle ID `com.gwyy.appcontest2026.medicationadherence`
+- Unit test target：`MedicationAdherenceAppTests`，Bundle ID `com.gwyy.appcontest2026.MedicationAdherenceAppTests`
+- Shared scheme：`MedicationAdherenceApp`
 - 默认中文名：用药跟踪
 - 英文兼容名：MedCue
 - 最低系统：iOS 17.0
@@ -17,7 +17,7 @@ SwiftUI iOS App 工程。默认中文展示名为“用药跟踪”，英文兼�
 
 - SwiftUI 五 Tab 主流程：今日、药品、智能体、记录、个人；风险复核已并入药品页。
 - 药品与记录分层：药品页保留健康式用药概览，四个小卡片分别进入药品总览、今日待处理、药盒管理和风险复核；记录页保留概览、日历、趋势和记录四个入口；复诊资料、Apple 健康、医疗智能体共享和应用设置集中在个人页；药品分组用三张状态卡展示正在服用、服用中断和归档药物。
-- SwiftData 本地存储：药品、用户确认药品照片、用药计划、疗程时间、今日任务、风险卡片、药品库存、服药操作日志、智能体授权和智能体聊天记录。
+- SwiftData 本地存储：`MedicationAdherenceModelContainer` 统一 11 个模型，覆盖药品、生命周期、用药计划、剂量变化、今日任务、风险卡片、药品标签、库存、操作日志、智能体授权和聊天记录；生产使用磁盘容器，单测可使用独立内存容器。
 - 本地初始数据：布洛芬、对乙酰氨基酚、人工泪液、氯雷他定、维生素 D3；内部保留说明书匹配字段，用户端不展示开发标签。
 - `MedicationAdherenceCore`：
   - 风险评估聚合。
@@ -43,7 +43,7 @@ SwiftUI iOS App 工程。默认中文展示名为“用药跟踪”，英文兼�
 
 ## 构建命令
 
-当前主线工具链为 `/Applications/Xcode-beta.app`，Xcode 27.0 beta。系统默认 `xcode-select -p` 应指向 `/Applications/Xcode-beta.app/Contents/Developer`；`/Applications/Xcode.app` 的 Xcode 26.5 只作为回退保留。
+当前主线工具链固定为 `/Applications/Xcode.app` 的 Xcode 26.5（17F42）与 Swift 6.3.2；Xcode 27 beta 不属于当前路线 A。
 
 ```zsh
 cd REDACTED_HOME_PATH
@@ -57,13 +57,21 @@ xcodebuild \
   build
 ```
 
+完整路线 A 验证（含 Swift Core、iOS hosted tests、App Release 与 Watch 构建）从仓库根目录运行：
+
+```zsh
+VERIFY_NATIVE_IOS_TEST_DESTINATION='platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5' \
+  tools/verify-native.sh
+```
+
 ## 当前验证
 
-- iPhone 17 Pro 模拟器 Debug build：通过。
-- iPhone 17 Pro 模拟器 Debug build（含 MedicationReminderLiveActivityExtension）：通过。
-- iPad Pro 13-inch (M5) 模拟器 Debug build：通过。
-- `swift-core` Swift Testing：86 个测试通过。
-- iPhone 17 Pro 模拟器可安装并启动。
+- 2026-07-19 `tools/verify-native.sh` 完整通过，预检 0 warning。
+- `swift-core` Swift Testing：136 项通过。
+- `MedicationAdherenceAppTests` Swift Testing：1 个 suite、2 项 hosted tests 通过。
+- 主 App unsigned Release、Watch Simulator 26.5 Debug、watchOS 26.5 device SDK Release：通过。
+- 主 App Release 不含本地 AI 敏感配置并嵌入 Watch App/Widget；iOS 测试宿主和 `.xctest` bundle 均不含敏感配置。
+- iPhone 17 Pro Max Simulator 上相同 Debug App bundle 可安装、启动并渲染今日页。
 - 2026-06-10 最新提醒口径：今日页、通知按钮和实况活动的“稍后”统一按原计划提醒时间顺延 30 分钟；离计划时间很久时，今日页会先显示药物行内二次确认卡。
 - 首屏截图：`artifacts/ios-app-home.png`。
 - 本轮改造后截图：`artifacts/ios-app-after-ai-tabs.png`。

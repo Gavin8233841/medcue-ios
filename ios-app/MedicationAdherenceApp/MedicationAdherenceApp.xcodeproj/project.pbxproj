@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 60;
+	objectVersion = 70;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -43,6 +43,7 @@
 		A10000000000000000000035 /* LocalMedicalModelStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000036 /* LocalMedicalModelStore.swift */; };
 		A10000000000000000000036 /* LocalMedicalAIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000037 /* LocalMedicalAIClient.swift */; };
 		E10000000000000000001001 /* LlamaFramework in Frameworks */ = {isa = PBXBuildFile; productRef = E70000000000000000001001 /* LlamaFramework */; };
+		A89A5ADB300B7E8600BD46AA /* MedicationAdherenceModelContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A89A5ADA300B7E8500BD46AA /* MedicationAdherenceModelContainer.swift */; };
 		B10000000000000000000001 /* MedicationReminderActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* MedicationReminderActivityAttributes.swift */; };
 		B10000000000000000000002 /* MedicationReminderActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* MedicationReminderActivityAttributes.swift */; };
 		B10000000000000000000003 /* MedicationReminderLiveActivityBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000002 /* MedicationReminderLiveActivityBundle.swift */; };
@@ -65,6 +66,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		A89A5AD5300B790200BD46AA /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A60000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A50000000000000000000001;
+			remoteInfo = MedicationAdherenceApp;
+		};
 		B30000000000000000000001 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A60000000000000000000001 /* Project object */;
@@ -162,6 +170,8 @@
 		A20000000000000000000035 /* HelpCenterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpCenterView.swift; sourceTree = "<group>"; };
 		A20000000000000000000036 /* LocalMedicalModelStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalMedicalModelStore.swift; sourceTree = "<group>"; };
 		A20000000000000000000037 /* LocalMedicalAIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalMedicalAIClient.swift; sourceTree = "<group>"; };
+		A89A5AD1300B790100BD46AA /* MedicationAdherenceAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MedicationAdherenceAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A89A5ADA300B7E8500BD46AA /* MedicationAdherenceModelContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationAdherenceModelContainer.swift; sourceTree = "<group>"; };
 		B20000000000000000000001 /* MedicationReminderActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationReminderActivityAttributes.swift; sourceTree = "<group>"; };
 		B20000000000000000000002 /* MedicationReminderLiveActivityBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationReminderLiveActivityBundle.swift; sourceTree = "<group>"; };
 		B20000000000000000000003 /* MedicationReminderLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationReminderLiveActivity.swift; sourceTree = "<group>"; };
@@ -183,6 +193,10 @@
 		C20000000000000000000014 /* MedicationWatchComplicationLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationWatchComplicationLogic.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		A89A5AD2300B790200BD46AA /* MedicationAdherenceAppTests */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = MedicationAdherenceAppTests; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
+
 /* Begin PBXFrameworksBuildPhase section */
 		A30000000000000000000001 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
@@ -190,6 +204,13 @@
 			files = (
 				E10000000000000000001001 /* LlamaFramework in Frameworks */,
 				A10000000000000000000014 /* MedicationAdherenceCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A89A5ACE300B790100BD46AA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -224,6 +245,7 @@
 				B40000000000000000000002 /* MedicationReminderLiveActivityExtension */,
 				C40000000000000000000002 /* MedicationAdherenceWatchApp */,
 				D40000000000000000000002 /* MedicationAdherenceWatchWidget */,
+				A89A5AD2300B790200BD46AA /* MedicationAdherenceAppTests */,
 				A40000000000000000000006 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -258,6 +280,7 @@
 		A40000000000000000000003 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				A89A5ADA300B7E8500BD46AA /* MedicationAdherenceModelContainer.swift */,
 				A20000000000000000000003 /* StoredModels.swift */,
 				A20000000000000000000004 /* DemoDataSeeder.swift */,
 				A20000000000000000000027 /* DoseTaskFilters.swift */,
@@ -313,6 +336,7 @@
 				B20000000000000000000005 /* MedicationReminderLiveActivityExtension.appex */,
 				C20000000000000000000003 /* MedicationAdherenceWatchApp.app */,
 				C20000000000000000000008 /* MedicationAdherenceWatchWidget.appex */,
+				A89A5AD1300B790100BD46AA /* MedicationAdherenceAppTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -389,6 +413,29 @@
 			productReference = A20000000000000000000014 /* MedicationAdherenceApp.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A89A5AD0300B790100BD46AA /* MedicationAdherenceAppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A89A5AD9300B790200BD46AA /* Build configuration list for PBXNativeTarget "MedicationAdherenceAppTests" */;
+			buildPhases = (
+				A89A5ACD300B790100BD46AA /* Sources */,
+				A89A5ACE300B790100BD46AA /* Frameworks */,
+				A89A5ACF300B790100BD46AA /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A89A5AD6300B790200BD46AA /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A89A5AD2300B790200BD46AA /* MedicationAdherenceAppTests */,
+			);
+			name = MedicationAdherenceAppTests;
+			packageProductDependencies = (
+			);
+			productName = MedicationAdherenceAppTests;
+			productReference = A89A5AD1300B790100BD46AA /* MedicationAdherenceAppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		B50000000000000000000001 /* MedicationReminderLiveActivityExtension */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = B90000000000000000000001 /* Build configuration list for PBXNativeTarget "MedicationReminderLiveActivityExtension" */;
@@ -462,6 +509,10 @@
 					A50000000000000000000001 = {
 						CreatedOnToolsVersion = 26.5;
 					};
+					A89A5AD0300B790100BD46AA = {
+						CreatedOnToolsVersion = 26.5;
+						TestTargetID = A50000000000000000000001;
+					};
 					B50000000000000000000001 = {
 						CreatedOnToolsVersion = 26.5;
 					};
@@ -495,6 +546,7 @@
 				B50000000000000000000001 /* MedicationReminderLiveActivityExtension */,
 				C50000000000000000000001 /* MedicationAdherenceWatchApp */,
 				D50000000000000000000001 /* MedicationAdherenceWatchWidget */,
+				A89A5AD0300B790100BD46AA /* MedicationAdherenceAppTests */,
 			);
 		};
 /* End PBXProject section */
@@ -505,6 +557,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000020 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A89A5ACF300B790100BD46AA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -550,7 +609,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nif [ \"${CONFIGURATION}\" != \"Debug\" ]; then\n    echo \"Local AI configuration excluded from non-Debug app bundle.\"\n    exit 0\nfi\n\nSECRETS_FILE=\"${PROJECT_DIR}/MedicationAdherenceApp/AISecrets.plist\"\nDESTINATION=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/AISecrets.plist\"\nif [ ! -f \"${SECRETS_FILE}\" ]; then\n    echo \"error: Debug local AI configuration is missing. Create it locally; do not commit it.\" >&2\n    exit 1\nfi\n\nmkdir -p \"$(dirname \"${DESTINATION}\")\"\ncp \"${SECRETS_FILE}\" \"${DESTINATION}\"\necho \"Copied local AI configuration into Debug app bundle.\"\n";
+			shellScript = "set -e\nif [ \"${CONFIGURATION}\" != \"Debug\" ]; then\n    echo \"Local AI configuration excluded from non-Debug app bundle.\"\n    exit 0\nfi\n\nif [ \"${MEDCUE_SIMULATOR_UNIT_TEST_BUILD:-NO}\" = \"YES\" ]; then\n    if [ \"${PLATFORM_NAME}\" != \"iphonesimulator\" ]; then\n        echo \"error: MEDCUE_SIMULATOR_UNIT_TEST_BUILD may only be used for iOS Simulator unit tests.\" >&2\n        exit 1\n    fi\n    echo \"Local AI configuration excluded from simulator unit-test host.\"\n    exit 0\nfi\n\nSECRETS_FILE=\"${PROJECT_DIR}/MedicationAdherenceApp/AISecrets.plist\"\nDESTINATION=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/AISecrets.plist\"\nif [ ! -f \"${SECRETS_FILE}\" ]; then\n    echo \"error: Debug local AI configuration is missing. Create it locally; do not commit it.\" >&2\n    exit 1\nfi\n\nmkdir -p \"$(dirname \"${DESTINATION}\")\"\ncp \"${SECRETS_FILE}\" \"${DESTINATION}\"\necho \"Copied local AI configuration into Debug app bundle.\"\n";
 		};
 		A80000000000000000000004 /* Strip Signing-Blocking Metadata */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -610,6 +669,7 @@
 				A10000000000000000000011 /* RecordsView.swift in Sources */,
 				A10000000000000000000012 /* RisksView.swift in Sources */,
 				A10000000000000000000013 /* SettingsView.swift in Sources */,
+				A89A5ADB300B7E8600BD46AA /* MedicationAdherenceModelContainer.swift in Sources */,
 				A10000000000000000000015 /* SecureAIConfigurationStore.swift in Sources */,
 				A10000000000000000000035 /* LocalMedicalModelStore.swift in Sources */,
 				A10000000000000000000036 /* LocalMedicalAIClient.swift in Sources */,
@@ -633,6 +693,13 @@
 				A10000000000000000000034 /* HelpCenterView.swift in Sources */,
 				A10000000000000000000016 /* AIAssistantView.swift in Sources */,
 				A10000000000000000000017 /* BarcodeScannerView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A89A5ACD300B790100BD46AA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -672,6 +739,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		A89A5AD6300B790200BD46AA /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A50000000000000000000001 /* MedicationAdherenceApp */;
+			targetProxy = A89A5AD5300B790200BD46AA /* PBXContainerItemProxy */;
+		};
 		B70000000000000000000001 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = B50000000000000000000001 /* MedicationReminderLiveActivityExtension */;
@@ -690,6 +762,57 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		A89A5AD7300B790200BD46AA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = M74Y4RX827;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gwyy.appcontest2026.MedicationAdherenceAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MedicationAdherenceApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MedicationAdherenceApp";
+			};
+			name = Debug;
+		};
+		A89A5AD8300B790200BD46AA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = M74Y4RX827;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gwyy.appcontest2026.MedicationAdherenceAppTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MedicationAdherenceApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MedicationAdherenceApp";
+			};
+			name = Release;
+		};
 		A90000000000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1026,6 +1149,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A89A5AD9300B790200BD46AA /* Build configuration list for PBXNativeTarget "MedicationAdherenceAppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A89A5AD7300B790200BD46AA /* Debug */,
+				A89A5AD8300B790200BD46AA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		A90000000000000000000001 /* Build configuration list for PBXProject "MedicationAdherenceApp" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

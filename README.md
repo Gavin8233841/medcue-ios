@@ -2,7 +2,7 @@
 
 继续开发前请先读：`PROJECT_UPDATE_LOG.md`。该文件是项目修改更新操作日志，说明当前项目是什么、已经做到哪、下一步先修什么，以及不能执行的危险操作。
 
-## 2026-07-18 当前开发边界
+## 2026-07-19 当前开发边界
 
 - 唯一开发主线：路线 A，原生 iOS、watchOS 与 Swift Core。
 - TRAE Web Demo、小程序及相关赛事工作已永久终止，不再开发、部署、提交或恢复。
@@ -39,7 +39,7 @@
 ## 当前实现状态
 
 - swift-core：136 个 Swift Testing 测试通过，覆盖提醒、风险聚合、说明书解析与可读化、依从性洞察、趋势、库存 checkpoint、导入审核、医疗 AI 请求边界和环境用药关注。医疗 AI 安全门会阻断诊断、处方、新开药、停药、换药、剂量调整和频次调整等直接治疗决策。
-- ios-app：`tools/verify-native.sh` 完整验证通过；主 App 无签名 Release、Watch Simulator 26.5 Debug 与 watchOS 26.5 device SDK Release 均构建成功。Release 产物断言确认不含本地 AI 敏感配置，并包含 Watch App 与 Watch Widget。
+- ios-app：已建立 hosted `MedicationAdherenceAppTests` target、tracked shared scheme 和统一 11 模型的 `MedicationAdherenceModelContainer`；2 项 SwiftData 基线测试通过。`tools/verify-native.sh` 完整验证通过；主 App 无签名 Release、Watch Simulator 26.5 Debug 与 watchOS 26.5 device SDK Release 均构建成功。Release 与 iOS 测试产物断言确认不含本地 AI 敏感配置，主 App 产物包含 Watch App 与 Watch Widget。
 - 已落地的可交互能力：首启引导横移/缩放/淡入动画、今日任务完成/撤销、今日天气与环境用药关注、已处理记录横滑操作、药品页健康式概览、药品详情、详情页药品照片选择/拍照入口、疗程和多提醒时间编辑、药盒低量提示、记录页四入口、周/月历记录、用药趋势仪表盘、授权 HealthKit 生命体征读取、复诊摘要分享、三入口添加药品、本机 OCR、条码图片识别、真机相机扫码、智能体首次确认、聊天式智能体界面、智能体授权、后台 Keychain 凭据读取、Apple 账号与 iCloud 备份准备入口、风险置顶收敛与二级详情。
 - 已接入的智能体能力：在线与端侧回答在展示和持久化前都经过医疗安全门；端侧流式阶段不展示未经审查的回答或思考增量。真实密钥只通过受控本地配置或 Keychain 进入 Debug App，不写入源码、文档、测试、Release 产物或构建日志。
 - 演示数据边界：Release 与普通 Debug 不自动写入演示数据；仅显式 `--seed-demo-data` 或 Live Activity smoke 参数可触发。固定演示 UUID 被用户数据占用时跳过，用户同名药不会被覆写或转为演示内容。
@@ -48,7 +48,7 @@
 
 ## 下一步
 
-1. 建立 iOS 单元测试 target 和内存 SwiftData 测试 seam，然后引入 `VersionedSchema`、迁移计划和旧库 fixture。
+1. 在已建立的 iOS 单元测试 target 和内存 SwiftData 容器上，引入 `VersionedSchema`、迁移计划和无用户数据的合成旧库 fixture，并补重复启动幂等测试。
 2. 将 Today、通知响应、Live Activity 与自动忽略收敛到单一剂量动作事务模块，显式处理保存错误。
 3. 验收 Watch Widget 表盘实际刷新，并在实体 iPhone/Watch 上验收通知投递和 App Group provisioning。
 

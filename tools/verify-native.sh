@@ -10,9 +10,12 @@ SWIFT_CORE_DIR="$ROOT_DIR/swift-core"
 PREFLIGHT_SCRIPT="$ROOT_DIR/tools/ios-preflight-check.sh"
 
 MAIN_APP_TARGET="MedicationAdherenceApp"
+IOS_TEST_SCHEME="MedicationAdherenceApp"
+IOS_TEST_TARGET="MedicationAdherenceAppTests"
 WATCH_APP_TARGET="MedicationAdherenceWatchApp"
 WATCH_SIMULATOR_SDK="watchsimulator26.5"
 WATCH_DEVICE_SDK="watchos26.5"
+IOS_TEST_DESTINATION="${VERIFY_NATIVE_IOS_TEST_DESTINATION:-platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5}"
 
 CURRENT_STEP="startup"
 CHECKS_ONLY="${VERIFY_NATIVE_CHECKS_ONLY:-0}"
@@ -35,6 +38,9 @@ Environment:
              Reusable build root. It must resolve inside this repository and
              already be covered by .gitignore. The default is
              .codex-local/native-verification.
+  VERIFY_NATIVE_IOS_TEST_DESTINATION=<xcodebuild destination>
+             Override the iOS Simulator used for hosted unit tests. The default
+             is platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5.
 USAGE
 }
 
@@ -210,6 +216,37 @@ run_xcode_build() {
     xcodebuild "${xcodebuild_arguments[@]}"
 }
 
+run_ios_unit_tests() {
+    local output_root="$VERIFICATION_ROOT/ios-unit-tests"
+
+    mkdir -p "$output_root/derived-data"
+    xcodebuild \
+        -project "$XCODE_PROJECT" \
+        -scheme "$IOS_TEST_SCHEME" \
+        -configuration Debug \
+        -destination "$IOS_TEST_DESTINATION" \
+        -derivedDataPath "$output_root/derived-data" \
+        -clonedSourcePackagesDirPath "$VERIFICATION_ROOT/source-packages" \
+        -disableAutomaticPackageResolution \
+        -skipPackageUpdates \
+        -only-testing:"$IOS_TEST_TARGET" \
+        MEDCUE_SIMULATOR_UNIT_TEST_BUILD=YES \
+        test
+}
+
+verify_ios_unit_test_artifacts() {
+    local products_dir="$VERIFICATION_ROOT/ios-unit-tests/derived-data/Build/Products/Debug-iphonesimulator"
+    local app_bundle="$products_dir/MedicationAdherenceApp.app"
+    local test_bundle="$app_bundle/PlugIns/MedicationAdherenceAppTests.xctest"
+    local secrets_plist="$app_bundle/AISecrets.plist"
+    local test_secrets_plist="$test_bundle/AISecrets.plist"
+
+    [[ -d "$app_bundle" ]] || fail "iOS unit-test host app not found: $app_bundle"
+    [[ -d "$test_bundle" ]] || fail "iOS unit-test bundle not found: $test_bundle"
+    [[ ! -e "$secrets_plist" && ! -L "$secrets_plist" ]] || fail "sensitive plist found in iOS unit-test host: $secrets_plist"
+    [[ ! -e "$test_secrets_plist" && ! -L "$test_secrets_plist" ]] || fail "sensitive plist found in iOS unit-test bundle: $test_secrets_plist"
+}
+
 verify_main_app_release_artifacts() {
     local app_bundle="$VERIFICATION_ROOT/main-app-release/products/Release-iphoneos/MedicationAdherenceApp.app"
     local secrets_plist="$app_bundle/AISecrets.plist"
@@ -247,6 +284,8 @@ main() {
     prepare_verification_root
 
     run_step "Swift Core tests" run_swift_core_tests
+    run_step "iOS hosted unit tests" run_ios_unit_tests
+    run_step "iOS unit-test artifact assertions" verify_ios_unit_test_artifacts
     run_step "Main App unsigned Release" run_xcode_build "$MAIN_APP_TARGET" Release main-app-release
     run_step "Main App Release artifact assertions" verify_main_app_release_artifacts
     run_step "Watch Simulator Debug" run_xcode_build "$WATCH_APP_TARGET" Debug watch-simulator-debug "$WATCH_SIMULATOR_SDK"
