@@ -118,9 +118,9 @@ WatchConnectivity 状态已收敛到 MainActor/actor，Watch reminder adapter �
 
 - [x] 把 Live Activity P0 测试、静默保存防回退、Core/hosted tests、Release/Watch 构建保持在 `tools/verify-native.sh`。
 - [x] 在私有 GitHub 仓库建立可执行的 `Native Verification` workflow，并用本地 CI-stub 全新 DerivedData 验证 package resolution 与 hosted tests。
-- [ ] 推送当前 CI 修复后确认 GitHub Actions 全量门绿色；不得以本地复现替代远端结果。
+- [x] GitHub Actions 全量门已在私有仓库独立通过；远端结果未以本地复现替代。
 
-本地门同时检查 PrivacyInfo required-reason 声明，并递归拒绝 Release 产物中的 `AISecrets.plist`、`.env.local`、GGUF 与 SQLite 用户数据。2026-07-28 最新完整门通过：Swift Core `152/152`、hosted `148/148`、主 App 无签名 Release、Release 敏感产物断言、Watch Simulator Debug 与 watchOS device SDK Release。五组投影/会话专项合跑 `20/20`；Broker/endpoint 专项 `13/13`。首次远端运行因发布源码中的 llama 占位目录无法解析而退出 74，且 runner 缺少 `rg`。当前 workflow 在 `MEDCUE_DISABLE_LOCAL_LLAMA=1` 下使用不导出 `llama` module 的 stub product，普通本地/真机构建仍使用真实 xcframework；CI 安装 `ripgrep`，验证脚本也显式要求 `rg`。全新本地 CI-stub 构建已越过依赖解析并通过定向 hosted tests，远端结果仍待推送核验。
+本地门同时检查 PrivacyInfo required-reason 声明，并递归拒绝 Release 产物中的 `AISecrets.plist`、`.env.local`、GGUF 与 SQLite 用户数据。2026-07-28 最新完整门通过：Swift Core `152/152`、hosted `148/148`、主 App 无签名 Release、Release 敏感产物断言、Watch Simulator Debug 与 watchOS device SDK Release。五组投影/会话专项合跑 `20/20`；Broker/endpoint 专项 `13/13`。首次远端运行因发布源码中的 llama 占位目录无法解析而退出 74，且 runner 缺少 `rg`；修复后二次运行暴露了 `MedicationPlanCommandTests` 未注入固定时区的问题。当前 workflow 在 `MEDCUE_DISABLE_LOCAL_LLAMA=1` 下使用不导出 `llama` module 的 stub product，普通本地/真机构建仍使用真实 xcframework；CI 安装 `ripgrep`，验证脚本也显式要求 `rg`。固定日历注入后，本地 UTC 完整门通过，GitHub Actions `Native Verification` Run `30329649060` 于提交 `f53a8f5` 上独立通过。
 
 新增 `tools/swift-source-size-check.sh` 并接入快速/完整门，当前限制单个 Swift 源文件不超过 2000 行；最大文件为 `MedicationOverviewViews.swift` 1449 行。原评估中的 `MedicationsView.swift`、`RecordsView.swift`、`TodayView.swift`、`SettingsView.swift`、`AIAssistantView.swift` 与 `AppRootView.swift` 已按纵向功能拆分，不再存在 2200–6065 行入口文件。该门只防止文件体积回退，业务编排仍以 deep module 和事务测试为完成依据；多个展示文件仍超过 1000 行，维护体积债务尚有继续收敛空间。
 
