@@ -38,6 +38,8 @@ struct EditMedicationView: View {
     }
 
     var body: some View {
+        let hasPhoto = photoData != nil
+
         NavigationStack {
             Form {
                 Section("药品信息") {
@@ -77,9 +79,9 @@ struct EditMedicationView: View {
                         boxNumber: boxNumber
                     )
                     PhotosPicker(selection: $selectedMedicationPhotoItem, matching: .images) {
-                        Label(photoData == nil ? "选择照片" : "更换照片", systemImage: "photo")
+                        Label(hasPhoto ? "更换照片" : "选择照片", systemImage: "photo")
                     }
-                    if photoData != nil {
+                    if hasPhoto {
                         Button("清除当前图片") {
                             photoData = nil
                             selectedMedicationPhotoItem = nil
@@ -125,6 +127,7 @@ struct EditMedicationView: View {
                         dismiss()
                     }
                     .disabled(!hasMeaningfulDisplayName)
+                    .accessibilityIdentifier(AppAccessibilityID.medicationEditSave)
                 }
             }
             .onChange(of: selectedMedicationPhotoItem) { _, newItem in

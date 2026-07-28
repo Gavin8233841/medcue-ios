@@ -159,6 +159,7 @@ struct MedicationsView: View {
                     Image(systemName: "plus")
                         .accessibilityLabel("添加药品")
                 }
+                .accessibilityIdentifier(AppAccessibilityID.medicationAdd)
             }
         }
         .sheet(isPresented: $showingAddOptions) {

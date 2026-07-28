@@ -1,11 +1,8 @@
-import Combine
 import MedicationAdherenceCore
 import SwiftData
 import SwiftUI
-import UIKit
 
 struct TodayView: View {
-    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
     @Query private var tasks: [StoredDoseTask]
     @Query(sort: \StoredMedication.displayName) private var medications: [StoredMedication]
@@ -46,9 +43,8 @@ struct TodayView: View {
     @State private var showingHelpCenter = false
     @State private var pendingPermissionGate: AppPermissionGate?
     @State private var dosePersistenceErrorMessage: String?
-    @State private var renderSnapshotCache = RevisionSnapshotCache<TodayRenderSnapshot>()
+    @State private var doseProjectionStore = TodayDoseProjectionStore()
     private let reminderPolicy = DoseReminderPolicy.competitionDemo
-    private let liveActivityRefreshTimer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     init() {
         let calendar = Calendar.current
@@ -63,181 +59,15 @@ struct TodayView: View {
         )
     }
 
-    private var todayTasks: [StoredDoseTask] {
-        let calendar = Calendar.current
-        return tasks.filter { task in
-            guard task.isAdherenceMeasurable else {
-                return false
-            }
-            guard isMedicationActiveForToday(task) else {
-                return false
-            }
-            if calendar.isDateInToday(task.dueAt) {
-                return true
-            }
-            let doseKey = logicalDoseKey(for: task)
-            if closingOpenDoseKeys.contains(doseKey) || pendingDoseFeedback?.doseKey == doseKey {
-                return true
-            }
-            return task.status == .delayed
-                && task.recordedAt.map(calendar.isDateInToday) == true
-                && isOpenStatus(task.status)
-        }
-    }
-
-    private var displayTodayTasks: [StoredDoseTask] {
-        deduplicatedTodayTasks(
-            todayTasks.sorted { lhs, rhs in
-                if lhs.dueAt == rhs.dueAt {
-                    return lhs.id.uuidString < rhs.id.uuidString
-                }
-                return lhs.dueAt < rhs.dueAt
-            }
-        )
-    }
-
-    private var openTasks: [StoredDoseTask] {
-        displayTodayTasks.filter { $0.status == .pending || $0.status == .delayed }
-    }
-
     private var delayDurationText: String {
         "\(DoseDelayPolicy.delayMinutes) 分钟"
     }
 
-    private var nextReminderTask: StoredDoseTask? {
-        let now = Date()
-        return openTasks
-            .filter { $0.dueAt >= now }
-            .sorted { lhs, rhs in
-                if lhs.dueAt == rhs.dueAt {
-                    return lhs.id.uuidString < rhs.id.uuidString
-                }
-                return lhs.dueAt < rhs.dueAt
-            }
-            .first
-    }
-
-    private var overdueOpenTaskCount: Int {
-        let now = Date()
-        return openTasks.filter { $0.dueAt < now }.count
-    }
-
-    private var visibleOpenTimelineTasks: [StoredDoseTask] {
-        displayTodayTasks
-            .filter { !isArchived($0) && isOpenStatus($0.status) }
-            .sorted { lhs, rhs in
-                if lhs.dueAt == rhs.dueAt {
-                    return lhs.id.uuidString < rhs.id.uuidString
-                }
-                return lhs.dueAt < rhs.dueAt
-            }
-    }
-
-    private var handledTodayTasks: [StoredDoseTask] {
-        displayTodayTasks
-            .filter { !isArchived($0) && !isOpenStatus($0.status) }
-            .sorted { lhs, rhs in
-                let lhsRecordedAt = lhs.effectiveAdherenceDate
-                let rhsRecordedAt = rhs.effectiveAdherenceDate
-                if lhsRecordedAt == rhsRecordedAt {
-                    return lhs.id.uuidString < rhs.id.uuidString
-                }
-                return lhsRecordedAt > rhsRecordedAt
-            }
-    }
-
-    private var archivedTodayTasks: [StoredDoseTask] {
-        displayTodayTasks
-            .filter { isArchived($0) }
-            .sorted { lhs, rhs in
-                if lhs.dueAt == rhs.dueAt {
-                    return lhs.id.uuidString < rhs.id.uuidString
-                }
-                return lhs.dueAt < rhs.dueAt
-            }
-    }
-
-    private var skippedTodayTasks: [StoredDoseTask] {
-        displayTodayTasks
-            .filter { !isArchived($0) && $0.status == .skipped }
-            .sorted { lhs, rhs in
-                if lhs.dueAt == rhs.dueAt {
-                    return lhs.id.uuidString < rhs.id.uuidString
-                }
-                return lhs.dueAt < rhs.dueAt
-            }
-    }
-
-    private var emptyOpenTimelineMessage: String {
-        if todayTasks.isEmpty {
-            return "今天还没有用药任务。"
-        }
-        if !skippedTodayTasks.isEmpty && !isAllTaken {
-            return "待处理已清空，今日有 \(skippedTodayTasks.count) 项已忽略。"
-        }
-        if isAllTaken {
-            return "今日用药已完成。"
-        }
-        return "当前没有待处理用药。"
-    }
-
-    private var isAfterLastReminderToday: Bool {
-        guard let lastDueAt = displayTodayTasks.map(\.dueAt).max() else {
-            return false
-        }
-        return Date() >= lastDueAt
-    }
-
-    private var shouldShowSkippedMedicationSummary: Bool {
-        !skippedTodayTasks.isEmpty && (isAfterLastReminderToday || visibleOpenTimelineTasks.isEmpty)
-    }
-
-    private var shouldShowHandledSection: Bool {
-        !handledTodayTasks.isEmpty || isHandledTimelineTemporarilyCollapsed || handledDropTargetPulse || !reopeningHandledDoseKeys.isEmpty
-    }
-
-    private var displayedOpenCount: Int {
-        guard !reopeningHandledDoseKeys.isEmpty else {
-            return visibleOpenTimelineTasks.count
-        }
-        let visibleKeys = Set(visibleOpenTimelineTasks.map(logicalDoseKey(for:)))
-        let reopeningCount = reopeningHandledDoseKeys.filter { !visibleKeys.contains($0) }.count
-        return visibleOpenTimelineTasks.count + reopeningCount
-    }
-
-    private var displayedHandledCount: Int {
-        if !closingOpenDoseKeys.isEmpty {
-            let handledKeys = Set(handledTodayTasks.map(logicalDoseKey(for:)))
-            let incomingCount = closingOpenDoseKeys.filter { !handledKeys.contains($0) }.count
-            return handledTodayTasks.count + incomingCount
-        }
-        guard !reopeningHandledDoseKeys.isEmpty else {
-            return handledTodayTasks.count + pendingHandledArrivalCount
-        }
-        let handledKeys = Set(handledTodayTasks.map(logicalDoseKey(for:)))
-        let leavingVisibleCount = reopeningHandledDoseKeys.filter { handledKeys.contains($0) }.count
-        return max(0, handledTodayTasks.count - leavingVisibleCount)
-    }
-
-    private var handledSummaryText: String {
-        if handledDropTargetPulse {
-            return "正在收起刚刚处理的记录"
-        }
-        if !reopeningHandledDoseKeys.isEmpty {
-            return "正在恢复到待处理记录"
-        }
-        return handledTodayTasks.first.map { handledTaskSummary(for: $0) } ?? "已处理记录可在这里找回"
-    }
-
-    private var handledDisclosureBinding: Binding<Bool> {
-        Binding(
-            get: { showingHandledTasks && !isHandledTimelineTemporarilyCollapsed },
-            set: { showingHandledTasks = $0 }
-        )
-    }
-
-    private var isDoseListReparenting: Bool {
-        isOpenTimelineTemporarilyCollapsed
+    private var isDoseInteractionAnimationActive: Bool {
+        pendingDoseFeedback != nil
+            || pendingDoseFeedbackTask != nil
+            || doseLayoutTransitionTask != nil
+            || isOpenTimelineTemporarilyCollapsed
             || isHandledTimelineTemporarilyCollapsed
             || handledDropTargetPulse
             || !closingOpenDoseKeys.isEmpty
@@ -245,193 +75,29 @@ struct TodayView: View {
             || doseMigrationSnapshot != nil
     }
 
-    private var isDoseInteractionAnimationActive: Bool {
-        pendingDoseFeedback != nil
-            || pendingDoseFeedbackTask != nil
-            || doseLayoutTransitionTask != nil
-            || isDoseListReparenting
+    private func doseProjectionInput(now: Date) -> TodayDoseProjectionInput {
+        TodayDoseProjectionInput(
+            tasks: tasks,
+            medications: medications,
+            now: now,
+            transition: TodayDoseProjectionTransition(
+                pendingDoseFeedback: pendingDoseFeedback,
+                closingOpenDoseKeys: closingOpenDoseKeys,
+                reopeningHandledDoseKeys: reopeningHandledDoseKeys,
+                recentlyReopenedDoseKeys: recentlyReopenedDoseKeys,
+                isHandledTimelineTemporarilyCollapsed: isHandledTimelineTemporarilyCollapsed,
+                handledDropTargetPulse: handledDropTargetPulse,
+                pendingHandledArrivalCount: pendingHandledArrivalCount
+            )
+        )
     }
 
-    private var completedCount: Int {
-        displayTodayTasks.filter { $0.status == .taken || $0.status == .corrected }.count
-    }
-
-    private var isAllTaken: Bool {
-        !displayTodayTasks.isEmpty && completedCount == displayTodayTasks.count
+    private var currentDoseProjection: TodayRenderSnapshot {
+        doseProjectionStore.projection(for: doseProjectionInput(now: Date()))
     }
 
     private var currentCompletionRateSnapshot: CompletionRateSnapshot {
-        CompletionRateSnapshot(
-            completedCount: completedCount,
-            totalCount: displayTodayTasks.count
-        )
-    }
-
-    private func makeTodayRenderSnapshot(now: Date) -> TodayRenderSnapshot {
-        let calendar = Calendar.current
-        let todayTasks = tasks.filter { task in
-            guard task.isAdherenceMeasurable else {
-                return false
-            }
-            guard isMedicationActiveForToday(task) else {
-                return false
-            }
-            if calendar.isDateInToday(task.dueAt) {
-                return true
-            }
-            let doseKey = logicalDoseKey(for: task)
-            if closingOpenDoseKeys.contains(doseKey) || pendingDoseFeedback?.doseKey == doseKey {
-                return true
-            }
-            return task.status == .delayed
-                && task.recordedAt.map(calendar.isDateInToday) == true
-                && isOpenStatus(task.status)
-        }
-        let displayTasks = deduplicatedTodayTasks(
-            todayTasks.sorted { lhs, rhs in
-                if lhs.dueAt == rhs.dueAt {
-                    return lhs.id.uuidString < rhs.id.uuidString
-                }
-                return lhs.dueAt < rhs.dueAt
-            }
-        )
-        let visibleOpenTasks = displayTasks
-            .filter { !isArchived($0) && isOpenStatus($0.status) }
-            .sorted { lhs, rhs in
-                if lhs.dueAt == rhs.dueAt {
-                    return lhs.id.uuidString < rhs.id.uuidString
-                }
-                return lhs.dueAt < rhs.dueAt
-            }
-        let visibleOpenKeys = Set(visibleOpenTasks.map(logicalDoseKey(for:)))
-        var transitionOpenDoseKeys = closingOpenDoseKeys
-        if let pendingDoseFeedback {
-            transitionOpenDoseKeys.insert(pendingDoseFeedback.doseKey)
-        }
-        let transitionOpenTasks = displayTasks
-            .filter { task in
-                !isArchived(task)
-                    && transitionOpenDoseKeys.contains(logicalDoseKey(for: task))
-                    && !visibleOpenKeys.contains(logicalDoseKey(for: task))
-            }
-        let displayOpenTasks = (visibleOpenTasks + transitionOpenTasks)
-            .sorted { lhs, rhs in
-                if lhs.dueAt == rhs.dueAt {
-                    return lhs.id.uuidString < rhs.id.uuidString
-                }
-                return lhs.dueAt < rhs.dueAt
-            }
-        let handledTasks = displayTasks
-            .filter { !isArchived($0) && !isOpenStatus($0.status) }
-            .sorted { lhs, rhs in
-                let lhsRecordedAt = lhs.effectiveAdherenceDate
-                let rhsRecordedAt = rhs.effectiveAdherenceDate
-                if lhsRecordedAt == rhsRecordedAt {
-                    return lhs.id.uuidString < rhs.id.uuidString
-                }
-                return lhsRecordedAt > rhsRecordedAt
-            }
-        let archivedTasks = displayTasks
-            .filter { isArchived($0) }
-            .sorted { lhs, rhs in
-                if lhs.dueAt == rhs.dueAt {
-                    return lhs.id.uuidString < rhs.id.uuidString
-                }
-                return lhs.dueAt < rhs.dueAt
-            }
-        let skippedTasks = displayTasks
-            .filter { !isArchived($0) && $0.status == .skipped }
-            .sorted { lhs, rhs in
-                if lhs.dueAt == rhs.dueAt {
-                    return lhs.id.uuidString < rhs.id.uuidString
-                }
-                return lhs.dueAt < rhs.dueAt
-            }
-        let openTasks = displayTasks.filter { $0.status == .pending || $0.status == .delayed }
-        let nextReminderTask = openTasks
-            .filter { $0.dueAt >= now }
-            .sorted { lhs, rhs in
-                if lhs.dueAt == rhs.dueAt {
-                    return lhs.id.uuidString < rhs.id.uuidString
-                }
-                return lhs.dueAt < rhs.dueAt
-            }
-            .first
-        let overdueOpenTaskCount = openTasks.filter { $0.dueAt < now }.count
-        let completedCount = displayTasks.filter { $0.status == .taken || $0.status == .corrected }.count
-        let completionSnapshot = CompletionRateSnapshot(
-            completedCount: completedCount,
-            totalCount: displayTasks.count
-        )
-        let isAfterLastReminderToday = displayTasks.map(\.dueAt).max().map { now >= $0 } ?? false
-        let isAllTaken = completionSnapshot.isComplete
-        let emptyOpenMessage: String
-        if todayTasks.isEmpty {
-            emptyOpenMessage = "今天还没有用药任务。"
-        } else if !skippedTasks.isEmpty && !isAllTaken {
-            emptyOpenMessage = "待处理已清空，今日有 \(skippedTasks.count) 项已忽略。"
-        } else if isAllTaken {
-            emptyOpenMessage = "今日用药已完成。"
-        } else {
-            emptyOpenMessage = "当前没有待处理用药。"
-        }
-
-        let shouldShowSkippedMedicationSummary = !skippedTasks.isEmpty && (isAfterLastReminderToday || visibleOpenTasks.isEmpty)
-        let shouldShowHandledSection = !handledTasks.isEmpty
-            || isHandledTimelineTemporarilyCollapsed
-            || handledDropTargetPulse
-            || !reopeningHandledDoseKeys.isEmpty
-        let displayedOpenCount: Int
-        if reopeningHandledDoseKeys.isEmpty {
-            displayedOpenCount = displayOpenTasks.count
-        } else {
-            let visibleKeys = Set(displayOpenTasks.map(logicalDoseKey(for:)))
-            let reopeningCount = reopeningHandledDoseKeys.filter { !visibleKeys.contains($0) }.count
-            displayedOpenCount = displayOpenTasks.count + reopeningCount
-        }
-        let displayedHandledCount: Int
-        if !closingOpenDoseKeys.isEmpty {
-            let handledKeys = Set(handledTasks.map(logicalDoseKey(for:)))
-            let incomingCount = closingOpenDoseKeys.filter { !handledKeys.contains($0) }.count
-            displayedHandledCount = handledTasks.count + incomingCount
-        } else if reopeningHandledDoseKeys.isEmpty {
-            let handledKeys = Set(handledTasks.map(logicalDoseKey(for:)))
-            let pendingTaskIsAlreadyHandled = pendingDoseFeedback.map { feedback in
-                feedback.action.movesToHandledSection && handledKeys.contains(feedback.doseKey)
-            } ?? false
-            displayedHandledCount = handledTasks.count + (pendingTaskIsAlreadyHandled ? 0 : pendingHandledArrivalCount)
-        } else {
-            let handledKeys = Set(handledTasks.map(logicalDoseKey(for:)))
-            let leavingVisibleCount = reopeningHandledDoseKeys.filter { handledKeys.contains($0) }.count
-            displayedHandledCount = max(0, handledTasks.count - leavingVisibleCount)
-        }
-        let handledSummaryText: String
-        if handledDropTargetPulse {
-            handledSummaryText = "正在收起刚刚处理的记录"
-        } else if !reopeningHandledDoseKeys.isEmpty {
-            handledSummaryText = "正在恢复到待处理记录"
-        } else {
-            handledSummaryText = handledTasks.first.map { handledTaskSummary(for: $0) } ?? "已处理记录可在这里找回"
-        }
-        let skippedMedicationSummary = skippedTasks
-            .map { medication(for: $0).map(userFacingMedicationName(for:)) ?? "未知药品" }
-            .joined(separator: "、")
-
-        return TodayRenderSnapshot(
-            visibleOpenTimelineTasks: displayOpenTasks,
-            handledTodayTasks: handledTasks,
-            archivedTodayTasks: archivedTasks,
-            nextReminderTask: nextReminderTask,
-            overdueOpenTaskCount: overdueOpenTaskCount,
-            emptyOpenTimelineMessage: emptyOpenMessage,
-            shouldShowSkippedMedicationSummary: shouldShowSkippedMedicationSummary,
-            shouldShowHandledSection: shouldShowHandledSection,
-            displayedOpenCount: displayedOpenCount,
-            displayedHandledCount: displayedHandledCount,
-            handledSummaryText: handledSummaryText,
-            skippedMedicationSummary: skippedMedicationSummary,
-            completionRateSnapshot: completionSnapshot
-        )
+        currentDoseProjection.completionRateSnapshot
     }
 
     private var weatherMedicationSignature: String {
@@ -450,544 +116,117 @@ struct TodayView: View {
             .joined(separator: "|")
     }
 
-    private func todayRenderRevision(now: Date) -> String {
-        let pendingFeedbackRevision: String
-        if let pendingDoseFeedback {
-            let action: String
-            switch pendingDoseFeedback.action {
-            case .taken:
-                action = "taken"
-            case .delay:
-                action = "delay"
-            case .skip:
-                action = "skip"
-            }
-            pendingFeedbackRevision = "\(pendingDoseFeedback.doseKey):\(action)"
-        } else {
-            pendingFeedbackRevision = "none"
-        }
-        return [
-            String(stableTaskSignature(tasks)),
-            String(stableMedicationSignature(medications)),
-            closingOpenDoseKeys.sorted().joined(separator: ","),
-            reopeningHandledDoseKeys.sorted().joined(separator: ","),
-            pendingFeedbackRevision,
-            String(isHandledTimelineTemporarilyCollapsed),
-            String(handledDropTargetPulse),
-            String(pendingHandledArrivalCount),
-            String(Int(now.timeIntervalSinceReferenceDate / 60))
-        ].joined(separator: "|")
-    }
-
-    private func startWeatherPermissionFlow() {
-        if AppPermissionGate.hasCompletedAuthorization(for: .location) || weatherMedicationService.hasLocationAuthorization {
-            if weatherMedicationService.hasLocationAuthorization {
-                AppPermissionGate.markAuthorizationCompleted(for: .location)
-            }
-            Task {
-                let granted = await weatherMedicationService.refresh(medications: medications, requestAuthorization: true)
-                if granted {
-                    AppPermissionGate.markAuthorizationCompleted(for: .location)
-                }
-            }
-        } else {
-            pendingPermissionGate = .location
-        }
-    }
-
-    private var notificationUnavailableDetailText: String? {
-        let trimmedMessage = reminderNotificationUnavailableMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedMessage.isEmpty else {
-            return nil
-        }
-        return trimmedMessage.replacingOccurrences(of: "普通提醒不可用：", with: "")
-    }
-
-    private var completionRateFeedbackSlotHeight: CGFloat {
-        guard completionRateFeedback != nil else {
-            return 0
-        }
-        return isCompletionRateFeedbackVisible ? 88 : 0
-    }
-
-    @ViewBuilder
-    private var completionRateFeedbackOverlay: some View {
-        if let feedback = completionRateFeedback,
-           let displayedSnapshot = completionRateDisplayedSnapshot {
-            CompletionRateFeedbackPanel(
-                feedback: feedback,
-                displayedSnapshot: displayedSnapshot,
-                isVisible: isCompletionRateFeedbackVisible
-            )
-            .padding(.horizontal, 16)
-            .padding(.top, 4)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .transition(.asymmetric(
-                insertion: .move(edge: .top)
-                    .combined(with: .opacity)
-                    .combined(with: .scale(scale: 0.985, anchor: .top)),
-                removal: .move(edge: .top)
-                    .combined(with: .opacity)
-                    .combined(with: .scale(scale: 0.99, anchor: .top))
-            ))
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-            .animation(.smooth(duration: 0.38, extraBounce: 0.04), value: isCompletionRateFeedbackVisible)
-            .animation(.smooth(duration: 0.34, extraBounce: 0.03), value: feedback.id)
-        }
-    }
-
-    private var completionRateFeedbackSlot: some View {
-        ZStack(alignment: .top) {
-            completionRateFeedbackOverlay
-        }
-        .frame(height: completionRateFeedbackSlotHeight, alignment: .top)
-        .accessibilityHidden(true)
-        .allowsHitTesting(false)
-        .animation(.smooth(duration: 0.38, extraBounce: 0.03), value: completionRateFeedbackSlotHeight)
-    }
-
-    private var shouldShowCompletionCelebrationCard: Bool {
-        !isCompletionCelebrationDeferred && completionRateFeedback == nil
-    }
-
-    private func todaySection<Content: View>(
-        _ title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            VStack(alignment: .leading, spacing: 10) {
-                content()
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private func openTimelineSection(snapshot: TodayRenderSnapshot) -> some View {
-        todaySection("今日待处理") {
-            if isOpenTimelineTemporarilyCollapsed {
-                OpenDoseSummaryRow(
-                    count: snapshot.displayedOpenCount,
-                    latestText: "正在恢复待处理记录",
-                    isReceiving: !reopeningHandledDoseKeys.isEmpty,
-                    migrationSnapshot: doseMigrationSnapshot
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
-            } else if snapshot.visibleOpenTimelineTasks.isEmpty {
-                Text(snapshot.emptyOpenTimelineMessage)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 4)
-            } else {
-                ForEach(snapshot.visibleOpenTimelineTasks) { task in
-                    let doseKey = logicalDoseKey(for: task)
-                                    TimelineDoseTaskRow(
-                                        task: task,
-                                        medication: medication(for: task),
-                                        completionText: completionVerb(for: medication(for: task)),
-                                        statusText: statusText(for: task),
-                                        isOpen: task.status == .pending
-                                            || task.status == .delayed
-                                            || closingOpenDoseKeys.contains(doseKey)
-                                            || pendingDoseFeedback?.doseKey == doseKey,
-                                        feedbackAction: pendingDoseFeedback?.doseKey == doseKey ? pendingDoseFeedback?.action : nil,
-                                        isClosing: closingOpenDoseKeys.contains(doseKey),
-                                        isRecentlyReopened: recentlyReopenedDoseKeys.contains(doseKey),
-                                        confirmationKind: pendingDoseConfirmation?.doseKey == doseKey ? pendingDoseConfirmation?.kind : nil,
-                        markTaken: {
-                            requestMarkTaken(task)
-                        },
-                        delay: {
-                            requestDelay(task)
-                        },
-                        skip: {
-                            performWithDoseFeedback(task, action: .skip) {
-                                mark(task, mutation: .skip, reason: "用户忽略")
-                            }
-                        },
-                        confirm: {
-                            confirmPendingDoseConfirmation(for: task)
-                        },
-                        cancelConfirmation: {
-                            clearPendingDoseConfirmation(for: task)
-                        }
-                    )
-                }
-            }
-        }
-        .animation(.smooth(duration: 0.30, extraBounce: 0.02), value: snapshot.visibleOpenTimelineTasks.map(\.id))
-        .animation(.easeInOut(duration: 0.16), value: pendingDoseFeedback)
-        .animation(.snappy(duration: 0.24, extraBounce: 0.01), value: isOpenTimelineTemporarilyCollapsed)
-        .animation(.easeInOut(duration: 0.18), value: closingOpenDoseKeys)
-        .animation(.snappy(duration: 0.24, extraBounce: 0.02), value: recentlyReopenedDoseKeys)
-    }
-
-    @ViewBuilder
-    private var notificationUnavailableBanner: some View {
-        if let detailText = notificationUnavailableDetailText {
-            Button {
-                openSystemNotificationSettings()
-            } label: {
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "bell.slash.fill")
-                        .font(.headline.weight(.semibold))
-                        .foregroundStyle(.orange)
-                        .frame(width: 26, height: 26)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("普通提醒不可用")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.primary)
-                        Text(detailText)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    Spacer(minLength: 8)
-
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                        .padding(.top, 4)
-                }
-                .padding(14)
-                .medicationGlassSurface(cornerRadius: 18, tint: .orange, fallbackMaterial: .thinMaterial, isInteractive: true)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(.orange.opacity(0.16), lineWidth: 1)
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityHint("打开系统设置检查通知权限")
-        }
-    }
-
-    @ViewBuilder
-    private func handledTimelineSection(snapshot: TodayRenderSnapshot) -> some View {
-        todaySection("今日已处理") {
-            let isExpanded = handledDisclosureBinding.wrappedValue
-            let handledAccessibilityValue = "\(snapshot.displayedHandledCount) 条，\(snapshot.handledSummaryText)，\(isExpanded ? "已展开" : "已折叠")"
-            Button {
-                withAnimation(.snappy(duration: 0.24, extraBounce: 0.01)) {
-                    showingHandledTasks.toggle()
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    HandledDoseSummaryRow(
-                        count: snapshot.displayedHandledCount,
-                        latestText: snapshot.handledSummaryText,
-                        isReceiving: handledDropTargetPulse || !reopeningHandledDoseKeys.isEmpty,
-                        migrationSnapshot: handledDropTargetPulse ? doseMigrationSnapshot : nil
-                    )
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.footnote.weight(.bold))
-                        .foregroundStyle(.secondary)
-                        .accessibilityHidden(true)
-                }
-                .contentShape(Rectangle())
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("今日已处理")
-                .accessibilityValue(handledAccessibilityValue)
-            }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("今日已处理")
-            .accessibilityValue(handledAccessibilityValue)
-            .accessibilityHint(isExpanded ? "收起已处理记录" : "展开已处理记录")
-
-            if isExpanded {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(snapshot.handledTodayTasks) { task in
-                        let doseKey = logicalDoseKey(for: task)
-                        HandledDoseTaskRow(
-                            task: task,
-                            medication: medication(for: task),
-                            statusText: statusText(for: task),
-                            undo: { undoOrReopen(task) },
-                            archive: {
-                                taskPendingArchive = task
-                                showingArchiveConfirmation = true
-                            }
-                        )
-                        .opacity(reopeningHandledDoseKeys.contains(doseKey) ? 0.12 : 1)
-                        .blur(radius: reopeningHandledDoseKeys.contains(doseKey) ? 4 : 0)
-                        .scaleEffect(reopeningHandledDoseKeys.contains(doseKey) ? 0.97 : 1)
-                        .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
-                    }
-                }
-                .padding(.top, 8)
-            }
-        }
-        .animation(isDoseListReparenting ? nil : .snappy(duration: 0.22, extraBounce: 0.01), value: snapshot.handledTodayTasks.map(\.id))
-        .animation(.snappy(duration: 0.22, extraBounce: 0.01), value: isHandledTimelineTemporarilyCollapsed)
-        .animation(.easeInOut(duration: 0.18), value: reopeningHandledDoseKeys)
-        .animation(.easeInOut(duration: 0.2), value: handledDropTargetPulse)
-    }
-
-    @ViewBuilder
-    private func archivedTimelineSection(snapshot: TodayRenderSnapshot) -> some View {
-        if !snapshot.archivedTodayTasks.isEmpty {
-            todaySection("今日已归档") {
-                ForEach(snapshot.archivedTodayTasks) { task in
-                    ArchivedDoseTaskRow(
-                        task: task,
-                        medication: medication(for: task),
-                        statusText: statusText(for: task),
-                        restore: { unarchive(task) },
-                        reopen: { undoOrReopen(task) }
-                    )
-                }
-            }
-        }
-    }
-
-    private func nextReminderSection(snapshot: TodayRenderSnapshot) -> some View {
-        todaySection("下一次提醒") {
-            if let nextTask = snapshot.nextReminderTask {
-                HStack {
-                    Image(systemName: "bell.badge")
-                        .foregroundStyle(.blue)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(medication(for: nextTask).map(userFacingMedicationName(for:)) ?? "用药提醒")
-                            .font(.headline)
-                        Text(AppFormatters.time.string(from: nextTask.dueAt))
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.vertical, 6)
-            } else if snapshot.overdueOpenTaskCount > 0 {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label("还有 \(snapshot.overdueOpenTaskCount) 项待确认", systemImage: "clock.badge.exclamationmark")
-                        .font(.headline)
-                        .foregroundStyle(.orange)
-                }
-                .padding(.vertical, 6)
-            } else {
-                Text("今天没有待提醒任务。")
-                    .foregroundStyle(.secondary)
-            }
-            if snapshot.shouldShowSkippedMedicationSummary {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label("今日忽略记录", systemImage: "exclamationmark.circle")
-                        .font(.headline)
-                        .foregroundStyle(.orange)
-                    Text(snapshot.skippedMedicationSummary)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.vertical, 6)
-            }
-        }
-    }
-
-    private var weatherMedicationSection: some View {
-        todaySection("天气与用药关注") {
-            if weatherMedicationService.isLoading && weatherMedicationService.hints.isEmpty {
-                ProgressView("正在读取今日天气")
-            }
-            ForEach(visibleWeatherMedicationHints) { hint in
-                WeatherMedicationHintCard(hint: hint)
-            }
-            if weatherMedicationService.shouldShowAuthorizationButton {
-                Button {
-                    startWeatherPermissionFlow()
-                } label: {
-                    Label("允许天气提醒", systemImage: "location.fill")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-            if !weatherMedicationService.statusText.isEmpty {
-                Text(weatherMedicationService.statusText)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var visibleWeatherMedicationHints: [WeatherMedicationHint] {
-        weatherMedicationService.hints.filter(\.isActionableForToday)
-    }
-
-    private var shouldShowWeatherMedicationSection: Bool {
-        weatherMedicationService.isLoading
-            || weatherMedicationService.shouldShowAuthorizationButton
-            || !visibleWeatherMedicationHints.isEmpty
-    }
-
     var body: some View {
-        let renderNow = Date()
-        let snapshot = renderSnapshotCache.value(for: todayRenderRevision(now: renderNow)) {
-            makeTodayRenderSnapshot(now: renderNow)
-        }
-
-        ZStack(alignment: .top) {
-            VStack(spacing: 0) {
-                completionRateFeedbackSlot
-
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 22) {
-                        if snapshot.completionRateSnapshot.isComplete && shouldShowCompletionCelebrationCard {
-                            CompletionCompleteCelebrationCard(
-                                snapshot: snapshot.completionRateSnapshot,
-                                reduceMotion: prefersReducedAppMotion
-                            )
-                            .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
-                            .animation(.snappy(duration: 0.28, extraBounce: 0.03), value: snapshot.completionRateSnapshot)
-                        }
-
-                        notificationUnavailableBanner
-
-                        openTimelineSection(snapshot: snapshot)
-
-                        if snapshot.shouldShowHandledSection {
-                            handledTimelineSection(snapshot: snapshot)
-                        }
-
-                        archivedTimelineSection(snapshot: snapshot)
-                        nextReminderSection(snapshot: snapshot)
-                        if shouldShowWeatherMedicationSection {
-                            weatherMedicationSection
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 16)
-                    .padding(.bottom, 180)
-                    .background(alignment: .top) {
-                        AppTopGradientScrollReader(tab: .today, coordinateSpaceName: "TodayTopGradientScroll")
-                    }
-                }
-                .coordinateSpace(name: "TodayTopGradientScroll")
-                .background(Color(.systemGroupedBackground))
-            }
-
-            if let currentDoseUndoBanner = doseUndoBanner {
-                VStack {
-                    Spacer(minLength: 0)
-                    DoseUndoBannerView(
-                        banner: currentDoseUndoBanner,
-                        undoRollback: { rollbackDoseUndo(currentDoseUndoBanner) }
+        let snapshot = doseProjectionStore.projection(
+            for: doseProjectionInput(now: Date())
+        )
+        TodayScreen(
+            snapshot: snapshot,
+            notificationUnavailableMessage: reminderNotificationUnavailableMessage,
+            completionRateFeedback: completionRateFeedback,
+            completionRateDisplayedSnapshot: completionRateDisplayedSnapshot,
+            isCompletionRateFeedbackVisible: isCompletionRateFeedbackVisible,
+            shouldShowCompletionCelebration: !isCompletionCelebrationDeferred
+                && completionRateFeedback == nil,
+            prefersReducedMotion: prefersReducedAppMotion,
+            isOpenTimelineTemporarilyCollapsed: isOpenTimelineTemporarilyCollapsed,
+            isHandledTimelineTemporarilyCollapsed: isHandledTimelineTemporarilyCollapsed,
+            pendingDoseConfirmation: pendingDoseConfirmation,
+            pendingDoseFeedback: pendingDoseFeedback,
+            handledDropTargetPulse: handledDropTargetPulse,
+            pendingHandledArrivalCount: pendingHandledArrivalCount,
+            closingOpenDoseKeys: closingOpenDoseKeys,
+            reopeningHandledDoseKeys: reopeningHandledDoseKeys,
+            recentlyReopenedDoseKeys: recentlyReopenedDoseKeys,
+            doseMigrationSnapshot: doseMigrationSnapshot,
+            weatherHints: weatherMedicationService.hints,
+            weatherStatusText: weatherMedicationService.statusText,
+            isWeatherLoading: weatherMedicationService.isLoading,
+            shouldShowWeatherAuthorization: weatherMedicationService.shouldShowAuthorizationButton,
+            doseUndoBanner: doseUndoBanner,
+            weatherMedicationSignature: weatherMedicationSignature,
+            showingHandledTasks: $showingHandledTasks,
+            taskPendingArchive: $taskPendingArchive,
+            showingArchiveConfirmation: $showingArchiveConfirmation,
+            showingHelpCenter: $showingHelpCenter,
+            pendingPermissionGate: $pendingPermissionGate,
+            dosePersistenceErrorMessage: $dosePersistenceErrorMessage,
+            actions: TodayScreenActions(
+                medication: medication,
+                logicalDoseKey: logicalDoseKey,
+                completionVerb: todayCompletionVerb,
+                statusText: { task in
+                    todayDoseStatusText(
+                        for: task,
+                        medication: medication(for: task),
+                        delayDurationText: delayDurationText
                     )
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 10)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                .zIndex(5)
-                .allowsHitTesting(true)
-            }
-        }
-        .navigationTitle("今日")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showingHelpCenter = true
-                } label: {
-                    Image(systemName: "questionmark.circle")
-                        .accessibilityLabel("使用帮助")
-                }
-            }
-        }
-        .sheet(isPresented: $showingHelpCenter) {
-            HelpCenterView()
-        }
-        .appPermissionPrimer(pendingGate: $pendingPermissionGate) { gate in
-            guard gate == .location else {
-                return
-            }
-            Task {
-                let granted = await weatherMedicationService.refresh(medications: medications, requestAuthorization: true)
-                if granted {
-                    AppPermissionGate.markAuthorizationCompleted(for: .location)
-                }
-            }
-        }
-        .task(id: weatherMedicationSignature) {
-            await weatherMedicationService.refresh(medications: medications)
-        }
-        .task {
-            consumeExternalDosePersistenceFailure()
-            runInitialTodayMaintenanceIfNeeded()
-            await notificationService.refreshAuthorizationStatus()
-            await notificationService.refreshPendingReminderCount()
-        }
-        .onReceive(liveActivityRefreshTimer) { _ in
-            settleOverdueTasksIfNeeded()
-            Task {
-                await refreshLiveActivities()
-            }
-        }
-        .onChange(of: scenePhase) { _, newPhase in
-            guard newPhase == .active else {
-                return
-            }
-            consumeExternalDosePersistenceFailure()
-            settleOverdueTasksIfNeeded()
-            scheduleLiveActivityRefresh()
-            Task {
-                await notificationService.refreshAuthorizationStatus()
-                await notificationService.refreshPendingReminderCount()
-            }
-        }
-        .confirmationDialog("归档这条今日记录？", isPresented: $showingArchiveConfirmation) {
-            Button("归档记录", role: .destructive) {
-                if let task = taskPendingArchive {
-                    archive(task)
-                    taskPendingArchive = nil
-                }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("\(taskPendingArchive.flatMap { medication(for: $0).map(userFacingMedicationName(for:)) } ?? "这条记录") 会从今日已处理列表隐藏，但仍保留在服药历史中。")
-        }
-        .alert(
-            "用药记录未保存",
-            isPresented: Binding(
-                get: { dosePersistenceErrorMessage != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        dosePersistenceErrorMessage = nil
+                },
+                markTaken: requestMarkTaken,
+                delay: requestDelay,
+                skip: { task in
+                    performWithDoseFeedback(task, action: .skip) {
+                        mark(task, mutation: .skip, reason: "用户忽略")
                     }
-                }
+                },
+                confirm: confirmPendingDoseConfirmation,
+                cancelConfirmation: clearPendingDoseConfirmation,
+                undoOrReopen: undoOrReopen,
+                archive: archive,
+                unarchive: unarchive,
+                rollbackUndo: rollbackDoseUndo,
+                requestWeatherRefresh: { requestAuthorization in
+                    await weatherMedicationService.refresh(
+                        medications: medications,
+                        requestAuthorization: requestAuthorization
+                    )
+                },
+                initialLoad: {
+                    consumeExternalDosePersistenceFailure()
+                    runInitialTodayMaintenanceIfNeeded()
+                    await notificationService.refreshAuthorizationStatus()
+                    await notificationService.refreshPendingReminderCount()
+                },
+                timerTick: {
+                    settleOverdueTasksIfNeeded()
+                    Task {
+                        await refreshLiveActivities()
+                    }
+                },
+                becameActive: {
+                    consumeExternalDosePersistenceFailure()
+                    settleOverdueTasksIfNeeded()
+                    scheduleLiveActivityRefresh()
+                    Task {
+                        await notificationService.refreshAuthorizationStatus()
+                        await notificationService.refreshPendingReminderCount()
+                    }
+                },
+                cleanup: cleanupTodayScreen
             )
-        ) {
-            Button("好", role: .cancel) {
-                dosePersistenceErrorMessage = nil
-            }
-        } message: {
-            Text(dosePersistenceErrorMessage ?? DoseActionPersistenceError.saveFailed.userMessage)
-        }
-        .onDisappear {
-            cancelDoseTransitionTasks()
-            resetDoseTransitionState(animated: false)
-            pendingDoseConfirmation = nil
-            reopenHighlightTasks.values.forEach { $0.cancel() }
-            reopenHighlightTasks = [:]
-            liveActivityRefreshTask?.cancel()
-            liveActivityRefreshTask = nil
-            completionRateFeedbackTask?.cancel()
-            completionRateFeedbackTask = nil
-            completionCelebrationTask?.cancel()
-            completionCelebrationTask = nil
-            completionRateFeedback = nil
-            completionRateDisplayedSnapshot = nil
-            isCompletionRateFeedbackVisible = false
-            isCompletionCelebrationDeferred = false
-            doseUndoBannerTask?.cancel()
-            doseUndoBannerTask = nil
-            doseUndoBanner = nil
-            isDoseUndoRollbackInFlight = false
-        }
+        )
+    }
+
+    private func cleanupTodayScreen() {
+        cancelDoseTransitionTasks()
+        resetDoseTransitionState(animated: false)
+        pendingDoseConfirmation = nil
+        reopenHighlightTasks.values.forEach { $0.cancel() }
+        reopenHighlightTasks = [:]
+        liveActivityRefreshTask?.cancel()
+        liveActivityRefreshTask = nil
+        completionRateFeedbackTask?.cancel()
+        completionRateFeedbackTask = nil
+        completionCelebrationTask?.cancel()
+        completionCelebrationTask = nil
+        completionRateFeedback = nil
+        completionRateDisplayedSnapshot = nil
+        isCompletionRateFeedbackVisible = false
+        isCompletionCelebrationDeferred = false
+        doseUndoBannerTask?.cancel()
+        doseUndoBannerTask = nil
+        doseUndoBanner = nil
+        isDoseUndoRollbackInFlight = false
     }
 
     private func cancelDoseTransitionTasks() {
@@ -1008,75 +247,12 @@ struct TodayView: View {
         medications.first { $0.id == task.medicationID }
     }
 
-    private func isMedicationActiveForToday(_ task: StoredDoseTask) -> Bool {
-        guard let medication = medication(for: task) else {
-            return false
-        }
-        return medication.lifecycleStatus == .active
-    }
-
-    private func deduplicatedTodayTasks(_ tasks: [StoredDoseTask]) -> [StoredDoseTask] {
-        var tasksByLogicalDose: [String: StoredDoseTask] = [:]
-        for task in tasks {
-            let key = logicalDoseKey(for: task)
-            if let current = tasksByLogicalDose[key] {
-                tasksByLogicalDose[key] = preferredDisplayTask(current, task)
-            } else {
-                tasksByLogicalDose[key] = task
-            }
-        }
-        return tasksByLogicalDose.values.sorted { lhs, rhs in
-            if lhs.dueAt == rhs.dueAt {
-                return lhs.id.uuidString < rhs.id.uuidString
-            }
-            return lhs.dueAt < rhs.dueAt
-        }
-    }
-
     private func logicalDoseKey(for task: StoredDoseTask) -> String {
         DoseLogicalGroup.key(for: task)
     }
 
     private func logicalDoseGroup(for task: StoredDoseTask) -> [StoredDoseTask] {
         DoseLogicalGroup.group(containing: task, in: tasks)
-    }
-
-    private func preferredDisplayTask(_ lhs: StoredDoseTask, _ rhs: StoredDoseTask) -> StoredDoseTask {
-        let lhsScore = displayPriorityScore(for: lhs)
-        let rhsScore = displayPriorityScore(for: rhs)
-        if lhsScore != rhsScore {
-            return lhsScore > rhsScore ? lhs : rhs
-        }
-        let lhsReferenceDate = lhs.effectiveAdherenceDate
-        let rhsReferenceDate = rhs.effectiveAdherenceDate
-        if lhsReferenceDate != rhsReferenceDate {
-            return lhsReferenceDate > rhsReferenceDate ? lhs : rhs
-        }
-        return lhs.id.uuidString < rhs.id.uuidString ? lhs : rhs
-    }
-
-    private func displayPriorityScore(for task: StoredDoseTask) -> Int {
-        var score = 0
-        if recentlyReopenedDoseKeys.contains(logicalDoseKey(for: task)) {
-            score += 1_000
-        }
-        if pendingDoseFeedback?.doseKey == logicalDoseKey(for: task) {
-            score += 900
-        }
-        if task.recordedAt != nil {
-            score += 120
-        }
-        switch task.status {
-        case .taken, .corrected:
-            score += 500
-        case .skipped:
-            score += 480
-        case .delayed:
-            score += 360
-        case .pending:
-            score += 300
-        }
-        return score
     }
 
     private func isOpenStatus(_ status: StoredDoseStatus) -> Bool {
@@ -1087,8 +263,12 @@ struct TodayView: View {
     private func mark(_ task: StoredDoseTask, mutation: DoseActionMutation, reason: String) -> Bool {
         let occurredAt = Date()
         let group = logicalDoseGroup(for: task)
-        let previousCompletionSnapshot = currentCompletionRateSnapshot
-        let nextCompletionSnapshot = completionRateSnapshot(replacing: task, with: mutation.newStatus)
+        let projection = currentDoseProjection
+        let previousCompletionSnapshot = projection.completionRateSnapshot
+        let nextCompletionSnapshot = projection.completionRateSnapshot(
+            replacingDoseKey: logicalDoseKey(for: task),
+            with: mutation.newStatus
+        )
         let transitions = DoseActionTransitionPlanner().makeTransitions(
             mutation: mutation,
             taskGroup: group,
@@ -1626,14 +806,6 @@ struct TodayView: View {
         task.reason.contains("用户已归档")
     }
 
-    private func unarchivedReason(_ reason: String) -> String {
-        reason
-            .split(separator: "；")
-            .map(String.init)
-            .filter { $0 != "用户已归档" }
-            .joined(separator: "；")
-    }
-
     private func updateDoseState(animated: Bool = true, _ updates: () -> Void) {
         guard animated, !prefersReducedAppMotion else {
             commitWithoutListMutationAnimation(updates)
@@ -1650,24 +822,6 @@ struct TodayView: View {
         withTransaction(transaction) {
             updates()
         }
-    }
-
-    private func completionRateSnapshot(replacing task: StoredDoseTask, with status: StoredDoseStatus) -> CompletionRateSnapshot {
-        let targetDoseKey = logicalDoseKey(for: task)
-        let completedCount = displayTodayTasks.reduce(into: 0) { count, currentTask in
-            let effectiveStatus = logicalDoseKey(for: currentTask) == targetDoseKey ? status : currentTask.status
-            if isCompletionStatus(effectiveStatus) {
-                count += 1
-            }
-        }
-        return CompletionRateSnapshot(
-            completedCount: completedCount,
-            totalCount: displayTodayTasks.count
-        )
-    }
-
-    private func isCompletionStatus(_ status: StoredDoseStatus) -> Bool {
-        status == .taken || status == .corrected
     }
 
     private func presentCompletionRateFeedbackIfNeeded(from previousSnapshot: CompletionRateSnapshot, to nextSnapshot: CompletionRateSnapshot) {
@@ -1760,25 +914,12 @@ struct TodayView: View {
         }
     }
 
-    private func statusText(for task: StoredDoseTask) -> String {
-        switch task.status {
-        case .taken, .corrected:
-            return completionVerb(for: medication(for: task))
-        case .skipped:
-            return "已忽略"
-        case .pending:
-            return task.status.displayName
-        case .delayed:
-            return "\(delayDurationText)后"
-        }
-    }
-
     private func doseMigrationSnapshot(for task: StoredDoseTask, action: PendingDoseFeedback.Action) -> DoseMigrationSnapshot {
         let medication = medication(for: task)
         let statusText: String
         switch action {
         case .taken:
-            statusText = completionVerb(for: medication)
+            statusText = todayCompletionVerb(for: medication)
         case .skip:
             statusText = "已忽略"
         case .delay:
@@ -1808,30 +949,8 @@ struct TodayView: View {
         )
     }
 
-    private func handledTaskSummary(for task: StoredDoseTask) -> String {
-        let name = medication(for: task).map(userFacingMedicationName(for:)) ?? "用药记录"
-        return "\(statusText(for: task)) · \(name)"
-    }
-
-    private var skippedMedicationSummary: String {
-        skippedTodayTasks
-            .map { medication(for: $0).map(userFacingMedicationName(for:)) ?? "未知药品" }
-            .joined(separator: "、")
-    }
-
-    private func completionVerb(for medication: StoredMedication?) -> String {
-        guard let medication else {
-            return "已完成"
-        }
-        let combined = "\(medication.displayName) \(medication.form)".lowercased()
-        if combined.contains("tear") || combined.contains("drop") || combined.contains("滴") || combined.contains("眼") || combined.contains("喷") || combined.contains("贴") || combined.contains("膏") {
-            return "已使用"
-        }
-        return "已服用"
-    }
-
     private func refreshLiveActivities() async {
-        for task in todayTasks {
+        for task in currentDoseProjection.eligibleTodayTasks {
             if task.status == .pending || task.status == .delayed {
                 await liveActivityService.startIfNeeded(for: task, medication: medication(for: task))
             } else {
@@ -1877,10 +996,4 @@ struct TodayView: View {
         scheduleLiveActivityRefresh()
     }
 
-    private func openSystemNotificationSettings() {
-        guard let url = URL(string: UIApplication.openSettingsURLString) else {
-            return
-        }
-        UIApplication.shared.open(url)
-    }
 }

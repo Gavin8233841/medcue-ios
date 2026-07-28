@@ -46,7 +46,7 @@ SwiftUI iOS App 工程。默认中文展示名为“用药跟踪”，英文兼�
 当前主线工具链固定为 `/Applications/Xcode.app` 的 Xcode 26.5（17F42）与 Swift 6.3.2；Xcode 27 beta 不属于当前路线 A。
 
 ```zsh
-cd <local-home>/Desktop/appcontest-2026-prep
+cd <repository-root>
 xcodebuild \
   -project ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj \
   -scheme MedicationAdherenceApp \

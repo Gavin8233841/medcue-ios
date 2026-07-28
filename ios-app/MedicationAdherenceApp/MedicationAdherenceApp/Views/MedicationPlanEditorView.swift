@@ -131,6 +131,7 @@ struct PlanEditorView: View {
                             || doseUnit.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             || reminderTimes.isEmpty
                     )
+                    .accessibilityIdentifier(AppAccessibilityID.medicationPlanSave)
                 }
             }
             .appPermissionPrimer(pendingGate: $pendingPermissionGate) { gate in
@@ -663,4 +664,3 @@ enum MedicationNotesDisplayPolicy {
         return !hiddenFragments.contains { trimmedLine.contains($0) }
     }
 }
-

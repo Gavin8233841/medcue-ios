@@ -1,6 +1,22 @@
 import SwiftData
 import SwiftUI
 
+enum AppAccessibilityID {
+    static let tabToday = "tab.today"
+    static let tabMedications = "tab.medications"
+    static let tabAssistant = "tab.assistant"
+    static let tabRecords = "tab.records"
+    static let tabProfile = "tab.profile"
+    static let todayOpenTimeline = "today.timeline.open"
+    static let todayHandledTimeline = "today.timeline.handled"
+    static let medicationAdd = "medication.add"
+    static let medicationEditSave = "medication.edit.save"
+    static let medicationPlanSave = "medication.plan.save"
+    static let assistantArchive = "assistant.archive"
+    static let assistantInput = "assistant.input"
+    static let assistantSend = "assistant.send"
+}
+
 struct AppTabContentView: View, Equatable {
     let tab: AppTab
     let isLoaded: Bool
@@ -181,6 +197,7 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
 
     var id: String { rawValue }
 
+    @MainActor
     @ViewBuilder
     var content: some View {
         switch self {
@@ -202,14 +219,19 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .today:
             Label("今日", systemImage: "calendar")
+                .accessibilityIdentifier(AppAccessibilityID.tabToday)
         case .medications:
             Label("药品", systemImage: "pills")
+                .accessibilityIdentifier(AppAccessibilityID.tabMedications)
         case .assistant:
             Label("智能体", systemImage: "stethoscope")
+                .accessibilityIdentifier(AppAccessibilityID.tabAssistant)
         case .records:
             Label("记录", systemImage: "calendar.badge.clock")
+                .accessibilityIdentifier(AppAccessibilityID.tabRecords)
         case .profile:
             Label("个人", systemImage: "person.crop.circle")
+                .accessibilityIdentifier(AppAccessibilityID.tabProfile)
         }
     }
 }
@@ -398,4 +420,3 @@ struct AppTabTopGradientPalette {
     let trailing: Color
     let background: Color
 }
-

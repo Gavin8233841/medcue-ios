@@ -32,12 +32,16 @@ jobs:
           node --version
           xcodebuild -showsdks
 
+      - name: Install verification tools
+        run: brew install ripgrep
+
       - name: Test AI broker
         working-directory: cloudfunctions/medcue-ai-broker
         run: node --test
 
       - name: Run native verification gate
         env:
+          MEDCUE_DISABLE_LOCAL_LLAMA: "1"
           VERIFY_NATIVE_IOS_TEST_DESTINATION: platform=iOS Simulator,name=iPhone 17 Pro,OS=latest
           VERIFY_NATIVE_WATCH_SIMULATOR_SDK: watchsimulator
           VERIFY_NATIVE_WATCH_DEVICE_SDK: watchos

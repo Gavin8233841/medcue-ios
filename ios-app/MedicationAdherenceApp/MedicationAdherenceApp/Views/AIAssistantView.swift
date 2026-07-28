@@ -67,21 +67,19 @@ struct AIAssistantView: View {
         consents.first { $0.id == "medical-ai-consent" && $0.isActive }
     }
 
+    private var conversationVisibility: AIConversationVisibilityProjection {
+        AIConversationVisibilityProjection(
+            messages: messages,
+            manuallyArchivedMessageIDs: manuallyArchivedMessageIDs
+        )
+    }
+
     private var visibleMessages: [StoredAIChatMessage] {
-        let orderedMessages = messages
-            .filter { !manuallyArchivedMessageIDs.contains($0.id) }
-            .sorted { $0.createdAt < $1.createdAt }
-        guard let startIndex = visibleConversationStartIndex(in: orderedMessages) else {
-            return orderedMessages
-        }
-        return Array(orderedMessages[startIndex...])
+        conversationVisibility.visibleMessages
     }
 
     private var archivedMessages: [StoredAIChatMessage] {
-        let visibleIDs = Set(visibleMessages.map(\.id))
-        return messages
-            .filter { !visibleIDs.contains($0.id) }
-            .sorted { $0.createdAt < $1.createdAt }
+        conversationVisibility.archivedMessages
     }
 
     private var manuallyArchivedMessageIDs: Set<UUID> {
@@ -104,176 +102,76 @@ struct AIAssistantView: View {
             .joined(separator: "|")
     }
 
-    private func visibleConversationStartIndex(in orderedMessages: [StoredAIChatMessage]) -> Int? {
-        let userMessageIndexes = orderedMessages.indices.filter { orderedMessages[$0].role == .user }
-        guard userMessageIndexes.count > 3 else {
-            return orderedMessages.isEmpty ? nil : orderedMessages.startIndex
-        }
-        return userMessageIndexes[userMessageIndexes.count - 3]
-    }
-
     var body: some View {
         let configuration = configurationStore.configuration
-        let onlineReadiness = configurationStore.readiness(for: configuration)
+        AIAssistantScreen(
+            configuration: configuration,
+            onlineReadiness: configurationStore.readiness(for: configuration),
+            localModelStatus: localModelStore.status,
+            visibleMessages: visibleMessages,
+            archivedMessages: archivedMessages,
+            localStreamingResponse: localStreamingResponse,
+            isSending: isSending,
+            isReadingImage: isReadingImage,
+            isInputEnabled: hasAcknowledgedThirdPartyMedicalAgent,
+            prefersLocalResponses: prefersLocalMedicalModel,
+            hasUserSelectedRuntime: hasUserSelectedMedicalAIRuntime,
+            draftMessage: $draftMessage,
+            selectedImageItem: $selectedChatImageItem,
+            isChatInputFocused: $isChatInputFocused,
+            showingThirdPartyAgentNotice: $showingThirdPartyAgentNotice,
+            showingConsentSheet: $showingConsentSheet,
+            showingArchivedMessages: $showingArchivedMessages,
+            showingRuntimePicker: $showingRuntimePicker,
+            showingLocalModelDownloadConfirmation: $showingLocalModelDownloadConfirmation,
+            storedConsent: storedConsent,
+            sendMessage: sendMessage,
+            selectOnlineRuntime: selectOnlineRuntime,
+            selectLocalRuntime: selectLocalRuntime,
+            archiveVisibleConversation: archiveVisibleConversation,
+            dismissChatKeyboard: dismissChatKeyboard,
+            prepareSession: prepareAssistantSessionIfVisible,
+            handleActiveTabChange: handleActiveTabChange,
+            beginImageRecognition: beginImageRecognition,
+            applyPendingQuestion: applyPendingQuestionIfNeeded,
+            refreshEnvironment: refreshEnvironment,
+            acceptThirdPartyNotice: acceptThirdPartyNotice,
+            saveConsent: saveConsent,
+            revokeConsent: revokeConsent,
+            deleteArchivedMessages: deleteArchivedMessages,
+            deleteAllArchivedMessages: deleteAllArchivedMessages,
+            requestLocalModelDownload: requestLocalModelDownload,
+            environmentRefreshSignature: environmentRefreshSignature
+        )
+    }
 
-        VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 16) {
-                        AgentRuntimeSelectorBar(
-                            onlineConfiguration: configuration,
-                            onlineReadiness: onlineReadiness,
-                            status: localModelStore.status,
-                            prefersLocalResponses: prefersLocalMedicalModel,
-                            hasUserSelectedRuntime: hasUserSelectedMedicalAIRuntime,
-                            isExpanded: showingRuntimePicker,
-                            toggleExpanded: {
-                                withAnimation(.snappy(duration: 0.22, extraBounce: 0.02)) {
-                                    showingRuntimePicker.toggle()
-                                }
-                            },
-                            selectOnline: selectOnlineRuntime,
-                            selectLocal: selectLocalRuntime,
-                            requestLocalDownload: { showingLocalModelDownloadConfirmation = true }
-                        )
+    private func handleActiveTabChange(_ newTab: AppTab?) {
+        if newTab != nil, newTab != .assistant {
+            cancelActiveAIRequest()
+            cancelImageRecognition()
+        }
+        prepareAssistantSessionIfVisible()
+    }
 
-                        AIQuickActionsSection(
-                            isDisabled: isSending || !hasAcknowledgedThirdPartyMedicalAgent,
-                            prefersLocalResponses: prefersLocalMedicalModel,
-                            send: sendMessage
-                        )
+    private func refreshEnvironment() async {
+        guard activeAppTab == nil || activeAppTab == .assistant else {
+            return
+        }
+        await weatherMedicationService.refresh(medications: medications)
+    }
 
-                        if visibleMessages.isEmpty {
-                            AIEmptyConversationView()
-                        } else {
-                            ForEach(visibleMessages) { message in
-                                AIMessageBubble(
-                                    message: message,
-                                    archive: { archiveVisibleConversation(through: message) }
-                                )
-                                    .id(message.id)
-                            }
-                        }
+    private func acceptThirdPartyNotice() {
+        hasAcknowledgedThirdPartyMedicalAgent = true
+        hasAcceptedMedicalAIDisclaimer = true
+        showingThirdPartyAgentNotice = false
+        if activeConsent == nil {
+            showingConsentSheet = true
+        }
+    }
 
-                        if let localStreamingResponse {
-                            LocalStreamingResponseView(response: localStreamingResponse)
-                                .id("local-streaming-response")
-                        } else if isSending {
-                            AIThinkingBubble(isLocalRuntime: prefersLocalMedicalModel)
-                                .id("thinking")
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .background(alignment: .top) {
-                        AppTopGradientScrollReader(tab: .assistant, coordinateSpaceName: "AIAssistantTopGradientScroll")
-                    }
-                }
-                .coordinateSpace(name: "AIAssistantTopGradientScroll")
-                .scrollDismissesKeyboard(.interactively)
-                .contentShape(Rectangle())
-                .simultaneousGesture(TapGesture().onEnded {
-                    dismissChatKeyboard()
-                })
-                .onChange(of: messages.count) { _, _ in
-                    scrollToLatest(using: proxy)
-                }
-                .onChange(of: isSending) { _, _ in
-                    scrollToLatest(using: proxy)
-                }
-            }
-
-            Divider()
-
-            AIChatInputBar(
-                text: $draftMessage,
-                selectedImageItem: $selectedChatImageItem,
-                isFocused: $isChatInputFocused,
-                isSending: isSending,
-                isReadingImage: isReadingImage,
-                isEnabled: hasAcknowledgedThirdPartyMedicalAgent,
-                showDisclaimer: { showingThirdPartyAgentNotice = true },
-                send: { sendMessage() }
-            )
-        }
-        .background(Color(.systemGroupedBackground))
-        .navigationTitle("医疗智能体")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showingArchivedMessages = true
-                } label: {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .accessibilityLabel("归档历史")
-                }
-                .disabled(archivedMessages.isEmpty)
-            }
-        }
-        .onAppear {
-            prepareAssistantSessionIfVisible()
-        }
-        .onChange(of: activeAppTab) { _, newTab in
-            if newTab != nil, newTab != .assistant {
-                cancelActiveAIRequest()
-                cancelImageRecognition()
-            }
-            prepareAssistantSessionIfVisible()
-        }
-        .onChange(of: selectedChatImageItem) { _, newItem in
-            beginImageRecognition(newItem)
-        }
-        .onChange(of: pendingMedicationAIQuestion) { _, _ in
-            applyPendingQuestionIfNeeded()
-        }
-        .task(id: environmentRefreshSignature) {
-            guard activeAppTab == nil || activeAppTab == .assistant else {
-                return
-            }
-            await weatherMedicationService.refresh(medications: medications)
-        }
-        .sheet(isPresented: $showingThirdPartyAgentNotice) {
-            ThirdPartyMedicalAgentNoticeSheet(
-                accept: {
-                    hasAcknowledgedThirdPartyMedicalAgent = true
-                    hasAcceptedMedicalAIDisclaimer = true
-                    showingThirdPartyAgentNotice = false
-                    if activeConsent == nil {
-                        showingConsentSheet = true
-                    }
-                }
-            )
-            .interactiveDismissDisabled(true)
-        }
-        .sheet(isPresented: $showingConsentSheet) {
-            AIConsentSheet(
-                consent: storedConsent,
-                save: saveConsent,
-                revoke: revokeConsent
-            )
-        }
-        .sheet(isPresented: $showingArchivedMessages) {
-            AIArchivedMessagesSheet(
-                messages: archivedMessages,
-                deleteMessages: deleteArchivedMessages,
-                deleteAllMessages: deleteAllArchivedMessages
-            )
-        }
-        .confirmationDialog(
-            "下载离线端侧模型 Beta",
-            isPresented: $showingLocalModelDownloadConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("开始下载约 265MB 模型") {
-                Task {
-                    await localModelStore.downloadModel()
-                }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("离线端侧模型为 Beta 版本，会在本机运行，不上传用药记录。下载完成后可在智能体页切换使用。")
+    private func requestLocalModelDownload() {
+        Task {
+            await localModelStore.downloadModel()
         }
     }
 
@@ -428,7 +326,7 @@ struct AIAssistantView: View {
         if !missingScopes.isEmpty {
             _ = commitConversationMessages([userDraft, AIChatResponseDraft(
                 role: .system,
-                text: "当前授权范围不足，未发送请求。缺少：\(missingScopes.map(scopeDisplayName).sorted().joined(separator: "、"))。",
+                text: "当前授权范围不足，未发送请求。缺少：\(missingScopes.map(medicalAIScopeDisplayName).sorted().joined(separator: "、"))。",
                 providerName: configuration.providerName,
                 modelName: configuration.modelName,
                 sharedScopesSummary: consent.scopeSummary
@@ -800,7 +698,10 @@ struct AIAssistantView: View {
         configuration: MedicalAIConfiguration,
         apiKey: String
     ) async throws -> MedicalAIExecutionResult {
-        let client = medicalAIClient(configuration: configuration, apiKey: apiKey)
+        let client = MedicalAIClientFactory.make(
+            configuration: configuration,
+            credential: apiKey
+        )
         return try await MedicalAIRequestOrchestrator(timeout: MedicalAIExecutionPolicy.default.cloudTimeout).execute(
             request: request,
             client: client
@@ -856,6 +757,9 @@ struct AIAssistantView: View {
         if let error = error as? LocalMedicalAIError {
             return "local=\(error.diagnosticSummary)"
         }
+        if let error = error as? CloudBaseMedicalAIError {
+            return "broker=\(error.diagnosticSummary)"
+        }
         if let error = error as? BaichuanMedicalAIError {
             return "baichuan=\(error.diagnosticSummary)"
         }
@@ -872,13 +776,6 @@ struct AIAssistantView: View {
             return "request-cancelled"
         }
         return "type=\(String(describing: Swift.type(of: error)))"
-    }
-
-    private func medicalAIClient(configuration: MedicalAIConfiguration, apiKey: String) -> any MedicalAIClient {
-        if configuration.endpointURLString.contains("volces.com") || configuration.providerName.contains("豆包") {
-            return DoubaoMedicalAIClient(configuration: configuration, apiKey: apiKey)
-        }
-        return BaichuanMedicalAIClient(configuration: configuration, apiKey: apiKey)
     }
 
     private func logAIEvent(_ message: String) {
@@ -910,9 +807,8 @@ struct AIAssistantView: View {
     }
 
     private func migrateLegacyMedicalAIStatusMessagesIfNeeded() {
-        let messagesToMigrate = messages.filter {
-            $0.role == .assistant && isMedicalAIStatusMessage($0.text)
-        }
+        let messagesToMigrate = AIConversationMaintenancePolicy()
+            .messagesForStatusMigration(in: messages)
         _ = AIConversationPersistenceCommand(modelContext: modelContext).migrateMessagesToSystem(
             messagesToMigrate,
             operation: "ai-migrate-status-messages"
@@ -924,25 +820,8 @@ struct AIAssistantView: View {
             return
         }
 
-        let orderedMessages = messages.sorted { $0.createdAt < $1.createdAt }
-        var messageIDsToDelete: Set<UUID> = []
-
-        for (index, message) in orderedMessages.enumerated() {
-            guard message.role != .user, isStaleUnavailableMedicalAIMessage(message.text) else {
-                continue
-            }
-
-            messageIDsToDelete.insert(message.id)
-            if index > 0 {
-                let previousMessage = orderedMessages[index - 1]
-                let gap = message.createdAt.timeIntervalSince(previousMessage.createdAt)
-                if previousMessage.role == .user, gap >= 0, gap <= 120 {
-                    messageIDsToDelete.insert(previousMessage.id)
-                }
-            }
-        }
-
-        let messagesToDelete = messages.filter { messageIDsToDelete.contains($0.id) }
+        let messagesToDelete = AIConversationMaintenancePolicy()
+            .messagesForUnavailableTransportPurge(in: messages)
         if !messagesToDelete.isEmpty {
             _ = AIConversationPersistenceCommand(modelContext: modelContext).deleteMessages(
                 messagesToDelete,
@@ -952,38 +831,12 @@ struct AIAssistantView: View {
         hasPurgedUnavailableMedicalAITransportMessages = true
     }
 
-    private func isStaleUnavailableMedicalAIMessage(_ text: String) -> Bool {
-        normalizedLegacyMedicalAIStatusText(text) != nil
-    }
-
-    private func isMedicalAIStatusMessage(_ text: String) -> Bool {
-        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalizedLegacyMedicalAIStatusText(trimmedText) != nil
-            || trimmedText.contains("医疗智能体暂时无法连接")
-            || trimmedText.contains("医疗智能体响应超时")
-            || trimmedText.contains("医疗智能体网络暂时无法连接")
-            || trimmedText.contains("iPhone 当前网络无法连接医疗智能体")
-            || trimmedText.contains("尚未获得共享授权")
-            || trimmedText.contains("当前授权范围不足")
-    }
-
     private func purgeVisibleQuickPromptMessagesIfNeeded() {
         guard !hasPurgedVisibleQuickPromptMessages else {
             return
         }
-        let promptFragments = [
-            "请只基于 App 内授权共享的今日提醒",
-            "请只基于 App 内授权共享的药品信息和说明书摘要",
-            "请只基于 App 内授权共享的服药记录",
-            "请只基于 App 内授权共享的药品、服药记录",
-            "请结合今日天气条件和 App 内授权共享的服药记录",
-            "请结合今日环境提示和 App 内授权共享的服药记录",
-            "请结合今日天气与环境提示和 App 内授权共享的服药记录",
-            "请只回答如何在本 App 内识别、录入、核对或整理这些信息"
-        ]
-        let messagesToDelete = messages.filter { message in
-            message.role == .user && promptFragments.contains(where: { message.text.contains($0) })
-        }
+        let messagesToDelete = AIConversationMaintenancePolicy()
+            .messagesForQuickPromptPurge(in: messages)
         if messagesToDelete.isEmpty {
             hasPurgedVisibleQuickPromptMessages = true
         } else if case .deleted = AIConversationPersistenceCommand(modelContext: modelContext)
@@ -997,29 +850,18 @@ struct AIAssistantView: View {
             return
         }
 
-        let orderedMessages = messages.sorted { $0.createdAt < $1.createdAt }
-        guard !orderedMessages.isEmpty else {
+        guard !messages.isEmpty else {
             return
         }
 
-        let staleCutoff = Date().addingTimeInterval(-90)
-        var repairDrafts: [AIChatResponseDraft] = []
-        for (index, message) in orderedMessages.enumerated() where message.role == .user && message.createdAt < staleCutoff {
-            let nextMessage = orderedMessages.dropFirst(index + 1).first
-            if let nextMessage, nextMessage.role != .user {
-                continue
-            }
-
-            let repairCreatedAt = repairMessageDate(after: message, before: nextMessage)
-            repairDrafts.append(AIChatResponseDraft(
-                role: .system,
-                text: "上一次医疗智能体请求未完成，请重新发送。",
-                createdAt: repairCreatedAt,
-                providerName: message.providerName.isEmpty ? configurationStore.configuration.providerName : message.providerName,
-                modelName: message.modelName.isEmpty ? configurationStore.configuration.modelName : message.modelName,
-                sharedScopesSummary: message.sharedScopesSummary
-            ))
-        }
+        let configuration = configurationStore.configuration
+        let repairDrafts = AIConversationMaintenancePolicy()
+            .interruptedRequestRepairDrafts(
+                in: messages,
+                now: Date(),
+                defaultProviderName: configuration.providerName,
+                defaultModelName: configuration.modelName
+            )
 
         if !repairDrafts.isEmpty {
             _ = commitConversationMessages(
@@ -1029,139 +871,36 @@ struct AIAssistantView: View {
         }
     }
 
-    private func repairMessageDate(after message: StoredAIChatMessage, before nextMessage: StoredAIChatMessage?) -> Date {
-        guard let nextMessage else {
-            return message.createdAt.addingTimeInterval(1)
-        }
-        let gap = nextMessage.createdAt.timeIntervalSince(message.createdAt)
-        guard gap > 0 else {
-            return message.createdAt.addingTimeInterval(0.1)
-        }
-        return message.createdAt.addingTimeInterval(min(1, gap / 2))
-    }
-
     private func buildRequest(userMessage: String, consent: StoredAIConsent) -> MedicalAIRequest {
-        let snapshots: [MedicalAIMedicationSnapshot]
-        if consent.sharesMedicationProfile {
-            let measurableTasks = tasksForAIContext(userMessage: userMessage)
-            snapshots = medications.filter { $0.lifecycleStatus == .active }.map { medication in
-                let relatedTasks = measurableTasks.filter { $0.medicationID == medication.id }
-                let relatedPlans = consent.sharesMedicationPlans
-                    ? plans.filter { $0.medicationID == medication.id }.compactMap { $0.corePlan(using: relatedTasks) }
-                    : []
-                let relatedRiskCards = consent.sharesRiskCards
-                    ? riskCards.filter { $0.medicationID == medication.id && $0.isActive }.map(\.coreRiskCard)
-                    : []
-                return MedicalAIMedicationSnapshot(
-                    medication: medication.coreMedication,
-                    plans: relatedPlans,
-                    scheduledDoses: consent.sharesDoseEvents ? relatedTasks.map(\.coreScheduledDose) : [],
-                    doseEvents: consent.sharesDoseEvents ? relatedTasks.compactMap(\.coreDoseEventUsingEffectiveAdherenceDate) : [],
-                    riskCards: relatedRiskCards,
-                    labelSummary: consent.sharesDrugLabels ? readableLabelSummary(for: medication) : nil
-                )
-            }
-        } else {
-            snapshots = []
-        }
-
-        let request = MedicalAIRequest(
-            kind: .chat,
+        let contextBuilder = MedicalAIContextBuilder(
+            medications: medications,
+            plans: plans,
+            tasks: tasks,
+            riskCards: riskCards,
+            labels: labels
+        )
+        let request = contextBuilder.makeRequest(
             userMessage: userMessage,
-            authorization: consent.authorization,
-            medicationSnapshots: snapshots,
+            consent: consent,
             environmentInsights: environmentInsightsForAI(userMessage: userMessage),
             localeIdentifier: Locale.current.identifier
         )
-        let scheduledDoseCount = snapshots.reduce(0) { $0 + $1.scheduledDoses.count }
-        let doseEventCount = snapshots.reduce(0) { $0 + $1.doseEvents.count }
-        logAIEvent("context requestID=\(request.id.uuidString) medications=\(snapshots.count) scheduledDoses=\(scheduledDoseCount) doseEvents=\(doseEventCount) todayMode=\(isTodayAIQuestion(userMessage))")
+        let scheduledDoseCount = request.medicationSnapshots.reduce(0) { $0 + $1.scheduledDoses.count }
+        let doseEventCount = request.medicationSnapshots.reduce(0) { $0 + $1.doseEvents.count }
+        logAIEvent("context requestID=\(request.id.uuidString) medications=\(request.medicationSnapshots.count) scheduledDoses=\(scheduledDoseCount) doseEvents=\(doseEventCount) todayMode=\(contextBuilder.isTodayQuestion(userMessage))")
         return request
     }
 
-    private func tasksForAIContext(userMessage: String) -> [StoredDoseTask] {
-        if isTodayAIQuestion(userMessage) {
-            return todayTasksForAIContext()
-        }
-        return tasks.adherenceMeasurableTasks
-    }
-
-    private func isTodayAIQuestion(_ userMessage: String) -> Bool {
-        userMessage.contains("今日") || userMessage.contains("今天")
-    }
-
-    private func todayTasksForAIContext() -> [StoredDoseTask] {
-        let calendar = Calendar.current
-        let todayTasks = tasks.filter { task in
-            guard task.isAdherenceMeasurable else {
-                return false
-            }
-            guard medications.contains(where: { $0.id == task.medicationID && $0.lifecycleStatus == .active }) else {
-                return false
-            }
-            if calendar.isDateInToday(task.dueAt) {
-                return true
-            }
-            return task.status == .delayed
-                && task.recordedAt.map(calendar.isDateInToday) == true
-                && isOpenDoseStatusForAI(task.status)
-        }
-        var tasksByLogicalDose: [String: StoredDoseTask] = [:]
-        for task in todayTasks {
-            let key = DoseLogicalGroup.key(for: task)
-            if let current = tasksByLogicalDose[key] {
-                tasksByLogicalDose[key] = preferredTodayTaskForAI(current, task)
-            } else {
-                tasksByLogicalDose[key] = task
-            }
-        }
-        return tasksByLogicalDose.values.sorted { lhs, rhs in
-            if lhs.dueAt == rhs.dueAt {
-                return lhs.id.uuidString < rhs.id.uuidString
-            }
-            return lhs.dueAt < rhs.dueAt
-        }
-    }
-
-    private func preferredTodayTaskForAI(_ lhs: StoredDoseTask, _ rhs: StoredDoseTask) -> StoredDoseTask {
-        let lhsScore = aiDisplayPriorityScore(for: lhs)
-        let rhsScore = aiDisplayPriorityScore(for: rhs)
-        if lhsScore != rhsScore {
-            return lhsScore > rhsScore ? lhs : rhs
-        }
-        let lhsReferenceDate = lhs.effectiveAdherenceDate
-        let rhsReferenceDate = rhs.effectiveAdherenceDate
-        if lhsReferenceDate != rhsReferenceDate {
-            return lhsReferenceDate > rhsReferenceDate ? lhs : rhs
-        }
-        return lhs.id.uuidString < rhs.id.uuidString ? lhs : rhs
-    }
-
-    private func aiDisplayPriorityScore(for task: StoredDoseTask) -> Int {
-        var score = 0
-        if task.recordedAt != nil {
-            score += 120
-        }
-        switch task.status {
-        case .taken, .corrected:
-            score += 500
-        case .skipped:
-            score += 480
-        case .delayed:
-            score += 360
-        case .pending:
-            score += 300
-        }
-        return score
-    }
-
-    private func isOpenDoseStatusForAI(_ status: StoredDoseStatus) -> Bool {
-        status == .pending || status == .delayed
-    }
-
     private func todayOpenMedicationNamesForPrompt() -> [String] {
+        let contextBuilder = MedicalAIContextBuilder(
+            medications: medications,
+            plans: plans,
+            tasks: tasks,
+            riskCards: riskCards,
+            labels: labels
+        )
         var names: [String] = []
-        for task in todayTasksForAIContext() where isOpenDoseStatusForAI(task.status) {
+        for task in contextBuilder.tasksForContext(userMessage: "今天") where task.status == .pending || task.status == .delayed {
             guard let medication = medications.first(where: { $0.id == task.medicationID }) else {
                 continue
             }
@@ -1177,7 +916,8 @@ struct AIAssistantView: View {
         let orderedMessages = messages
             .filter { !manuallyArchivedMessageIDs.contains($0.id) }
             .sorted { $0.createdAt < $1.createdAt }
-        guard let startIndex = visibleConversationStartIndex(in: orderedMessages), startIndex > orderedMessages.startIndex else {
+        guard let startIndex = AIConversationVisibilityProjection.visibleConversationStartIndex(in: orderedMessages),
+              startIndex > orderedMessages.startIndex else {
             return
         }
         var archivedIDs = manuallyArchivedMessageIDs
@@ -1213,58 +953,11 @@ struct AIAssistantView: View {
     }
 
     private func environmentInsightsForAI(userMessage: String) -> [MedicalAIEnvironmentInsight] {
-        guard shouldAttachEnvironmentContext(to: userMessage) else {
-            return []
-        }
-
-        if !weatherMedicationService.hints.isEmpty {
-            return weatherMedicationService.hints.prefix(3).map { hint in
-                MedicalAIEnvironmentInsight(
-                    title: hint.title,
-                    message: hint.message,
-                    sourceSummary: hint.sourceSummary,
-                    severityText: hint.severity.displayName
-                )
-            }
-        }
-
-        return EnvironmentMedicationInsightBuilder()
-            .fallback(medications: activeMedicationEnvironmentProfiles(), limit: 3)
-            .map { insight in
-                MedicalAIEnvironmentInsight(
-                    title: insight.title,
-                    message: insight.message,
-                    sourceSummary: insight.sourceSummary,
-                    severityText: insight.severity.displayName
-                )
-            }
-    }
-
-    private func shouldAttachEnvironmentContext(to userMessage: String) -> Bool {
-        MedicalAIEnvironmentQuestionDetector().shouldAttachEnvironmentContext(to: userMessage)
-    }
-
-    private func activeMedicationEnvironmentProfiles() -> [EnvironmentMedicationProfileItem] {
-        medications
-            .filter { $0.lifecycleStatus == .active }
-            .map { medication in
-                EnvironmentMedicationProfileItem(
-                    id: medication.id,
-                    displayName: userFacingMedicationName(for: medication),
-                    genericName: medication.genericName,
-                    form: medication.form,
-                    notes: medication.notes,
-                    isActive: true
-                )
-            }
-    }
-
-    private func readableLabelSummary(for medication: StoredMedication) -> ReadableLabelSummary? {
-        let label = labels.first { $0.medicationID == medication.id }?.coreLabel
-        guard let label else {
-            return nil
-        }
-        return ReadableLabelSummaryBuilder().build(from: label)
+        MedicalAIEnvironmentContextBuilder().insights(
+            userMessage: userMessage,
+            weatherHints: weatherMedicationService.hints,
+            medications: medications
+        )
     }
 
     private func saveConsent(_ draft: AIConsentDraft) {
@@ -1283,34 +976,5 @@ struct AIAssistantView: View {
             consent,
             revokedAt: Date()
         )
-    }
-
-    private func scopeDisplayName(_ scope: MedicalAIDataScope) -> String {
-        switch scope {
-        case .medicationProfile:
-            "药品信息"
-        case .medicationPlans:
-            "提醒计划"
-        case .doseEvents:
-            "服药记录"
-        case .riskCards:
-            "风险提醒"
-        case .drugLabels:
-            "说明书摘要"
-        case .importDraft:
-            "导入识别内容"
-        }
-    }
-
-    private func scrollToLatest(using proxy: ScrollViewProxy) {
-        withAnimation(.snappy(duration: 0.22, extraBounce: 0.02)) {
-            if localStreamingResponse != nil {
-                proxy.scrollTo("local-streaming-response", anchor: .bottom)
-            } else if isSending {
-                proxy.scrollTo("thinking", anchor: .bottom)
-            } else if let lastMessage = visibleMessages.last {
-                proxy.scrollTo(lastMessage.id, anchor: .bottom)
-            }
-        }
     }
 }

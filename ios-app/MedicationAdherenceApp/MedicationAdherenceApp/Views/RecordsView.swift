@@ -25,6 +25,49 @@ struct RecordsView: View {
 
     init(hidesTabBar: Bool = true) {
         self.hidesTabBar = hidesTabBar
+        let calendar = Calendar.current
+        let currentMonth = calendar.dateInterval(
+            of: .month,
+            for: Date()
+        )?.start ?? Date()
+        let queryStart = calendar.date(
+            byAdding: .month,
+            value: -23,
+            to: currentMonth
+        ) ?? currentMonth
+        let queryEnd = calendar.date(
+            byAdding: .month,
+            value: 1,
+            to: currentMonth
+        ) ?? currentMonth.addingTimeInterval(2_678_400)
+        _tasks = Query(
+            filter: #Predicate<StoredDoseTask> {
+                $0.dueAt >= queryStart && $0.dueAt < queryEnd
+            },
+            sort: \StoredDoseTask.dueAt,
+            order: .reverse
+        )
+        _doseChanges = Query(
+            filter: #Predicate<StoredMedicationDoseChange> {
+                $0.effectiveFrom >= queryStart && $0.effectiveFrom < queryEnd
+            },
+            sort: \StoredMedicationDoseChange.effectiveFrom,
+            order: .reverse
+        )
+        _lifecycleEvents = Query(
+            filter: #Predicate<StoredMedicationLifecycleEvent> {
+                $0.occurredAt >= queryStart && $0.occurredAt < queryEnd
+            },
+            sort: \StoredMedicationLifecycleEvent.occurredAt,
+            order: .reverse
+        )
+        _actionLogs = Query(
+            filter: #Predicate<StoredDoseActionLog> {
+                $0.occurredAt >= queryStart && $0.occurredAt < queryEnd
+            },
+            sort: \StoredDoseActionLog.occurredAt,
+            order: .reverse
+        )
     }
 
     private var measurableTasks: [StoredDoseTask] {

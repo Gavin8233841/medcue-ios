@@ -40,6 +40,23 @@ struct AIOutgoingMessage {
     let requestText: String
 }
 
+func medicalAIScopeDisplayName(_ scope: MedicalAIDataScope) -> String {
+    switch scope {
+    case .medicationProfile:
+        "药品信息"
+    case .medicationPlans:
+        "提醒计划"
+    case .doseEvents:
+        "服药记录"
+    case .riskCards:
+        "风险提醒"
+    case .drugLabels:
+        "说明书摘要"
+    case .importDraft:
+        "导入识别内容"
+    }
+}
+
 struct AgentRuntimeSelectorBar: View {
     let onlineConfiguration: MedicalAIConfiguration
     let onlineReadiness: MedicalAITransportReadiness
@@ -398,4 +415,3 @@ struct LocalMedicalModelStatusView: View {
         .accessibilityElement(children: .combine)
     }
 }
-

@@ -115,7 +115,10 @@ private enum MedicalAISmokeTestRunner {
         do {
             let response = try await withThrowingTaskGroup(of: MedicalAIResponse.self) { group in
                 group.addTask {
-                    let client = medicalAIClient(configuration: configuration, apiKey: apiKey)
+                    let client = MedicalAIClientFactory.make(
+                        configuration: configuration,
+                        credential: apiKey
+                    )
                     return try await client.respond(to: MedicalAIRequest(
                         kind: .chat,
                         userMessage: "请用一句话回复医疗智能体连通测试。",
@@ -143,16 +146,10 @@ private enum MedicalAISmokeTestRunner {
         }
     }
 
-    private static func medicalAIClient(configuration: MedicalAIConfiguration, apiKey: String) -> any MedicalAIClient {
-        switch configuration.providerKind {
-        case .doubao:
-            return DoubaoMedicalAIClient(configuration: configuration, apiKey: apiKey)
-        case .baichuan:
-            return BaichuanMedicalAIClient(configuration: configuration, apiKey: apiKey)
-        }
-    }
-
     private static func diagnosticSummary(for error: Error) -> String {
+        if let error = error as? CloudBaseMedicalAIError {
+            return "broker=\(error.diagnosticSummary)"
+        }
         if let error = error as? DoubaoMedicalAIError {
             return "doubao=\(error.diagnosticSummary)"
         }

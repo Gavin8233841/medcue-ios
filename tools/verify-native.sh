@@ -284,6 +284,7 @@ main() {
     require_command git
     require_command plutil
     require_command realpath
+    require_command rg
     require_command swift
     require_command xcodebuild
     require_file "$PROJECT_FILE"

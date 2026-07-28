@@ -270,7 +270,9 @@ private enum ProfileSnapshotCache {
 }
 
 private struct ProfileSnapshot {
-    static let empty = ProfileSnapshot(tasks: [], now: Date(timeIntervalSinceReferenceDate: 0))
+    static var empty: ProfileSnapshot {
+        ProfileSnapshot(tasks: [], now: Date(timeIntervalSinceReferenceDate: 0))
+    }
 
     let measurableTasks: [StoredDoseTask]
     let insight: AdherenceInsight

@@ -54,7 +54,7 @@ Simulator 运行态阻塞（2026-07-26）：测试宿主与非测试 Debug App �
 
 Today、Records 与 Risks 已继续推进纵向小步：Today 的完整渲染快照通过精确 revision cache 避免动画状态刷新时重复重建，归档/恢复写入进入 `TodayArchiveVisibilityCommand`，剂量撤销/重新打开及其横幅撤回进入 `DoseReopenCommand`；风险归档/重新打开进入 `RiskReviewCommand`；Records 修正写入进入限定同药品分钟窗口的 `DoseRecordCorrectionCommand`，该页面当前没有另一套记录撤销写路径。View 只在 committed 后驱动展示反馈和通知、Live Activity 等系统 adapter。快速重复调用、保存失败、精确 rollback、AI 切 Tab 取消、Vision/复诊资料旧任务取消与 generation gate 均已有回归测试；最终完整门 hosted `112/112`。
 
-后续投影深化把 Today 的筛选、逻辑剂量去重、排序、摘要、完成率与 revision cache 收敛到 `TodayDoseProjectionStore`，把风险卡优先级去重、活动/归档分离、分类和 refresh revision 收敛到 `RiskDisplayProjection`。两组共 7 项 hosted 测试固定投影不变量；`TodayView.swift` 当前 1564 行，`RisksView.swift` 当前 1414 行，仍可继续按独立展示区域拆分，但不再重复承载本轮投影 implementation。
+后续投影深化把 Today 的资格筛选、逻辑剂量去重、排序、摘要、完成率、状态替换完成率与 revision cache 收敛到 `TodayDoseProjectionStore`；`TodayView` 已删除同一套筛选、优先级和完成率算法，Live Activity 刷新也只消费投影资格任务。时间 revision 会在跨过具体 dueAt 时立即失效，同一临界点前仍可复用缓存。风险卡优先级去重、活动/归档分离、分类和 refresh revision 收敛到 `RiskDisplayProjection`；风险 identity 优先使用 detection signature，空 signature 回退到风险种类和规范化内容，避免同药品不同风险误合并。Today 与风险当前合计 11 项 hosted 测试固定这些投影不变量；`TodayView.swift` 当前 1448 行，`RisksView.swift` 当前 1414 行，仍可继续按独立展示区域拆分，但不再重复承载本轮投影 implementation。
 
 ### 4. AI 会话与端侧运行时
 
@@ -117,19 +117,21 @@ WatchConnectivity 状态已收敛到 MainActor/actor，Watch reminder adapter �
 ### 10. 本地门禁与远端 CI
 
 - [x] 把 Live Activity P0 测试、静默保存防回退、Core/hosted tests、Release/Watch 构建保持在 `tools/verify-native.sh`。
-- [ ] 远端 CI 仅在平台与权限确定后建立；不得添加无法真实运行的占位文件。
+- [x] 在私有 GitHub 仓库建立可执行的 `Native Verification` workflow，并用本地 CI-stub 全新 DerivedData 验证 package resolution 与 hosted tests。
+- [ ] 推送当前 CI 修复后确认 GitHub Actions 全量门绿色；不得以本地复现替代远端结果。
 
-本地门同时检查 PrivacyInfo required-reason 声明，并递归拒绝 Release 产物中的 `AISecrets.plist`、`.env.local`、GGUF 与 SQLite 用户数据。2026-07-27 最新完整门通过：Swift Core `152/152`、hosted `136/136`、主 App 无签名 Release、Release 敏感产物断言、Watch Simulator Debug 与 watchOS device SDK Release。五组最新投影/会话专项合跑 `15/15`。远端 CI 尚无已选平台、仓库权限和签名/秘密管理方案，保持阻塞。
+本地门同时检查 PrivacyInfo required-reason 声明，并递归拒绝 Release 产物中的 `AISecrets.plist`、`.env.local`、GGUF 与 SQLite 用户数据。2026-07-28 最新完整门通过：Swift Core `152/152`、hosted `148/148`、主 App 无签名 Release、Release 敏感产物断言、Watch Simulator Debug 与 watchOS device SDK Release。五组投影/会话专项合跑 `20/20`；Broker/endpoint 专项 `13/13`。首次远端运行因发布源码中的 llama 占位目录无法解析而退出 74，且 runner 缺少 `rg`。当前 workflow 在 `MEDCUE_DISABLE_LOCAL_LLAMA=1` 下使用不导出 `llama` module 的 stub product，普通本地/真机构建仍使用真实 xcframework；CI 安装 `ripgrep`，验证脚本也显式要求 `rg`。全新本地 CI-stub 构建已越过依赖解析并通过定向 hosted tests，远端结果仍待推送核验。
 
-新增 `tools/swift-source-size-check.sh` 并接入快速/完整门，当前限制单个 Swift 源文件不超过 2000 行；最大文件为 `TodayView.swift` 1564 行。原评估中的 `MedicationsView.swift`、`RecordsView.swift`、`TodayView.swift`、`SettingsView.swift`、`AIAssistantView.swift` 与 `AppRootView.swift` 已按纵向功能拆分，不再存在 2200–6065 行入口文件。该门只防止文件体积回退，业务编排仍以 deep module 和事务测试为完成依据；Today、Risks、AI 与趋势展示文件仍超过 1000 行，维护体积债务尚有继续收敛空间。
+新增 `tools/swift-source-size-check.sh` 并接入快速/完整门，当前限制单个 Swift 源文件不超过 2000 行；最大文件为 `MedicationOverviewViews.swift` 1449 行。原评估中的 `MedicationsView.swift`、`RecordsView.swift`、`TodayView.swift`、`SettingsView.swift`、`AIAssistantView.swift` 与 `AppRootView.swift` 已按纵向功能拆分，不再存在 2200–6065 行入口文件。该门只防止文件体积回退，业务编排仍以 deep module 和事务测试为完成依据；多个展示文件仍超过 1000 行，维护体积债务尚有继续收敛空间。
 
 ### 10a. AI Token Broker
 
 - [x] 建立独立 CloudBase HTTP Broker 本地实现与 TDD 契约，固定请求边界、上游锁定、错误映射、超时、实例内短期去重与限流。
 - [ ] 在 CloudBase 注入服务端 `ARK_API_KEY`/`ARK_MODEL`、创建函数、配置调用权限，并以不含医疗正文的真实请求完成健康检查和日志抽检。
-- [ ] 新增 iOS Broker adapter、Release HTTPS allowlist 和客户端端到端回归；在外部身份或 App Attest 到位前，不把静态 client token 宣称为生产级设备证明。
+- [x] 新增 iOS Broker adapter、统一 client factory、Release HTTPS allowlist 与客户端契约回归。
+- [ ] 以不含医疗资料的真实请求完成真机端到端验证；在外部身份或 App Attest 到位前，不把静态 client token 宣称为生产级设备证明。
 
-`cloudfunctions/medcue-ai-broker` 的本地测试当前为 `17/17`。CloudBase 已创建独立函数，当前处于 Active/Available、环境变量为空、默认权限拒绝匿名调用且无网关入口；服务端密钥安全注入与公开调用权限的最终确认仍阻塞真实联调，保持真实待办。
+`cloudfunctions/medcue-ai-broker` 的本地测试当前为 `17/17`，iOS Broker/endpoint 专项 `13/13`。CloudBase 已创建独立函数、默认 HTTPS gateway 路径及三项环境变量键；变量值未读取或输出。无鉴权、非医疗探测返回 401，但仅凭该结果不能证明带 token 请求、上游模型或日志脱敏已经通过；当前 MCP 版本也不支持所需日志检索。真实请求、日志抽检与生产级设备身份仍保持真实待办。
 
 ### 11. 手动 UUID 引用完整性
 

@@ -4,6 +4,26 @@ import Testing
 
 struct MedicalAIEndpointPolicyTests {
     @Test
+    func missingStoredConfigurationDefaultsToTheBrokerWithoutOverwritingExplicitProviders() {
+        let fallback = MedicalAIConfigurationSelection.resolve(
+            providerName: " ",
+            modelName: nil,
+            endpointURLString: ""
+        )
+        let explicitDoubao = MedicalAIConfigurationSelection.resolve(
+            providerName: MedicalAIConfiguration.doubaoProviderName,
+            modelName: MedicalAIConfiguration.doubaoDefaultModelName,
+            endpointURLString: MedicalAIConfiguration.doubaoResponsesEndpoint
+        )
+
+        #expect(fallback.providerName == MedicalAIConfiguration.brokerProviderName)
+        #expect(fallback.modelName == MedicalAIConfiguration.brokerDefaultModelName)
+        #expect(fallback.endpointURLString == MedicalAIConfiguration.brokerRespondEndpoint)
+        #expect(explicitDoubao.providerName == MedicalAIConfiguration.doubaoProviderName)
+        #expect(explicitDoubao.endpointURLString == MedicalAIConfiguration.doubaoResponsesEndpoint)
+    }
+
+    @Test
     func releaseAcceptsCanonicalProviderEndpoints() throws {
         let doubao = configuration(
             providerName: MedicalAIConfiguration.doubaoProviderName,
@@ -16,6 +36,29 @@ struct MedicalAIEndpointPolicyTests {
 
         #expect(try MedicalAIEndpointPolicy.validatedURL(for: doubao, enforcement: .release).absoluteString == MedicalAIConfiguration.doubaoResponsesEndpoint)
         #expect(try MedicalAIEndpointPolicy.validatedURL(for: baichuan, enforcement: .release).absoluteString == MedicalAIConfiguration.baichuanChatEndpoint)
+    }
+
+    @Test
+    func releaseAcceptsOnlyTheCanonicalBrokerEndpoint() throws {
+        let broker = configuration(
+            providerName: MedicalAIConfiguration.brokerProviderName,
+            endpoint: MedicalAIConfiguration.brokerRespondEndpoint
+        )
+        let decorated = configuration(
+            providerName: MedicalAIConfiguration.brokerProviderName,
+            endpoint: "\(MedicalAIConfiguration.brokerRespondEndpoint)?redirect=1"
+        )
+
+        #expect(
+            try MedicalAIEndpointPolicy.validatedURL(
+                for: broker,
+                expectedProvider: .broker,
+                enforcement: .release
+            ).absoluteString == MedicalAIConfiguration.brokerRespondEndpoint
+        )
+        #expect(throws: MedicalAIEndpointPolicyError.unapprovedEndpoint) {
+            try MedicalAIEndpointPolicy.validatedURL(for: decorated, enforcement: .release)
+        }
     }
 
     @Test

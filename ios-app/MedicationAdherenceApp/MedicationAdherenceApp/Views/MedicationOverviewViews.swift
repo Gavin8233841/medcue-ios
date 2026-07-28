@@ -55,7 +55,8 @@ struct MedicationDetailResolverView: View {
 }
 
 struct MedicationListSnapshot {
-    static let empty = MedicationListSnapshot(
+    static var empty: MedicationListSnapshot {
+        MedicationListSnapshot(
         medications: [],
         plans: [],
         tasks: [],
@@ -63,7 +64,8 @@ struct MedicationListSnapshot {
         stocks: [],
         now: Date(timeIntervalSinceReferenceDate: 0),
         isPlaceholder: true
-    )
+        )
+    }
 
     let medications: [StoredMedication]
     let measurableTasks: [StoredDoseTask]

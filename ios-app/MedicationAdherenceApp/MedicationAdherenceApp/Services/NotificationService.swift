@@ -1172,9 +1172,10 @@ struct MedicationReminderTaskCoordinator {
     }
 }
 
-final class MedicationNotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
+@MainActor
+final class MedicationNotificationDelegate: NSObject, @preconcurrency UNUserNotificationCenterDelegate {
     static let shared = MedicationNotificationDelegate()
-    static let categoryIdentifier = "MEDICATION_DOSE_REMINDER"
+    nonisolated static let categoryIdentifier = "MEDICATION_DOSE_REMINDER"
 
     private static let markTakenActionIdentifier = "MEDICATION_MARK_TAKEN"
     private static let delayActionIdentifier = "MEDICATION_DELAY_30_MINUTES"

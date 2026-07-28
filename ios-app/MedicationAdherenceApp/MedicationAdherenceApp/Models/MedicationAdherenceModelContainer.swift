@@ -34,7 +34,7 @@ enum MedicationAdherenceModelContainer {
 }
 
 enum MedicationAdherenceSchemaV1: VersionedSchema {
-    static var versionIdentifier = Schema.Version(1, 0, 0)
+    static let versionIdentifier = Schema.Version(1, 0, 0)
 
     static var models: [any PersistentModel.Type] {
         [
@@ -151,7 +151,7 @@ enum MedicationAdherenceSchemaV1: VersionedSchema {
 }
 
 enum MedicationAdherenceSchemaV2: VersionedSchema {
-    static var versionIdentifier = Schema.Version(2, 0, 0)
+    static let versionIdentifier = Schema.Version(2, 0, 0)
 
     static var models: [any PersistentModel.Type] {
         [

@@ -112,22 +112,6 @@ struct PendingDoseConfirmation: Equatable {
     let kind: Kind
 }
 
-struct TodayRenderSnapshot {
-    let visibleOpenTimelineTasks: [StoredDoseTask]
-    let handledTodayTasks: [StoredDoseTask]
-    let archivedTodayTasks: [StoredDoseTask]
-    let nextReminderTask: StoredDoseTask?
-    let overdueOpenTaskCount: Int
-    let emptyOpenTimelineMessage: String
-    let shouldShowSkippedMedicationSummary: Bool
-    let shouldShowHandledSection: Bool
-    let displayedOpenCount: Int
-    let displayedHandledCount: Int
-    let handledSummaryText: String
-    let skippedMedicationSummary: String
-    let completionRateSnapshot: CompletionRateSnapshot
-}
-
 struct DoseMigrationSnapshot: Identifiable, Equatable {
     enum Direction: Equatable {
         case toHandled

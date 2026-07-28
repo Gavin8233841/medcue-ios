@@ -27,12 +27,14 @@ struct AIChatInputBar: View {
     }
 
     var body: some View {
+        let inputTint = accentTint
+
         HStack(alignment: .center, spacing: 8) {
             PhotosPicker(selection: $selectedImageItem, matching: .images) {
                 AIChatAccessoryIcon(
                     systemName: isReadingImage ? "hourglass" : "photo.badge.plus",
                     accessibilityLabel: "发送图片",
-                    tint: accentTint,
+                    tint: inputTint,
                     isEnabled: isEnabled && !isSending && !isReadingImage
                 )
             }
@@ -52,6 +54,7 @@ struct AIChatInputBar: View {
                         .stroke(accentTint.opacity(isFocused.wrappedValue ? 0.28 : 0.10), lineWidth: 1)
                 )
                 .disabled(!isEnabled || isSending)
+                .accessibilityIdentifier(AppAccessibilityID.assistantInput)
                 .toolbar {
                     ToolbarItemGroup(placement: .keyboard) {
                         Spacer()
@@ -68,13 +71,14 @@ struct AIChatInputBar: View {
                 AIChatAccessoryIcon(
                     systemName: isSending ? "hourglass" : "arrow.up",
                     accessibilityLabel: isEnabled ? "发送" : "查看使用说明",
-                    tint: accentTint,
+                    tint: inputTint,
                     isEnabled: isEnabled ? canSend : true,
                     isProminent: true
                 )
             }
             .buttonStyle(.plain)
             .disabled(isSending || isReadingImage || (isEnabled && trimmedText.isEmpty))
+            .accessibilityIdentifier(AppAccessibilityID.assistantSend)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

@@ -2,8 +2,45 @@ import Foundation
 import Security
 
 enum MedicalAIProviderKind: String, Sendable {
+    case broker
     case doubao
     case baichuan
+}
+
+struct MedicalAIConfigurationSelection: Equatable, Sendable {
+    let providerName: String
+    let modelName: String
+    let endpointURLString: String
+
+    static func resolve(
+        providerName: String?,
+        modelName: String?,
+        endpointURLString: String?
+    ) -> MedicalAIConfigurationSelection {
+        MedicalAIConfigurationSelection(
+            providerName: resolved(
+                providerName,
+                fallback: MedicalAIConfiguration.brokerProviderName
+            ),
+            modelName: resolved(
+                modelName,
+                fallback: MedicalAIConfiguration.brokerDefaultModelName
+            ),
+            endpointURLString: resolved(
+                endpointURLString,
+                fallback: MedicalAIConfiguration.brokerRespondEndpoint
+            )
+        )
+    }
+
+    private static func resolved(_ value: String?, fallback: String) -> String {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty
+        else {
+            return fallback
+        }
+        return trimmed
+    }
 }
 
 struct MedicalAITransportReadiness: Equatable, Sendable {
@@ -13,6 +50,10 @@ struct MedicalAITransportReadiness: Equatable, Sendable {
 }
 
 struct MedicalAIConfiguration: Equatable, Sendable {
+    static let brokerProviderName = "MedCue 云端智能体"
+    static let brokerDefaultModelName = "安全代理托管"
+    static let brokerRespondEndpoint = "https://gyy787891-d3ge5n8nlcaaf87e7.service.tcloudbase.com/medcue-ai-broker/v1/respond"
+    static let brokerLicenseSummary = "MedCue 安全代理；仅在用户授权后转发本次咨询，不向客户端分发模型供应商密钥。"
     static let baichuanProviderName = "百川智能"
     static let baichuanDefaultModelName = "Baichuan-M3-Plus"
     static let baichuanChatEndpoint = "https://api.baichuan-ai.com/v1/chat/completions"
@@ -47,7 +88,11 @@ struct MedicalAIConfiguration: Equatable, Sendable {
 
     static func providerKind(providerName: String, endpointURLString: String) -> MedicalAIProviderKind {
         let host = URL(string: endpointURLString)?.host
+        let brokerHost = URL(string: brokerRespondEndpoint)?.host
         let doubaoHost = URL(string: doubaoResponsesEndpoint)?.host
+        if host == brokerHost || providerName == brokerProviderName {
+            return .broker
+        }
         if host == doubaoHost || providerName == doubaoProviderName {
             return .doubao
         }
@@ -132,6 +177,11 @@ struct MedicalAIEndpointPolicy: Sendable {
         let endpointProvider: MedicalAIProviderKind
         if matchesCanonicalEndpoint(
             components,
+            canonicalURLString: MedicalAIConfiguration.brokerRespondEndpoint
+        ) {
+            endpointProvider = .broker
+        } else if matchesCanonicalEndpoint(
+            components,
             canonicalURLString: MedicalAIConfiguration.doubaoResponsesEndpoint
         ) {
             endpointProvider = .doubao
@@ -146,6 +196,8 @@ struct MedicalAIEndpointPolicy: Sendable {
 
         let declaredProvider: MedicalAIProviderKind
         switch configuration.providerName.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case MedicalAIConfiguration.brokerProviderName:
+            declaredProvider = .broker
         case MedicalAIConfiguration.doubaoProviderName:
             declaredProvider = .doubao
         case MedicalAIConfiguration.baichuanProviderName:
@@ -220,23 +272,26 @@ final class SecureAIConfigurationStore: ObservableObject {
     private static let endpointURLKey = "medicalAI.endpointURL"
     private static let keychainService = "com.gwyy.appcontest2026.medicationadherence.medical-ai"
     private static let legacyKeychainAccount = "api-key"
+    private static let brokerKeychainAccount = "client-token.broker"
     private static let doubaoKeychainAccount = "api-key.doubao"
     private static let baichuanKeychainAccount = "api-key.baichuan"
+    private static let injectedBrokerTokenEnvironmentName = "MEDCUE_BROKER_CLIENT_TOKEN"
     private static let injectedAPIKeyEnvironmentName = "BAICHUAN_MEDICAL_AI_API_KEY"
     private static let injectedArkAPIKeyEnvironmentName = "ARK_API_KEY"
 
     init() {
         let injectionSummary = Self.syncBestAvailableSecret(into: defaults)
 
-        let providerName = Self.defaulted(defaults.string(forKey: Self.providerNameKey), fallback: MedicalAIConfiguration.doubaoProviderName)
-        let modelName = Self.defaulted(defaults.string(forKey: Self.modelNameKey), fallback: MedicalAIConfiguration.doubaoDefaultModelName)
-        let endpointURLString = Self.defaulted(defaults.string(forKey: Self.endpointURLKey), fallback: MedicalAIConfiguration.doubaoResponsesEndpoint)
-        let providerKind = MedicalAIConfiguration.providerKind(providerName: providerName, endpointURLString: endpointURLString)
+        let selection = Self.configurationSelection(from: defaults)
+        let providerKind = MedicalAIConfiguration.providerKind(
+            providerName: selection.providerName,
+            endpointURLString: selection.endpointURLString
+        )
         let keyLookup = Self.lookupAPIKey(for: providerKind)
         configuration = MedicalAIConfiguration(
-            providerName: providerName,
-            modelName: modelName,
-            endpointURLString: endpointURLString,
+            providerName: selection.providerName,
+            modelName: selection.modelName,
+            endpointURLString: selection.endpointURLString,
             hasAPIKey: keyLookup.key != nil
         )
         statusMessage = keyLookup.key != nil ? "医疗智能体已就绪；发送前仍会校验用户授权范围。" : "医疗智能体暂时不可用；不会外发用药数据。"
@@ -246,9 +301,11 @@ final class SecureAIConfigurationStore: ObservableObject {
     @discardableResult
     func refreshInjectedSecretsIfAvailable() -> MedicalAIConfiguration {
         let injectionSummary = Self.syncBestAvailableSecret(into: defaults)
-        let providerName = Self.defaulted(defaults.string(forKey: Self.providerNameKey), fallback: MedicalAIConfiguration.doubaoProviderName)
-        let endpointURLString = Self.defaulted(defaults.string(forKey: Self.endpointURLKey), fallback: MedicalAIConfiguration.doubaoResponsesEndpoint)
-        let providerKind = MedicalAIConfiguration.providerKind(providerName: providerName, endpointURLString: endpointURLString)
+        let selection = Self.configurationSelection(from: defaults)
+        let providerKind = MedicalAIConfiguration.providerKind(
+            providerName: selection.providerName,
+            endpointURLString: selection.endpointURLString
+        )
         let keyLookup = Self.lookupAPIKey(for: providerKind)
         reload(status: keyLookup.key == nil ? Self.unavailableUserMessage : "医疗智能体已就绪；发送前仍会校验用户授权范围。")
         Self.debugLog("refresh \(configuration.sanitizedDebugSummary) keySource=\(keyLookup.sourceDescription) injected=\(injectionSummary)")
@@ -356,6 +413,7 @@ final class SecureAIConfigurationStore: ObservableObject {
         defaults.removeObject(forKey: Self.providerNameKey)
         defaults.removeObject(forKey: Self.modelNameKey)
         defaults.removeObject(forKey: Self.endpointURLKey)
+        Self.deleteKeychainValue(service: Self.keychainService, account: Self.keychainAccount(for: .broker))
         Self.deleteKeychainValue(service: Self.keychainService, account: Self.keychainAccount(for: .doubao))
         Self.deleteKeychainValue(service: Self.keychainService, account: Self.keychainAccount(for: .baichuan))
         Self.deleteKeychainValue(service: Self.keychainService, account: Self.legacyKeychainAccount)
@@ -363,26 +421,30 @@ final class SecureAIConfigurationStore: ObservableObject {
     }
 
     private func reload(status: String) {
-        let providerName = Self.defaulted(defaults.string(forKey: Self.providerNameKey), fallback: MedicalAIConfiguration.doubaoProviderName)
-        let modelName = Self.defaulted(defaults.string(forKey: Self.modelNameKey), fallback: MedicalAIConfiguration.doubaoDefaultModelName)
-        let endpointURLString = Self.defaulted(defaults.string(forKey: Self.endpointURLKey), fallback: MedicalAIConfiguration.doubaoResponsesEndpoint)
-        let providerKind = MedicalAIConfiguration.providerKind(providerName: providerName, endpointURLString: endpointURLString)
+        let selection = Self.configurationSelection(from: defaults)
+        let providerKind = MedicalAIConfiguration.providerKind(
+            providerName: selection.providerName,
+            endpointURLString: selection.endpointURLString
+        )
         let keyLookup = Self.lookupAPIKey(for: providerKind)
         configuration = MedicalAIConfiguration(
-            providerName: providerName,
-            modelName: modelName,
-            endpointURLString: endpointURLString,
+            providerName: selection.providerName,
+            modelName: selection.modelName,
+            endpointURLString: selection.endpointURLString,
             hasAPIKey: keyLookup.key != nil
         )
         statusMessage = status
         Self.debugLog("reload \(configuration.sanitizedDebugSummary) keySource=\(keyLookup.sourceDescription)")
     }
 
-    private static func defaulted(_ value: String?, fallback: String) -> String {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
-            return fallback
-        }
-        return trimmed
+    private static func configurationSelection(
+        from defaults: UserDefaults
+    ) -> MedicalAIConfigurationSelection {
+        MedicalAIConfigurationSelection.resolve(
+            providerName: defaults.string(forKey: providerNameKey),
+            modelName: defaults.string(forKey: modelNameKey),
+            endpointURLString: defaults.string(forKey: endpointURLKey)
+        )
     }
 
     private static var unavailableUserMessage: String {
@@ -398,7 +460,7 @@ final class SecureAIConfigurationStore: ObservableObject {
             return value
         }
         let assignmentPrefix = "\(name)="
-        return ProcessInfo.processInfo.arguments.compactMap { argument in
+        return ProcessInfo.processInfo.arguments.compactMap { argument -> String? in
             guard argument.hasPrefix(assignmentPrefix) else {
                 return nil
             }
@@ -445,6 +507,19 @@ final class SecureAIConfigurationStore: ObservableObject {
 
     private static func syncBestAvailableSecret(into defaults: UserDefaults) -> String {
         #if DEBUG
+        if let brokerToken = injectedSecret(named: injectedBrokerTokenEnvironmentName)
+            ?? bundledSecret(named: injectedBrokerTokenEnvironmentName) {
+            let status = writeKeychainValue(
+                brokerToken,
+                service: keychainService,
+                account: keychainAccount(for: .broker)
+            )
+            defaults.set(MedicalAIConfiguration.brokerProviderName, forKey: providerNameKey)
+            defaults.set(MedicalAIConfiguration.brokerDefaultModelName, forKey: modelNameKey)
+            defaults.set(MedicalAIConfiguration.brokerRespondEndpoint, forKey: endpointURLKey)
+            return "\(injectedBrokerTokenEnvironmentName) source=\(injectionSourceDescription(for: injectedBrokerTokenEnvironmentName)) keychainStatus=\(securityStatusDescription(status))"
+        }
+
         if let REDACTED_TOKEN = injectedSecret(named: injectedArkAPIKeyEnvironmentName)
             ?? bundledSecret(named: injectedArkAPIKeyEnvironmentName) {
             let status = writeKeychainValue(
@@ -486,6 +561,8 @@ final class SecureAIConfigurationStore: ObservableObject {
 
     private static func keychainAccount(for providerKind: MedicalAIProviderKind) -> String {
         switch providerKind {
+        case .broker:
+            return brokerKeychainAccount
         case .doubao:
             return doubaoKeychainAccount
         case .baichuan:
@@ -495,6 +572,8 @@ final class SecureAIConfigurationStore: ObservableObject {
 
     private static func secretName(for providerKind: MedicalAIProviderKind) -> String {
         switch providerKind {
+        case .broker:
+            return injectedBrokerTokenEnvironmentName
         case .doubao:
             return injectedArkAPIKeyEnvironmentName
         case .baichuan:

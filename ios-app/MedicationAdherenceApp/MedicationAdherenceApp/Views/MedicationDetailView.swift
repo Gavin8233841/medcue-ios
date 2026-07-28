@@ -123,6 +123,8 @@ struct MedicationDetailView: View {
     }
 
     var body: some View {
+        let hasPhoto = medication.photoData != nil
+
         List {
             Section {
                 VStack(alignment: .leading, spacing: 14) {
@@ -166,7 +168,7 @@ struct MedicationDetailView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         HStack {
                             PhotosPicker(selection: $selectedDetailPhotoItem, matching: .images) {
-                                Label(medication.photoData == nil ? "选择照片" : "更换照片", systemImage: "photo")
+                                Label(hasPhoto ? "更换照片" : "选择照片", systemImage: "photo")
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
@@ -178,7 +180,7 @@ struct MedicationDetailView: View {
                             .buttonStyle(.bordered)
                             .controlSize(.small)
                             .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
-                            if medication.photoData != nil {
+                            if hasPhoto {
                                 Button(role: .destructive) {
                                     saveDetailPhoto(
                                         nil,
@@ -878,4 +880,3 @@ struct MedicationPhotoSourceButtonLabel: View {
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
-

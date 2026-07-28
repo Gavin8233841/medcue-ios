@@ -192,14 +192,14 @@ private final class LlamaCppContext {
                     return prompt
                 }
                 if written < buffer.count {
-                    return String(cString: buffer)
+                    return decodeNullTerminatedUTF8(buffer)
                 }
                 var largerBuffer = [CChar](repeating: 0, count: Int(written) + 1)
                 let largerWritten = llama_chat_apply_template(template, &message, 1, true, &largerBuffer, Int32(largerBuffer.count))
                 guard largerWritten > 0, largerWritten < largerBuffer.count else {
                     return prompt
                 }
-                return String(cString: largerBuffer)
+                return decodeNullTerminatedUTF8(largerBuffer)
             }
         }
     }
@@ -237,7 +237,8 @@ private final class LlamaCppContext {
 
     private func appendTokenPiece(_ token: llama_token) -> String {
         pendingUTF8Bytes.append(contentsOf: tokenPiece(token))
-        if let string = String(validatingUTF8: pendingUTF8Bytes + [0]) {
+        let bytes = pendingUTF8Bytes.map { UInt8(bitPattern: $0) }
+        if let string = String(bytes: bytes, encoding: .utf8) {
             pendingUTF8Bytes.removeAll()
             return string
         }
@@ -248,9 +249,19 @@ private final class LlamaCppContext {
         guard !pendingUTF8Bytes.isEmpty else {
             return ""
         }
-        let string = String(cString: pendingUTF8Bytes + [0])
+        let string = String(
+            decoding: pendingUTF8Bytes.map { UInt8(bitPattern: $0) },
+            as: UTF8.self
+        )
         pendingUTF8Bytes.removeAll()
         return string
+    }
+
+    private func decodeNullTerminatedUTF8(_ characters: [CChar]) -> String {
+        let bytes = characters
+            .prefix { $0 != 0 }
+            .map { UInt8(bitPattern: $0) }
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     private func tokenPiece(_ token: llama_token) -> [CChar] {

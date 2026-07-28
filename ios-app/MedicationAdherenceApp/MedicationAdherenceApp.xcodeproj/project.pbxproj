@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		094A49BBBE8241AD805F0DB7 /* MedicationTrendProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D9D55DE5B394B95AFE4FD9C /* MedicationTrendProjection.swift */; };
+		2220917C9C064C2AA774060E /* AIConversationMaintenancePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B61ED275CD14F2D940CD09C /* AIConversationMaintenancePolicy.swift */; };
+		37C4A5D9E2FA4E6B95EBA8ED /* RiskDisplayProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 081D397587D84E33974AF67A /* RiskDisplayProjection.swift */; };
 		A10000000000000000000001 /* MedicationAdherenceApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* MedicationAdherenceApp.swift */; };
 		A10000000000000000000002 /* AppRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* AppRootView.swift */; };
 		A10000000000000000000003 /* StoredModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* StoredModels.swift */; };
@@ -27,6 +30,7 @@
 		A10000000000000000000019 /* BaichuanMedicalAIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000019 /* BaichuanMedicalAIClient.swift */; };
 		A10000000000000000000020 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000020 /* Assets.xcassets */; };
 		A10000000000000000000021 /* DoubaoMedicalAIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000021 /* DoubaoMedicalAIClient.swift */; };
+		C8202E16E49C461CBAAD2020 /* CloudBaseMedicalAIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = F48A045771D64BB3A2D885B1 /* CloudBaseMedicalAIClient.swift */; };
 		A10000000000000000000022 /* MedicationLiveActivityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000022 /* MedicationLiveActivityService.swift */; };
 		A10000000000000000000023 /* MedicationRiskReviewService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000023 /* MedicationRiskReviewService.swift */; };
 		A10000000000000000000024 /* MedicationLifecycleClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000024 /* MedicationLifecycleClassifier.swift */; };
@@ -96,6 +100,7 @@
 		B10000000000000000000005 /* MedicationReminderLiveActivityExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = B20000000000000000000005 /* MedicationReminderLiveActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		B10000000000000000000006 /* MedicationReminderLiveActivityActionURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000029 /* MedicationReminderLiveActivityActionURL.swift */; };
 		B10000000000000000000007 /* MedicationReminderLiveActivityIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000034 /* MedicationReminderLiveActivityIntent.swift */; };
+		B13FC73230974F328E851EE6 /* MedicalAIContextBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 713DEAB87AD143C596E17ABD /* MedicalAIContextBuilder.swift */; };
 		C10000000000000000000001 /* MedicationWatchSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000001 /* MedicationWatchSnapshot.swift */; };
 		C10000000000000000000002 /* MedicationWatchSnapshotBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000002 /* MedicationWatchSnapshotBridge.swift */; };
 		C10000000000000000000003 /* MedicationWatchSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000001 /* MedicationWatchSnapshot.swift */; };
@@ -111,7 +116,15 @@
 		C10000000000000000000013 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000015 /* PrivacyInfo.xcprivacy */; };
 		C10000000000000000000014 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000015 /* PrivacyInfo.xcprivacy */; };
 		C10000000000000000000015 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000015 /* PrivacyInfo.xcprivacy */; };
+		C10100000000000000000001 /* MedicationTrendSummaryViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10200000000000000000001 /* MedicationTrendSummaryViews.swift */; };
+		C10100000000000000000002 /* MedicationTrendChartViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10200000000000000000002 /* MedicationTrendChartViews.swift */; };
+		C10100000000000000000003 /* AIAssistantScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10200000000000000000003 /* AIAssistantScreen.swift */; };
+		D10000000000000000000001 /* TodayScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000001 /* TodayScreen.swift */; };
+		D10000000000000000000002 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000002 /* Localizable.xcstrings */; };
 		E10000000000000000001001 /* LlamaFramework in Frameworks */ = {isa = PBXBuildFile; productRef = E70000000000000000001001 /* LlamaFramework */; };
+		F70000000000000000000001 /* TodayDoseProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = F70000000000000000000002 /* TodayDoseProjection.swift */; };
+		F80000000000000000000001 /* RiskListViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F80000000000000000000002 /* RiskListViews.swift */; };
+		F90000000000000000000001 /* RiskDetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90000000000000000000002 /* RiskDetailViews.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -182,6 +195,10 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		081D397587D84E33974AF67A /* RiskDisplayProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiskDisplayProjection.swift; sourceTree = "<group>"; };
+		5D9D55DE5B394B95AFE4FD9C /* MedicationTrendProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationTrendProjection.swift; sourceTree = "<group>"; };
+		713DEAB87AD143C596E17ABD /* MedicalAIContextBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicalAIContextBuilder.swift; sourceTree = "<group>"; };
+		8B61ED275CD14F2D940CD09C /* AIConversationMaintenancePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIConversationMaintenancePolicy.swift; sourceTree = "<group>"; };
 		A20000000000000000000001 /* MedicationAdherenceApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationAdherenceApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* AppRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRootView.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* StoredModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoredModels.swift; sourceTree = "<group>"; };
@@ -203,6 +220,7 @@
 		A20000000000000000000019 /* BaichuanMedicalAIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaichuanMedicalAIClient.swift; sourceTree = "<group>"; };
 		A20000000000000000000020 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000000000000000000021 /* DoubaoMedicalAIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubaoMedicalAIClient.swift; sourceTree = "<group>"; };
+		F48A045771D64BB3A2D885B1 /* CloudBaseMedicalAIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudBaseMedicalAIClient.swift; sourceTree = "<group>"; };
 		A20000000000000000000022 /* MedicationLiveActivityService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationLiveActivityService.swift; sourceTree = "<group>"; };
 		A20000000000000000000023 /* MedicationRiskReviewService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationRiskReviewService.swift; sourceTree = "<group>"; };
 		A20000000000000000000024 /* MedicationLifecycleClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationLifecycleClassifier.swift; sourceTree = "<group>"; };
@@ -272,6 +290,9 @@
 		B20000000000000000000003 /* MedicationReminderLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationReminderLiveActivity.swift; sourceTree = "<group>"; };
 		B20000000000000000000004 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B20000000000000000000005 /* MedicationReminderLiveActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MedicationReminderLiveActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		C10200000000000000000001 /* MedicationTrendSummaryViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationTrendSummaryViews.swift; sourceTree = "<group>"; };
+		C10200000000000000000002 /* MedicationTrendChartViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationTrendChartViews.swift; sourceTree = "<group>"; };
+		C10200000000000000000003 /* AIAssistantScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIAssistantScreen.swift; sourceTree = "<group>"; };
 		C20000000000000000000001 /* MedicationWatchSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationWatchSnapshot.swift; sourceTree = "<group>"; };
 		C20000000000000000000002 /* MedicationWatchSnapshotBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationWatchSnapshotBridge.swift; sourceTree = "<group>"; };
 		C20000000000000000000003 /* MedicationAdherenceWatchApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MedicationAdherenceWatchApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -287,6 +308,11 @@
 		C20000000000000000000013 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		C20000000000000000000014 /* MedicationWatchComplicationLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationWatchComplicationLogic.swift; sourceTree = "<group>"; };
 		C20000000000000000000015 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		D20000000000000000000001 /* TodayScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayScreen.swift; sourceTree = "<group>"; };
+		D20000000000000000000002 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		F70000000000000000000002 /* TodayDoseProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayDoseProjection.swift; sourceTree = "<group>"; };
+		F80000000000000000000002 /* RiskListViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiskListViews.swift; sourceTree = "<group>"; };
+		F90000000000000000000002 /* RiskDetailViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiskDetailViews.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -357,6 +383,7 @@
 				A20000000000000000000018 /* MedicationAdherenceApp.entitlements */,
 				A20000000000000000000026 /* Info.plist */,
 				A20000000000000000000020 /* Assets.xcassets */,
+				D20000000000000000000002 /* Localizable.xcstrings */,
 				B40000000000000000000001 /* Shared */,
 				C40000000000000000000001 /* WatchSupport */,
 				A40000000000000000000003 /* Models */,
@@ -388,6 +415,7 @@
 				A20000000000000000000037 /* LocalMedicalAIClient.swift */,
 				A20000000000000000000019 /* BaichuanMedicalAIClient.swift */,
 				A20000000000000000000021 /* DoubaoMedicalAIClient.swift */,
+				F48A045771D64BB3A2D885B1 /* CloudBaseMedicalAIClient.swift */,
 				A20000000000000000000022 /* MedicationLiveActivityService.swift */,
 				A20000000000000000000030 /* MedicationReminderLiveActivityActionService.swift */,
 				C20000000000000000000002 /* MedicationWatchSnapshotBridge.swift */,
@@ -419,6 +447,10 @@
 				A20000000000000000000081 /* PersistenceIntegrityAuditor.swift */,
 				A20000000000000000000082 /* PersistenceIntegrityStartupCheck.swift */,
 				A20000000000000000000083 /* AIConversationPersistenceCommand.swift */,
+				713DEAB87AD143C596E17ABD /* MedicalAIContextBuilder.swift */,
+				8B61ED275CD14F2D940CD09C /* AIConversationMaintenancePolicy.swift */,
+				081D397587D84E33974AF67A /* RiskDisplayProjection.swift */,
+				5D9D55DE5B394B95AFE4FD9C /* MedicationTrendProjection.swift */,
 				A20000000000000000000023 /* MedicationRiskReviewService.swift */,
 				A20000000000000000000028 /* RiskLifecycleSyncService.swift */,
 				A20000000000000000000024 /* MedicationLifecycleClassifier.swift */,
@@ -432,7 +464,9 @@
 			children = (
 				A20000000000000000000008 /* SharedViews.swift */,
 				A20000000000000000000009 /* TodayView.swift */,
+				D20000000000000000000001 /* TodayScreen.swift */,
 				A20000000000000000000070 /* TodayDoseComponents.swift */,
+				F70000000000000000000002 /* TodayDoseProjection.swift */,
 				A20000000000000000000010 /* MedicationsView.swift */,
 				A20000000000000000000060 /* MedicationOverviewViews.swift */,
 				A20000000000000000000061 /* MedicationDetailView.swift */,
@@ -440,17 +474,22 @@
 				A20000000000000000000063 /* MedicationPlanEditorView.swift */,
 				A20000000000000000000064 /* MedicationEditView.swift */,
 				A20000000000000000000065 /* MedicationTrendViews.swift */,
+				C10200000000000000000001 /* MedicationTrendSummaryViews.swift */,
+				C10200000000000000000002 /* MedicationTrendChartViews.swift */,
 				A20000000000000000000011 /* RecordsView.swift */,
 				A20000000000000000000066 /* RecordsSnapshotSupport.swift */,
 				A20000000000000000000067 /* RecordsDashboardViews.swift */,
 				A20000000000000000000068 /* RecordsHistoryViews.swift */,
 				A20000000000000000000069 /* RecordsCorrectionCalendarViews.swift */,
 				A20000000000000000000016 /* AIAssistantView.swift */,
+				C10200000000000000000003 /* AIAssistantScreen.swift */,
 				A20000000000000000000071 /* AIAssistantRuntimeViews.swift */,
 				A20000000000000000000072 /* AIAssistantConversationViews.swift */,
 				A20000000000000000000073 /* AIAssistantInputViews.swift */,
 				A20000000000000000000017 /* BarcodeScannerView.swift */,
 				A20000000000000000000012 /* RisksView.swift */,
+				F80000000000000000000002 /* RiskListViews.swift */,
+				F90000000000000000000002 /* RiskDetailViews.swift */,
 				A20000000000000000000013 /* SettingsView.swift */,
 				A20000000000000000000074 /* HealthPrivacySettingsViews.swift */,
 				A20000000000000000000075 /* AccountBackupView.swift */,
@@ -700,6 +739,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000020 /* Assets.xcassets in Resources */,
+				D10000000000000000000002 /* Localizable.xcstrings in Resources */,
 				C10000000000000000000013 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -814,7 +854,9 @@
 				A10000000000000000000007 /* VisionImportService.swift in Sources */,
 				A10000000000000000000008 /* SharedViews.swift in Sources */,
 				A10000000000000000000009 /* TodayView.swift in Sources */,
+				D10000000000000000000001 /* TodayScreen.swift in Sources */,
 				A10000000000000000000069 /* TodayDoseComponents.swift in Sources */,
+				F70000000000000000000001 /* TodayDoseProjection.swift in Sources */,
 				A10000000000000000000010 /* MedicationsView.swift in Sources */,
 				A10000000000000000000059 /* MedicationOverviewViews.swift in Sources */,
 				A10000000000000000000060 /* MedicationDetailView.swift in Sources */,
@@ -822,12 +864,16 @@
 				A10000000000000000000062 /* MedicationPlanEditorView.swift in Sources */,
 				A10000000000000000000063 /* MedicationEditView.swift in Sources */,
 				A10000000000000000000064 /* MedicationTrendViews.swift in Sources */,
+				C10100000000000000000001 /* MedicationTrendSummaryViews.swift in Sources */,
+				C10100000000000000000002 /* MedicationTrendChartViews.swift in Sources */,
 				A10000000000000000000011 /* RecordsView.swift in Sources */,
 				A10000000000000000000065 /* RecordsSnapshotSupport.swift in Sources */,
 				A10000000000000000000066 /* RecordsDashboardViews.swift in Sources */,
 				A10000000000000000000067 /* RecordsHistoryViews.swift in Sources */,
 				A10000000000000000000068 /* RecordsCorrectionCalendarViews.swift in Sources */,
 				A10000000000000000000012 /* RisksView.swift in Sources */,
+				F80000000000000000000001 /* RiskListViews.swift in Sources */,
+				F90000000000000000000001 /* RiskDetailViews.swift in Sources */,
 				A10000000000000000000013 /* SettingsView.swift in Sources */,
 				A10000000000000000000073 /* HealthPrivacySettingsViews.swift in Sources */,
 				A10000000000000000000074 /* AccountBackupView.swift in Sources */,
@@ -839,6 +885,7 @@
 				A10000000000000000000036 /* LocalMedicalAIClient.swift in Sources */,
 				A10000000000000000000019 /* BaichuanMedicalAIClient.swift in Sources */,
 				A10000000000000000000021 /* DoubaoMedicalAIClient.swift in Sources */,
+				C8202E16E49C461CBAAD2020 /* CloudBaseMedicalAIClient.swift in Sources */,
 				A10000000000000000000022 /* MedicationLiveActivityService.swift in Sources */,
 				A10000000000000000000023 /* MedicationRiskReviewService.swift in Sources */,
 				A10000000000000000000024 /* MedicationLifecycleClassifier.swift in Sources */,
@@ -877,10 +924,15 @@
 				A10000000000000000000080 /* PersistenceIntegrityAuditor.swift in Sources */,
 				A10000000000000000000081 /* PersistenceIntegrityStartupCheck.swift in Sources */,
 				A10000000000000000000082 /* AIConversationPersistenceCommand.swift in Sources */,
+				B13FC73230974F328E851EE6 /* MedicalAIContextBuilder.swift in Sources */,
+				2220917C9C064C2AA774060E /* AIConversationMaintenancePolicy.swift in Sources */,
+				37C4A5D9E2FA4E6B95EBA8ED /* RiskDisplayProjection.swift in Sources */,
+				094A49BBBE8241AD805F0DB7 /* MedicationTrendProjection.swift in Sources */,
 				A10000000000000000000033 /* MedicationReminderLiveActivityIntent.swift in Sources */,
 				B10000000000000000000001 /* MedicationReminderActivityAttributes.swift in Sources */,
 				A10000000000000000000034 /* HelpCenterView.swift in Sources */,
 				A10000000000000000000016 /* AIAssistantView.swift in Sources */,
+				C10100000000000000000003 /* AIAssistantScreen.swift in Sources */,
 				A10000000000000000000070 /* AIAssistantRuntimeViews.swift in Sources */,
 				A10000000000000000000071 /* AIAssistantConversationViews.swift in Sources */,
 				A10000000000000000000072 /* AIAssistantInputViews.swift in Sources */,
@@ -961,7 +1013,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = M74Y4RX827;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -974,7 +1026,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MedicationAdherenceApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MedicationAdherenceApp";
 			};
@@ -987,7 +1039,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = M74Y4RX827;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -999,7 +1051,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MedicationAdherenceApp.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/MedicationAdherenceApp";
 			};
@@ -1127,7 +1179,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = M74Y4RX827;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MedicationAdherenceApp/Info.plist;
@@ -1143,7 +1195,7 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -1157,7 +1209,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = M74Y4RX827;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MedicationAdherenceApp/Info.plist;
@@ -1173,7 +1225,7 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -1183,7 +1235,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = M74Y4RX827;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MedicationReminderLiveActivityExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -1200,7 +1252,7 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -1210,7 +1262,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = M74Y4RX827;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MedicationReminderLiveActivityExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -1227,7 +1279,7 @@
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -1239,7 +1291,7 @@
 				CODE_SIGN_ENTITLEMENTS = MedicationAdherenceWatchApp/MedicationAdherenceWatchApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = M74Y4RX827;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MedicationAdherenceWatchApp/Info.plist;
@@ -1250,7 +1302,7 @@
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "watchos watchsimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 4;
 				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
@@ -1263,7 +1315,7 @@
 				CODE_SIGN_ENTITLEMENTS = MedicationAdherenceWatchApp/MedicationAdherenceWatchApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = M74Y4RX827;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MedicationAdherenceWatchApp/Info.plist;
@@ -1274,7 +1326,7 @@
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "watchos watchsimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 4;
 				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
@@ -1287,7 +1339,7 @@
 				CODE_SIGN_ENTITLEMENTS = MedicationAdherenceWatchWidget/MedicationAdherenceWatchWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = M74Y4RX827;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MedicationAdherenceWatchWidget/Info.plist;
@@ -1303,7 +1355,7 @@
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "watchos watchsimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 4;
 				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
@@ -1316,7 +1368,7 @@
 				CODE_SIGN_ENTITLEMENTS = MedicationAdherenceWatchWidget/MedicationAdherenceWatchWidget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = M74Y4RX827;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MedicationAdherenceWatchWidget/Info.plist;
@@ -1332,7 +1384,7 @@
 				SKIP_INSTALL = YES;
 				SUPPORTED_PLATFORMS = "watchos watchsimulator";
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 4;
 				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};

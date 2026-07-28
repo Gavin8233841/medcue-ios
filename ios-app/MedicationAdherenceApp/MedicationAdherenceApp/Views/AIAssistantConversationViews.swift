@@ -4,6 +4,40 @@ import SwiftData
 import SwiftUI
 import UIKit
 
+struct AIConversationVisibilityProjection {
+    let messages: [StoredAIChatMessage]
+    let manuallyArchivedMessageIDs: Set<UUID>
+
+    var visibleMessages: [StoredAIChatMessage] {
+        let orderedMessages = messages
+            .filter { !manuallyArchivedMessageIDs.contains($0.id) }
+            .sorted { $0.createdAt < $1.createdAt }
+        guard let startIndex = Self.visibleConversationStartIndex(in: orderedMessages) else {
+            return orderedMessages
+        }
+        return Array(orderedMessages[startIndex...])
+    }
+
+    var archivedMessages: [StoredAIChatMessage] {
+        let visibleIDs = Set(visibleMessages.map(\.id))
+        return messages
+            .filter { !visibleIDs.contains($0.id) }
+            .sorted { $0.createdAt < $1.createdAt }
+    }
+
+    static func visibleConversationStartIndex(
+        in orderedMessages: [StoredAIChatMessage]
+    ) -> Int? {
+        let userMessageIndexes = orderedMessages.indices.filter {
+            orderedMessages[$0].role == .user
+        }
+        guard userMessageIndexes.count > 3 else {
+            return orderedMessages.isEmpty ? nil : orderedMessages.startIndex
+        }
+        return userMessageIndexes[userMessageIndexes.count - 3]
+    }
+}
+
 struct AIQuickActionsSection: View {
     let isDisabled: Bool
     let prefersLocalResponses: Bool
