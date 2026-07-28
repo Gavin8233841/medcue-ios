@@ -71,3 +71,75 @@ import Testing
     #expect(summary.completionRate == 0.5)
 }
 
+@Test func adherenceSummaryUsesOnlyTheLatestEventForEachScheduledDose() {
+    let scheduledDose = ScheduledDose(
+        planID: UUID(),
+        dueAt: Date(timeIntervalSince1970: 1_700_000_000),
+        dose: DoseAmount(value: 1, unit: "tablet")
+    )
+    let events = [
+        DoseEvent(
+            scheduledDoseID: scheduledDose.id,
+            status: .delayed,
+            recordedAt: Date(timeIntervalSince1970: 1_700_000_010)
+        ),
+        DoseEvent(
+            scheduledDoseID: scheduledDose.id,
+            status: .taken,
+            recordedAt: Date(timeIntervalSince1970: 1_700_000_020)
+        ),
+        DoseEvent(
+            scheduledDoseID: scheduledDose.id,
+            status: .corrected,
+            recordedAt: Date(timeIntervalSince1970: 1_700_000_030)
+        )
+    ]
+
+    let summary = AdherenceCalculator().summarize(
+        scheduledDoses: [scheduledDose],
+        events: events
+    )
+
+    #expect(summary.scheduledCount == 1)
+    #expect(summary.takenCount == 1)
+    #expect(summary.skippedCount == 0)
+    #expect(summary.delayedCount == 0)
+    #expect(summary.completionRate == 1)
+}
+
+@Test func adherenceRatesRemainWithinTheZeroToOneDomainInvariant() {
+    let excessive = AdherenceSummary(
+        scheduledCount: 1,
+        takenCount: 2,
+        skippedCount: 0,
+        delayedCount: 0
+    )
+    let negative = AdherenceSummary(
+        scheduledCount: 1,
+        takenCount: -1,
+        skippedCount: 0,
+        delayedCount: 0
+    )
+
+    #expect(excessive.completionRate == 1)
+    #expect(negative.completionRate == 0)
+}
+
+@Test func reminderScheduleRejectsAnInvalidCalendarDate() throws {
+    let plan = MedicationPlan(
+        medicationID: UUID(),
+        dose: DoseAmount(value: 1, unit: "tablet"),
+        startDate: DateOnly(year: 2026, month: 2, day: 31),
+        endDate: DateOnly(year: 2026, month: 3, day: 1),
+        timingRule: .fixedLocalTimes([try TimeOfDay(hour: 8, minute: 0)]),
+        timeZonePolicy: .localClock,
+        sourceNote: "Invalid-date regression"
+    )
+
+    #expect(throws: MedicationPlanError.invalidCalendarDate) {
+        _ = try ReminderScheduleEngine().scheduledDoses(
+            for: plan,
+            timeZone: try #require(TimeZone(identifier: "Asia/Shanghai"))
+        )
+    }
+}

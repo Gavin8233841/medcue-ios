@@ -4,7 +4,7 @@ import MedicationAdherenceCore
 struct DoubaoMedicalAIClient: MedicalAIClient {
     let configuration: MedicalAIConfiguration
     let apiKey: String
-    var session: URLSession = .shared
+    var session: URLSession = MedicalAIURLSessionFactory.make()
 
     private var provider: MedicalAIProviderProfile {
         MedicalAIProviderProfile(
@@ -15,9 +15,13 @@ struct DoubaoMedicalAIClient: MedicalAIClient {
     }
 
     func respond(to request: MedicalAIRequest) async throws -> MedicalAIResponse {
-        guard let endpoint = URL(string: configuration.endpointURLString), !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw DoubaoMedicalAIError.missingConfiguration
         }
+        let endpoint = try MedicalAIEndpointPolicy.validatedURL(
+            for: configuration,
+            expectedProvider: .doubao
+        )
 
         let prompt = MedicalAIRequestPromptBuilder().buildPrompt(for: request)
         var urlRequest = URLRequest(url: endpoint)
@@ -41,6 +45,7 @@ struct DoubaoMedicalAIClient: MedicalAIClient {
         guard let httpResponse = response as? HTTPURLResponse else {
             throw DoubaoMedicalAIError.invalidResponse
         }
+        try MedicalAIEndpointPolicy.validateResponseURL(httpResponse.url, expectedEndpoint: endpoint)
 
         guard (200..<300).contains(httpResponse.statusCode) else {
             throw DoubaoMedicalAIError.httpStatus(

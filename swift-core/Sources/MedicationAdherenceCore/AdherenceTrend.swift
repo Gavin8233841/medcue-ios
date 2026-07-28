@@ -24,7 +24,7 @@ public struct AdherenceTrendPoint: Codable, Sendable, Equatable {
         delayedCount: Int
     ) {
         self.date = date
-        self.completionRate = completionRate
+        self.completionRate = AdherenceMath.clampedRate(completionRate)
         self.scheduledCount = scheduledCount
         self.takenCount = takenCount
         self.skippedCount = skippedCount

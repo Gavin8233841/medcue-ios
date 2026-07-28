@@ -12,6 +12,9 @@ APP_ENTITLEMENTS="$APP_DIR/MedicationAdherenceApp.entitlements"
 AI_SECRETS="$APP_DIR/AISecrets.plist"
 LOCAL_MODEL_STORE="$APP_DIR/Services/LocalMedicalModelStore.swift"
 LOCAL_MODEL_CLIENT="$APP_DIR/Services/LocalMedicalAIClient.swift"
+LOCAL_MODEL_RUNTIME="$APP_DIR/Services/LocalMedicalModelRuntime.swift"
+PRIVACY_MANIFEST="$APP_DIR/WatchSupport/PrivacyInfo.xcprivacy"
+PRIVACY_AUDIT="$ROOT_DIR/docs/24-privacy-data-flow-audit-20260727.md"
 LLAMA_FRAMEWORK="$PROJECT_DIR/Frameworks/llama.xcframework"
 LLAMA_PACKAGE_MANIFEST="$ROOT_DIR/Packages/LlamaFramework/Package.swift"
 LLAMA_INSTALL_SCRIPT="$ROOT_DIR/tools/install-llama-xcframework.sh"
@@ -116,6 +119,8 @@ require_file "$IOS_TEST_SOURCE" "iOS unit test source"
 require_file "$APP_INFO" "Main app Info.plist"
 require_file "$APP_ENTITLEMENTS" "Main app entitlements"
 require_file "$LIVE_ACTIVITY_INFO" "Live Activity extension Info.plist"
+require_file "$PRIVACY_MANIFEST" "Privacy manifest"
+require_file "$PRIVACY_AUDIT" "Privacy data-flow audit"
 
 section "Main App Identity"
 if [[ -f "$APP_INFO" ]]; then
@@ -156,10 +161,28 @@ if [[ -f "$AI_SECRETS" ]]; then
 else
 	warn "Debug-only local AI configuration is absent; ordinary Debug builds fail by design, while explicitly marked simulator unit-test hosts exclude it"
 fi
+if git ls-files | grep -Eq '(^|/)(AISecrets\.plist|\.env\.local)$|\.gguf$'; then
+	fail "Git tracks a forbidden secret or GGUF artifact"
+else
+	pass "Git does not track AISecrets.plist, .env.local, or GGUF artifacts"
+fi
+
+section "Privacy Manifest"
+if [[ -f "$PRIVACY_MANIFEST" ]]; then
+	if plutil -lint "$PRIVACY_MANIFEST" >/dev/null; then
+		pass "Privacy manifest plist lint"
+	else
+		fail "Privacy manifest plist lint failed"
+	fi
+	require_text "$PRIVACY_MANIFEST" "NSPrivacyAccessedAPICategoryUserDefaults" "Privacy manifest declares UserDefaults required-reason API"
+	require_text "$PRIVACY_MANIFEST" "1C8F.1" "Privacy manifest includes app preference reason"
+	require_text "$PRIVACY_MANIFEST" "CA92.1" "Privacy manifest includes App Group preference reason"
+fi
 
 section "Local Medical Model"
 require_file "$LOCAL_MODEL_STORE" "Local model download store"
 require_file "$LOCAL_MODEL_CLIENT" "Local model AI client"
+require_file "$LOCAL_MODEL_RUNTIME" "Local model runtime adapter"
 require_file "$LLAMA_PACKAGE_MANIFEST" "Local llama Swift package manifest"
 require_file "$LLAMA_INSTALL_SCRIPT" "llama.xcframework install script"
 require_file "$LOCAL_MODEL_SMOKE_SCRIPT" "Local model smoke script"
@@ -176,8 +199,8 @@ if [[ -f "$LOCAL_MODEL_STORE" ]]; then
     require_text "$LOCAL_MODEL_STORE" "maximumByteCount: 350 * 1024 * 1024" "Local model manager validates maximum GGUF size"
     require_text "$LOCAL_MODEL_STORE" "BackgroundAssets" "Background Assets download path wired"
 fi
-if [[ -f "$LOCAL_MODEL_CLIENT" ]]; then
-    require_text "$LOCAL_MODEL_CLIENT" "#if canImport(llama)" "llama runtime is conditionally wired"
+if [[ -f "$LOCAL_MODEL_RUNTIME" ]]; then
+    require_text "$LOCAL_MODEL_RUNTIME" "#if canImport(llama)" "llama runtime is conditionally wired"
 fi
 if [[ -f "$LLAMA_PACKAGE_MANIFEST" ]]; then
     require_text "$LLAMA_PACKAGE_MANIFEST" "LlamaFramework" "Local llama package product registered"

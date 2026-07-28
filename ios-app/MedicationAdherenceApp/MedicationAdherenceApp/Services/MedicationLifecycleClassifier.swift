@@ -1,5 +1,12 @@
 import Foundation
 
+struct MedicationLifecyclePolicy: Equatable, Sendable {
+    let interruptionWindowDays: Int
+    let courseEndGraceDays: Int
+
+    static let `default` = MedicationLifecyclePolicy(interruptionWindowDays: 14, courseEndGraceDays: 1)
+}
+
 struct MedicationLifecycleClassification: Equatable {
     enum Reason: Equatable {
         case explicitStatus
@@ -33,8 +40,7 @@ struct MedicationLifecycleClassification: Equatable {
 }
 
 struct MedicationLifecycleClassifier {
-    var interruptionWindowDays = 14
-    var courseEndGraceDays = 1
+    var policy: MedicationLifecyclePolicy = .default
     var calendar = Calendar.current
 
     func classify(
@@ -57,12 +63,12 @@ struct MedicationLifecycleClassifier {
             .filter { $0.medicationID == medication.id }
             .filter(\.isAdherenceMeasurable)
 
-        if let daysAgo = daysSinceMostRecentCourseEnd(relatedPlans, now: now), daysAgo >= courseEndGraceDays {
+        if let daysAgo = daysSinceMostRecentCourseEnd(relatedPlans, now: now), daysAgo >= policy.courseEndGraceDays {
             return MedicationLifecycleClassification(displayStatus: .interrupted, reason: .courseEnded(daysAgo: daysAgo), shouldPromptReview: true)
         }
 
         let todayStart = calendar.startOfDay(for: now)
-        guard let windowStart = calendar.date(byAdding: .day, value: -interruptionWindowDays, to: todayStart) else {
+        guard let windowStart = calendar.date(byAdding: .day, value: -policy.interruptionWindowDays, to: todayStart) else {
             return MedicationLifecycleClassification(displayStatus: .active, reason: .ongoing, shouldPromptReview: false)
         }
 
@@ -72,12 +78,12 @@ struct MedicationLifecycleClassifier {
             if completedCount == 0 {
                 let skippedOrDelayedCount = historicalTasks.filter { $0.status == .skipped || $0.status == .delayed }.count
                 if skippedOrDelayedCount > 0 {
-                    return MedicationLifecycleClassification(displayStatus: .interrupted, reason: .skippedRecentSchedule(days: interruptionWindowDays), shouldPromptReview: true)
+                    return MedicationLifecycleClassification(displayStatus: .interrupted, reason: .skippedRecentSchedule(days: policy.interruptionWindowDays), shouldPromptReview: true)
                 }
-                return MedicationLifecycleClassification(displayStatus: .interrupted, reason: .noRecentCompletion(days: interruptionWindowDays), shouldPromptReview: true)
+                return MedicationLifecycleClassification(displayStatus: .interrupted, reason: .noRecentCompletion(days: policy.interruptionWindowDays), shouldPromptReview: true)
             }
         } else if hasOngoingPlanOlderThanWindow(relatedPlans, now: now) {
-            return MedicationLifecycleClassification(displayStatus: .interrupted, reason: .noRecentCompletion(days: interruptionWindowDays), shouldPromptReview: true)
+            return MedicationLifecycleClassification(displayStatus: .interrupted, reason: .noRecentCompletion(days: policy.interruptionWindowDays), shouldPromptReview: true)
         }
 
         return MedicationLifecycleClassification(displayStatus: .active, reason: .ongoing, shouldPromptReview: false)
@@ -119,7 +125,7 @@ struct MedicationLifecycleClassifier {
                 from: calendar.startOfDay(for: start),
                 to: calendar.startOfDay(for: now)
             ).day ?? 0
-            return elapsedDays >= interruptionWindowDays
+            return elapsedDays >= policy.interruptionWindowDays
         }
     }
 }

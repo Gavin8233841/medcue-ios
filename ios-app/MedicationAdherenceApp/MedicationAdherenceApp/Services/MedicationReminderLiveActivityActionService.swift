@@ -6,13 +6,129 @@ import SwiftData
 import ActivityKit
 #endif
 
+enum MedicationReminderLiveActivityActionRejection: Equatable {
+    case taskNotFound
+    case taskClosed
+    case medicationInactive
+    case expired
+    case readFailed
+}
+
+enum MedicationReminderLiveActivityActionCommandOutcome: Equatable {
+    case committed(taskIDs: [UUID])
+    case alreadyCommitted(taskIDs: [UUID])
+    case rejected(MedicationReminderLiveActivityActionRejection)
+    case saveFailed
+}
+
+@MainActor
+struct MedicationReminderLiveActivityActionCommand {
+    private let persistence: DoseActionPersistence
+
+    init() {
+        persistence = DoseActionPersistence()
+    }
+
+    init(persistence: DoseActionPersistence) {
+        self.persistence = persistence
+    }
+
+    func execute(
+        _ request: MedicationReminderLiveActivityActionRequest,
+        occurredAt: Date,
+        in modelContext: ModelContext
+    ) -> MedicationReminderLiveActivityActionCommandOutcome {
+        let tasks: [StoredDoseTask]
+        let medications: [StoredMedication]
+        let logs: [StoredDoseActionLog]
+        do {
+            tasks = try modelContext.fetch(FetchDescriptor<StoredDoseTask>())
+            medications = try modelContext.fetch(FetchDescriptor<StoredMedication>())
+            logs = try modelContext.fetch(FetchDescriptor<StoredDoseActionLog>())
+        } catch {
+            return .rejected(.readFailed)
+        }
+
+        let operationID = request.operationID ?? request.taskID
+        if let existingLog = logs.first(where: { $0.id == operationID }) {
+            guard let existingTask = tasks.first(where: { $0.id == existingLog.taskID }) else {
+                return .alreadyCommitted(taskIDs: [existingLog.taskID])
+            }
+            let existingTaskIDs = DoseLogicalGroup.group(containing: existingTask, in: tasks).map(\.id)
+            return .alreadyCommitted(taskIDs: existingTaskIDs)
+        }
+
+        guard let task = tasks.first(where: { $0.id == request.taskID }) else {
+            return .rejected(.taskNotFound)
+        }
+        let expiresAt = request.expiresAt
+            ?? task.dueAt.addingTimeInterval(MedicationLiveActivityPolicy.default.staleWindow)
+        guard occurredAt <= expiresAt else {
+            return .rejected(.expired)
+        }
+        guard task.status == .pending || task.status == .delayed else {
+            return .rejected(.taskClosed)
+        }
+        guard medications.first(where: { $0.id == task.medicationID })?.lifecycleStatus == .active else {
+            return .rejected(.medicationInactive)
+        }
+
+        let openTaskGroup = DoseLogicalGroup.group(containing: task, in: tasks)
+            .filter { $0.status == .pending || $0.status == .delayed }
+        guard !openTaskGroup.isEmpty else {
+            return .rejected(.taskClosed)
+        }
+
+        let mutation: DoseActionMutation
+        let primaryReason: String
+        switch request.action {
+        case .markTaken:
+            mutation = .markTaken
+            primaryReason = "通过实况活动标记已服用"
+        case .delay:
+            mutation = .delay
+            primaryReason = "通过实况活动选择按原计划时间顺延 \(DoseDelayPolicy.delayMinutes) 分钟提醒"
+        case .skip:
+            mutation = .skip
+            primaryReason = "通过实况活动忽略"
+        }
+
+        let transitions = DoseActionTransitionPlanner().makeTransitions(
+            mutation: mutation,
+            taskGroup: openTaskGroup,
+            primaryTask: task,
+            occurredAt: occurredAt,
+            primaryReason: primaryReason,
+            mergedReason: "同一剂量重复提醒已随本次实况活动操作合并。",
+            primaryActionLogID: operationID
+        )
+
+        do {
+            try persistence.commit(transitions, in: modelContext)
+            return .committed(taskIDs: openTaskGroup.map(\.id))
+        } catch {
+            return .saveFailed
+        }
+    }
+}
+
 @MainActor
 struct MedicationReminderLiveActivityActionService {
     var notificationService: NotificationService
     private let liveActivityService = MedicationLiveActivityService()
+    private let command: MedicationReminderLiveActivityActionCommand
 
-    private var delayMinutesText: String {
-        "\(DoseDelayPolicy.delayMinutes) 分钟"
+    init(notificationService: NotificationService) {
+        self.notificationService = notificationService
+        command = MedicationReminderLiveActivityActionCommand()
+    }
+
+    init(
+        notificationService: NotificationService,
+        command: MedicationReminderLiveActivityActionCommand
+    ) {
+        self.notificationService = notificationService
+        self.command = command
     }
 
     func handle(_ request: MedicationReminderLiveActivityActionRequest, in modelContext: ModelContext) async {
@@ -24,14 +140,49 @@ struct MedicationReminderLiveActivityActionService {
         guard #available(iOS 16.2, *) else {
             return
         }
+        // Compatibility recovery for activities created before the iOS 17
+        // LiveActivityIntent transaction path. New intents commit directly.
         for activity in Activity<MedicationReminderActivityAttributes>.activities where activity.content.state.isCompleted {
             await handle(
-                MedicationReminderLiveActivityActionRequest(taskID: activity.attributes.taskID, action: .markTaken),
+                MedicationReminderLiveActivityActionRequest(
+                    taskID: activity.attributes.taskID,
+                    action: .markTaken,
+                    operationID: activity.attributes.actionOperationID ?? activity.attributes.taskID,
+                    expiresAt: activity.content.state.dueAt.addingTimeInterval(
+                        MedicationLiveActivityPolicy.default.staleWindow
+                    )
+                ),
                 in: modelContext,
                 occurredAt: activity.content.state.completedAt ?? Date()
             )
         }
         #endif
+    }
+
+    func executeIntentMarkTaken(
+        _ request: MedicationReminderLiveActivityActionRequest,
+        occurredAt: Date,
+        in modelContext: ModelContext
+    ) async -> MedicationReminderLiveActivityIntentExecutionOutcome {
+        let outcome = command.execute(request, occurredAt: occurredAt, in: modelContext)
+        switch outcome {
+        case .committed(let taskIDs):
+            UserDefaults.standard.removeObject(forKey: DoseActionPersistence.failureMessageDefaultsKey)
+            await synchronizeCommittedIntentAction(taskIDs: taskIDs, in: modelContext)
+            return .committed
+        case .alreadyCommitted(let taskIDs):
+            UserDefaults.standard.removeObject(forKey: DoseActionPersistence.failureMessageDefaultsKey)
+            await synchronizeCommittedIntentAction(taskIDs: taskIDs, in: modelContext)
+            return .alreadyCommitted
+        case .saveFailed:
+            UserDefaults.standard.set(
+                DoseActionPersistenceError.saveFailed.userMessage,
+                forKey: DoseActionPersistence.failureMessageDefaultsKey
+            )
+            return .saveFailed
+        case .rejected:
+            return .rejected
+        }
     }
 
     private func handle(
@@ -66,33 +217,28 @@ struct MedicationReminderLiveActivityActionService {
 
         switch request.action {
         case .markTaken:
-            applyAction(
-                .markTaken,
-                to: openTaskGroup,
-                primaryTaskID: task.id,
-                newStatus: .taken,
-                newDueAt: task.dueAt,
-                recordedAt: occurredAt,
-                reason: "通过实况活动标记已服用",
-                in: modelContext
-            )
+            let outcome = command.execute(request, occurredAt: occurredAt, in: modelContext)
+            guard outcome.isCommitted else {
+                if outcome == .saveFailed {
+                    UserDefaults.standard.set(
+                        DoseActionPersistenceError.saveFailed.userMessage,
+                        forKey: DoseActionPersistence.failureMessageDefaultsKey
+                    )
+                }
+                return
+            }
+            UserDefaults.standard.removeObject(forKey: DoseActionPersistence.failureMessageDefaultsKey)
             for groupTask in openTaskGroup {
                 notificationService.cancelReminder(for: groupTask.id)
                 await liveActivityService.end(for: groupTask.id)
             }
         case .delay:
-            let occurredAt = Date()
-            let newDueAt = DoseDelayPolicy.delayedDueAtFromPlannedTime(task.dueAt)
-            applyAction(
-                .delay,
-                to: openTaskGroup,
-                primaryTaskID: task.id,
-                newStatus: .delayed,
-                newDueAt: newDueAt,
-                recordedAt: occurredAt,
-                reason: "通过实况活动选择按原计划时间顺延 \(delayMinutesText)提醒",
-                in: modelContext
-            )
+            let outcome = command.execute(request, occurredAt: occurredAt, in: modelContext)
+            guard outcome.isCommitted else {
+                reportSaveFailureIfNeeded(outcome)
+                return
+            }
+            UserDefaults.standard.removeObject(forKey: DoseActionPersistence.failureMessageDefaultsKey)
             if let medication {
                 for groupTask in openTaskGroup {
                     if groupTask.id == task.id {
@@ -110,16 +256,12 @@ struct MedicationReminderLiveActivityActionService {
                 await liveActivityService.end(for: groupTask.id)
             }
         case .skip:
-            applyAction(
-                .skip,
-                to: openTaskGroup,
-                primaryTaskID: task.id,
-                newStatus: .skipped,
-                newDueAt: task.dueAt,
-                recordedAt: occurredAt,
-                reason: "通过实况活动忽略",
-                in: modelContext
-            )
+            let outcome = command.execute(request, occurredAt: occurredAt, in: modelContext)
+            guard outcome.isCommitted else {
+                reportSaveFailureIfNeeded(outcome)
+                return
+            }
+            UserDefaults.standard.removeObject(forKey: DoseActionPersistence.failureMessageDefaultsKey)
             for groupTask in openTaskGroup {
                 notificationService.cancelReminder(for: groupTask.id)
                 await liveActivityService.end(for: groupTask.id)
@@ -129,37 +271,15 @@ struct MedicationReminderLiveActivityActionService {
         await startNextLiveActivityIfNeeded(in: modelContext)
     }
 
-    private func applyAction(
-        _ action: DoseActionKind,
-        to tasks: [StoredDoseTask],
-        primaryTaskID: UUID,
-        newStatus: StoredDoseStatus,
-        newDueAt: Date,
-        recordedAt: Date,
-        reason: String,
-        in modelContext: ModelContext
+    private func reportSaveFailureIfNeeded(
+        _ outcome: MedicationReminderLiveActivityActionCommandOutcome
     ) {
-        for task in tasks {
-            let taskReason = task.id == primaryTaskID ? reason : "同一剂量重复提醒已随本次实况活动操作合并。"
-            let log = StoredDoseActionLog(
-                taskID: task.id,
-                action: action,
-                previousStatus: task.status,
-                previousDueAt: task.dueAt,
-                previousRecordedAt: task.recordedAt,
-                previousReason: task.reason,
-                newStatus: newStatus,
-                occurredAt: recordedAt,
-                undoExpiresAt: recordedAt.addingTimeInterval(10 * 60),
-                note: taskReason
+        if outcome == .saveFailed {
+            UserDefaults.standard.set(
+                DoseActionPersistenceError.saveFailed.userMessage,
+                forKey: DoseActionPersistence.failureMessageDefaultsKey
             )
-            modelContext.insert(log)
-            task.status = newStatus
-            task.dueAt = newDueAt
-            task.recordedAt = recordedAt
-            task.reason = taskReason
         }
-        try? modelContext.save()
     }
 
     private func startNextLiveActivityIfNeeded(in modelContext: ModelContext) async {
@@ -175,6 +295,30 @@ struct MedicationReminderLiveActivityActionService {
                 continue
             }
             await liveActivityService.startIfNeeded(for: task, medication: medication)
+        }
+    }
+
+    private func synchronizeCommittedIntentAction(
+        taskIDs: [UUID],
+        in modelContext: ModelContext
+    ) async {
+        for taskID in taskIDs {
+            notificationService.cancelReminder(for: taskID)
+        }
+        let tasks = (try? modelContext.fetch(FetchDescriptor<StoredDoseTask>())) ?? []
+        let medications = (try? modelContext.fetch(FetchDescriptor<StoredMedication>())) ?? []
+        MedicationWatchSnapshotPublisher().publish(tasks: tasks, medications: medications)
+        await startNextLiveActivityIfNeeded(in: modelContext)
+    }
+}
+
+private extension MedicationReminderLiveActivityActionCommandOutcome {
+    var isCommitted: Bool {
+        switch self {
+        case .committed, .alreadyCommitted:
+            true
+        case .rejected, .saveFailed:
+            false
         }
     }
 }

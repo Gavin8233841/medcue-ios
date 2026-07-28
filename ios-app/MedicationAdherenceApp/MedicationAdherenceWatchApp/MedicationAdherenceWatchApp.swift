@@ -16,6 +16,7 @@ struct MedicationAdherenceWatchApp: App {
     }
 }
 
+@MainActor
 final class MedicationWatchSnapshotCenter: NSObject, ObservableObject, WCSessionDelegate {
     @Published private(set) var snapshot: MedicationWatchSnapshot = MedicationWatchSnapshotCenter.initialSnapshot()
     @Published private(set) var reminderSummary: MedicationWatchReminderSummary = .idle
@@ -23,6 +24,8 @@ final class MedicationWatchSnapshotCenter: NSObject, ObservableObject, WCSession
 
     private let reminderScheduler = MedicationWatchReminderScheduler()
     private var lastReminderRefreshKey: String?
+    private var reminderRefreshTask: Task<Void, Never>?
+    private var reminderRefreshID: UUID?
 
     override init() {
         super.init()
@@ -43,11 +46,11 @@ final class MedicationWatchSnapshotCenter: NSObject, ObservableObject, WCSession
         let now = Date()
         isReminderAuthorizationRequestInFlight = true
         lastReminderRefreshKey = Self.reminderRefreshKey(for: snapshot, now: now)
-        reminderScheduler.enableReminders(for: snapshot, now: now) { [weak self] summary in
-            DispatchQueue.main.async {
-                self?.reminderSummary = summary
-                self?.isReminderAuthorizationRequestInFlight = false
-            }
+        beginReminderRefresh { [self, snapshot] in
+            await self.reminderScheduler.enableReminders(for: snapshot, now: now)
+        } completion: { [self] summary in
+            self.reminderSummary = summary
+            self.isReminderAuthorizationRequestInFlight = false
         }
     }
 
@@ -153,26 +156,35 @@ final class MedicationWatchSnapshotCenter: NSObject, ObservableObject, WCSession
         session.activate()
     }
 
-    private func applyPayload(_ payload: [String: Any]) {
-        guard let data = payload["snapshot"] as? Data,
-              let nextSnapshot = try? JSONDecoder().decode(MedicationWatchSnapshot.self, from: data)
-        else {
-            return
-        }
+    private func applySnapshot(_ nextSnapshot: MedicationWatchSnapshot) {
         MedicationWatchSnapshotStore.save(nextSnapshot)
         WidgetCenter.shared.reloadAllTimelines()
+        snapshot = nextSnapshot
         refreshReminders(for: nextSnapshot)
-        DispatchQueue.main.async {
-            self.snapshot = nextSnapshot
-        }
     }
 
     private func refreshReminders(for snapshot: MedicationWatchSnapshot, now: Date = Date()) {
         lastReminderRefreshKey = Self.reminderRefreshKey(for: snapshot, now: now)
-        reminderScheduler.refresh(for: snapshot, now: now) { [weak self] summary in
-            DispatchQueue.main.async {
-                self?.reminderSummary = summary
-            }
+        beginReminderRefresh { [self, snapshot] in
+            await self.reminderScheduler.refresh(for: snapshot, now: now)
+        } completion: { [self] summary in
+            self.reminderSummary = summary
+        }
+    }
+
+    private func beginReminderRefresh(
+        operation: @escaping @MainActor () async -> MedicationWatchReminderSummary,
+        completion: @escaping @MainActor (MedicationWatchReminderSummary) -> Void
+    ) {
+        reminderRefreshTask?.cancel()
+        let refreshID = UUID()
+        reminderRefreshID = refreshID
+        reminderRefreshTask = Task { @MainActor [weak self] in
+            let summary = await operation()
+            guard !Task.isCancelled, self?.reminderRefreshID == refreshID else { return }
+            completion(summary)
+            self?.reminderRefreshID = nil
+            self?.reminderRefreshTask = nil
         }
     }
 
@@ -215,33 +227,45 @@ final class MedicationWatchSnapshotCenter: NSObject, ObservableObject, WCSession
         ].joined(separator: "|")
     }
 
-    func session(
+    nonisolated func session(
         _ session: WCSession,
         activationDidCompleteWith activationState: WCSessionActivationState,
         error: Error?
     ) {
-        DispatchQueue.main.async {
-            self.reloadLocalSnapshot()
+        Task { @MainActor [weak self] in
+            self?.reloadLocalSnapshot()
         }
     }
 
-    func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
-        applyPayload(applicationContext)
+    nonisolated func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+        applyPayloadData(applicationContext["snapshot"] as? Data)
     }
 
-    func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
-        applyPayload(message)
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        applyPayloadData(message["snapshot"] as? Data)
     }
 
-    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
-        applyPayload(userInfo)
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        applyPayloadData(userInfo["snapshot"] as? Data)
+    }
+
+    nonisolated private func applyPayloadData(_ data: Data?) {
+        guard let data,
+              let nextSnapshot = try? JSONDecoder().decode(MedicationWatchSnapshot.self, from: data) else {
+            return
+        }
+        Task { @MainActor [weak self] in
+            self?.applySnapshot(nextSnapshot)
+        }
     }
 
     #if os(iOS)
-    func sessionDidBecomeInactive(_ session: WCSession) {}
+    nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
 
-    func sessionDidDeactivate(_ session: WCSession) {
-        session.activate()
+    nonisolated func sessionDidDeactivate(_ session: WCSession) {
+        Task { @MainActor in
+            WCSession.default.activate()
+        }
     }
     #endif
 }
@@ -260,7 +284,7 @@ struct MedicationWatchReminderSummary: Equatable {
         guard let relativeDate, let relativeDateSuffix else {
             return detail
         }
-        return "\(MedicationWatchSnapshotFormatters.relativeDate.localizedString(for: relativeDate, relativeTo: now))\(relativeDateSuffix)"
+        return "\(MedicationWatchSnapshotFormatters.relativeDateString(for: relativeDate, relativeTo: now))\(relativeDateSuffix)"
     }
 
     static let idle = MedicationWatchReminderSummary(
@@ -360,6 +384,7 @@ struct MedicationWatchReminderSummary: Equatable {
     }
 }
 
+@MainActor
 private final class MedicationWatchReminderScheduler {
     private let notificationCenter = UNUserNotificationCenter.current()
     private let identifierPrefix = "MedicationWatchDoseReminder."
@@ -367,178 +392,135 @@ private final class MedicationWatchReminderScheduler {
 
     func refresh(
         for snapshot: MedicationWatchSnapshot,
-        now: Date = Date(),
-        completion: @escaping (MedicationWatchReminderSummary) -> Void
-    ) {
-        refresh(for: snapshot, now: now, shouldRequestAuthorization: false, completion: completion)
+        now: Date = Date()
+    ) async -> MedicationWatchReminderSummary {
+        await refresh(
+            for: snapshot,
+            now: now,
+            shouldRequestAuthorization: false
+        )
     }
 
     func enableReminders(
         for snapshot: MedicationWatchSnapshot,
-        now: Date = Date(),
-        completion: @escaping (MedicationWatchReminderSummary) -> Void
-    ) {
-        refresh(for: snapshot, now: now, shouldRequestAuthorization: true, completion: completion)
+        now: Date = Date()
+    ) async -> MedicationWatchReminderSummary {
+        await refresh(
+            for: snapshot,
+            now: now,
+            shouldRequestAuthorization: true
+        )
     }
 
     private func refresh(
         for snapshot: MedicationWatchSnapshot,
         now: Date,
-        shouldRequestAuthorization: Bool,
-        completion: @escaping (MedicationWatchReminderSummary) -> Void
-    ) {
+        shouldRequestAuthorization: Bool
+    ) async -> MedicationWatchReminderSummary {
         if snapshot.requiresRefresh(now: now) {
             lastScheduleKey = nil
-            removeScheduledReminders()
-            completion(.refreshRequired)
-            return
+            await removeScheduledReminders()
+            return .refreshRequired
         }
 
         let upcomingItems = futureReminderItems(in: snapshot, now: now)
         let displayOpenItems = snapshot.displayOpenItems(now: now)
         guard !upcomingItems.isEmpty else {
             lastScheduleKey = nil
-            removeScheduledReminders()
+            await removeScheduledReminders()
             if snapshot.isAwaitingFirstSync {
-                completion(.idle)
-            } else if displayOpenItems.isEmpty {
-                completion(.noUpcoming)
-            } else {
-                completion(.overdueOnly(count: displayOpenItems.count))
+                return .idle
             }
-            return
+            if displayOpenItems.isEmpty {
+                return .noUpcoming
+            }
+            return .overdueOnly(count: displayOpenItems.count)
         }
 
         #if DEBUG
         if Self.usesReminderFailurePreview {
             lastScheduleKey = nil
-            removeScheduledReminders()
-            completion(.schedulingFailed(count: min(upcomingItems.count, 1)))
-            return
+            await removeScheduledReminders()
+            return .schedulingFailed(count: min(upcomingItems.count, 1))
         }
         #endif
 
-        notificationCenter.getNotificationSettings { [weak self] settings in
-            guard let self else {
-                return
-            }
-
-            switch settings.authorizationStatus {
-            case .notDetermined:
-                guard shouldRequestAuthorization else {
-                    completion(.authorizationRequired(count: upcomingItems.count, nextDate: upcomingItems.first?.dueAt))
-                    return
-                }
-                self.requestAuthorizationAndSchedule(
-                    upcomingItems,
-                    privacyMode: snapshot.privacyMode,
-                    completion: completion
+        let settings = await notificationCenter.notificationSettings()
+        switch settings.authorizationStatus {
+        case .notDetermined:
+            guard shouldRequestAuthorization else {
+                return .authorizationRequired(
+                    count: upcomingItems.count,
+                    nextDate: upcomingItems.first?.dueAt
                 )
-            case .authorized, .provisional:
-                self.replaceScheduledReminders(
-                    with: upcomingItems,
-                    privacyMode: snapshot.privacyMode,
-                    completion: completion
-                )
-            case .denied:
-                self.lastScheduleKey = nil
-                self.removeScheduledReminders()
-                completion(.denied)
-            @unknown default:
-                self.lastScheduleKey = nil
-                self.removeScheduledReminders()
-                completion(.denied)
             }
-        }
-    }
-
-    private func requestAuthorizationAndSchedule(
-        _ upcomingItems: [MedicationWatchDoseItem],
-        privacyMode: Bool,
-        completion: @escaping (MedicationWatchReminderSummary) -> Void
-    ) {
-        notificationCenter.requestAuthorization(options: [.alert, .sound]) { [weak self] granted, _ in
-            guard let self else {
-                return
+            let granted = (try? await notificationCenter.requestAuthorization(options: [.alert, .sound])) == true
+            guard granted else {
+                lastScheduleKey = nil
+                await removeScheduledReminders()
+                return .denied
             }
-            if granted {
-                self.replaceScheduledReminders(
-                    with: upcomingItems,
-                    privacyMode: privacyMode,
-                    completion: completion
-                )
-            } else {
-                self.lastScheduleKey = nil
-                self.removeScheduledReminders()
-                completion(.denied)
-            }
+            return await replaceScheduledReminders(
+                with: upcomingItems,
+                privacyMode: snapshot.privacyMode
+            )
+        case .authorized, .provisional:
+            return await replaceScheduledReminders(
+                with: upcomingItems,
+                privacyMode: snapshot.privacyMode
+            )
+        case .denied:
+            lastScheduleKey = nil
+            await removeScheduledReminders()
+            return .denied
+        @unknown default:
+            lastScheduleKey = nil
+            await removeScheduledReminders()
+            return .denied
         }
     }
 
     private func replaceScheduledReminders(
         with upcomingItems: [MedicationWatchDoseItem],
-        privacyMode: Bool,
-        completion: @escaping (MedicationWatchReminderSummary) -> Void
-    ) {
+        privacyMode: Bool
+    ) async -> MedicationWatchReminderSummary {
         let scheduleKey = makeScheduleKey(for: upcomingItems, privacyMode: privacyMode)
         if scheduleKey == lastScheduleKey {
-            completion(.scheduled(count: upcomingItems.count, nextDate: upcomingItems.first?.dueAt))
-            return
+            return .scheduled(count: upcomingItems.count, nextDate: upcomingItems.first?.dueAt)
         }
 
-        notificationCenter.getPendingNotificationRequests { [weak self] requests in
-            guard let self else {
-                return
-            }
+        let requests = await notificationCenter.pendingNotificationRequests()
+        let existingReminderIDs = requests
+            .map(\.identifier)
+            .filter { $0.hasPrefix(identifierPrefix) }
+        if !existingReminderIDs.isEmpty {
+            notificationCenter.removePendingNotificationRequests(withIdentifiers: existingReminderIDs)
+        }
 
-            let existingReminderIDs = requests
-                .map(\.identifier)
-                .filter { $0.hasPrefix(self.identifierPrefix) }
-            if !existingReminderIDs.isEmpty {
-                self.notificationCenter.removePendingNotificationRequests(withIdentifiers: existingReminderIDs)
-            }
-
-            let schedulingGroup = DispatchGroup()
-            let failureCounter = MedicationWatchSchedulingFailureCounter()
-
-            for item in upcomingItems {
-                schedulingGroup.enter()
-                self.notificationCenter.add(
-                    self.makeRequest(for: item, privacyMode: privacyMode)
-                ) { error in
-                    if error != nil {
-                        failureCounter.increment()
-                    }
-                    schedulingGroup.leave()
-                }
-            }
-
-            schedulingGroup.notify(queue: .main) {
-                let failedCount = failureCounter.count
-                if failedCount > 0 {
-                    self.lastScheduleKey = nil
-                    completion(.schedulingFailed(count: failedCount))
-                    return
-                }
-
-                self.lastScheduleKey = scheduleKey
-                completion(.scheduled(count: upcomingItems.count, nextDate: upcomingItems.first?.dueAt))
+        var failedCount = 0
+        for item in upcomingItems {
+            do {
+                try await notificationCenter.add(makeRequest(for: item, privacyMode: privacyMode))
+            } catch {
+                failedCount += 1
             }
         }
+        guard failedCount == 0 else {
+            lastScheduleKey = nil
+            return .schedulingFailed(count: failedCount)
+        }
+
+        lastScheduleKey = scheduleKey
+        return .scheduled(count: upcomingItems.count, nextDate: upcomingItems.first?.dueAt)
     }
 
-    private func removeScheduledReminders() {
-        notificationCenter.getPendingNotificationRequests { [weak self] requests in
-            guard let self else {
-                return
-            }
-
-            let reminderIDs = requests
-                .map(\.identifier)
-                .filter { $0.hasPrefix(self.identifierPrefix) }
-            if !reminderIDs.isEmpty {
-                self.notificationCenter.removePendingNotificationRequests(withIdentifiers: reminderIDs)
-            }
+    private func removeScheduledReminders() async {
+        let requests = await notificationCenter.pendingNotificationRequests()
+        let reminderIDs = requests
+            .map(\.identifier)
+            .filter { $0.hasPrefix(identifierPrefix) }
+        if !reminderIDs.isEmpty {
+            notificationCenter.removePendingNotificationRequests(withIdentifiers: reminderIDs)
         }
     }
 
@@ -551,7 +533,8 @@ private final class MedicationWatchReminderScheduler {
         content.body = privacyMode ? "现在该处理一项今日用药。" : "\(item.doseText) · \(item.status.displayText)"
         content.sound = .default
 
-        let dateComponents = Calendar.current.dateComponents(
+        let calendar = Calendar.current
+        let dateComponents = calendar.dateComponents(
             [.year, .month, .day, .hour, .minute],
             from: item.dueAt
         )
@@ -563,11 +546,17 @@ private final class MedicationWatchReminderScheduler {
         )
     }
 
-    private func futureReminderItems(in snapshot: MedicationWatchSnapshot, now: Date) -> [MedicationWatchDoseItem] {
-        return Array(snapshot.displayOpenItems(now: now).filter { $0.dueAt > now }.prefix(12))
+    private func futureReminderItems(
+        in snapshot: MedicationWatchSnapshot,
+        now: Date
+    ) -> [MedicationWatchDoseItem] {
+        Array(snapshot.displayOpenItems(now: now).filter { $0.dueAt > now }.prefix(12))
     }
 
-    private func makeScheduleKey(for items: [MedicationWatchDoseItem], privacyMode: Bool) -> String {
+    private func makeScheduleKey(
+        for items: [MedicationWatchDoseItem],
+        privacyMode: Bool
+    ) -> String {
         items
             .map { item in
                 [
@@ -586,23 +575,5 @@ private final class MedicationWatchReminderScheduler {
         #else
         return false
         #endif
-    }
-}
-
-private final class MedicationWatchSchedulingFailureCounter {
-    private let lock = NSLock()
-    private var value = 0
-
-    func increment() {
-        lock.lock()
-        value += 1
-        lock.unlock()
-    }
-
-    var count: Int {
-        lock.lock()
-        let currentValue = value
-        lock.unlock()
-        return currentValue
     }
 }

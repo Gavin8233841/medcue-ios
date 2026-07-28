@@ -4,7 +4,7 @@ import MedicationAdherenceCore
 struct BaichuanMedicalAIClient: MedicalAIClient {
     let configuration: MedicalAIConfiguration
     let apiKey: String
-    var session: URLSession = .shared
+    var session: URLSession = MedicalAIURLSessionFactory.make()
 
     private var provider: MedicalAIProviderProfile {
         MedicalAIProviderProfile(
@@ -15,9 +15,13 @@ struct BaichuanMedicalAIClient: MedicalAIClient {
     }
 
     func respond(to request: MedicalAIRequest) async throws -> MedicalAIResponse {
-        guard let endpoint = URL(string: configuration.endpointURLString), !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw BaichuanMedicalAIError.missingConfiguration
         }
+        let endpoint = try MedicalAIEndpointPolicy.validatedURL(
+            for: configuration,
+            expectedProvider: .baichuan
+        )
 
         let prompt = MedicalAIRequestPromptBuilder().buildPrompt(for: request)
         var urlRequest = URLRequest(url: endpoint)
@@ -36,6 +40,7 @@ struct BaichuanMedicalAIClient: MedicalAIClient {
         guard let httpResponse = response as? HTTPURLResponse else {
             throw BaichuanMedicalAIError.invalidResponse
         }
+        try MedicalAIEndpointPolicy.validateResponseURL(httpResponse.url, expectedEndpoint: endpoint)
 
         guard (200..<300).contains(httpResponse.statusCode) else {
             throw BaichuanMedicalAIError.httpStatus(

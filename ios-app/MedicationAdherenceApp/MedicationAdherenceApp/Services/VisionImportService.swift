@@ -33,7 +33,7 @@ enum VisionImportError: LocalizedError {
     }
 }
 
-struct VisionImportService {
+struct VisionImportService: Sendable {
     func recognizePrescriptionText(from imageData: Data) async throws -> VisionTextRecognitionResult {
         try await Task.detached(priority: .userInitiated) {
             guard let cgImage = Self.cgImage(from: imageData) else {

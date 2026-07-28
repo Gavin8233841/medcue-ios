@@ -1,0 +1,48 @@
+name: Native Verification
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-verification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Core, Broker, iOS and Watch
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Record toolchain
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          swift --version
+          node --version
+          xcodebuild -showsdks
+
+      - name: Install verification tools
+        run: brew install ripgrep
+
+      - name: Test AI broker
+        working-directory: cloudfunctions/medcue-ai-broker
+        run: node --test
+
+      - name: Run native verification gate
+        env:
+          MEDCUE_DISABLE_LOCAL_LLAMA: "1"
+          VERIFY_NATIVE_IOS_TEST_DESTINATION: platform=iOS Simulator,name=iPhone 17 Pro,OS=latest
+          VERIFY_NATIVE_WATCH_SIMULATOR_SDK: watchsimulator
+          VERIFY_NATIVE_WATCH_DEVICE_SDK: watchos
+        run: tools/verify-native.sh

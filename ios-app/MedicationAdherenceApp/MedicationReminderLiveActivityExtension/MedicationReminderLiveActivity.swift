@@ -49,17 +49,18 @@ struct MedicationReminderLiveActivity: Widget {
                             completedAt: context.state.completedAt
                         )
                         .padding(.horizontal, 8)
-                        .padding(.top, 6)
-                        .padding(.bottom, 8)
+                        .padding(.top, 4)
+                        .padding(.bottom, 4)
                     } else {
                         MedicationReminderIslandActionCard(
                             taskID: context.attributes.taskID,
+                            operationID: context.attributes.actionOperationID ?? context.attributes.taskID,
                             doseText: context.attributes.doseText,
                             dueAt: context.state.dueAt
                         )
                         .padding(.horizontal, 8)
-                        .padding(.top, 6)
-                        .padding(.bottom, 8)
+                        .padding(.top, 4)
+                        .padding(.bottom, 4)
                     }
                 }
             } compactLeading: {
@@ -79,7 +80,7 @@ struct MedicationReminderLiveActivity: Widget {
                     .foregroundStyle(context.state.isCompleted ? .green : .blue)
             }
             .contentMargins(.horizontal, 6, for: .expanded)
-            .contentMargins(.bottom, 4, for: .expanded)
+            .contentMargins(.bottom, 12, for: .expanded)
         }
     }
 }
@@ -111,7 +112,7 @@ private struct MedicationReminderIslandHeader: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.leading, 4)
-        .padding(.top, 6)
+        .padding(.top, 4)
     }
 }
 
@@ -145,6 +146,8 @@ private struct MedicationReminderLockScreenView: View {
 
                 MedicationReminderLiveActivityActions(
                     taskID: context.attributes.taskID,
+                    operationID: context.attributes.actionOperationID ?? context.attributes.taskID,
+                    expiresAt: context.state.dueAt.addingTimeInterval(10 * 60),
                     compact: false
                 )
             }
@@ -183,6 +186,8 @@ private struct MedicationReminderCompletedLockScreenView: View {
 
 private struct MedicationReminderLiveActivityActions: View {
     let taskID: UUID
+    let operationID: UUID
+    let expiresAt: Date
     let compact: Bool
 
     var body: some View {
@@ -209,7 +214,11 @@ private struct MedicationReminderLiveActivityActions: View {
     @ViewBuilder
     private var markTakenButton: some View {
         if #available(iOSApplicationExtension 17.0, *) {
-            Button(intent: MarkMedicationReminderTakenIntent(taskID: taskID)) {
+            Button(intent: MarkMedicationReminderTakenIntent(
+                taskID: taskID,
+                operationID: operationID,
+                expiresAt: expiresAt
+            )) {
                 actionButtonLabel(title: "已服用", tint: .green, width: compact ? 82 : 70)
             }
             .buttonStyle(.plain)
@@ -225,7 +234,12 @@ private struct MedicationReminderLiveActivityActions: View {
         compactWidth: CGFloat,
         regularWidth: CGFloat
     ) -> some View {
-        Link(destination: MedicationReminderLiveActivityActionURL.url(for: taskID, action: action)) {
+        Link(destination: MedicationReminderLiveActivityActionURL.url(
+            for: taskID,
+            action: action,
+            operationID: operationID,
+            expiresAt: expiresAt
+        )) {
             actionButtonLabel(title: title, tint: tint, width: compact ? compactWidth : regularWidth)
         }
         .buttonStyle(.plain)
@@ -245,11 +259,12 @@ private struct MedicationReminderLiveActivityActions: View {
 
 private struct MedicationReminderIslandActionCard: View {
     let taskID: UUID
+    let operationID: UUID
     let doseText: String
     let dueAt: Date
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 8) {
                 MedicationReminderIslandDetailPill(
                     title: "剂量",
@@ -267,12 +282,14 @@ private struct MedicationReminderIslandActionCard: View {
 
             MedicationReminderLiveActivityActions(
                 taskID: taskID,
+                operationID: operationID,
+                expiresAt: dueAt.addingTimeInterval(10 * 60),
                 compact: true
             )
             .frame(maxWidth: .infinity, alignment: .center)
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.vertical, 5)
         .background(Color.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
     }
 }
@@ -303,8 +320,8 @@ private struct MedicationReminderIslandDetailPill: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 7)
-        .padding(.vertical, 5)
-        .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
         .background(Color.primary.opacity(0.052), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }

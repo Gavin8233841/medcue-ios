@@ -6,21 +6,19 @@ enum MedicationRiskReviewService {
     static let userLabelRiskIDPrefix = "user-label"
 
     @MainActor
-    @discardableResult
-    static func rebuildUserLabelRisks(
+    static func applyUserLabelRisks(
         medication: StoredMedication,
         label: StoredMedicationLabel,
+        existing: [StoredRiskCard],
+        reviewedAt now: Date,
         in modelContext: ModelContext
-    ) -> RiskLifecycleSyncResult {
-        let now = Date()
+    ) throws -> RiskLifecycleSyncResult {
         var result = RiskLifecycleSyncResult()
-        let existing = (try? modelContext.fetch(FetchDescriptor<StoredRiskCard>())) ?? []
         archiveDemoLabelRisks(for: medication, cards: existing)
 
         guard let coreLabel = label.coreLabel else {
             resolveUserLabelRisks(for: medication, existing: existing, now: now, note: "说明书内容为空，相关风险已自动解除。", result: &result)
             label.lastRiskReviewAt = now
-            try? modelContext.save()
             return result
         }
 
@@ -127,7 +125,6 @@ enum MedicationRiskReviewService {
         }
 
         label.lastRiskReviewAt = now
-        try? modelContext.save()
         return result
     }
 

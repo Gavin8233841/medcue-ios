@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import SwiftUI
 
 struct BarcodeScannerSheet: View {
@@ -163,7 +163,8 @@ private struct BarcodeScannerView: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: BarcodeScannerViewController, context: Context) {}
 }
 
-private final class BarcodeScannerViewController: UIViewController, AVCaptureMetadataOutputObjectsDelegate {
+@MainActor
+private final class BarcodeScannerViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate {
     private let onBarcode: (String, String) -> Void
     private let onError: (String) -> Void
     private let captureSession = AVCaptureSession()
@@ -248,8 +249,8 @@ private final class BarcodeScannerViewController: UIViewController, AVCaptureMet
             installHighlightLayer()
             updateScanRectOfInterest()
 
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                self?.captureSession.startRunning()
+            DispatchQueue.global(qos: .userInitiated).async { [captureSession] in
+                captureSession.startRunning()
             }
         } catch {
             onError("相机初始化失败：\(error.localizedDescription)")

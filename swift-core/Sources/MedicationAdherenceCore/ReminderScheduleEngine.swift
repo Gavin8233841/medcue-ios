@@ -37,6 +37,9 @@ public struct ReminderScheduleEngine: Sendable {
         var calendar = baseCalendar
         calendar.timeZone = timeZone
 
+        _ = try plan.startDate.validatedDate(calendar: calendar, timeZone: timeZone)
+        _ = try endDate.validatedDate(calendar: calendar, timeZone: timeZone)
+
         var current = plan.startDate
         var doses: [ScheduledDose] = []
 
@@ -56,15 +59,22 @@ public struct ReminderScheduleEngine: Sendable {
                 }
             }
 
+            let currentDate = try current.validatedDate(calendar: calendar, timeZone: timeZone)
             guard let nextDate = calendar.date(
                 byAdding: .day,
                 value: 1,
-                to: calendar.date(from: DateComponents(year: current.year, month: current.month, day: current.day))!
+                to: currentDate
             ) else {
-                break
+                throw MedicationPlanError.invalidDateRange
             }
             let nextComponents = calendar.dateComponents([.year, .month, .day], from: nextDate)
-            current = DateOnly(year: nextComponents.year!, month: nextComponents.month!, day: nextComponents.day!)
+            guard let year = nextComponents.year,
+                  let month = nextComponents.month,
+                  let day = nextComponents.day
+            else {
+                throw MedicationPlanError.invalidDateRange
+            }
+            current = DateOnly(year: year, month: month, day: day)
         }
 
         return doses.sorted { $0.dueAt < $1.dueAt }
@@ -84,6 +94,9 @@ public struct ReminderScheduleEngine: Sendable {
 
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+
+        _ = try plan.startDate.validatedDate(calendar: calendar, timeZone: calendar.timeZone)
+        _ = try endDate.validatedDate(calendar: calendar, timeZone: calendar.timeZone)
 
         guard let endOfDay = calendar.date(
             from: DateComponents(
@@ -109,6 +122,20 @@ public struct ReminderScheduleEngine: Sendable {
     }
 }
 
+enum AdherenceMath {
+    static func completionRate(scheduledCount: Int, takenCount: Int) -> Double {
+        guard scheduledCount > 0 else {
+            return 0
+        }
+        let boundedTakenCount = min(max(takenCount, 0), scheduledCount)
+        return Double(boundedTakenCount) / Double(scheduledCount)
+    }
+
+    static func clampedRate(_ value: Double) -> Double {
+        min(max(value, 0), 1)
+    }
+}
+
 public struct AdherenceSummary: Sendable, Equatable {
     public var scheduledCount: Int
     public var takenCount: Int
@@ -121,7 +148,10 @@ public struct AdherenceSummary: Sendable, Equatable {
         self.takenCount = takenCount
         self.skippedCount = skippedCount
         self.delayedCount = delayedCount
-        self.completionRate = scheduledCount == 0 ? 0 : Double(takenCount) / Double(scheduledCount)
+        self.completionRate = AdherenceMath.completionRate(
+            scheduledCount: scheduledCount,
+            takenCount: takenCount
+        )
     }
 }
 
@@ -130,13 +160,14 @@ public struct AdherenceCalculator: Sendable {
 
     public func summarize(scheduledDoses: [ScheduledDose], events: [DoseEvent]) -> AdherenceSummary {
         let scheduledIDs = Set(scheduledDoses.map(\.id))
-        let relevantEvents = events.filter { scheduledIDs.contains($0.scheduledDoseID) }
+        let latestRelevantEvents = DoseEventTimeline.latestByScheduledDoseID(in: events)
+            .filter { scheduledIDs.contains($0.key) }
+            .map(\.value)
         return AdherenceSummary(
             scheduledCount: scheduledDoses.count,
-            takenCount: relevantEvents.filter { $0.status == .taken || $0.status == .corrected }.count,
-            skippedCount: relevantEvents.filter { $0.status == .skipped }.count,
-            delayedCount: relevantEvents.filter { $0.status == .delayed }.count
+            takenCount: latestRelevantEvents.filter { $0.status == .taken || $0.status == .corrected }.count,
+            skippedCount: latestRelevantEvents.filter { $0.status == .skipped }.count,
+            delayedCount: latestRelevantEvents.filter { $0.status == .delayed }.count
         )
     }
 }
-

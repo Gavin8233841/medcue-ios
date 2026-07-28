@@ -21,7 +21,10 @@ public struct AdherenceDayStatus: Codable, Sendable, Equatable {
         self.takenCount = takenCount
         self.skippedCount = skippedCount
         self.delayedCount = delayedCount
-        self.completionRate = scheduledCount == 0 ? 0 : Double(takenCount) / Double(scheduledCount)
+        self.completionRate = AdherenceMath.completionRate(
+            scheduledCount: scheduledCount,
+            takenCount: takenCount
+        )
         self.isComplete = scheduledCount > 0 && takenCount == scheduledCount
     }
 }
@@ -53,7 +56,10 @@ public struct AdherenceInsight: Codable, Sendable, Equatable {
         self.takenCount = takenCount
         self.skippedCount = skippedCount
         self.delayedCount = delayedCount
-        self.completionRate = scheduledCount == 0 ? 0 : Double(takenCount) / Double(scheduledCount)
+        self.completionRate = AdherenceMath.completionRate(
+            scheduledCount: scheduledCount,
+            takenCount: takenCount
+        )
         self.currentStreakDays = currentStreakDays
         self.longestStreakDays = longestStreakDays
         self.dayStatuses = dayStatuses
@@ -78,21 +84,19 @@ public struct AdherenceInsightBuilder: Sendable {
     ) -> AdherenceInsight {
         var calendar = baseCalendar
         calendar.timeZone = timeZone
-        let today = dateOnly(from: now, calendar: calendar)
+        let today = DateOnly(date: now, calendar: calendar)
         let streakThreshold = min(max(streakMinimumCompletionRate, 0), 1)
 
-        let latestEventByDoseID = Dictionary(grouping: events, by: \.scheduledDoseID).compactMapValues { doseEvents in
-            doseEvents.sorted { $0.recordedAt < $1.recordedAt }.last
-        }
+        let latestEventByDoseID = DoseEventTimeline.latestByScheduledDoseID(in: events)
 
         let measurableDoses = scheduledDoses.filter { dose in
             dose.dueAt <= now || latestEventByDoseID[dose.id] != nil
         }
         let dosesByDate = Dictionary(grouping: measurableDoses) { dose -> DateOnly in
             if let event = latestEventByDoseID[dose.id], dose.dueAt > now {
-                return dateOnly(from: event.recordedAt, calendar: calendar)
+                return DateOnly(date: event.recordedAt, calendar: calendar)
             }
-            return dateOnly(from: dose.dueAt, calendar: calendar)
+            return DateOnly(date: dose.dueAt, calendar: calendar)
         }
 
         let dayStatuses = dosesByDate.keys.sorted().map { date in
@@ -130,15 +134,6 @@ public struct AdherenceInsightBuilder: Sendable {
                 skippedCount: skippedCount,
                 minimumCompletionRate: streakThreshold
             )
-        )
-    }
-
-    private func dateOnly(from date: Date, calendar: Calendar) -> DateOnly {
-        let components = calendar.dateComponents([.year, .month, .day], from: date)
-        return DateOnly(
-            year: components.year ?? 1970,
-            month: components.month ?? 1,
-            day: components.day ?? 1
         )
     }
 

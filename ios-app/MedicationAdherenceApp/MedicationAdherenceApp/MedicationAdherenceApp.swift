@@ -1,4 +1,5 @@
 import MedicationAdherenceCore
+import AppIntents
 import Darwin
 import SwiftData
 import SwiftUI
@@ -10,30 +11,76 @@ import ActivityKit
 @main
 struct MedicationAdherenceApp: App {
     private let modelContainer: ModelContainer
+    private let persistenceStartupFailure: PersistenceStartupFailure?
     @AppStorage("appColorSchemePreference") private var appColorSchemePreference = AppColorSchemePreference.system.rawValue
 
     init() {
+        let isPersistentStoreAvailable: Bool
         do {
             modelContainer = try MedicationAdherenceModelContainer.make()
+            persistenceStartupFailure = nil
+            isPersistentStoreAvailable = true
             MedicationNotificationDelegate.shared.install(modelContainer: modelContainer)
         } catch {
-            fatalError("Unable to create SwiftData container: \(error)")
+            do {
+                modelContainer = try MedicationAdherenceModelContainer.make(isStoredInMemoryOnly: true)
+                persistenceStartupFailure = PersistenceStartupFailure()
+                isPersistentStoreAvailable = false
+            } catch {
+                preconditionFailure("MedicationAdherence schema could not create a recovery container")
+            }
         }
+
+        let intentModelContainer = modelContainer
+        AppDependencyManager.shared.add(
+            dependency: MedicationReminderLiveActivityIntentExecutor { request, occurredAt in
+                guard isPersistentStoreAvailable else {
+                    return .saveFailed
+                }
+                return await MedicationReminderLiveActivityActionService(
+                    notificationService: NotificationService()
+                ).executeIntentMarkTaken(
+                    request,
+                    occurredAt: occurredAt,
+                    in: intentModelContainer.mainContext
+                )
+            }
+        )
     }
 
     var body: some Scene {
         WindowGroup {
-            AppRootView()
-                .preferredColorScheme(AppColorSchemePreference(rawValue: appColorSchemePreference)?.colorScheme)
-                #if DEBUG
-                .task {
-                    await MedicalAISmokeTestRunner.runIfRequested()
-                    await ReminderLiveActivitySmokeTestRunner.runIfRequested(modelContainer: modelContainer)
-                    await LocalMedicalModelSmokeTestRunner.runIfRequested()
+            Group {
+                if persistenceStartupFailure != nil {
+                    PersistenceRecoveryView()
+                } else {
+                    AppRootView()
+                        #if DEBUG
+                        .task {
+                            await MedicalAISmokeTestRunner.runIfRequested()
+                            await ReminderLiveActivitySmokeTestRunner.runIfRequested(modelContainer: modelContainer)
+                            await LocalMedicalModelSmokeTestRunner.runIfRequested()
+                        }
+                        #endif
                 }
-                #endif
+            }
+            .preferredColorScheme(AppColorSchemePreference(rawValue: appColorSchemePreference)?.colorScheme)
         }
         .modelContainer(modelContainer)
+    }
+}
+
+private struct PersistenceStartupFailure {}
+
+private struct PersistenceRecoveryView: View {
+    var body: some View {
+        ContentUnavailableView {
+            Label("暂时无法读取用药记录", systemImage: "externaldrive.badge.exclamationmark")
+        } description: {
+            Text("App 没有删除或重建现有数据。请先重新启动 App；如果仍然出现此页面，请保留当前设备数据并联系开发团队协助恢复。")
+        }
+        .padding(24)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -68,7 +115,10 @@ private enum MedicalAISmokeTestRunner {
         do {
             let response = try await withThrowingTaskGroup(of: MedicalAIResponse.self) { group in
                 group.addTask {
-                    let client = medicalAIClient(configuration: configuration, apiKey: apiKey)
+                    let client = MedicalAIClientFactory.make(
+                        configuration: configuration,
+                        credential: apiKey
+                    )
                     return try await client.respond(to: MedicalAIRequest(
                         kind: .chat,
                         userMessage: "请用一句话回复医疗智能体连通测试。",
@@ -96,16 +146,10 @@ private enum MedicalAISmokeTestRunner {
         }
     }
 
-    private static func medicalAIClient(configuration: MedicalAIConfiguration, apiKey: String) -> any MedicalAIClient {
-        switch configuration.providerKind {
-        case .doubao:
-            return DoubaoMedicalAIClient(configuration: configuration, apiKey: apiKey)
-        case .baichuan:
-            return BaichuanMedicalAIClient(configuration: configuration, apiKey: apiKey)
-        }
-    }
-
     private static func diagnosticSummary(for error: Error) -> String {
+        if let error = error as? CloudBaseMedicalAIError {
+            return "broker=\(error.diagnosticSummary)"
+        }
         if let error = error as? DoubaoMedicalAIError {
             return "doubao=\(error.diagnosticSummary)"
         }
@@ -154,7 +198,10 @@ private enum ReminderLiveActivitySmokeTestRunner {
         task.status = .pending
         task.recordedAt = nil
         task.reason = "Debug 真机提醒与实况活动自检"
-        try? context.save()
+        guard AppPersistenceCommitter.save(context, operation: "live-activity-smoke-setup") else {
+            print("[ReminderLiveActivity-Smoke] failure persistence-save")
+            finish(1)
+        }
 
         let notificationService = NotificationService()
         let hasNotificationAuthorization = await notificationService.hasUsableNotificationAuthorization()

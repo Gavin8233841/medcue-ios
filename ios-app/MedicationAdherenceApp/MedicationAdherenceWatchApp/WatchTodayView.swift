@@ -510,7 +510,7 @@ private struct WatchSyncReminderCard: View {
         if isSnapshotFromAnotherDay {
             return "手机更新"
         }
-        return MedicationWatchSnapshotFormatters.relativeDate.localizedString(
+        return MedicationWatchSnapshotFormatters.relativeDateString(
             for: snapshot.generatedAt,
             relativeTo: now
         )

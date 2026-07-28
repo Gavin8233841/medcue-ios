@@ -32,12 +32,22 @@
       <Testables>
          <TestableReference
             skipped = "NO"
-            parallelizable = "YES">
+            parallelizable = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "A89A5AD0300B790100BD46AA"
                BuildableName = "MedicationAdherenceAppTests.xctest"
                BlueprintName = "MedicationAdherenceAppTests"
+               ReferencedContainer = "container:MedicationAdherenceApp.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "F11000000000000000000003"
+               BuildableName = "MedicationAdherenceAppUITests.xctest"
+               BlueprintName = "MedicationAdherenceAppUITests"
                ReferencedContainer = "container:MedicationAdherenceApp.xcodeproj">
             </BuildableReference>
          </TestableReference>

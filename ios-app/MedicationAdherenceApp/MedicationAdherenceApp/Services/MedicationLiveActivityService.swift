@@ -4,9 +4,16 @@ import Foundation
 import ActivityKit
 #endif
 
+struct MedicationLiveActivityPolicy: Equatable, Sendable {
+    let activationWindow: TimeInterval
+    let staleWindow: TimeInterval
+
+    static let `default` = MedicationLiveActivityPolicy(activationWindow: 5 * 60, staleWindow: 10 * 60)
+}
+
 @MainActor
 final class MedicationLiveActivityService: ObservableObject {
-    private let activationWindow: TimeInterval = 5 * 60
+    private let policy = MedicationLiveActivityPolicy.default
 
     func startIfNeeded(for task: StoredDoseTask, medication: StoredMedication?) async {
         #if canImport(ActivityKit)
@@ -24,7 +31,7 @@ final class MedicationLiveActivityService: ObservableObject {
             await end(for: task.id)
             return
         }
-        guard abs(task.dueAt.timeIntervalSinceNow) <= activationWindow else {
+        guard abs(task.dueAt.timeIntervalSinceNow) <= policy.activationWindow else {
             return
         }
         guard Activity<MedicationReminderActivityAttributes>.activities.contains(where: { $0.attributes.taskID == task.id }) == false else {
@@ -45,7 +52,7 @@ final class MedicationLiveActivityService: ObservableObject {
         do {
             _ = try Activity.request(
                 attributes: attributes,
-                content: ActivityContent(state: state, staleDate: task.dueAt.addingTimeInterval(10 * 60)),
+                content: ActivityContent(state: state, staleDate: task.dueAt.addingTimeInterval(policy.staleWindow)),
                 pushType: nil
             )
         } catch {

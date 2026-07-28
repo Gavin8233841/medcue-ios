@@ -7,6 +7,30 @@ public enum ReadableLabelSectionKind: String, Codable, Sendable, Equatable {
     case interactions
     case adverseReactions
     case other
+
+    public init(sourceTitle title: String) {
+        let lowerTitle = title.lowercased()
+        if lowerTitle.contains("warning")
+            || lowerTitle.contains("do not use")
+            || lowerTitle.contains("警示")
+            || lowerTitle.contains("禁忌") {
+            self = .warnings
+        } else if lowerTitle.contains("dosage")
+            || lowerTitle.contains("directions")
+            || lowerTitle.contains("用法") {
+            self = .directions
+        } else if lowerTitle.contains("interaction") || lowerTitle.contains("相互作用") {
+            self = .interactions
+        } else if lowerTitle.contains("adverse") || lowerTitle.contains("不良反应") {
+            self = .adverseReactions
+        } else if lowerTitle.contains("use")
+            || lowerTitle.contains("用途")
+            || lowerTitle.contains("适应症") {
+            self = .uses
+        } else {
+            self = .other
+        }
+    }
 }
 
 public struct ReadableLabelCard: Codable, Identifiable, Sendable, Equatable {
@@ -67,7 +91,7 @@ public struct ReadableLabelSummaryBuilder: Sendable {
 
     public func build(from label: MedicationLabel) -> ReadableLabelSummary {
         let cards = label.sections.enumerated().map { index, section in
-            let kind = sectionKind(for: section.title)
+            let kind = section.kind
             return ReadableLabelCard(
                 id: "label-section-\(index)",
                 kind: kind,
@@ -84,26 +108,6 @@ public struct ReadableLabelSummaryBuilder: Sendable {
             sourceURL: label.sourceURL,
             cards: cards
         )
-    }
-
-    private func sectionKind(for title: String) -> ReadableLabelSectionKind {
-        let lowerTitle = title.lowercased()
-        if lowerTitle.contains("warning") || lowerTitle.contains("do not use") || lowerTitle.contains("警示") {
-            return .warnings
-        }
-        if lowerTitle.contains("dosage") || lowerTitle.contains("directions") || lowerTitle.contains("用法") {
-            return .directions
-        }
-        if lowerTitle.contains("interaction") || lowerTitle.contains("相互作用") {
-            return .interactions
-        }
-        if lowerTitle.contains("adverse") || lowerTitle.contains("不良反应") {
-            return .adverseReactions
-        }
-        if lowerTitle.contains("use") || lowerTitle.contains("用途") {
-            return .uses
-        }
-        return .other
     }
 
     private func heading(for kind: ReadableLabelSectionKind, sourceTitle: String) -> String {

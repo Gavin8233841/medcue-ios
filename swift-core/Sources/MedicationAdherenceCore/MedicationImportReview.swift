@@ -365,28 +365,8 @@ public enum MedicationImportTextExtractor {
     }
 
     private static func normalizedDoseUnit(_ rawUnit: String) -> String? {
-        switch rawUnit.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "片", "tablet", "tablets", "tab", "tabs":
-            return "片"
-        case "粒", "capsule", "capsules", "cap", "caps":
-            return "粒"
-        case "袋", "包":
-            return "袋"
-        case "滴", "drop", "drops":
-            return "滴"
-        case "喷", "spray", "sprays":
-            return "喷"
-        case "贴", "patch", "patches":
-            return "贴"
-        case "支":
-            return "支"
-        case "丸":
-            return "丸"
-        case "毫升", "ml", "milliliter", "milliliters":
-            return "毫升"
-        default:
-            return nil
-        }
+        let normalized = NormalizedDoseUnit(rawUnit: rawUnit)
+        return normalized.kind == .unknown ? nil : normalized.canonicalUnit
     }
 
     private static func isSupportedPrefillDose(_ value: Decimal) -> Bool {

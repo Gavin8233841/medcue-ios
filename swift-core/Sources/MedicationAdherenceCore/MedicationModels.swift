@@ -47,6 +47,61 @@ public struct Medication: Codable, Identifiable, Sendable, Equatable {
     }
 }
 
+public enum DoseUnitKind: String, Codable, Sendable, Equatable {
+    case tablet
+    case capsule
+    case bag
+    case drop
+    case spray
+    case patch
+    case ampoule
+    case pill
+    case milliliter
+    case unknown
+}
+
+public struct NormalizedDoseUnit: Codable, Sendable, Equatable {
+    public let kind: DoseUnitKind
+    public let canonicalUnit: String
+    public let originalUnit: String
+
+    public init(rawUnit: String) {
+        originalUnit = rawUnit
+        switch rawUnit.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "片", "tablet", "tablets", "tab", "tabs":
+            kind = .tablet
+            canonicalUnit = "片"
+        case "粒", "capsule", "capsules", "cap", "caps":
+            kind = .capsule
+            canonicalUnit = "粒"
+        case "袋", "包":
+            kind = .bag
+            canonicalUnit = "袋"
+        case "滴", "drop", "drops":
+            kind = .drop
+            canonicalUnit = "滴"
+        case "喷", "spray", "sprays":
+            kind = .spray
+            canonicalUnit = "喷"
+        case "贴", "patch", "patches":
+            kind = .patch
+            canonicalUnit = "贴"
+        case "支":
+            kind = .ampoule
+            canonicalUnit = "支"
+        case "丸":
+            kind = .pill
+            canonicalUnit = "丸"
+        case "毫升", "ml", "milliliter", "milliliters":
+            kind = .milliliter
+            canonicalUnit = "毫升"
+        default:
+            kind = .unknown
+            canonicalUnit = rawUnit.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+}
+
 public struct DoseAmount: Codable, Sendable, Equatable {
     public var value: Decimal
     public var unit: String
@@ -54,6 +109,10 @@ public struct DoseAmount: Codable, Sendable, Equatable {
     public init(value: Decimal, unit: String) {
         self.value = value
         self.unit = unit
+    }
+
+    public var normalizedUnit: NormalizedDoseUnit {
+        NormalizedDoseUnit(rawUnit: unit)
     }
 }
 
@@ -116,8 +175,38 @@ public struct DateOnly: Codable, Sendable, Equatable, Hashable, Comparable {
         self.day = day
     }
 
+    public init(date: Date, calendar: Calendar) {
+        self.year = calendar.component(.year, from: date)
+        self.month = calendar.component(.month, from: date)
+        self.day = calendar.component(.day, from: date)
+    }
+
     public static func < (lhs: DateOnly, rhs: DateOnly) -> Bool {
         (lhs.year, lhs.month, lhs.day) < (rhs.year, rhs.month, rhs.day)
+    }
+
+    public func validatedDate(
+        calendar baseCalendar: Calendar = Calendar(identifier: .gregorian),
+        timeZone: TimeZone
+    ) throws -> Date {
+        var calendar = baseCalendar
+        calendar.timeZone = timeZone
+        let components = DateComponents(
+            calendar: calendar,
+            timeZone: timeZone,
+            year: year,
+            month: month,
+            day: day,
+            hour: 12
+        )
+        guard let date = calendar.date(from: components) else {
+            throw MedicationPlanError.invalidCalendarDate
+        }
+        let resolved = calendar.dateComponents([.year, .month, .day], from: date)
+        guard resolved.year == year, resolved.month == month, resolved.day == day else {
+            throw MedicationPlanError.invalidCalendarDate
+        }
+        return date
     }
 }
 
@@ -208,9 +297,26 @@ public struct DoseEvent: Codable, Identifiable, Sendable, Equatable {
     }
 }
 
+public enum DoseEventTimeline {
+    public static func latestByScheduledDoseID(in events: [DoseEvent]) -> [UUID: DoseEvent] {
+        events.reduce(into: [:]) { latestEvents, event in
+            guard let current = latestEvents[event.scheduledDoseID] else {
+                latestEvents[event.scheduledDoseID] = event
+                return
+            }
+            if event.recordedAt > current.recordedAt
+                || (event.recordedAt == current.recordedAt && event.id.uuidString > current.id.uuidString)
+            {
+                latestEvents[event.scheduledDoseID] = event
+            }
+        }
+    }
+}
+
 public enum MedicationPlanError: Error, Sendable, Equatable {
     case invalidTimeOfDay
     case invalidInterval
+    case invalidCalendarDate
     case invalidDateRange
     case missingEndDateForLocalSchedule
 }

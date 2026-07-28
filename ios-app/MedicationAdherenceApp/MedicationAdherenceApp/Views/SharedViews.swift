@@ -73,6 +73,7 @@ enum AppPermissionGate: String, Identifiable {
         UserDefaults.standard.set(true, forKey: gate.authorizationDefaultsKey)
     }
 
+    @MainActor
     static func isCameraAvailable() -> Bool {
         UIImagePickerController.isSourceTypeAvailable(.camera) || AVCaptureDevice.default(for: .video) != nil
     }
@@ -178,7 +179,7 @@ private struct AppPermissionPrimerModifier: ViewModifier {
 }
 
 private struct OpenMedicationAIQuestionKey: EnvironmentKey {
-    static let defaultValue: (String) -> Void = { _ in }
+    static let defaultValue: @MainActor @Sendable (String) -> Void = { _ in }
 }
 
 private struct PendingMedicationAIQuestionKey: EnvironmentKey {
@@ -186,27 +187,23 @@ private struct PendingMedicationAIQuestionKey: EnvironmentKey {
 }
 
 private struct ClearPendingMedicationAIQuestionKey: EnvironmentKey {
-    static let defaultValue: () -> Void = {}
+    static let defaultValue: @MainActor @Sendable () -> Void = {}
 }
 
 private struct OpenMedicationTodayKey: EnvironmentKey {
-    static let defaultValue: () -> Void = {}
+    static let defaultValue: @MainActor @Sendable () -> Void = {}
 }
 
 private struct ActiveAppTabKey: EnvironmentKey {
     static let defaultValue: AppTab? = nil
 }
 
-private struct IsBackgroundTabPrewarmKey: EnvironmentKey {
-    static let defaultValue = false
-}
-
 private struct SetAppTabTopGradientProgressKey: EnvironmentKey {
-    static let defaultValue: (AppTab, CGFloat) -> Void = { _, _ in }
+    static let defaultValue: @MainActor @Sendable (AppTab, CGFloat) -> Void = { _, _ in }
 }
 
 extension EnvironmentValues {
-    var openMedicationAIQuestion: (String) -> Void {
+    var openMedicationAIQuestion: @MainActor @Sendable (String) -> Void {
         get { self[OpenMedicationAIQuestionKey.self] }
         set { self[OpenMedicationAIQuestionKey.self] = newValue }
     }
@@ -216,12 +213,12 @@ extension EnvironmentValues {
         set { self[PendingMedicationAIQuestionKey.self] = newValue }
     }
 
-    var clearPendingMedicationAIQuestion: () -> Void {
+    var clearPendingMedicationAIQuestion: @MainActor @Sendable () -> Void {
         get { self[ClearPendingMedicationAIQuestionKey.self] }
         set { self[ClearPendingMedicationAIQuestionKey.self] = newValue }
     }
 
-    var openMedicationToday: () -> Void {
+    var openMedicationToday: @MainActor @Sendable () -> Void {
         get { self[OpenMedicationTodayKey.self] }
         set { self[OpenMedicationTodayKey.self] = newValue }
     }
@@ -231,19 +228,14 @@ extension EnvironmentValues {
         set { self[ActiveAppTabKey.self] = newValue }
     }
 
-    var isBackgroundTabPrewarm: Bool {
-        get { self[IsBackgroundTabPrewarmKey.self] }
-        set { self[IsBackgroundTabPrewarmKey.self] = newValue }
-    }
-
-    var setAppTabTopGradientProgress: (AppTab, CGFloat) -> Void {
+    var setAppTabTopGradientProgress: @MainActor @Sendable (AppTab, CGFloat) -> Void {
         get { self[SetAppTabTopGradientProgressKey.self] }
         set { self[SetAppTabTopGradientProgressKey.self] = newValue }
     }
 }
 
 private struct AppTopGradientScrollOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
+    static let defaultValue: CGFloat = 0
 
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         value = nextValue()
@@ -668,6 +660,7 @@ private func medicationPhotoPlaceholder(size: CGFloat, symbolName: String, tint:
     .frame(width: size, height: size)
 }
 
+@MainActor
 private enum MedicationPhotoImageCache {
     private static let cache = NSCache<NSString, UIImage>()
 
@@ -699,16 +692,20 @@ private enum MedicationPhotoImageCache {
         if let cachedImage = cachedImage(forKey: key) {
             return cachedImage
         }
-        return await Task.detached(priority: .utility) {
-            let image = downsampledImage(from: data, targetPixelSize: targetPixelSize) ?? UIImage(data: data)
-            if let image {
-                cache.setObject(image, forKey: key as NSString, cost: imageCost(image))
-            }
-            return image
+        let cgImage = await Task.detached(priority: .utility) {
+            downsampledCGImage(from: data, targetPixelSize: targetPixelSize)
         }.value
+        let image = cgImage.map(UIImage.init(cgImage:)) ?? UIImage(data: data)
+        if let image {
+            cache.setObject(image, forKey: key as NSString, cost: imageCost(image))
+        }
+        return image
     }
 
-    private static func downsampledImage(from data: Data, targetPixelSize: Int) -> UIImage? {
+    nonisolated private static func downsampledCGImage(
+        from data: Data,
+        targetPixelSize: Int
+    ) -> CGImage? {
         let options = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithData(data as CFData, options) else {
             return nil
@@ -719,10 +716,7 @@ private enum MedicationPhotoImageCache {
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: targetPixelSize
         ] as CFDictionary
-        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, downsampleOptions) else {
-            return nil
-        }
-        return UIImage(cgImage: cgImage)
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, downsampleOptions)
     }
 
     private static func imageCost(_ image: UIImage) -> Int {

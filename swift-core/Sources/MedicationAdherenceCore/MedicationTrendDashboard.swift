@@ -1,304 +1,25 @@
 import Foundation
 
-public enum MedicationTrendTopic: String, Codable, Sendable, Equatable, CaseIterable {
-    case discipline
-    case timing
-    case doseChange
-    case regimenLoad
-    case healthSignal
+private struct MedicationTrendAnalysisContext {
+    let calendar: Calendar
+    let latestEvents: [UUID: DoseEvent]
+    let dates: [DateOnly]
+    let dosesByDate: [DateOnly: [ScheduledDose]]
+    let doseChangesByDate: [DateOnly: [MedicationDoseChange]]
+    let lifecycleByDate: [DateOnly: [MedicationLifecycleEvent]]
+    let lifecycleEventsByMedicationID: [UUID: [MedicationLifecycleEvent]]
+    let healthByDate: [DateOnly: [HealthSignalSample]]
+    let contextsByPlanID: [UUID: MedicationTrendPlanContext]
+    let historicalDoseChangeCount: Int
+    let historicalHealthSignalCount: Int
 }
 
-public enum MedicationTrendDirection: String, Codable, Sendable, Equatable {
-    case improving
-    case stable
-    case fluctuating
-    case declining
-    case needsData
-}
-
-public struct MedicationTrendPeriodComparison: Codable, Sendable, Equatable {
-    public var recentPeriodTitle: String
-    public var previousPeriodTitle: String
-    public var recentScore: Double
-    public var previousScore: Double?
-    public var delta: Double?
-    public var trendSlopePerDay: Double
-    public var trendStrengthScore: Double
-    public var confidenceScore: Double
-    public var recentDayCount: Int
-    public var previousDayCount: Int
-    public var recentScheduledCount: Int
-    public var previousScheduledCount: Int
-    public var evidenceSummary: String
-
-    public init(
-        recentPeriodTitle: String = "近 7 天",
-        previousPeriodTitle: String = "前 7 天",
-        recentScore: Double,
-        previousScore: Double? = nil,
-        delta: Double? = nil,
-        trendSlopePerDay: Double = 0,
-        trendStrengthScore: Double = 0,
-        confidenceScore: Double,
-        recentDayCount: Int,
-        previousDayCount: Int,
-        recentScheduledCount: Int,
-        previousScheduledCount: Int,
-        evidenceSummary: String
-    ) {
-        self.recentPeriodTitle = recentPeriodTitle
-        self.previousPeriodTitle = previousPeriodTitle
-        self.recentScore = recentScore
-        self.previousScore = previousScore
-        self.delta = delta
-        self.trendSlopePerDay = trendSlopePerDay
-        self.trendStrengthScore = trendStrengthScore
-        self.confidenceScore = confidenceScore
-        self.recentDayCount = recentDayCount
-        self.previousDayCount = previousDayCount
-        self.recentScheduledCount = recentScheduledCount
-        self.previousScheduledCount = previousScheduledCount
-        self.evidenceSummary = evidenceSummary
-    }
-}
-
-public struct MedicationTrendFormulaComponent: Codable, Identifiable, Sendable, Equatable {
-    public var id: String
-    public var title: String
-    public var weight: Double
-    public var score: Double
-    public var source: String
-    public var explanation: String
-
-    public init(
-        id: String,
-        title: String,
-        weight: Double,
-        score: Double,
-        source: String,
-        explanation: String
-    ) {
-        self.id = id
-        self.title = title
-        self.weight = weight
-        self.score = score
-        self.source = source
-        self.explanation = explanation
-    }
-}
-
-public enum MedicationLifecycleState: String, Codable, Sendable, Equatable {
-    case active
-    case interrupted
-    case archived
-}
-
-public enum HealthSignalKind: String, Codable, Sendable, Equatable {
-    case heartRate
-    case bloodPressureSystolic
-    case bloodPressureDiastolic
-    case bloodOxygen
-    case bodyTemperature
-    case bloodGlucose
-    case unknown
-}
-
-public struct MedicationLifecycleEvent: Codable, Identifiable, Sendable, Equatable {
-    public let id: UUID
-    public var medicationID: UUID
-    public var state: MedicationLifecycleState
-    public var occurredAt: Date
-    public var note: String
-
-    public init(
-        id: UUID = UUID(),
-        medicationID: UUID,
-        state: MedicationLifecycleState,
-        occurredAt: Date,
-        note: String = ""
-    ) {
-        self.id = id
-        self.medicationID = medicationID
-        self.state = state
-        self.occurredAt = occurredAt
-        self.note = note
-    }
-}
-
-public struct MedicationTrendPlanContext: Codable, Identifiable, Sendable, Equatable {
-    public var id: UUID { planID }
-    public var planID: UUID
-    public var medicationID: UUID
-    public var medicationKind: MedicationKind
-    public var inputSource: MedicationInputSource
-    public var lifecycleState: MedicationLifecycleState
-
-    public init(
-        planID: UUID,
-        medicationID: UUID,
-        medicationKind: MedicationKind,
-        inputSource: MedicationInputSource,
-        lifecycleState: MedicationLifecycleState
-    ) {
-        self.planID = planID
-        self.medicationID = medicationID
-        self.medicationKind = medicationKind
-        self.inputSource = inputSource
-        self.lifecycleState = lifecycleState
-    }
-}
-
-public struct HealthSignalSample: Codable, Identifiable, Sendable, Equatable {
-    public let id: UUID
-    public var kind: HealthSignalKind
-    public var measuredAt: Date
-    public var value: Double
-    public var unit: String
-
-    public init(
-        id: UUID = UUID(),
-        kind: HealthSignalKind,
-        measuredAt: Date,
-        value: Double,
-        unit: String
-    ) {
-        self.id = id
-        self.kind = kind
-        self.measuredAt = measuredAt
-        self.value = value
-        self.unit = unit
-    }
-}
-
-public struct MedicationTrendPoint: Codable, Identifiable, Sendable, Equatable {
-    public var id: DateOnly { date }
-    public var date: DateOnly
-    public var score: Double
-    public var scheduledCount: Int
-    public var completedCount: Int
-    public var delayedCount: Int
-    public var skippedCount: Int
-    public var doseChangeCount: Int
-    public var activeMedicationCount: Int
-    public var archivedMedicationCount: Int
-    public var interruptedMedicationCount: Int
-    public var prescriptionMedicationCount: Int
-    public var nonPrescriptionMedicationCount: Int
-    public var importedMedicationCount: Int
-    public var healthSignalCount: Int
-    public var formulaComponents: [MedicationTrendFormulaComponent]
-    public var annotation: String
-
-    public init(
-        date: DateOnly,
-        score: Double,
-        scheduledCount: Int,
-        completedCount: Int,
-        delayedCount: Int,
-        skippedCount: Int,
-        doseChangeCount: Int = 0,
-        activeMedicationCount: Int = 0,
-        archivedMedicationCount: Int = 0,
-        interruptedMedicationCount: Int = 0,
-        prescriptionMedicationCount: Int = 0,
-        nonPrescriptionMedicationCount: Int = 0,
-        importedMedicationCount: Int = 0,
-        healthSignalCount: Int = 0,
-        formulaComponents: [MedicationTrendFormulaComponent] = [],
-        annotation: String = ""
-    ) {
-        self.date = date
-        self.score = score
-        self.scheduledCount = scheduledCount
-        self.completedCount = completedCount
-        self.delayedCount = delayedCount
-        self.skippedCount = skippedCount
-        self.doseChangeCount = doseChangeCount
-        self.activeMedicationCount = activeMedicationCount
-        self.archivedMedicationCount = archivedMedicationCount
-        self.interruptedMedicationCount = interruptedMedicationCount
-        self.prescriptionMedicationCount = prescriptionMedicationCount
-        self.nonPrescriptionMedicationCount = nonPrescriptionMedicationCount
-        self.importedMedicationCount = importedMedicationCount
-        self.healthSignalCount = healthSignalCount
-        self.formulaComponents = formulaComponents
-        self.annotation = annotation
-    }
-}
-
-public struct MedicationTrendMetric: Codable, Identifiable, Sendable, Equatable {
-    public var id: MedicationTrendTopic { topic }
-    public var topic: MedicationTrendTopic
-    public var title: String
-    public var score: Double
-    public var direction: MedicationTrendDirection
-    public var summary: String
-    public var dataSourceSummary: String
-    public var formulaSummary: String
-    public var comparison: MedicationTrendPeriodComparison
-    public var contributorSummary: [String]
-    public var formulaComponents: [MedicationTrendFormulaComponent]
-    public var points: [MedicationTrendPoint]
-
-    public init(
-        topic: MedicationTrendTopic,
-        title: String,
-        score: Double,
-        direction: MedicationTrendDirection,
-        summary: String,
-        dataSourceSummary: String,
-        formulaSummary: String,
-        comparison: MedicationTrendPeriodComparison,
-        contributorSummary: [String] = [],
-        formulaComponents: [MedicationTrendFormulaComponent] = [],
-        points: [MedicationTrendPoint]
-    ) {
-        self.topic = topic
-        self.title = title
-        self.score = score
-        self.direction = direction
-        self.summary = summary
-        self.dataSourceSummary = dataSourceSummary
-        self.formulaSummary = formulaSummary
-        self.comparison = comparison
-        self.contributorSummary = contributorSummary
-        self.formulaComponents = formulaComponents
-        self.points = points
-    }
-}
-
-public struct MedicationTrendDashboard: Codable, Sendable, Equatable {
-    public var overallScore: Double
-    public var direction: MedicationTrendDirection
-    public var title: String
-    public var summary: String
-    public var disciplineSummary: String
-    public var confidenceScore: Double
-    public var dataQualitySummary: String
-    public var safetyNote: String
-    public var metrics: [MedicationTrendMetric]
-
-    public init(
-        overallScore: Double,
-        direction: MedicationTrendDirection,
-        title: String,
-        summary: String,
-        disciplineSummary: String,
-        confidenceScore: Double = 0,
-        dataQualitySummary: String = "继续记录后提高趋势可信度。",
-        safetyNote: String = MedicationTrendDashboardBuilder.defaultSafetyNote,
-        metrics: [MedicationTrendMetric]
-    ) {
-        self.overallScore = overallScore
-        self.direction = direction
-        self.title = title
-        self.summary = summary
-        self.disciplineSummary = disciplineSummary
-        self.confidenceScore = confidenceScore
-        self.dataQualitySummary = dataQualitySummary
-        self.safetyNote = safetyNote
-        self.metrics = metrics
-    }
+private struct MedicationTrendPointSeries {
+    let discipline: [MedicationTrendPoint]
+    let timing: [MedicationTrendPoint]
+    let doseChange: [MedicationTrendPoint]
+    let regimen: [MedicationTrendPoint]
+    let health: [MedicationTrendPoint]
 }
 
 public struct MedicationTrendDashboardBuilder: Sendable {
@@ -325,227 +46,19 @@ public struct MedicationTrendDashboardBuilder: Sendable {
         calendar.timeZone = timeZone
         let requiredDays = max(1, minimumRequiredDays)
         let maxDays = max(requiredDays, maximumAnalysisDays)
-        let latestEvents = Dictionary(grouping: events, by: \.scheduledDoseID).compactMapValues { doseEvents in
-            doseEvents.sorted { $0.recordedAt < $1.recordedAt }.last
-        }
-        let measurableDoses = scheduledDoses.filter { dose in
-            dose.dueAt <= now || latestEvents[dose.id] != nil
-        }
-        let historicalDoseChanges = doseChanges.filter { $0.effectiveFrom <= now }
-        let historicalLifecycleEvents = lifecycleEvents.filter { $0.occurredAt <= now }
-        let historicalHealthSignals = healthSignals.filter { $0.measuredAt <= now }
-        let dates = analysisDates(scheduledDoses: measurableDoses, latestEvents: latestEvents, calendar: calendar, now: now, limit: maxDays)
-        let dosesByDate = Dictionary(grouping: measurableDoses) { dose -> DateOnly in
-            if let event = latestEvents[dose.id], dose.dueAt > now {
-                return dateOnly(from: event.recordedAt, calendar: calendar)
-            }
-            return dateOnly(from: dose.dueAt, calendar: calendar)
-        }
-        let doseChangesByDate = Dictionary(grouping: historicalDoseChanges) { dateOnly(from: $0.effectiveFrom, calendar: calendar) }
-        let lifecycleByDate = Dictionary(grouping: historicalLifecycleEvents) { dateOnly(from: $0.occurredAt, calendar: calendar) }
-        let lifecycleEventsByMedicationID = Dictionary(grouping: historicalLifecycleEvents, by: \.medicationID)
-        let healthByDate = Dictionary(grouping: historicalHealthSignals) { dateOnly(from: $0.measuredAt, calendar: calendar) }
-        let contextsByPlanID = Dictionary(grouping: planContexts, by: \.planID).compactMapValues(\.first)
-
-        let disciplinePoints = dates.map { date in
-            let doses = dosesByDate[date] ?? []
-            let components = disciplineComponents(doses: doses, latestEvents: latestEvents)
-            return point(
-                date: date,
-                doses: doses,
-                latestEvents: latestEvents,
-                score: weightedScore(components),
-                doseChangeCount: doseChangesByDate[date]?.count ?? 0,
-                lifecycleEvents: lifecycleByDate[date] ?? [],
-                healthSignalCount: healthByDate[date]?.count ?? 0,
-                formulaComponents: components
-            )
-        }
-
-        let timingPoints = dates.map { date in
-            let doses = dosesByDate[date] ?? []
-            let components = timingComponents(doses: doses, latestEvents: latestEvents)
-            return point(
-                date: date,
-                doses: doses,
-                latestEvents: latestEvents,
-                score: weightedScore(components),
-                doseChangeCount: doseChangesByDate[date]?.count ?? 0,
-                lifecycleEvents: lifecycleByDate[date] ?? [],
-                healthSignalCount: healthByDate[date]?.count ?? 0,
-                formulaComponents: components
-            )
-        }
-
-        let doseChangePoints = dates.map { date in
-            let count = doseChangesByDate[date]?.count ?? 0
-            let components = doseChangeComponents(changeCount: count)
-            return point(
-                date: date,
-                doses: dosesByDate[date] ?? [],
-                latestEvents: latestEvents,
-                score: weightedScore(components),
-                doseChangeCount: count,
-                lifecycleEvents: lifecycleByDate[date] ?? [],
-                healthSignalCount: healthByDate[date]?.count ?? 0,
-                formulaComponents: components,
-                annotation: count == 0 ? "" : "\(count) 次剂量变化"
-            )
-        }
-
-        let regimenPoints = dates.map { date in
-            let doses = dosesByDate[date] ?? []
-            let lifecycleEventsForDate = lifecycleByDate[date] ?? []
-            let contexts = uniquePlanContexts(
-                for: doses,
-                date: date,
-                contextsByPlanID: contextsByPlanID,
-                lifecycleEventsByMedicationID: lifecycleEventsByMedicationID,
-                calendar: calendar
-            )
-            let archivedEventCount = lifecycleEventsForDate.filter { $0.state == .archived }.count
-            let interruptedEventCount = lifecycleEventsForDate.filter { $0.state == .interrupted }.count
-            let archivedContextCount = contexts.filter { $0.lifecycleState == .archived }.count
-            let interruptedCount = contexts.filter { $0.lifecycleState == .interrupted }.count + interruptedEventCount
-            let activeMedicationCount = contexts.isEmpty ? Set(doses.map(\.planID)).count : contexts.filter { $0.lifecycleState == .active }.count
-            let prescriptionCount = contexts.filter { $0.medicationKind == .prescription }.count
-            let nonPrescriptionCount = contexts.filter { $0.medicationKind == .overTheCounter }.count
-            let importedCount = contexts.filter { $0.inputSource == .barcode || $0.inputSource == .prescriptionImage }.count
-            let components = regimenLoadComponents(
-                doseCount: doses.count,
-                archivedCount: archivedEventCount + archivedContextCount,
-                interruptedCount: interruptedCount,
-                prescriptionCount: prescriptionCount,
-                importedCount: importedCount
-            )
-            return point(
-                date: date,
-                doses: doses,
-                latestEvents: latestEvents,
-                score: weightedScore(components),
-                doseChangeCount: doseChangesByDate[date]?.count ?? 0,
-                activeMedicationCount: activeMedicationCount,
-                archivedMedicationCount: archivedContextCount,
-                interruptedMedicationCount: interruptedCount,
-                prescriptionMedicationCount: prescriptionCount,
-                nonPrescriptionMedicationCount: nonPrescriptionCount,
-                importedMedicationCount: importedCount,
-                lifecycleEvents: lifecycleEventsForDate,
-                healthSignalCount: healthByDate[date]?.count ?? 0,
-                formulaComponents: components,
-                annotation: loadAnnotation(
-                    doseCount: doses.count,
-                    archivedCount: archivedEventCount + archivedContextCount,
-                    interruptedCount: interruptedCount,
-                    prescriptionCount: prescriptionCount
-                )
-            )
-        }
-
-        let healthPoints = dates.map { date in
-            let samples = healthByDate[date] ?? []
-            let components = healthSignalComponents(samples: samples)
-            return point(
-                date: date,
-                doses: dosesByDate[date] ?? [],
-                latestEvents: latestEvents,
-                score: weightedScore(components),
-                doseChangeCount: doseChangesByDate[date]?.count ?? 0,
-                lifecycleEvents: lifecycleByDate[date] ?? [],
-                healthSignalCount: samples.count,
-                formulaComponents: components,
-                annotation: samples.isEmpty ? "等待授权健康数据" : "\(samples.count) 条健康数据"
-            )
-        }
-
-        let metrics = [
-            metric(
-                topic: .discipline,
-                title: "用药纪律",
-                points: disciplinePoints,
-                requiredDays: requiredDays,
-                source: "服药历史：已服用、已修正、稍后、忽略",
-                formulaSummary: "纪律分 = 完成覆盖 x 62% + 稍后影响 x 22% + 忽略影响 x 16%。稍后保留部分分值，忽略只用于复盘，不判断疗效。",
-                summary: disciplineSummary(points: disciplinePoints, requiredDays: requiredDays),
-                formulaComponents: aggregateFormulaComponents(
-                    topic: .discipline,
-                    points: disciplinePoints,
-                    componentBuilder: { point in
-                        disciplineComponentsForPoint(point)
-                    }
-                )
-            ),
-            metric(
-                topic: .timing,
-                title: "时间稳定",
-                points: timingPoints,
-                requiredDays: requiredDays,
-                source: "服药时间：提醒时间与用户记录时间差",
-                formulaSummary: "时间稳定分 = 时间偏差 x 70% + 记录覆盖 x 30%。时间偏差以实际记录和提醒时间的绝对差估算。",
-                summary: timingSummary(points: timingPoints, requiredDays: requiredDays),
-                formulaComponents: aggregateFormulaComponents(
-                    topic: .timing,
-                    points: timingPoints,
-                    componentBuilder: { point in
-                        timingComponentsForPoint(point)
-                    }
-                )
-            ),
-            metric(
-                topic: .doseChange,
-                title: "剂量变化",
-                points: doseChangePoints,
-                requiredDays: requiredDays,
-                source: "剂量变化记录：旧剂量、新剂量、生效日期",
-                formulaSummary: "剂量变化分 = 调整频率 x 55% + 观察连续性 x 45%。剂量变更日前后分段观察，不评价疗效。",
-                summary: doseChangeSummary(count: historicalDoseChanges.count),
-                formulaComponents: aggregateFormulaComponents(
-                    topic: .doseChange,
-                    points: doseChangePoints,
-                    componentBuilder: { point in
-                        doseChangeComponents(changeCount: point.doseChangeCount)
-                    }
-                )
-            ),
-            metric(
-                topic: .regimenLoad,
-                title: "用药负担",
-                points: regimenPoints,
-                requiredDays: requiredDays,
-                source: "药物类型、每日提醒数量、归档或中断操作",
-                formulaSummary: "用药负担分 = 提醒负担 x 50% + 状态变化 x 28% + 用药复杂度 x 22%。处方药、导入来源和中断状态提高复核要求。",
-                summary: regimenSummary(points: regimenPoints, requiredDays: requiredDays),
-                formulaComponents: aggregateFormulaComponents(
-                    topic: .regimenLoad,
-                    points: regimenPoints,
-                    componentBuilder: { point in
-                        regimenLoadComponents(
-                            doseCount: point.scheduledCount,
-                            archivedCount: point.archivedMedicationCount,
-                            interruptedCount: point.interruptedMedicationCount,
-                            prescriptionCount: point.prescriptionMedicationCount,
-                            importedCount: point.importedMedicationCount
-                        )
-                    }
-                )
-            ),
-            metric(
-                topic: .healthSignal,
-                title: "健康信号",
-                points: healthPoints,
-                requiredDays: requiredDays,
-                source: "用户授权的 Apple 健康心率、血压、血氧、体温、血糖等指标",
-                formulaSummary: "健康信号分 = 指标稳定 x 68% + 样本覆盖 x 32%。只观察授权样本和用药记录的时间关系，不生成诊断。",
-                summary: healthSummary(sampleCount: historicalHealthSignals.count),
-                formulaComponents: aggregateFormulaComponents(
-                    topic: .healthSignal,
-                    points: healthPoints,
-                    componentBuilder: { point in
-                        healthSignalComponentsForPoint(point)
-                    }
-                )
-            )
-        ]
+        let context = analysisContext(
+            scheduledDoses: scheduledDoses,
+            events: events,
+            doseChanges: doseChanges,
+            planContexts: planContexts,
+            lifecycleEvents: lifecycleEvents,
+            healthSignals: healthSignals,
+            calendar: calendar,
+            now: now,
+            maximumAnalysisDays: maxDays
+        )
+        let points = pointSeries(from: context)
+        let metrics = metrics(from: points, context: context, requiredDays: requiredDays)
 
         let scoredMetrics = metrics.filter { $0.direction != .needsData && $0.topic != .healthSignal }
         let overall = scoredMetrics.isEmpty ? 0 : scoredMetrics.reduce(0) { $0 + $1.comparison.recentScore } / Double(scoredMetrics.count)
@@ -556,11 +69,286 @@ public struct MedicationTrendDashboardBuilder: Sendable {
             direction: direction,
             title: dashboardTitle(direction: direction),
             summary: dashboardSummary(metrics: metrics, overallScore: overall, requiredDays: requiredDays),
-            disciplineSummary: disciplineSummary(points: disciplinePoints, requiredDays: requiredDays),
+            disciplineSummary: disciplineSummary(points: points.discipline, requiredDays: requiredDays),
             confidenceScore: clamped(confidence),
             dataQualitySummary: dataQualitySummary(metrics: metrics, requiredDays: requiredDays),
             metrics: metrics
         )
+    }
+
+    private func analysisContext(
+        scheduledDoses: [ScheduledDose],
+        events: [DoseEvent],
+        doseChanges: [MedicationDoseChange],
+        planContexts: [MedicationTrendPlanContext],
+        lifecycleEvents: [MedicationLifecycleEvent],
+        healthSignals: [HealthSignalSample],
+        calendar: Calendar,
+        now: Date,
+        maximumAnalysisDays: Int
+    ) -> MedicationTrendAnalysisContext {
+        let latestEvents = DoseEventTimeline.latestByScheduledDoseID(in: events)
+        let measurableDoses = scheduledDoses.filter { dose in
+            dose.dueAt <= now || latestEvents[dose.id] != nil
+        }
+        let historicalDoseChanges = doseChanges.filter { $0.effectiveFrom <= now }
+        let historicalLifecycleEvents = lifecycleEvents.filter { $0.occurredAt <= now }
+        let historicalHealthSignals = healthSignals.filter { $0.measuredAt <= now }
+        let dates = analysisDates(
+            scheduledDoses: measurableDoses,
+            latestEvents: latestEvents,
+            calendar: calendar,
+            now: now,
+            limit: maximumAnalysisDays
+        )
+        let dosesByDate = Dictionary(grouping: measurableDoses) { dose -> DateOnly in
+            if let event = latestEvents[dose.id], dose.dueAt > now {
+                return DateOnly(date: event.recordedAt, calendar: calendar)
+            }
+            return DateOnly(date: dose.dueAt, calendar: calendar)
+        }
+
+        return MedicationTrendAnalysisContext(
+            calendar: calendar,
+            latestEvents: latestEvents,
+            dates: dates,
+            dosesByDate: dosesByDate,
+            doseChangesByDate: Dictionary(grouping: historicalDoseChanges) {
+                DateOnly(date: $0.effectiveFrom, calendar: calendar)
+            },
+            lifecycleByDate: Dictionary(grouping: historicalLifecycleEvents) {
+                DateOnly(date: $0.occurredAt, calendar: calendar)
+            },
+            lifecycleEventsByMedicationID: Dictionary(grouping: historicalLifecycleEvents, by: \.medicationID),
+            healthByDate: Dictionary(grouping: historicalHealthSignals) {
+                DateOnly(date: $0.measuredAt, calendar: calendar)
+            },
+            contextsByPlanID: Dictionary(grouping: planContexts, by: \.planID).compactMapValues(\.first),
+            historicalDoseChangeCount: historicalDoseChanges.count,
+            historicalHealthSignalCount: historicalHealthSignals.count
+        )
+    }
+
+    private func pointSeries(from context: MedicationTrendAnalysisContext) -> MedicationTrendPointSeries {
+        MedicationTrendPointSeries(
+            discipline: disciplinePoints(from: context),
+            timing: timingPoints(from: context),
+            doseChange: doseChangePoints(from: context),
+            regimen: regimenPoints(from: context),
+            health: healthPoints(from: context)
+        )
+    }
+
+    private func disciplinePoints(from context: MedicationTrendAnalysisContext) -> [MedicationTrendPoint] {
+        context.dates.map { date in
+            let doses = context.dosesByDate[date] ?? []
+            let components = disciplineComponents(doses: doses, latestEvents: context.latestEvents)
+            return point(
+                date: date,
+                doses: doses,
+                latestEvents: context.latestEvents,
+                score: weightedScore(components),
+                doseChangeCount: context.doseChangesByDate[date]?.count ?? 0,
+                lifecycleEvents: context.lifecycleByDate[date] ?? [],
+                healthSignalCount: context.healthByDate[date]?.count ?? 0,
+                formulaComponents: components
+            )
+        }
+    }
+
+    private func timingPoints(from context: MedicationTrendAnalysisContext) -> [MedicationTrendPoint] {
+        context.dates.map { date in
+            let doses = context.dosesByDate[date] ?? []
+            let components = timingComponents(doses: doses, latestEvents: context.latestEvents)
+            return point(
+                date: date,
+                doses: doses,
+                latestEvents: context.latestEvents,
+                score: weightedScore(components),
+                doseChangeCount: context.doseChangesByDate[date]?.count ?? 0,
+                lifecycleEvents: context.lifecycleByDate[date] ?? [],
+                healthSignalCount: context.healthByDate[date]?.count ?? 0,
+                formulaComponents: components
+            )
+        }
+    }
+
+    private func doseChangePoints(from context: MedicationTrendAnalysisContext) -> [MedicationTrendPoint] {
+        context.dates.map { date in
+            let count = context.doseChangesByDate[date]?.count ?? 0
+            let components = doseChangeComponents(changeCount: count)
+            return point(
+                date: date,
+                doses: context.dosesByDate[date] ?? [],
+                latestEvents: context.latestEvents,
+                score: weightedScore(components),
+                doseChangeCount: count,
+                lifecycleEvents: context.lifecycleByDate[date] ?? [],
+                healthSignalCount: context.healthByDate[date]?.count ?? 0,
+                formulaComponents: components,
+                annotation: count == 0 ? "" : "\(count) 次剂量变化"
+            )
+        }
+    }
+
+    private func regimenPoints(from context: MedicationTrendAnalysisContext) -> [MedicationTrendPoint] {
+        context.dates.map { date in
+            let doses = context.dosesByDate[date] ?? []
+            let lifecycleEvents = context.lifecycleByDate[date] ?? []
+            let planContexts = uniquePlanContexts(
+                for: doses,
+                date: date,
+                contextsByPlanID: context.contextsByPlanID,
+                lifecycleEventsByMedicationID: context.lifecycleEventsByMedicationID,
+                calendar: context.calendar
+            )
+            let archivedEventCount = lifecycleEvents.filter { $0.state == .archived }.count
+            let interruptedEventCount = lifecycleEvents.filter { $0.state == .interrupted }.count
+            let archivedContextCount = planContexts.filter { $0.lifecycleState == .archived }.count
+            let interruptedCount = planContexts.filter { $0.lifecycleState == .interrupted }.count + interruptedEventCount
+            let activeCount = planContexts.isEmpty
+                ? Set(doses.map(\.planID)).count
+                : planContexts.filter { $0.lifecycleState == .active }.count
+            let prescriptionCount = planContexts.filter { $0.medicationKind == .prescription }.count
+            let nonPrescriptionCount = planContexts.filter { $0.medicationKind == .overTheCounter }.count
+            let importedCount = planContexts.filter {
+                $0.inputSource == .barcode || $0.inputSource == .prescriptionImage
+            }.count
+            let components = regimenLoadComponents(
+                doseCount: doses.count,
+                archivedCount: archivedEventCount + archivedContextCount,
+                interruptedCount: interruptedCount,
+                prescriptionCount: prescriptionCount,
+                importedCount: importedCount
+            )
+            return point(
+                date: date,
+                doses: doses,
+                latestEvents: context.latestEvents,
+                score: weightedScore(components),
+                doseChangeCount: context.doseChangesByDate[date]?.count ?? 0,
+                activeMedicationCount: activeCount,
+                archivedMedicationCount: archivedContextCount,
+                interruptedMedicationCount: interruptedCount,
+                prescriptionMedicationCount: prescriptionCount,
+                nonPrescriptionMedicationCount: nonPrescriptionCount,
+                importedMedicationCount: importedCount,
+                lifecycleEvents: lifecycleEvents,
+                healthSignalCount: context.healthByDate[date]?.count ?? 0,
+                formulaComponents: components,
+                annotation: loadAnnotation(
+                    doseCount: doses.count,
+                    archivedCount: archivedEventCount + archivedContextCount,
+                    interruptedCount: interruptedCount,
+                    prescriptionCount: prescriptionCount
+                )
+            )
+        }
+    }
+
+    private func healthPoints(from context: MedicationTrendAnalysisContext) -> [MedicationTrendPoint] {
+        context.dates.map { date in
+            let samples = context.healthByDate[date] ?? []
+            let components = healthSignalComponents(samples: samples)
+            return point(
+                date: date,
+                doses: context.dosesByDate[date] ?? [],
+                latestEvents: context.latestEvents,
+                score: weightedScore(components),
+                doseChangeCount: context.doseChangesByDate[date]?.count ?? 0,
+                lifecycleEvents: context.lifecycleByDate[date] ?? [],
+                healthSignalCount: samples.count,
+                formulaComponents: components,
+                annotation: samples.isEmpty ? "等待授权健康数据" : "\(samples.count) 条健康数据"
+            )
+        }
+    }
+
+    private func metrics(
+        from points: MedicationTrendPointSeries,
+        context: MedicationTrendAnalysisContext,
+        requiredDays: Int
+    ) -> [MedicationTrendMetric] {
+        [
+            metric(
+                topic: .discipline,
+                title: "用药纪律",
+                points: points.discipline,
+                requiredDays: requiredDays,
+                source: "服药历史：已服用、已修正、稍后、忽略",
+                formulaSummary: "纪律分 = 完成覆盖 x 62% + 稍后影响 x 22% + 忽略影响 x 16%。稍后保留部分分值，忽略只用于复盘，不判断疗效。",
+                summary: disciplineSummary(points: points.discipline, requiredDays: requiredDays),
+                formulaComponents: aggregateFormulaComponents(
+                    topic: .discipline,
+                    points: points.discipline,
+                    componentBuilder: disciplineComponentsForPoint
+                )
+            ),
+            metric(
+                topic: .timing,
+                title: "时间稳定",
+                points: points.timing,
+                requiredDays: requiredDays,
+                source: "服药时间：提醒时间与用户记录时间差",
+                formulaSummary: "时间稳定分 = 时间偏差 x 70% + 记录覆盖 x 30%。时间偏差以实际记录和提醒时间的绝对差估算。",
+                summary: timingSummary(points: points.timing, requiredDays: requiredDays),
+                formulaComponents: aggregateFormulaComponents(
+                    topic: .timing,
+                    points: points.timing,
+                    componentBuilder: timingComponentsForPoint
+                )
+            ),
+            metric(
+                topic: .doseChange,
+                title: "剂量变化",
+                points: points.doseChange,
+                requiredDays: requiredDays,
+                source: "剂量变化记录：旧剂量、新剂量、生效日期",
+                formulaSummary: "剂量变化分 = 调整频率 x 55% + 观察连续性 x 45%。剂量变更日前后分段观察，不评价疗效。",
+                summary: doseChangeSummary(count: context.historicalDoseChangeCount),
+                formulaComponents: aggregateFormulaComponents(
+                    topic: .doseChange,
+                    points: points.doseChange,
+                    componentBuilder: { doseChangeComponents(changeCount: $0.doseChangeCount) }
+                )
+            ),
+            metric(
+                topic: .regimenLoad,
+                title: "用药负担",
+                points: points.regimen,
+                requiredDays: requiredDays,
+                source: "药物类型、每日提醒数量、归档或中断操作",
+                formulaSummary: "用药负担分 = 提醒负担 x 50% + 状态变化 x 28% + 用药复杂度 x 22%。处方药、导入来源和中断状态提高复核要求。",
+                summary: regimenSummary(points: points.regimen, requiredDays: requiredDays),
+                formulaComponents: aggregateFormulaComponents(
+                    topic: .regimenLoad,
+                    points: points.regimen,
+                    componentBuilder: {
+                        regimenLoadComponents(
+                            doseCount: $0.scheduledCount,
+                            archivedCount: $0.archivedMedicationCount,
+                            interruptedCount: $0.interruptedMedicationCount,
+                            prescriptionCount: $0.prescriptionMedicationCount,
+                            importedCount: $0.importedMedicationCount
+                        )
+                    }
+                )
+            ),
+            metric(
+                topic: .healthSignal,
+                title: "健康信号",
+                points: points.health,
+                requiredDays: requiredDays,
+                source: "用户授权的 Apple 健康心率、血压、血氧、体温、血糖等指标",
+                formulaSummary: "健康信号分 = 指标稳定 x 68% + 样本覆盖 x 32%。只观察授权样本和用药记录的时间关系，不生成诊断。",
+                summary: healthSummary(sampleCount: context.historicalHealthSignalCount),
+                formulaComponents: aggregateFormulaComponents(
+                    topic: .healthSignal,
+                    points: points.health,
+                    componentBuilder: healthSignalComponentsForPoint
+                )
+            )
+        ]
     }
 
     private func analysisDates(
@@ -572,9 +360,9 @@ public struct MedicationTrendDashboardBuilder: Sendable {
     ) -> [DateOnly] {
         let dates = Set(scheduledDoses.map { dose in
             if let event = latestEvents[dose.id], dose.dueAt > now {
-                return dateOnly(from: event.recordedAt, calendar: calendar)
+                return DateOnly(date: event.recordedAt, calendar: calendar)
             }
-            return dateOnly(from: dose.dueAt, calendar: calendar)
+            return DateOnly(date: dose.dueAt, calendar: calendar)
         })
         return Array(dates).sorted().suffix(limit).map { $0 }
     }
@@ -662,7 +450,7 @@ public struct MedicationTrendDashboardBuilder: Sendable {
             return lhs.id.uuidString < rhs.id.uuidString
         }
         let latestEventOnOrBeforeDate = sortedEvents.last { event in
-            dateOnly(from: event.occurredAt, calendar: calendar) <= date
+            DateOnly(date: event.occurredAt, calendar: calendar) <= date
         }
         let effectiveState = latestEventOnOrBeforeDate?.state ?? .active
         return MedicationTrendPlanContext(
@@ -1281,15 +1069,6 @@ public struct MedicationTrendDashboardBuilder: Sendable {
             return "\(prescriptionCount) 个处方药计划"
         }
         return ""
-    }
-
-    private func dateOnly(from date: Date, calendar: Calendar) -> DateOnly {
-        let components = calendar.dateComponents([.year, .month, .day], from: date)
-        return DateOnly(
-            year: components.year ?? 1970,
-            month: components.month ?? 1,
-            day: components.day ?? 1
-        )
     }
 
     private func clamped(_ value: Double) -> Double {

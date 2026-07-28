@@ -17,6 +17,10 @@ public struct DrugLabelSection: Codable, Sendable, Equatable {
         self.title = title
         self.text = text
     }
+
+    public var kind: ReadableLabelSectionKind {
+        ReadableLabelSectionKind(sourceTitle: title)
+    }
 }
 
 public struct MedicationLabel: Codable, Sendable, Equatable {

@@ -1,6 +1,6 @@
 import Foundation
 
-enum MedicationWatchDoseStatus: String, Codable, Hashable {
+enum MedicationWatchDoseStatus: String, Codable, Hashable, Sendable {
     case pending
     case taken
     case delayed
@@ -27,7 +27,7 @@ enum MedicationWatchDoseStatus: String, Codable, Hashable {
     }
 }
 
-struct MedicationWatchDoseItem: Codable, Identifiable, Hashable {
+struct MedicationWatchDoseItem: Codable, Identifiable, Hashable, Sendable {
     var id: UUID
     var medicationName: String
     var doseText: String
@@ -35,17 +35,53 @@ struct MedicationWatchDoseItem: Codable, Identifiable, Hashable {
     var status: MedicationWatchDoseStatus
 
     var timeText: String {
-        MedicationWatchSnapshotFormatters.time.string(from: dueAt)
+        MedicationWatchSnapshotFormatters.timeString(from: dueAt)
     }
 }
 
-enum MedicationWatchDoseTiming: Hashable {
+enum MedicationWatchDoseTiming: Hashable, Sendable {
     case overdue
     case dueSoon
     case upcoming
 }
 
-struct MedicationWatchSnapshot: Codable, Hashable {
+enum MedicationWatchPresentationState: Equatable, Sendable {
+    case awaitingFirstSync
+    case stale
+    case empty
+    case content(isPrivate: Bool)
+}
+
+enum MedicationWatchDeliveryAction: Equatable, Sendable {
+    case updateApplicationContext(Data)
+    case sendMessage(Data)
+    case transferUserInfo(Data)
+}
+
+struct MedicationWatchDeliveryState: Equatable, Sendable {
+    private(set) var latestSnapshotData: Data?
+    private(set) var lastQueuedSnapshotData: Data?
+
+    mutating func record(_ data: Data) {
+        latestSnapshotData = data
+    }
+
+    mutating func actions(isActivated: Bool, isReachable: Bool) -> [MedicationWatchDeliveryAction] {
+        guard isActivated, let data = latestSnapshotData else {
+            return []
+        }
+        var actions: [MedicationWatchDeliveryAction] = [.updateApplicationContext(data)]
+        if isReachable {
+            actions.append(.sendMessage(data))
+        } else if lastQueuedSnapshotData != data {
+            lastQueuedSnapshotData = data
+            actions.append(.transferUserInfo(data))
+        }
+        return actions
+    }
+}
+
+struct MedicationWatchSnapshot: Codable, Hashable, Sendable {
     static let storageKey = "MedicationWatchSnapshot.v1"
     static let sharedAppGroupID = "group.com.gwyy.appcontest2026.medicationadherence.watch"
 
@@ -115,6 +151,22 @@ struct MedicationWatchSnapshot: Codable, Hashable {
     func requiresRefresh(now: Date = Date(), calendar: Calendar = .current) -> Bool {
         generatedAt.timeIntervalSince1970 > 0
             && !calendar.isDate(generatedAt, inSameDayAs: now)
+    }
+
+    func presentationState(
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> MedicationWatchPresentationState {
+        if isAwaitingFirstSync {
+            return .awaitingFirstSync
+        }
+        if requiresRefresh(now: now, calendar: calendar) {
+            return .stale
+        }
+        if items.isEmpty {
+            return .empty
+        }
+        return .content(isPrivate: privacyMode)
     }
 
     func displayItems(now: Date = Date(), calendar: Calendar = .current) -> [MedicationWatchDoseItem] {
@@ -390,16 +442,16 @@ enum MedicationWatchSnapshotStore {
 }
 
 enum MedicationWatchSnapshotFormatters {
-    static let time: DateFormatter = {
+    static func timeString(from date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateStyle = .none
         formatter.timeStyle = .short
-        return formatter
-    }()
+        return formatter.string(from: date)
+    }
 
-    static let relativeDate: RelativeDateTimeFormatter = {
+    static func relativeDateString(for date: Date, relativeTo referenceDate: Date) -> String {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .short
-        return formatter
-    }()
+        return formatter.localizedString(for: date, relativeTo: referenceDate)
+    }
 }

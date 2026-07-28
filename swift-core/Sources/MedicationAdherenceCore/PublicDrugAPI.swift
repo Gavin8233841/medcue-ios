@@ -7,11 +7,102 @@ public protocol DrugLabelProviding: Sendable {
     func label(for searchText: String) async throws -> MedicationLabel
 }
 
+public protocol HTTPDataLoading: Sendable {
+    func data(for request: URLRequest) async throws -> (Data, URLResponse)
+}
+
+public struct URLSessionHTTPDataLoader: HTTPDataLoading {
+    public init() {}
+
+    public func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+        try await URLSession.shared.data(for: request)
+    }
+}
+
 public enum DrugAPIError: Error, Sendable, Equatable {
     case invalidSearchText
     case invalidURL
+    case unacceptableStatus(Int)
+    case unsupportedContentType(String?)
+    case transportFailure
+    case decodingFailure
     case emptyResponse
     case unsupportedResponse
+
+    fileprivate var permitsFallback: Bool {
+        switch self {
+        case .transportFailure, .emptyResponse:
+            return true
+        case let .unacceptableStatus(statusCode):
+            return statusCode == 408 || statusCode == 429 || (500 ... 599).contains(statusCode)
+        case .invalidSearchText,
+             .invalidURL,
+             .unsupportedContentType,
+             .decodingFailure,
+             .unsupportedResponse:
+            return false
+        }
+    }
+}
+
+struct JSONHTTPClient: Sendable {
+    private let dataLoader: any HTTPDataLoading
+
+    init(dataLoader: any HTTPDataLoading) {
+        self.dataLoader = dataLoader
+    }
+
+    func get<Response: Decodable>(
+        _ responseType: Response.Type,
+        from url: URL,
+        decoder: JSONDecoder = JSONDecoder()
+    ) async throws -> Response {
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await dataLoader.data(for: URLRequest(url: url))
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
+        } catch {
+            throw DrugAPIError.transportFailure
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw DrugAPIError.unsupportedResponse
+        }
+        guard (200 ... 299).contains(httpResponse.statusCode) else {
+            throw DrugAPIError.unacceptableStatus(httpResponse.statusCode)
+        }
+
+        let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type")
+        guard Self.isJSONContentType(contentType) else {
+            throw DrugAPIError.unsupportedContentType(contentType)
+        }
+        guard !data.isEmpty else {
+            throw DrugAPIError.emptyResponse
+        }
+
+        do {
+            return try decoder.decode(responseType, from: data)
+        } catch {
+            throw DrugAPIError.decodingFailure
+        }
+    }
+
+    private static func isJSONContentType(_ rawValue: String?) -> Bool {
+        guard let rawValue else { return false }
+        let mediaType = rawValue
+            .split(separator: ";", maxSplits: 1)
+            .first?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard let mediaType else { return false }
+        return mediaType == "application/json"
+            || mediaType == "text/json"
+            || mediaType.hasSuffix("+json")
+    }
 }
 
 public struct DemoDrugLabelProvider: DrugLabelProviding {
@@ -38,10 +129,22 @@ public struct DemoDrugLabelProvider: DrugLabelProviding {
 }
 
 public struct OpenFDADrugLabelProvider: DrugLabelProviding {
-    public var endpoint: URL
+    public static let defaultEndpoint: URL = {
+        guard let url = URL(string: "https://api.fda.gov/drug/label.json") else {
+            preconditionFailure("The bundled OpenFDA endpoint is invalid")
+        }
+        return url
+    }()
 
-    public init(endpoint: URL = URL(string: "https://api.fda.gov/drug/label.json")!) {
+    public var endpoint: URL
+    private let httpClient: JSONHTTPClient
+
+    public init(
+        endpoint: URL = OpenFDADrugLabelProvider.defaultEndpoint,
+        dataLoader: any HTTPDataLoading = URLSessionHTTPDataLoader()
+    ) {
         self.endpoint = endpoint
+        httpClient = JSONHTTPClient(dataLoader: dataLoader)
     }
 
     public func label(for searchText: String) async throws -> MedicationLabel {
@@ -59,9 +162,8 @@ public struct OpenFDADrugLabelProvider: DrugLabelProviding {
             throw DrugAPIError.invalidURL
         }
 
-        let (data, _) = try await URLSession.shared.data(from: url)
-        let response = try JSONDecoder().decode(OpenFDALabelResponse.self, from: data)
-        guard let result = response.results.first else {
+        let decodedResponse = try await httpClient.get(OpenFDALabelResponse.self, from: url)
+        guard let result = decodedResponse.results.first else {
             throw DrugAPIError.emptyResponse
         }
 
@@ -91,8 +193,12 @@ public struct FallbackDrugLabelProvider: DrugLabelProviding {
     public func label(for searchText: String) async throws -> MedicationLabel {
         do {
             return try await primary.label(for: searchText)
-        } catch {
+        } catch let error as DrugAPIError where error.permitsFallback {
             return try await fallback.label(for: searchText)
+        } catch let error as URLError where error.code != .cancelled {
+            return try await fallback.label(for: searchText)
+        } catch {
+            throw error
         }
     }
 }
@@ -159,4 +265,3 @@ extension String {
             .lowercased()
     }
 }
-

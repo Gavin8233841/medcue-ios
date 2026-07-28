@@ -1,4 +1,6 @@
 import Foundation
+import CryptoKit
+import os
 #if canImport(BackgroundAssets)
 import BackgroundAssets
 #endif
@@ -16,6 +18,8 @@ struct LocalAIModelManifest: Equatable, Sendable {
     var subdirectoryName: String
     var minimumByteCount: Int64
     var maximumByteCount: Int64
+    var exactByteCount: Int64
+    var expectedSHA256: String
 
     static let miniCPM4 = LocalAIModelManifest(
         id: "minicpm4-0.5b-qat-int4",
@@ -26,10 +30,17 @@ struct LocalAIModelManifest: Equatable, Sendable {
         recommendedFreeSpaceMB: 700,
         runtime: "llama.cpp",
         license: "Apache-2.0",
-        downloadURL: URL(string: "https://huggingface.co/openbmb/MiniCPM4-0.5B-QAT-Int4-GGUF/resolve/main/MiniCPM4-0.5B-QAT-Int4_gptq_aware_q4_0.gguf")!,
+        downloadURL: {
+            guard let url = URL(string: "https://huggingface.co/openbmb/MiniCPM4-0.5B-QAT-Int4-GGUF/resolve/4d70679dbea99c0dfa7bef0c6fa1bffc25997246/MiniCPM4-0.5B-QAT-Int4_gptq_aware_q4_0.gguf") else {
+                preconditionFailure("The bundled local-model endpoint is invalid")
+            }
+            return url
+        }(),
         subdirectoryName: "MiniCPM4-0.5B",
         minimumByteCount: 200 * 1024 * 1024,
-        maximumByteCount: 350 * 1024 * 1024
+        maximumByteCount: 350 * 1024 * 1024,
+        exactByteCount: 265_307_040,
+        expectedSHA256: "fa4ad3f448355578ce5e4021204be319e5a3cb665fb173607f92bc139c96a290"
     )
 }
 
@@ -42,10 +53,12 @@ enum LocalAIModelInstallationStatus: Equatable, Sendable {
     case failed(String)
 }
 
-enum LocalAIModelValidationError: LocalizedError {
+enum LocalAIModelValidationError: LocalizedError, Equatable {
     case invalidFileExtension
     case fileTooSmall(Int64)
     case fileTooLarge(Int64)
+    case unexpectedByteCount(expected: Int64, actual: Int64)
+    case checksumMismatch
 
     var errorDescription: String? {
         switch self {
@@ -55,16 +68,27 @@ enum LocalAIModelValidationError: LocalizedError {
             return "离线模型文件不完整，请重新下载。"
         case .fileTooLarge:
             return "离线模型文件大小异常，请重新下载。"
+        case .unexpectedByteCount:
+            return "离线模型文件大小与官方版本不一致，请重新下载。"
+        case .checksumMismatch:
+            return "离线模型完整性校验未通过，请重新下载。"
         }
     }
 }
 
-struct LocalAIModelManager {
+struct LocalAIModelManager: Sendable {
     let manifest: LocalAIModelManifest
+    var applicationSupportOverrideURL: URL?
 
-    static let miniCPM4 = LocalAIModelManager(manifest: .miniCPM4)
+    static let miniCPM4 = LocalAIModelManager(
+        manifest: .miniCPM4,
+        applicationSupportOverrideURL: nil
+    )
 
     func applicationSupportURL() throws -> URL {
+        if let applicationSupportOverrideURL {
+            return applicationSupportOverrideURL
+        }
         guard let applicationSupportURL = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
@@ -91,7 +115,7 @@ struct LocalAIModelManager {
             guard FileManager.default.fileExists(atPath: url.path) else {
                 return .notInstalled
             }
-            _ = try validatedModelFile(at: url)
+            _ = try validatedModelFile(at: url, requiresCanonicalName: true)
             return .installed
         } catch {
             return .invalid
@@ -101,7 +125,7 @@ struct LocalAIModelManager {
     func installedModelFile() -> LocalMedicalModelFile? {
         guard let url = try? modelURL(),
               FileManager.default.fileExists(atPath: url.path),
-              let modelFile = try? validatedModelFile(at: url)
+              let modelFile = try? validatedModelFile(at: url, requiresCanonicalName: true)
         else {
             return nil
         }
@@ -109,19 +133,49 @@ struct LocalAIModelManager {
     }
 
     func installDownloadedModel(from temporaryURL: URL) throws -> URL {
+        defer {
+            if FileManager.default.fileExists(atPath: temporaryURL.path) {
+                try? FileManager.default.removeItem(at: temporaryURL)
+            }
+        }
+        _ = try validatedModelFile(at: temporaryURL, requiresCanonicalName: false)
+        let digest = try sha256HexDigest(of: temporaryURL)
+        guard digest == manifest.expectedSHA256.lowercased() else {
+            throw LocalAIModelValidationError.checksumMismatch
+        }
+
         let destinationURL = try modelURL()
+        let destinationDirectoryURL = destinationURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(
-            at: destinationURL.deletingLastPathComponent(),
+            at: destinationDirectoryURL,
             withIntermediateDirectories: true
         )
-        try FileManager.default.moveItem(at: temporaryURL, to: destinationURL)
-        do {
-            _ = try validatedModelFile(at: destinationURL)
-            return destinationURL
-        } catch {
-            try? FileManager.default.removeItem(at: destinationURL)
-            throw error
+        try setExcludedFromBackup(destinationDirectoryURL)
+
+        let stagedURL = destinationDirectoryURL
+            .appendingPathComponent(".\(UUID().uuidString).installing")
+            .appendingPathExtension(manifest.format)
+        defer {
+            if FileManager.default.fileExists(atPath: stagedURL.path) {
+                try? FileManager.default.removeItem(at: stagedURL)
+            }
         }
+        try FileManager.default.moveItem(at: temporaryURL, to: stagedURL)
+        try setExcludedFromBackup(stagedURL)
+
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            _ = try FileManager.default.replaceItemAt(
+                destinationURL,
+                withItemAt: stagedURL,
+                backupItemName: nil,
+                options: []
+            )
+        } else {
+            try FileManager.default.moveItem(at: stagedURL, to: destinationURL)
+        }
+        try setExcludedFromBackup(destinationURL)
+        _ = try validatedModelFile(at: destinationURL, requiresCanonicalName: true)
+        return destinationURL
     }
 
     func deleteModel() throws {
@@ -131,9 +185,12 @@ struct LocalAIModelManager {
         }
     }
 
-    private func validatedModelFile(at url: URL) throws -> LocalMedicalModelFile {
-        guard url.lastPathComponent == manifest.fileName,
-              url.pathExtension.lowercased() == manifest.format
+    private func validatedModelFile(
+        at url: URL,
+        requiresCanonicalName: Bool
+    ) throws -> LocalMedicalModelFile {
+        guard (!requiresCanonicalName || url.lastPathComponent == manifest.fileName),
+              url.pathExtension.lowercased() == manifest.format.lowercased()
         else {
             throw LocalAIModelValidationError.invalidFileExtension
         }
@@ -146,7 +203,32 @@ struct LocalAIModelManager {
         if modelFile.byteCount > manifest.maximumByteCount {
             throw LocalAIModelValidationError.fileTooLarge(modelFile.byteCount)
         }
+        if modelFile.byteCount != manifest.exactByteCount {
+            throw LocalAIModelValidationError.unexpectedByteCount(
+                expected: manifest.exactByteCount,
+                actual: modelFile.byteCount
+            )
+        }
         return modelFile
+    }
+
+    private func sha256HexDigest(of url: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer {
+            try? handle.close()
+        }
+        var hasher = SHA256()
+        while let data = try handle.read(upToCount: 1_048_576), !data.isEmpty {
+            hasher.update(data: data)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func setExcludedFromBackup(_ url: URL) throws {
+        var resourceValues = URLResourceValues()
+        resourceValues.isExcludedFromBackup = true
+        var mutableURL = url
+        try mutableURL.setResourceValues(resourceValues)
     }
 }
 
@@ -257,9 +339,12 @@ final class LocalMedicalModelStore: ObservableObject {
 
         do {
             let destinationURL = try Self.modelManager.modelURL()
-            if FileManager.default.fileExists(atPath: destinationURL.path) {
+            if Self.modelManager.installedModelFile() != nil {
                 status = Self.resolveStatus()
                 return
+            }
+            if FileManager.default.fileExists(atPath: destinationURL.path) {
+                try Self.modelManager.deleteModel()
             }
 
             let temporaryURL = try await Self.downloadModelFile { [weak self] progress, downloadedBytes, expectedBytes in
@@ -274,7 +359,9 @@ final class LocalMedicalModelStore: ObservableObject {
                     )
                 }
             }
-            _ = try Self.modelManager.installDownloadedModel(from: temporaryURL)
+            _ = try await Task.detached(priority: .utility) {
+                try Self.modelManager.installDownloadedModel(from: temporaryURL)
+            }.value
             status = Self.resolveStatus()
         } catch {
             status = .failed
@@ -354,11 +441,16 @@ struct LocalMedicalModelFile {
     }
 }
 
-private final class LocalMedicalModelURLSessionDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+private final class LocalMedicalModelURLSessionDownloader: NSObject, URLSessionDownloadDelegate, Sendable {
+    private struct DownloadState {
+        var continuation: CheckedContinuation<URL, Error>?
+        var session: URLSession?
+        var isCancelled = false
+    }
+
     private let sourceURL: URL
     private let progressHandler: @Sendable (_ progress: Double?, _ downloadedBytes: Int64, _ expectedBytes: Int64?) -> Void
-    private var continuation: CheckedContinuation<URL, Error>?
-    private var session: URLSession?
+    private let stateLock = OSAllocatedUnfairLock(initialState: DownloadState())
 
     init(
         sourceURL: URL,
@@ -369,14 +461,29 @@ private final class LocalMedicalModelURLSessionDownloader: NSObject, URLSessionD
     }
 
     func download() async throws -> URL {
-        try await withCheckedThrowingContinuation { continuation in
-            self.continuation = continuation
-            let configuration = URLSessionConfiguration.default
-            configuration.timeoutIntervalForRequest = 30
-            configuration.timeoutIntervalForResource = 30 * 60
-            let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
-            self.session = session
-            session.downloadTask(with: sourceURL).resume()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let configuration = URLSessionConfiguration.default
+                configuration.timeoutIntervalForRequest = 30
+                configuration.timeoutIntervalForResource = 30 * 60
+                let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+                let shouldStart = stateLock.withLock { state in
+                    guard !state.isCancelled, state.continuation == nil else {
+                        return false
+                    }
+                    state.continuation = continuation
+                    state.session = session
+                    return true
+                }
+                guard shouldStart else {
+                    session.invalidateAndCancel()
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                session.downloadTask(with: sourceURL).resume()
+            }
+        } onCancel: {
+            cancelDownload()
         }
     }
 
@@ -398,6 +505,11 @@ private final class LocalMedicalModelURLSessionDownloader: NSObject, URLSessionD
         didFinishDownloadingTo location: URL
     ) {
         do {
+            guard let response = downloadTask.response as? HTTPURLResponse,
+                  (200..<300).contains(response.statusCode)
+            else {
+                throw URLError(.badServerResponse)
+            }
             let temporaryDirectory = FileManager.default.temporaryDirectory
                 .appendingPathComponent("LocalMedicalModelDownloads", isDirectory: true)
             try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
@@ -417,6 +529,20 @@ private final class LocalMedicalModelURLSessionDownloader: NSObject, URLSessionD
     func urlSession(
         _ session: URLSession,
         task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard request.url?.scheme?.lowercased() == "https" else {
+            completionHandler(nil)
+            return
+        }
+        completionHandler(request)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
         didCompleteWithError error: Error?
     ) {
         if let error {
@@ -425,18 +551,39 @@ private final class LocalMedicalModelURLSessionDownloader: NSObject, URLSessionD
     }
 
     private func resume(returning url: URL) {
-        let continuation = continuation
-        self.continuation = nil
-        session?.invalidateAndCancel()
-        session = nil
-        continuation?.resume(returning: url)
+        let completion = takeCompletion()
+        completion?.session.invalidateAndCancel()
+        completion?.continuation.resume(returning: url)
     }
 
     private func resume(throwing error: Error) {
-        let continuation = continuation
-        self.continuation = nil
-        session?.invalidateAndCancel()
-        session = nil
-        continuation?.resume(throwing: error)
+        let completion = takeCompletion()
+        completion?.session.invalidateAndCancel()
+        completion?.continuation.resume(throwing: error)
+    }
+
+    private func cancelDownload() {
+        let completion = stateLock.withLock { state -> (CheckedContinuation<URL, Error>, URLSession)? in
+            state.isCancelled = true
+            guard let continuation = state.continuation, let session = state.session else {
+                return nil
+            }
+            state.continuation = nil
+            state.session = nil
+            return (continuation, session)
+        }
+        completion?.1.invalidateAndCancel()
+        completion?.0.resume(throwing: CancellationError())
+    }
+
+    private func takeCompletion() -> (continuation: CheckedContinuation<URL, Error>, session: URLSession)? {
+        stateLock.withLock { state in
+            guard let continuation = state.continuation, let session = state.session else {
+                return nil
+            }
+            state.continuation = nil
+            state.session = nil
+            return (continuation, session)
+        }
     }
 }

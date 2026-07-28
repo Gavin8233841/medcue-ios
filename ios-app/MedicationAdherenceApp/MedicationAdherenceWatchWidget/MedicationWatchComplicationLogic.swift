@@ -58,7 +58,8 @@ struct MedicationWatchComplicationStatus: Equatable {
         now: Date = Date(),
         calendar: Calendar = .current
     ) {
-        if snapshot.isAwaitingFirstSync {
+        let presentationState = snapshot.presentationState(now: now, calendar: calendar)
+        if presentationState == .awaitingFirstSync {
             primaryText = "同步"
             detailText = "手机同步"
             inlineText = "手机同步今日用药"
@@ -68,7 +69,7 @@ struct MedicationWatchComplicationStatus: Equatable {
             return
         }
 
-        if snapshot.requiresRefresh(now: now, calendar: calendar) {
+        if presentationState == .stale {
             primaryText = "刷新"
             detailText = "手机更新"
             inlineText = "手机更新今日用药"
@@ -106,7 +107,7 @@ struct MedicationWatchComplicationStatus: Equatable {
             return
         }
 
-        if snapshot.displayItems(now: now, calendar: calendar).isEmpty {
+        if presentationState == .empty {
             primaryText = "无计划"
             detailText = "今日暂无用药"
             inlineText = "今日暂无用药"

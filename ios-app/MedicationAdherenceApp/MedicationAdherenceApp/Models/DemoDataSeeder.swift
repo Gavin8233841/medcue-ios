@@ -2,6 +2,25 @@ import Foundation
 import MedicationAdherenceCore
 import SwiftData
 
+#if DEBUG
+import Darwin
+#endif
+
+#if DEBUG
+@MainActor
+enum DebugDemoModeLauncher {
+    private static let firstLaunchCompletionKey = "hasCompletedFirstLaunchSetup"
+
+    static func rebuildAndExit(in modelContext: ModelContext) async throws -> Never {
+        UserDefaults.standard.set(false, forKey: firstLaunchCompletionKey)
+        try DemoDataSeeder.rebuildForExplicitDebugDemoMode(in: modelContext)
+        try await Task.sleep(for: .milliseconds(300))
+        UserDefaults.standard.set(false, forKey: firstLaunchCompletionKey)
+        exit(EXIT_SUCCESS)
+    }
+}
+#endif
+
 enum DemoDataSeeder {
     static func seedIfNeeded(in modelContext: ModelContext) {
         #if DEBUG
@@ -10,12 +29,19 @@ enum DemoDataSeeder {
                 || arguments.contains("--reminder-live-activity-smoke-test") else {
             return
         }
-        seed(in: modelContext)
+        try? seed(in: modelContext)
         #endif
     }
 
-    private static func seed(in modelContext: ModelContext) {
-        let existing = (try? modelContext.fetch(FetchDescriptor<StoredMedication>())) ?? []
+    static func rebuildForExplicitDebugDemoMode(in modelContext: ModelContext) throws {
+        #if DEBUG
+        try removeExistingDemoContent(in: modelContext)
+        try seed(in: modelContext)
+        #endif
+    }
+
+    private static func seed(in modelContext: ModelContext) throws {
+        let existing = try modelContext.fetch(FetchDescriptor<StoredMedication>())
         let demoMedications = resolveDemoMedications(from: existing, context: modelContext)
         migrateUserVisibleSeedText(for: demoMedications, in: modelContext)
 
@@ -24,12 +50,75 @@ enum DemoDataSeeder {
         seedMissingRiskCards(for: demoMedications, context: modelContext)
         seedMissingStocks(for: demoMedications, context: modelContext)
         seedMissingDoseChanges(for: demoMedications, context: modelContext)
-        try? modelContext.save()
+        try modelContext.save()
+    }
+
+    private static func removeExistingDemoContent(in modelContext: ModelContext) throws {
+        let medications = try modelContext.fetch(FetchDescriptor<StoredMedication>())
+        let demoMedications = medications.filter(\.isDemoContent)
+        let demoMedicationIDs = Set(demoMedications.map(\.id))
+        guard !demoMedicationIDs.isEmpty else {
+            return
+        }
+
+        let tasks = try modelContext.fetch(FetchDescriptor<StoredDoseTask>())
+        let demoTasks = tasks.filter { demoMedicationIDs.contains($0.medicationID) }
+        let demoTaskIDs = Set(demoTasks.map(\.id))
+
+        let actionLogs = try modelContext.fetch(FetchDescriptor<StoredDoseActionLog>())
+        for actionLog in actionLogs where demoTaskIDs.contains(actionLog.taskID) {
+            modelContext.delete(actionLog)
+        }
+        for task in demoTasks {
+            modelContext.delete(task)
+        }
+
+        let lifecycleEvents = try modelContext.fetch(FetchDescriptor<StoredMedicationLifecycleEvent>())
+        for lifecycleEvent in lifecycleEvents where demoMedicationIDs.contains(lifecycleEvent.medicationID) {
+            modelContext.delete(lifecycleEvent)
+        }
+
+        let plans = try modelContext.fetch(FetchDescriptor<StoredMedicationPlan>())
+        for plan in plans where demoMedicationIDs.contains(plan.medicationID) {
+            modelContext.delete(plan)
+        }
+
+        let doseChanges = try modelContext.fetch(FetchDescriptor<StoredMedicationDoseChange>())
+        for doseChange in doseChanges where demoMedicationIDs.contains(doseChange.medicationID) {
+            modelContext.delete(doseChange)
+        }
+
+        let riskCards = try modelContext.fetch(FetchDescriptor<StoredRiskCard>())
+        for riskCard in riskCards where demoMedicationIDs.contains(riskCard.medicationID) {
+            modelContext.delete(riskCard)
+        }
+
+        let labels = try modelContext.fetch(FetchDescriptor<StoredMedicationLabel>())
+        for label in labels where demoMedicationIDs.contains(label.medicationID) {
+            modelContext.delete(label)
+        }
+
+        let stocks = try modelContext.fetch(FetchDescriptor<StoredMedicationStock>())
+        for stock in stocks where demoMedicationIDs.contains(stock.medicationID) {
+            modelContext.delete(stock)
+        }
+
+        for medication in demoMedications {
+            modelContext.delete(medication)
+        }
+        try modelContext.save()
+    }
+
+    private static func demoUUID(_ rawValue: String) -> UUID {
+        guard let id = UUID(uuidString: rawValue) else {
+            preconditionFailure("A bundled demo-data identifier is invalid")
+        }
+        return id
     }
 
     private static let demoMedicationSeeds = [
         DemoMedicationSeed(
-            id: UUID(uuidString: "44454D4F-4D45-4443-5545-000000000001")!,
+            id: demoUUID("44454D4F-4D45-4443-5545-000000000001"),
             displayName: "布洛芬",
             labelLookupName: "Ibuprofen",
             genericName: "ibuprofen",
@@ -46,7 +135,7 @@ enum DemoDataSeeder {
             boxNumber: "A1"
         ),
         DemoMedicationSeed(
-            id: UUID(uuidString: "44454D4F-4D45-4443-5545-000000000002")!,
+            id: demoUUID("44454D4F-4D45-4443-5545-000000000002"),
             displayName: "对乙酰氨基酚",
             labelLookupName: "Acetaminophen",
             genericName: "acetaminophen",
@@ -63,7 +152,7 @@ enum DemoDataSeeder {
             boxNumber: "A2"
         ),
         DemoMedicationSeed(
-            id: UUID(uuidString: "44454D4F-4D45-4443-5545-000000000003")!,
+            id: demoUUID("44454D4F-4D45-4443-5545-000000000003"),
             displayName: "人工泪液",
             labelLookupName: "Artificial Tears",
             genericName: "",
@@ -80,7 +169,7 @@ enum DemoDataSeeder {
             boxNumber: "B1"
         ),
         DemoMedicationSeed(
-            id: UUID(uuidString: "44454D4F-4D45-4443-5545-000000000004")!,
+            id: demoUUID("44454D4F-4D45-4443-5545-000000000004"),
             displayName: "氯雷他定",
             labelLookupName: "Loratadine",
             genericName: "loratadine",
@@ -97,7 +186,7 @@ enum DemoDataSeeder {
             boxNumber: "B2"
         ),
         DemoMedicationSeed(
-            id: UUID(uuidString: "44454D4F-4D45-4443-5545-000000000005")!,
+            id: demoUUID("44454D4F-4D45-4443-5545-000000000005"),
             displayName: "维生素 D3",
             labelLookupName: "Vitamin D3",
             genericName: "cholecalciferol",
@@ -248,8 +337,6 @@ enum DemoDataSeeder {
             }
             context.insert(stock)
         }
-
-        try? context.save()
     }
 
     private static func seedMissingMedicationLabels(for medications: [StoredMedication], context: ModelContext) {
@@ -281,7 +368,6 @@ enum DemoDataSeeder {
         }
 
         archiveDemoSourceReviewCards(for: demoMedicationIDs, context: context)
-        try? context.save()
     }
 
     private static func archiveDemoSourceReviewCards(for demoMedicationIDs: Set<UUID>, context: ModelContext) {

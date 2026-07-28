@@ -2,6 +2,12 @@ import Foundation
 import HealthKit
 import MedicationAdherenceCore
 
+struct HealthContextPolicy: Equatable, Sendable {
+    let trendLookbackDays: Int
+
+    static let `default` = HealthContextPolicy(trendLookbackDays: 56)
+}
+
 @MainActor
 final class HealthKitService: ObservableObject {
     @Published private(set) var statusMessage: String
@@ -11,7 +17,6 @@ final class HealthKitService: ObservableObject {
     @Published private(set) var supportedReadTypesSummary = "心率、血压、血氧、体温、血糖"
 
     private static let completionKey = "hasCompletedHealthKitAuthorizationRequest"
-    private static let defaultTrendLookbackDays = 56
     private let healthStore = HKHealthStore()
     private let defaults: UserDefaults
 
@@ -50,7 +55,7 @@ final class HealthKitService: ObservableObject {
     }
 
     func refreshRecentTrendSamples() async {
-        await refreshRecentTrendSamples(days: Self.defaultTrendLookbackDays)
+        await refreshRecentTrendSamples(days: HealthContextPolicy.default.trendLookbackDays)
     }
 
     func refreshRecentTrendSamples(days: Int) async {

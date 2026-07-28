@@ -8,6 +8,19 @@ struct MedicationReminderActivityAttributes: Codable, Hashable {
     var taskID: UUID
     var medicationName: String
     var doseText: String
+    var actionOperationID: UUID?
+
+    init(
+        taskID: UUID,
+        medicationName: String,
+        doseText: String,
+        actionOperationID: UUID = UUID()
+    ) {
+        self.taskID = taskID
+        self.medicationName = medicationName
+        self.doseText = doseText
+        self.actionOperationID = actionOperationID
+    }
 }
 
 #if canImport(ActivityKit)

@@ -4,6 +4,7 @@ import SwiftUI
 import WatchConnectivity
 import WidgetKit
 
+@MainActor
 struct MedicationWatchSnapshotPublisher {
     func publish(tasks: [StoredDoseTask], medications: [StoredMedication], privacyMode: Bool = true) {
         let snapshot = makeSnapshot(tasks: tasks, medications: medications, privacyMode: privacyMode)
@@ -83,11 +84,11 @@ private extension MedicationWatchDoseStatus {
     }
 }
 
+@MainActor
 final class MedicationWatchConnectivityBridge: NSObject, WCSessionDelegate {
     static let shared = MedicationWatchConnectivityBridge()
 
-    private let pendingSnapshotLock = NSLock()
-    private var pendingSnapshotData: Data?
+    private var deliveryState = MedicationWatchDeliveryState()
 
     private override init() {
         super.init()
@@ -111,71 +112,51 @@ final class MedicationWatchConnectivityBridge: NSObject, WCSessionDelegate {
             return
         }
 
-        storePendingSnapshotData(data)
+        deliveryState.record(data)
         activateIfNeeded()
-        flushPendingSnapshot(using: WCSession.default)
+        flushLatestSnapshot(using: WCSession.default)
     }
 
-    private func storePendingSnapshotData(_ data: Data) {
-        pendingSnapshotLock.lock()
-        pendingSnapshotData = data
-        pendingSnapshotLock.unlock()
-    }
-
-    private func currentPendingSnapshotData() -> Data? {
-        pendingSnapshotLock.lock()
-        defer { pendingSnapshotLock.unlock() }
-        return pendingSnapshotData
-    }
-
-    private func clearPendingSnapshotData(ifMatching deliveredData: Data) {
-        pendingSnapshotLock.lock()
-        defer { pendingSnapshotLock.unlock() }
-        if pendingSnapshotData == deliveredData {
-            pendingSnapshotData = nil
+    private func flushLatestSnapshot(using session: WCSession) {
+        let actions = deliveryState.actions(
+            isActivated: session.activationState == .activated,
+            isReachable: session.isReachable
+        )
+        for action in actions {
+            switch action {
+            case let .updateApplicationContext(data):
+                try? session.updateApplicationContext(["snapshot": data])
+            case let .sendMessage(data):
+                session.sendMessage(["snapshot": data], replyHandler: nil)
+            case let .transferUserInfo(data):
+                session.transferUserInfo(["snapshot": data])
+            }
         }
     }
 
-    private func flushPendingSnapshot(using session: WCSession) {
-        guard session.activationState == .activated,
-              let data = currentPendingSnapshotData()
-        else {
-            return
-        }
-
-        let payload = ["snapshot": data]
-        do {
-            try session.updateApplicationContext(payload)
-        } catch {
-            return
-        }
-        clearPendingSnapshotData(ifMatching: data)
-
-        if session.isReachable {
-            session.sendMessage(payload, replyHandler: nil)
-        } else {
-            session.transferUserInfo(payload)
-        }
-    }
-
-    func session(
+    nonisolated func session(
         _ session: WCSession,
         activationDidCompleteWith activationState: WCSessionActivationState,
         error: Error?
     ) {
-        if activationState == .activated {
-            flushPendingSnapshot(using: session)
+        guard activationState == .activated else { return }
+        Task { @MainActor [weak self] in
+            self?.flushLatestSnapshot(using: .default)
         }
     }
 
-    func sessionReachabilityDidChange(_ session: WCSession) {
-        flushPendingSnapshot(using: session)
+    nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
+        Task { @MainActor [weak self] in
+            self?.flushLatestSnapshot(using: .default)
+        }
     }
 
-    func sessionDidBecomeInactive(_ session: WCSession) {}
+    nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}
 
-    func sessionDidDeactivate(_ session: WCSession) {
-        session.activate()
+    nonisolated func sessionDidDeactivate(_ session: WCSession) {
+        Task { @MainActor in
+            WCSession.default.activate()
+        }
     }
 }
 

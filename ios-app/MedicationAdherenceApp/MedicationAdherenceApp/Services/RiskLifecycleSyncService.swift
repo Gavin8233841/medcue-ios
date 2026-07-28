@@ -188,7 +188,7 @@ enum RiskLifecycleSyncService {
         }
 
         guard resolveMissing else {
-            try? modelContext.save()
+            _ = AppPersistenceCommitter.save(modelContext, operation: "risk-lifecycle-sync-without-resolution")
             return result
         }
 
@@ -203,7 +203,7 @@ enum RiskLifecycleSyncService {
             result.appendResolvedPriorityReminderIDIfNeeded(card.id, wasPriorityReminder: wasPriorityReminder)
         }
 
-        try? modelContext.save()
+        _ = AppPersistenceCommitter.save(modelContext, operation: "risk-lifecycle-sync")
         return result
     }
 

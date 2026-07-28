@@ -133,9 +133,9 @@ extension WeatherMedicationService: CLLocationManagerDelegate {
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         Task { @MainActor in
-            switch manager.authorizationStatus {
+            switch locationManager.authorizationStatus {
             case .authorizedAlways, .authorizedWhenInUse:
-                manager.requestLocation()
+                locationManager.requestLocation()
             case .denied, .restricted:
                 resumeLocation(nil)
             case .notDetermined:
