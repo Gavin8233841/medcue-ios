@@ -118,20 +118,20 @@ WatchConnectivity 状态已收敛到 MainActor/actor，Watch reminder adapter �
 
 - [x] 把 Live Activity P0 测试、静默保存防回退、Core/hosted tests、Release/Watch 构建保持在 `tools/verify-native.sh`。
 - [x] 在私有 GitHub 仓库建立可执行的 `Native Verification` workflow，并用本地 CI-stub 全新 DerivedData 验证 package resolution 与 hosted tests。
-- [ ] 推送当前 CI 修复后确认 GitHub Actions 全量门绿色；不得以本地复现替代远端结果。
+- [x] 推送当前 CI 修复后确认 GitHub Actions 全量门绿色；不得以本地复现替代远端结果。
 
-本地门同时检查 PrivacyInfo required-reason 声明，并递归拒绝 Release 产物中的 `AISecrets.plist`、`.env.local`、GGUF 与 SQLite 用户数据。2026-07-28 最新完整门通过：Swift Core `152/152`、hosted `165/165`、XCUITest `2/2`、主 App 无签名 Release、Release 敏感产物断言、Watch Simulator Debug 与 watchOS device SDK Release。五组投影/会话专项合跑 `20/20`；Broker/endpoint 专项 `13/13`。首次远端运行因发布源码中的 llama 占位目录无法解析而退出 74，且 runner 缺少 `rg`。当前 workflow 在 `MEDCUE_DISABLE_LOCAL_LLAMA=1` 下使用不导出 `llama` module 的 stub product，普通本地/真机构建仍使用真实 xcframework；CI 安装 `ripgrep`，验证脚本也显式要求 `rg`。全新本地 CI-stub 构建已越过依赖解析并通过定向 hosted tests，远端结果仍待推送核验。
+本地门同时检查 PrivacyInfo required-reason 声明，并递归拒绝 Release 产物中的 `AISecrets.plist`、`.env.local`、GGUF 与 SQLite 用户数据。2026-07-28 最新完整门通过：Swift Core `152/152`、hosted `165/165`、XCUITest `2/2`、主 App 无签名 Release、Release 敏感产物断言、Watch Simulator Debug 与 watchOS device SDK Release。五组投影/会话专项合跑 `20/20`；Broker/endpoint 专项 `13/13`。首次远端运行因发布源码中的 llama 占位目录无法解析而退出 74，且 runner 缺少 `rg`；修复后 GitHub Actions `Native Verification` 运行 `30330080655` 全量通过。当前 workflow 在 `MEDCUE_DISABLE_LOCAL_LLAMA=1` 下使用不导出 `llama` module 的 stub product，普通本地/真机构建仍使用真实 xcframework；CI 安装 `ripgrep`，验证脚本也显式要求 `rg`。
 
-新增 `tools/swift-source-size-check.sh` 并接入快速/完整门，默认限制已从 2000、1500 继续收紧到 1400 行；当前最大文件为 `NotificationService.swift` 1397 行。原评估中的 `MedicationsView.swift`、`RecordsView.swift`、`TodayView.swift`、`SettingsView.swift`、`AIAssistantView.swift` 与 `AppRootView.swift` 已按纵向功能拆分，入口文件当前分别为 275、321、912、488、932 与 268 行；`RisksView.swift`、`MedicationTrendViews.swift`、`LocalMedicalAIClient.swift` 分别为 132、199、195 行。原 1449 行 `MedicationOverviewViews.swift` 已按快照、仪表板、卡片和目的页面拆为 54、398、346、250、447 行文件；药品任务观察统一为近 90 天至未来 8 天，“今日待处理”只观察当天。该门只防止文件体积回退，业务编排仍以 deep module 和事务测试为完成依据；少数按功能聚合多个独立展示类型的支持文件仍超过 1000 行，可继续按所有权拆分，但不再是上述关键巨型页面或 client。
+新增 `tools/swift-source-size-check.sh` 并接入快速/完整门，默认限制为 1400 行；当前最大文件为 `OnboardingHeroViews.swift` 1247 行。原评估中的 `MedicationsView.swift`、`RecordsView.swift`、`TodayView.swift`、`SettingsView.swift`、`AIAssistantView.swift` 与 `AppRootView.swift` 已按纵向功能拆分，入口文件当前分别为 275、321、912、488、932 与 268 行；`RisksView.swift`、`MedicationTrendViews.swift`、`LocalMedicalAIClient.swift` 分别为 132、199、195 行。`NotificationService.swift`、帮助中心、Today 剂量组件、Records 剂量组件、复诊 PDF 支持和趋势模型本轮继续按所有权拆到独立文件。原 1449 行 `MedicationOverviewViews.swift` 已按快照、仪表板、卡片和目的页面拆为 54、398、346、250、447 行文件；药品任务观察统一为近 90 天至未来 8 天，“今日待处理”只观察当天。该门只防止文件体积回退，业务编排仍以 deep module 和事务测试为完成依据；仍有少数按功能聚合的支持文件超过 1000 行，但不再以机械拆分为目标。
 
 ### 10a. AI Token Broker
 
 - [x] 建立独立 CloudBase HTTP Broker 本地实现与 TDD 契约，固定请求边界、上游锁定、错误映射、超时、实例内短期去重与限流。
-- [ ] 在 CloudBase 注入服务端 `ARK_API_KEY`/`ARK_MODEL`、创建函数、配置调用权限，并以不含医疗正文的真实请求完成健康检查和日志抽检。
+- [x] 在 CloudBase 注入服务端 `ARK_API_KEY`/`ARK_MODEL`、创建函数、配置调用权限，并以不含医疗正文的真实请求完成健康检查和日志抽检。
 - [x] 新增 iOS Broker adapter、统一 client factory、Release HTTPS allowlist 与客户端契约回归。
-- [ ] 以不含医疗资料的真实请求完成真机端到端验证；在外部身份或 App Attest 到位前，不把静态 client token 宣称为生产级设备证明。
+- [x] 以不含医疗资料的真实请求完成真机端到端验证；在外部身份或 App Attest 到位前，不把静态 client token 宣称为生产级设备证明。
 
-`cloudfunctions/medcue-ai-broker` 的本地测试当前为 `17/17`，iOS Broker/endpoint 专项 `13/13`。CloudBase 已创建独立函数、默认 HTTPS gateway 路径及三项环境变量键；变量值未读取或输出。无鉴权、非医疗探测返回 401，但仅凭该结果不能证明带 token 请求、上游模型或日志脱敏已经通过；当前 MCP 版本也不支持所需日志检索。真实请求、日志抽检与生产级设备身份仍保持真实待办。
+`cloudfunctions/medcue-ai-broker` 的本地测试当前为 `17/17`，iOS Broker/endpoint 专项 `13/13`。CloudBase 独立函数、默认 HTTPS gateway、服务端环境变量、非医疗真实请求和最近 15 分钟日志抽检均已完成；用户随后在真机以不含医疗资料的请求确认 Broker 模式可用。当前闭环满足竞赛与真机 Beta 边界，但静态 client token 仍不是生产级设备证明，App Attest/DeviceCheck、用户与设备绑定、短时令牌、按主体配额与撤销仍是商业发布增强项。
 
 ### 11. 手动 UUID 引用完整性
 
