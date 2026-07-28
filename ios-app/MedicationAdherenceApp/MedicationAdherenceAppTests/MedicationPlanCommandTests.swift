@@ -16,7 +16,10 @@ struct MedicationPlanCommandTests {
             of: fixture.courseStart
         )!
 
-        let outcome = MedicationPlanCommand(modelContext: fixture.context).update(
+        let outcome = MedicationPlanCommand(
+            modelContext: fixture.context,
+            calendar: fixture.calendar
+        ).update(
             MedicationPlanUpdate(
                 medicationID: fixture.medication.id,
                 planID: nil,
