@@ -43,6 +43,9 @@ struct MedicationLifecycleCommandTests {
     @Test @MainActor
     func reactivationReconcilesPlansAndReturnsCommittedReminderBatches() throws {
         let fixture = try MedicationLifecycleFixture(initialStatus: .interrupted)
+        fixture.futureOpen.status = .skipped
+        fixture.futureOpen.reason = "药物已中断，未来提醒已停用。"
+        try fixture.context.save()
 
         let outcome = MedicationLifecycleCommand(
             modelContext: fixture.context,
@@ -65,6 +68,10 @@ struct MedicationLifecycleCommandTests {
         #expect(commit.reminderBatches.count == 1)
         #expect(commit.reminderBatches[0].medication.id == fixture.medication.id)
         #expect(!commit.reminderBatches[0].tasks.isEmpty)
+        #expect(commit.reminderBatches[0].tasks.contains { $0.id == fixture.futureOpen.id })
+        #expect(fixture.futureOpen.status == .pending)
+        #expect(fixture.futureOpen.recordedAt == nil)
+        #expect(fixture.futureOpen.reason.isEmpty)
     }
 
     @Test @MainActor

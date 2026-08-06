@@ -42,6 +42,7 @@ struct MedicationPlanCommand {
     private let modelContext: ModelContext
     private let saveOperation: SaveOperation
     private var calendar: Calendar
+    private let referenceDate: Date
     private static let signposter = OSSignposter(
         subsystem: "com.gwyy.appcontest2026.medicationadherence",
         category: "Performance"
@@ -50,10 +51,12 @@ struct MedicationPlanCommand {
     init(
         modelContext: ModelContext,
         calendar: Calendar = .current,
+        referenceDate: Date = Date(),
         saveOperation: @escaping SaveOperation = { try $0.save() }
     ) {
         self.modelContext = modelContext
         self.calendar = calendar
+        self.referenceDate = referenceDate
         self.saveOperation = saveOperation
     }
 
@@ -197,7 +200,10 @@ struct MedicationPlanCommand {
         }
 
         let reconcileInterval = Self.signposter.beginInterval("plan.reconcile")
-        let reminderBatch = MedicationReminderTaskCoordinator(calendar: calendar).reconcilePlan(
+        let reminderBatch = MedicationReminderTaskCoordinator(
+            calendar: calendar,
+            referenceDate: referenceDate
+        ).reconcilePlan(
             plan,
             medication: medication,
             planTasks: planTasks,

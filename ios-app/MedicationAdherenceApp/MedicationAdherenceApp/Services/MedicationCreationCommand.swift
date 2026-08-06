@@ -96,7 +96,10 @@ struct MedicationCreationCommand {
             createdAt: input.createdAt
         )
         modelContext.insert(plan)
-        let reminderBatch = MedicationReminderTaskCoordinator(calendar: calendar).reconcilePlan(
+        let reminderBatch = MedicationReminderTaskCoordinator(
+            calendar: calendar,
+            referenceDate: input.createdAt
+        ).reconcilePlan(
             plan,
             medication: medication,
             in: modelContext

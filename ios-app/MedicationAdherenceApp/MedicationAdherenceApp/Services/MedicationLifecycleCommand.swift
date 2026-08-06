@@ -117,7 +117,10 @@ struct MedicationLifecycleCommand {
             disabledTaskIDs = affectedTasks.map(\.id).sorted { $0.uuidString < $1.uuidString }
         } else if previousStatus == .archived || previousStatus == .interrupted {
             operation = "medication-reactivate-with-future-tasks"
-            let coordinator = MedicationReminderTaskCoordinator(calendar: calendar)
+            let coordinator = MedicationReminderTaskCoordinator(
+                calendar: calendar,
+                referenceDate: input.occurredAt
+            )
             reminderBatches = plans.map { plan in
                 coordinator.reconcilePlan(plan, medication: medication, in: modelContext)
             }

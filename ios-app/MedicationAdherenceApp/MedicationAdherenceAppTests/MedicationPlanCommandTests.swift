@@ -16,7 +16,11 @@ struct MedicationPlanCommandTests {
             of: fixture.courseStart
         )!
 
-        let outcome = MedicationPlanCommand(modelContext: fixture.context).update(
+        let outcome = MedicationPlanCommand(
+            modelContext: fixture.context,
+            calendar: fixture.calendar,
+            referenceDate: fixture.courseStart
+        ).update(
             MedicationPlanUpdate(
                 medicationID: fixture.medication.id,
                 planID: nil,
@@ -53,6 +57,7 @@ struct MedicationPlanCommandTests {
         #expect(plan.sourceNote == "复诊确认")
         #expect(try verificationContext.fetch(FetchDescriptor<StoredMedicationDoseChange>()).count == 1)
         #expect(!reminderBatch.tasks.isEmpty)
+        #expect(reminderBatch.tasks.map(\.dueAt).min() == reminderTime)
     }
 
     @Test @MainActor
@@ -63,7 +68,8 @@ struct MedicationPlanCommandTests {
         let originalReminderTimes = plan.reminderTimesRaw
         let command = MedicationPlanCommand(
             modelContext: fixture.context,
-            calendar: fixture.calendar
+            calendar: fixture.calendar,
+            referenceDate: fixture.courseStart
         ) { _ in
             throw SyntheticPlanSaveError.unavailable
         }
@@ -111,7 +117,7 @@ struct MedicationPlanCommandTests {
     @Test @MainActor
     func updatesExistingPlanWithoutCreatingDuplicate() throws {
         let fixture = try MedicationPlanFixture()
-        let (plan, _) = try fixture.insertExistingPlan()
+        let (plan, obsoleteTask) = try fixture.insertExistingPlan()
         let reminderTime = fixture.calendar.date(
             bySettingHour: 7,
             minute: 15,
@@ -121,7 +127,8 @@ struct MedicationPlanCommandTests {
 
         let outcome = MedicationPlanCommand(
             modelContext: fixture.context,
-            calendar: fixture.calendar
+            calendar: fixture.calendar,
+            referenceDate: fixture.courseStart
         ).update(
             MedicationPlanUpdate(
                 medicationID: fixture.medication.id,
@@ -139,18 +146,26 @@ struct MedicationPlanCommandTests {
             )
         )
 
-        guard case let .committed(planID, created, _) = outcome else {
+        guard case let .committed(planID, created, reminderBatch) = outcome else {
             Issue.record("Expected existing plan update to commit")
             return
         }
         #expect(planID == plan.id)
         #expect(!created)
+        #expect(reminderBatch.cancelledTaskIDs == [obsoleteTask.id])
         let verificationContext = ModelContext(fixture.container)
         let plans = try verificationContext.fetch(FetchDescriptor<StoredMedicationPlan>())
         #expect(plans.count == 1)
         #expect(plans.first?.reminderTimesRaw == "07:15")
         #expect(plans.first?.sourceNote == "更新时间")
         #expect(try verificationContext.fetch(FetchDescriptor<StoredMedicationDoseChange>()).isEmpty)
+        let persistedObsoleteTask = try #require(
+            verificationContext.fetch(FetchDescriptor<StoredDoseTask>())
+                .first { $0.id == obsoleteTask.id }
+        )
+        #expect(persistedObsoleteTask.status == .skipped)
+        #expect(persistedObsoleteTask.recordedAt == fixture.courseStart)
+        #expect(persistedObsoleteTask.reason == "疗程与提醒已更新，此次未来提醒已停用。")
     }
 
     @Test @MainActor
@@ -163,7 +178,8 @@ struct MedicationPlanCommandTests {
 
         let outcome = MedicationPlanCommand(
             modelContext: fixture.context,
-            calendar: fixture.calendar
+            calendar: fixture.calendar,
+            referenceDate: fixture.courseStart
         ).update(
             MedicationPlanUpdate(
                 medicationID: fixture.medication.id,
@@ -207,7 +223,8 @@ struct MedicationPlanCommandTests {
 
         let outcome = MedicationPlanCommand(
             modelContext: fixture.context,
-            calendar: fixture.calendar
+            calendar: fixture.calendar,
+            referenceDate: fixture.courseStart
         ).update(
             MedicationPlanUpdate(
                 medicationID: fixture.medication.id,

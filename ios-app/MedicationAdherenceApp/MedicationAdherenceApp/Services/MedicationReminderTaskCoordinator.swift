@@ -29,6 +29,7 @@ struct MedicationReminderScheduleEntry {
 struct MedicationReminderTaskCoordinator {
     var rollingTaskWindowDays = 30
     var calendar = Calendar.current
+    var referenceDate = Date()
 
     func reconcileAllPlans(in modelContext: ModelContext) -> [MedicationReminderScheduleBatch] {
         let medications = (try? modelContext.fetch(FetchDescriptor<StoredMedication>())) ?? []
@@ -227,7 +228,7 @@ struct MedicationReminderTaskCoordinator {
     }
 
     private func rollingCorePlan(for plan: StoredMedicationPlan) -> MedicationPlan? {
-        let today = calendar.startOfDay(for: Date())
+        let today = calendar.startOfDay(for: referenceDate)
         let courseStart = calendar.startOfDay(for: plan.courseStartAt ?? today)
         let windowStart = maxDate(courseStart, today)
         let rollingEnd = calendar.date(byAdding: .day, value: rollingTaskWindowDays, to: windowStart) ?? windowStart
@@ -332,14 +333,14 @@ struct MedicationReminderTaskCoordinator {
 
     private func shouldDisableObsoleteFutureTask(_ task: StoredDoseTask, targetKeys: Set<String>) -> Bool {
         return task.status == .pending
-            && task.dueAt >= calendar.startOfDay(for: Date())
+            && task.dueAt >= calendar.startOfDay(for: referenceDate)
             && !task.reason.contains("用户撤销后等待确认")
             && !targetKeys.contains(logicalDoseKey(for: task))
     }
 
     private func shouldDisableFutureTaskForInactiveMedication(_ task: StoredDoseTask) -> Bool {
         return (task.status == .pending || task.status == .delayed)
-            && task.dueAt >= calendar.startOfDay(for: Date())
+            && task.dueAt >= calendar.startOfDay(for: referenceDate)
             && !task.reason.contains("用户撤销后等待确认")
     }
 
@@ -354,7 +355,7 @@ struct MedicationReminderTaskCoordinator {
 
     private func isFutureTaskDisabledByMedicationLifecycle(_ task: StoredDoseTask) -> Bool {
         task.status == .skipped
-            && task.dueAt >= calendar.startOfDay(for: Date())
+            && task.dueAt >= calendar.startOfDay(for: referenceDate)
             && (task.reason.contains("药物已归档，未来提醒已停用") || task.reason.contains("药物已中断，未来提醒已停用"))
     }
 
@@ -394,7 +395,7 @@ struct MedicationReminderTaskCoordinator {
 
     private func disableFutureTask(_ task: StoredDoseTask) {
         task.status = .skipped
-        task.recordedAt = Date()
+        task.recordedAt = referenceDate
         task.reason = "疗程与提醒已更新，此次未来提醒已停用。"
     }
 
