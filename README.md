@@ -44,6 +44,22 @@ Application writes use explicit command and transaction boundaries. SwiftData co
 - watchOS target support for Watch features
 - A personal or organization Apple Developer Team for physical-device signing
 
+## Documentation
+
+Start with the current product and engineering documents:
+
+- [Product requirements](docs/PRD.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Test strategy](docs/TEST_STRATEGY.md)
+- [Development workflow](docs/DEVELOPMENT_WORKFLOW.md)
+- [Local iPhone signing](docs/IOS_SIGNING.md)
+- [Security and privacy](docs/SECURITY_AND_PRIVACY.md)
+- [Documentation map](docs/README.md)
+
+Historical handoffs and dated investigation notes remain under `docs/` for
+traceability. They are indexed and clearly marked in the [documentation map](docs/README.md)
+so that they are not mistaken for current product or engineering truth.
+
 ## Build
 
 Open:
@@ -90,8 +106,15 @@ The native gate covers domain tests, hosted persistence and application tests, u
 │   └── MedicationAdherenceApp/
 ├── Packages/
 │   └── LlamaFramework/
+├── docs/
+│   ├── PRD.md
+│   ├── ARCHITECTURE.md
+│   ├── TEST_STRATEGY.md
+│   ├── DEVELOPMENT_WORKFLOW.md
+│   └── IOS_SIGNING.md
 ├── swift-core/
 ├── tools/
+├── CONTRIBUTING.md
 └── README.md
 ```
 

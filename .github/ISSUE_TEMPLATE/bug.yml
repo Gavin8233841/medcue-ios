@@ -1,0 +1,43 @@
+name: Bug report
+description: Record a reproducible defect and its expected behavior.
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Use synthetic or sanitized examples only. Do not include medication or health records, API tokens, device identifiers, or absolute user paths.
+  - type: textarea
+    id: impact
+    attributes:
+      label: User impact
+      description: Who is affected and what is the consequence?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Use exact screens, controls, data conditions, and sequence.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment and evidence
+      description: Revision, device, OS, build type, logs, screenshots, or measurements without sensitive data.
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Medical, privacy, and data risk
+      description: State whether records, reminders, medication guidance, or shared context may be affected.
+    validations:
+      required: true
