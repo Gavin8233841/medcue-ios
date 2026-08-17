@@ -29,8 +29,8 @@ SwiftUI iOS App 工程。默认中文展示名为“用药跟踪”，英文兼�
   - 导入审核入口。
 - UserNotifications：通知权限请求和稍后提醒安排。
 - ActivityKit / WidgetKit：已接入 `MedicationReminderLiveActivityExtension`。用药时间前后 5 分钟内尝试启动实况状态；标记已服用、忽略、撤销或归档后结束。扩展提供锁屏、灵动岛紧凑态、展开态和最小态展示。
-- 医疗 AI：已接入首次使用确认、授权弹窗、共享范围控制、聊天式气泡界面、底部输入栏、两列快捷入口、图片咨询入口、请求审计记录和供应商适配器；豆包 Ark Responses API 为后台默认供应商，百川适配器保留为备用，供应商和凭据配置不在前端展示。
-- API 密钥：演示阶段通过启动环境或 iOS Keychain 读取，不写入源码、文档、测试或构建日志；发送失败时只展示脱敏后的错误说明，不保存原始响应、请求正文或 API 密钥。
+- 医疗 AI：已接入首次使用确认、授权弹窗、共享范围控制、聊天式界面、图片咨询、请求审计、本地模型和云端适配器。默认云端路径经受控 CloudBase Broker 转发且不需要客户端供应商主密钥；豆包与百川直连适配器仍可在明确配置时读取 Keychain 凭据，商业 Release 尚未移除该兼容路径。
+- AI 凭据：Debug 配置可把 Broker client token 或明确启用的直连供应商凭据写入 Keychain；Broker 默认路径的供应商主密钥只存在服务端环境。源码、文档、测试和构建日志不得包含密钥；错误展示和诊断保持脱敏。
 - 添加药品：加号提供手动添加、医嘱/OCR 导入、药盒条码扫描三入口；OCR 和条码入口会生成导入复核草稿，保存前必须二次确认。
 - 今日页：已服用、稍后、忽略会生成操作日志；稍后按原计划提醒时间顺延 30 分钟，离计划时间很久时会先二次确认，避免打乱服药时间线；计划时间 5 分钟后会预排升级提醒，15 分钟未操作会在 App 启动、回前台或今日页刷新时自动记录为忽略；提前 6 小时以上确认已服用会二次确认。完成后从待办区移出，已处理记录支持横滑撤销、归档和详情；全部服用后显示绿色完成态；外用或滴眼类记录显示“已使用”；底部提示改为天气与环境用药关注，不再重复风险页警示。今日页、通知按钮和实况活动按钮共用同一逻辑剂量组处理，避免真机锁屏或灵动岛操作后残留重复待处理任务；稍后只给主任务保留顺延后的系统提醒，避免重复推送。
 - 药品页：已改成健康式概览，集中展示药品数、待处理任务、药盒低量和今日完成率；概览四个小卡片分别跳转到对应详情，不再整体跳到记录页。药品卡片显示药盒编号、药盒低量提示、下次任务、记录数和剩余量。详情页预留大图位置，支持用户选择药盒/药品照片、真机拍照上传入口、药盒编号备注、疗程起止、多提醒时间、剂量生效日期、剂量变化记录、来源说明和药盒库存编辑；药盒管理页按真实记录展示日均消耗和预计可用天数，估算结果只提示核对实物。
@@ -46,7 +46,7 @@ SwiftUI iOS App 工程。默认中文展示名为“用药跟踪”，英文兼�
 当前主线工具链固定为 `/Applications/Xcode.app` 的 Xcode 26.5（17F42）与 Swift 6.3.2；Xcode 27 beta 不属于当前路线 A。
 
 ```zsh
-cd REDACTED_HOME_PATH
+cd $HOME/Desktop/appcontest-2026-prep
 xcodebuild \
   -project ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj \
   -scheme MedicationAdherenceApp \
@@ -66,12 +66,7 @@ VERIFY_NATIVE_IOS_TEST_DESTINATION='platform=iOS Simulator,name=iPhone 17 Pro,OS
 
 ## 当前验证
 
-- 2026-07-19 `tools/verify-native.sh` 完整通过，预检 0 warning。
-- `swift-core` Swift Testing：136 项通过。
-- `MedicationAdherenceAppTests` Swift Testing：1 个 suite、2 项 hosted tests 通过。
-- 主 App unsigned Release、Watch Simulator 26.5 Debug、watchOS 26.5 device SDK Release：通过。
-- 主 App Release 不含本地 AI 敏感配置并嵌入 Watch App/Widget；iOS 测试宿主和 `.xctest` bundle 均不含敏感配置。
-- iPhone 17 Pro Max Simulator 上相同 Debug App bundle 可安装、启动并渲染今日页。
+质量门覆盖 Swift Core、hosted tests、UI smoke、主 App unsigned Release、Watch 构建、隐私清单和敏感产物断言；Broker 使用独立 Node 契约测试。当前精确数量、日期、CI 与真机证据统一见 `../../docs/PROJECT_STATUS.md`，不要在本文件复制动态状态。
 - 2026-06-10 最新提醒口径：今日页、通知按钮和实况活动的“稍后”统一按原计划提醒时间顺延 30 分钟；离计划时间很久时，今日页会先显示药物行内二次确认卡。
 - 首屏截图：`artifacts/ios-app-home.png`。
 - 本轮改造后截图：`artifacts/ios-app-after-ai-tabs.png`。

@@ -6,23 +6,23 @@
 请在当前项目中快速恢复 Codex 插件，不要删除、清理、归档、重置任何文件或线程历史。
 
 项目路径：
-REDACTED_HOME_PATH
+$HOME/Desktop/appcontest-2026-prep
 
 目标：
 1. 恢复 Codex App 插件列表。
 2. 优先恢复 build-ios-apps。
 3. 恢复 ShipSwift、Product Design、GitHub、Browser、Computer Use、办公三件套等插件。
 4. 验证插件已安装、已启用、MCP/skills 已暴露。
-5. 不要把 REDACTED_HOME_PATH 改成只读。之前只读会干扰 Codex App 同步，导致插件再次消失。
+5. 不要把 $HOME/.codex/config.toml 改成只读。之前只读会干扰 Codex App 同步，导致插件再次消失。
 6. 不要新建线程、归档线程或丢弃当前对话历史。若当前旧线程无法热加载插件，只说明需要重新开一轮或同目录分叉，不要主动破坏历史。
 
 请依次执行并检查：
 
-cd REDACTED_HOME_PATH
+cd $HOME/Desktop/appcontest-2026-prep
 
-codex plugin marketplace add REDACTED_HOME_PATH
-codex plugin marketplace add REDACTED_HOME_PATH
-codex plugin marketplace add REDACTED_HOME_PATH
+codex plugin marketplace add $HOME/.codex/.tmp/bundled-marketplaces/openai-bundled
+codex plugin marketplace add $HOME/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime
+codex plugin marketplace add $HOME/.codex/.tmp/marketplaces/role-specific-plugins
 
 codex plugin add browser@openai-bundled
 codex plugin add computer-use@openai-bundled
@@ -68,5 +68,5 @@ codex debug prompt-input '验证插件恢复'
 ```
 
 备注：
-- 不建议将 `REDACTED_HOME_PATH` 改成只读。Codex App 会同步插件和运行时状态，强行只读可能导致插件列表再次异常。
+- 不建议将 `$HOME/.codex/config.toml` 改成只读。Codex App 会同步插件和运行时状态，强行只读可能导致插件列表再次异常。
 - 已经运行中的旧线程通常不会热加载新插件工具；新回合、新线程或同目录分叉更容易拿到恢复后的插件上下文。

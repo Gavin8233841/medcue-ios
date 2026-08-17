@@ -6,7 +6,7 @@
 
 ## 新 Mac 环境状态
 
-- 项目路径：`REDACTED_HOME_PATH`。
+- 项目路径：`$HOME/Desktop/appcontest-2026-prep`。
 - 主线 Xcode：`/Applications/Xcode-beta.app`，Xcode 27.0 beta，Build version 27A5194q。
 - 主线 Developer 目录：`/Applications/Xcode-beta.app/Contents/Developer`。
 - 主线 Swift：Apple Swift 6.4。
@@ -128,7 +128,7 @@
 主线使用 Xcode 27 beta：
 
 ```zsh
-cd REDACTED_HOME_PATH
+cd $HOME/Desktop/appcontest-2026-prep/swift-core
 swift test
 ```
 
@@ -144,7 +144,7 @@ swift --version
 ## iOS App 构建命令
 
 ```zsh
-cd REDACTED_HOME_PATH
+cd $HOME/Desktop/appcontest-2026-prep
 xcodebuild \
   -project ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj \
   -scheme MedicationAdherenceApp \
@@ -223,7 +223,7 @@ xcodebuild \
 
 ## iPhone 真机签名与运行
 
-1. 用 Xcode 打开 `REDACTED_HOME_PATH`。
+1. 用 Xcode 打开 `$HOME/Desktop/appcontest-2026-prep/ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj`。
 2. 在左侧项目导航选择 `MedicationAdherenceApp` 工程，再选择主 App target `MedicationAdherenceApp`。
 3. 打开 `Signing & Capabilities`，确认 Team 选择你的 Apple Developer Team 或个人 Apple ID Team。
 4. Bundle Identifier 保持 `com.gwyy.appcontest2026.medicationadherence`；如果 Xcode 提示已被占用，再改成带你个人前缀的唯一值，同时让扩展 bundle id 自动跟随主 App 前缀。

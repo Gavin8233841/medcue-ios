@@ -1,9 +1,9 @@
 # MedCue Poster Light V1.8 QA
 
 - Source visual truth:
-  - User-annotated `REDACTED_HOME_PATH`
-- Implementation screenshot: `REDACTED_HOME_PATH`
-- Full-view comparison: `REDACTED_HOME_PATH`
+  - User-annotated `$HOME/Desktop/poster-light-v1.7.png`
+- Implementation screenshot: `$HOME/Desktop/appcontest-2026-prep/outputs/poster-html-v1/poster-light-v1.8.png`
+- Full-view comparison: `$HOME/Desktop/appcontest-2026-prep/outputs/poster-html-v1/revision-comparison-v1.8.png`
 - Exported poster viewport: 2400 x 1350 PNG
 - State: selected light theme with corrected top-left grid and restrained glass material
 

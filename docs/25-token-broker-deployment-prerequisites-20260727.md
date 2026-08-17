@@ -1,5 +1,7 @@
 # MedCue Token Broker 部署前置（2026-07-27）
 
+> 状态：已被替代。本文件保留部署前的检查过程；Broker 已完成竞赛/Beta 部署与真机非医疗联调。当前契约见 `cloudfunctions/medcue-ai-broker/README.md`，当前风险见 `docs/PROJECT_STATUS.md` 与 `docs/24-privacy-data-flow-audit-20260727.md`。不要按本文“尚未部署”的步骤判断现状。
+
 本文冻结部署输入、安全不变量和验收门。`cloudfunctions/medcue-ai-broker` 已实现并以测试固定一个非流式 v1 契约；尚未部署、尚未接入 iOS Release，不能写成上线完成。
 
 ## 当前实现契约

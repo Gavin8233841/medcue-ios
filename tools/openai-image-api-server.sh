@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUNDLED_NODE="REDACTED_HOME_PATH"
+CACHE_HOME="${XDG_CACHE_HOME:-${HOME:?HOME must be set}/.cache}"
+BUNDLED_NODE="${CACHE_HOME}/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node"
 
 configure_proxy() {
   if [[ -n "${HTTPS_PROXY:-}${HTTP_PROXY:-}${ALL_PROXY:-}${https_proxy:-}${http_proxy:-}${all_proxy:-}" ]]; then
@@ -46,7 +47,7 @@ if [[ -x "$BUNDLED_NODE" ]]; then
 elif command -v node >/dev/null 2>&1; then
   NODE_BIN="$(command -v node)"
 else
-  printf 'Node.js was not found. Expected bundled Node at %s\n' "$BUNDLED_NODE" >&2
+  printf 'Node.js was not found in the Codex runtime cache or PATH.\n' >&2
   exit 1
 fi
 

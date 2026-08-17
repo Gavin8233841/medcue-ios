@@ -20,6 +20,13 @@ fi
 failures=0
 largest_lines=0
 largest_file=""
+source_paths="$(
+    # Include tracked and non-ignored local sources while excluding generated
+    # output through the repository ignore rules.
+    git -C "$ROOT_DIR" ls-files --cached --others --exclude-standard -- \
+        'ios-app/MedicationAdherenceApp' 'swift-core' \
+        | grep -E '\.swift$'
+)"
 
 while IFS= read -r relative_path; do
     line_count="$(wc -l < "$ROOT_DIR/$relative_path" | tr -d ' ')"
@@ -31,15 +38,7 @@ while IFS= read -r relative_path; do
         printf '[FAIL] %s has %d lines (limit %d)\n' "$relative_path" "$line_count" "$MAX_LINES" >&2
         failures=$((failures + 1))
     fi
-done < <(
-    cd "$ROOT_DIR"
-    rg --files ios-app/MedicationAdherenceApp swift-core \
-        -g '*.swift' \
-        -g '!**/.build/**' \
-        -g '!**/.codex-build*/**' \
-        -g '!**/.codex-deriveddata*/**' \
-        | sort
-)
+done <<< "$source_paths"
 
 if ((failures > 0)); then
     printf 'swift-source-size-check: %d file(s) exceed the %d-line limit\n' "$failures" "$MAX_LINES" >&2

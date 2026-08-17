@@ -36,6 +36,13 @@ Options:
 Environment:
   VERIFY_NATIVE_CHECKS_ONLY=1
              Run non-build checks only (the same behavior as --quick).
+  VERIFY_NATIVE_DIFF_BASE=<full-commit-sha>
+             Also check the complete committed tree difference from this exact
+             40-character commit through HEAD. CI sets this to the Pull Request
+             base or the pre-push revision.
+  VERIFY_NATIVE_FULL_TREE=1
+             Check every file in HEAD from the empty tree. CI permits this only
+             for a new or explicitly forced push to main.
   VERIFY_NATIVE_ROOT=<path>
              Reusable build root. It must resolve inside this repository and
              already be covered by .gitignore. The default is
@@ -79,6 +86,143 @@ require_command() {
 require_file() {
     local path="$1"
     [[ -f "$path" ]] || fail "required file not found: $path"
+}
+
+assert_verification_directory() {
+    local directory="$1"
+    local label="$2"
+    local resolved_directory
+
+    case "$directory" in
+        "$VERIFICATION_ROOT"/*) ;;
+        *) fail "$label is outside VERIFY_NATIVE_ROOT: $directory" ;;
+    esac
+    [[ ! -L "$directory" ]] || fail "$label must not be a symbolic link: $directory"
+    [[ -d "$directory" ]] || fail "$label not found: $directory"
+    resolved_directory="$(realpath "$directory")" ||
+        fail "$label cannot be resolved: $directory"
+    case "$resolved_directory" in
+        "$VERIFICATION_ROOT"/*) ;;
+        *) fail "$label resolves outside VERIFY_NATIVE_ROOT: $directory" ;;
+    esac
+}
+
+assert_verification_tree_safe() {
+    local symbolic_link
+    local resolved_link
+
+    [[ -n "$VERIFICATION_ROOT" && -d "$VERIFICATION_ROOT" ]] || return
+    if ! find -P "$VERIFICATION_ROOT" -type l -print0 | (
+        while IFS= read -r -d '' symbolic_link; do
+            resolved_link="$(realpath "$symbolic_link" 2>/dev/null)" || exit 1
+            case "$resolved_link" in
+                "$VERIFICATION_ROOT"|"$VERIFICATION_ROOT"/*) ;;
+                *) exit 1 ;;
+            esac
+        done
+    ); then
+        fail "verification output contains an unresolvable or escaping symbolic link"
+    fi
+}
+
+assert_symlinks_contained() {
+    local directory="$1"
+    local label="$2"
+    local symbolic_link
+    local resolved_link
+    if ! find -P "$directory" -type l -print0 | (
+        while IFS= read -r -d '' symbolic_link; do
+            resolved_link="$(realpath "$symbolic_link" 2>/dev/null)" || exit 1
+            case "$resolved_link" in
+                "$directory"|"$directory"/*) ;;
+                *) exit 1 ;;
+            esac
+        done
+    ); then
+        fail "$label contains an unresolvable or escaping symbolic link"
+    fi
+}
+
+prepare_verification_directory() {
+    local directory="$1"
+    local label="$2"
+    local existing_ancestor="$directory"
+    local resolved_ancestor
+
+    assert_verification_tree_safe
+    case "$directory" in
+        "$VERIFICATION_ROOT"/*) ;;
+        *) fail "$label is outside VERIFY_NATIVE_ROOT: $directory" ;;
+    esac
+    [[ ! -L "$directory" ]] || fail "$label must not be a symbolic link: $directory"
+    while [[ ! -e "$existing_ancestor" && ! -L "$existing_ancestor" ]]; do
+        existing_ancestor="$(dirname "$existing_ancestor")"
+    done
+    [[ -d "$existing_ancestor" ]] ||
+        fail "$label has a non-directory path component: $existing_ancestor"
+    resolved_ancestor="$(realpath "$existing_ancestor")" ||
+        fail "$label has an unresolvable path component: $existing_ancestor"
+    case "$resolved_ancestor" in
+        "$VERIFICATION_ROOT"|"$VERIFICATION_ROOT"/*) ;;
+        *) fail "$label resolves outside VERIFY_NATIVE_ROOT before creation: $directory" ;;
+    esac
+
+    mkdir -p "$directory"
+    assert_verification_directory "$directory" "$label"
+    assert_verification_tree_safe
+}
+
+verify_git_diff() {
+    local diff_base="${VERIFY_NATIVE_DIFF_BASE:-}"
+    local ci_event="${VERIFY_NATIVE_CI_EVENT:-}"
+    local ci_ref="${VERIFY_NATIVE_CI_REF:-}"
+    local full_tree="${VERIFY_NATIVE_FULL_TREE:-0}"
+    local head_sha
+    local empty_tree
+
+    head_sha="$(git rev-parse --verify HEAD)"
+    echo "Verified head: $head_sha"
+
+    git diff --check
+    git diff --cached --check
+
+    case "$full_tree" in
+        0|1) ;;
+        *) fail "VERIFY_NATIVE_FULL_TREE must be 0 or 1" ;;
+    esac
+
+    if [[ "$full_tree" == 1 ]]; then
+        [[ "${CI:-}" == "true" && "$ci_event" == "push" && "$ci_ref" == "refs/heads/main" ]] ||
+            fail "VERIFY_NATIVE_FULL_TREE is permitted only for a push to main in CI"
+        empty_tree="$(git hash-object -w -t tree /dev/null)"
+        [[ -z "$diff_base" || "$diff_base" == "$empty_tree" || "$diff_base" == "0000000000000000000000000000000000000000" ]] ||
+            fail "VERIFY_NATIVE_DIFF_BASE must identify the empty tree in full-tree mode"
+        echo "Checking committed full tree from: $empty_tree"
+        git diff --check "$empty_tree" HEAD
+        return
+    fi
+
+    if [[ "$diff_base" == "0000000000000000000000000000000000000000" ]]; then
+        fail "VERIFY_NATIVE_DIFF_BASE cannot be the all-zero sentinel outside full-tree mode"
+    fi
+
+    if [[ -n "$diff_base" ]]; then
+        [[ "$diff_base" =~ ^[0-9a-f]{40}$ ]] ||
+            fail "VERIFY_NATIVE_DIFF_BASE must be a full 40-character lowercase commit SHA"
+        [[ "$diff_base" != "$head_sha" ]] ||
+            fail "VERIFY_NATIVE_DIFF_BASE must differ from HEAD; refusing a self-diff"
+        if git rev-parse --verify --quiet "${diff_base}^{commit}" >/dev/null; then
+            echo "Committed diff base: $diff_base"
+            git diff --check "$diff_base" HEAD
+            return
+        fi
+    fi
+
+    if [[ -n "$diff_base" ]]; then
+        fail "VERIFY_NATIVE_DIFF_BASE is not an available commit: $diff_base"
+    elif [[ "${CI:-}" == "true" ]]; then
+        fail "VERIFY_NATIVE_DIFF_BASE is required in CI"
+    fi
 }
 
 parse_arguments() {
@@ -131,9 +275,11 @@ prepare_verification_root() {
     esac
 
     existing_ancestor="$candidate_root"
-    while [[ ! -e "$existing_ancestor" ]]; do
+    while [[ ! -e "$existing_ancestor" && ! -L "$existing_ancestor" ]]; do
         existing_ancestor="$(dirname "$existing_ancestor")"
     done
+    [[ ! -L "$existing_ancestor" ]] ||
+        fail "VERIFY_NATIVE_ROOT has a symbolic-link path component: $existing_ancestor"
     existing_ancestor_real="$(realpath "$existing_ancestor")"
     case "$existing_ancestor_real" in
         "$ROOT_DIR"|"$ROOT_DIR"/*) ;;
@@ -159,13 +305,13 @@ prepare_verification_root() {
     fi
 
     VERIFICATION_ROOT="$resolved_root"
-    mkdir -p \
-        "$VERIFICATION_ROOT/tmp" \
-        "$VERIFICATION_ROOT/module-cache/clang" \
-        "$VERIFICATION_ROOT/module-cache/swift" \
-        "$VERIFICATION_ROOT/swift-core/cache" \
-        "$VERIFICATION_ROOT/swift-core/scratch" \
-        "$VERIFICATION_ROOT/source-packages"
+    assert_verification_tree_safe
+    prepare_verification_directory "$VERIFICATION_ROOT/tmp" "temporary output directory"
+    prepare_verification_directory "$VERIFICATION_ROOT/module-cache/clang" "Clang module cache"
+    prepare_verification_directory "$VERIFICATION_ROOT/module-cache/swift" "Swift module cache"
+    prepare_verification_directory "$VERIFICATION_ROOT/swift-core/cache" "Swift package cache"
+    prepare_verification_directory "$VERIFICATION_ROOT/swift-core/scratch" "Swift package scratch directory"
+    prepare_verification_directory "$VERIFICATION_ROOT/source-packages" "cloned source packages directory"
 
     export TMPDIR="$VERIFICATION_ROOT/tmp"
     export CLANG_MODULE_CACHE_PATH="$VERIFICATION_ROOT/module-cache/clang"
@@ -187,6 +333,7 @@ run_swift_core_tests() {
         --skip-update \
         --disable-netrc \
         --disable-keychain
+    assert_verification_tree_safe
 }
 
 run_xcode_build() {
@@ -201,14 +348,18 @@ run_xcode_build() {
         -configuration "$configuration"
     )
 
+    case "$output_name" in
+        main-app-release|watch-simulator-debug|watch-device-release) ;;
+        *) fail "unsupported Xcode output namespace: $output_name" ;;
+    esac
+
     if [[ -n "$sdk" ]]; then
         xcodebuild_arguments+=(-sdk "$sdk")
     fi
 
-    mkdir -p \
-        "$output_root/products" \
-        "$output_root/objects" \
-        "$output_root/symbols"
+    prepare_verification_directory "$output_root/products" "$output_name products directory"
+    prepare_verification_directory "$output_root/objects" "$output_name objects directory"
+    prepare_verification_directory "$output_root/symbols" "$output_name symbols directory"
 
     xcodebuild_arguments+=(
         -clonedSourcePackagesDirPath "$VERIFICATION_ROOT/source-packages"
@@ -221,12 +372,13 @@ run_xcode_build() {
         build
     )
     xcodebuild "${xcodebuild_arguments[@]}"
+    assert_verification_tree_safe
 }
 
 run_ios_unit_tests() {
     local output_root="$VERIFICATION_ROOT/ios-unit-tests"
 
-    mkdir -p "$output_root/derived-data"
+    prepare_verification_directory "$output_root/derived-data" "iOS unit-test derived data"
     xcodebuild \
         -project "$XCODE_PROJECT" \
         -scheme "$IOS_TEST_SCHEME" \
@@ -239,12 +391,13 @@ run_ios_unit_tests() {
         -only-testing:"$IOS_TEST_TARGET" \
         MEDCUE_SIMULATOR_UNIT_TEST_BUILD=YES \
         test
+    assert_verification_tree_safe
 }
 
 run_ios_ui_tests() {
     local output_root="$VERIFICATION_ROOT/ios-ui-tests"
 
-    mkdir -p "$output_root/derived-data"
+    prepare_verification_directory "$output_root/derived-data" "iOS UI-test derived data"
     xcodebuild \
         -project "$XCODE_PROJECT" \
         -scheme "$IOS_TEST_SCHEME" \
@@ -257,6 +410,7 @@ run_ios_ui_tests() {
         -only-testing:"$IOS_UI_TEST_TARGET" \
         MEDCUE_SIMULATOR_UNIT_TEST_BUILD=YES \
         test
+    assert_verification_tree_safe
 }
 
 verify_ios_unit_test_artifacts() {
@@ -266,8 +420,11 @@ verify_ios_unit_test_artifacts() {
     local secrets_plist="$app_bundle/AISecrets.plist"
     local test_secrets_plist="$test_bundle/AISecrets.plist"
 
-    [[ -d "$app_bundle" ]] || fail "iOS unit-test host app not found: $app_bundle"
-    [[ -d "$test_bundle" ]] || fail "iOS unit-test bundle not found: $test_bundle"
+    assert_verification_directory "$app_bundle" "iOS unit-test host app"
+    assert_verification_directory "$test_bundle" "iOS unit-test bundle"
+    assert_verification_tree_safe
+    assert_symlinks_contained "$app_bundle" "iOS unit-test host app"
+    assert_symlinks_contained "$test_bundle" "iOS unit-test bundle"
     [[ ! -e "$secrets_plist" && ! -L "$secrets_plist" ]] || fail "sensitive plist found in iOS unit-test host: $secrets_plist"
     [[ ! -e "$test_secrets_plist" && ! -L "$test_secrets_plist" ]] || fail "sensitive plist found in iOS unit-test bundle: $test_secrets_plist"
 }
@@ -276,7 +433,10 @@ assert_no_sensitive_artifacts() {
     local bundle_root="$1"
     local label="$2"
     local match
-    match="$(find "$bundle_root" -type f \( -name 'AISecrets.plist' -o -name '.env.local' -o -name '*.gguf' -o -name '*.sqlite' -o -name '*.sqlite3' \) -print -quit)"
+    assert_verification_directory "$bundle_root" "$label"
+    assert_verification_tree_safe
+    assert_symlinks_contained "$bundle_root" "$label"
+    match="$(find -P "$bundle_root" \( -iname 'AISecrets.plist' -o -iname '.env.local' -o -iname '*.gguf' -o -iname '*.sqlite' -o -iname '*.sqlite-*' -o -iname '*.sqlite3' -o -iname '*.sqlite3-*' -o -iname '*.store' -o -iname '*.store-*' \) -print -quit)"
     [[ -z "$match" ]] || fail "$label contains a forbidden secret, model, or user database artifact"
 }
 
@@ -286,13 +446,13 @@ verify_main_app_release_artifacts() {
     local watch_app="$app_bundle/Watch/MedicationAdherenceWatchApp.app"
     local watch_widget="$watch_app/PlugIns/MedicationAdherenceWatchWidget.appex"
 
-    [[ -d "$app_bundle" ]] || fail "Main App Release product not found: $app_bundle"
+    assert_verification_directory "$app_bundle" "Main App Release product"
     [[ ! -e "$secrets_plist" && ! -L "$secrets_plist" ]] || fail "sensitive plist found in Main App Release product: $secrets_plist"
-    [[ -d "$watch_app" ]] || fail "embedded Watch App not found: $watch_app"
-    [[ -d "$watch_widget" ]] || fail "embedded Watch Widget not found: $watch_widget"
-    [[ -f "$app_bundle/PrivacyInfo.xcprivacy" ]] || fail "Main App privacy manifest missing from Release product"
-    [[ -f "$watch_app/PrivacyInfo.xcprivacy" ]] || fail "Watch App privacy manifest missing from Release product"
-    [[ -f "$watch_widget/PrivacyInfo.xcprivacy" ]] || fail "Watch Widget privacy manifest missing from Release product"
+    assert_verification_directory "$watch_app" "embedded Watch App"
+    assert_verification_directory "$watch_widget" "embedded Watch Widget"
+    [[ -f "$app_bundle/PrivacyInfo.xcprivacy" && ! -L "$app_bundle/PrivacyInfo.xcprivacy" ]] || fail "Main App privacy manifest missing from Release product"
+    [[ -f "$watch_app/PrivacyInfo.xcprivacy" && ! -L "$watch_app/PrivacyInfo.xcprivacy" ]] || fail "Watch App privacy manifest missing from Release product"
+    [[ -f "$watch_widget/PrivacyInfo.xcprivacy" && ! -L "$watch_widget/PrivacyInfo.xcprivacy" ]] || fail "Watch Widget privacy manifest missing from Release product"
     assert_no_sensitive_artifacts "$app_bundle" "Main App Release product"
 }
 
@@ -303,7 +463,6 @@ main() {
     require_command git
     require_command plutil
     require_command realpath
-    require_command rg
     require_command swift
     require_command xcodebuild
     require_file "$PROJECT_FILE"
@@ -311,7 +470,7 @@ main() {
     require_file "$PREFLIGHT_SCRIPT"
     require_file "$SOURCE_SIZE_SCRIPT"
 
-    run_step "Git diff check" git diff --check
+    run_step "Git diff check" verify_git_diff
     run_step "Xcode project plist lint" plutil -lint "$PROJECT_FILE"
     run_step "Swift source size limit" bash "$SOURCE_SIZE_SCRIPT"
     run_step "iOS preflight" bash "$PREFLIGHT_SCRIPT"

@@ -6,13 +6,12 @@
 
 - Swift tools version：6.3。
 - SwiftPM 平台声明：macOS 12、iOS 15。
-- 新 Mac 主线工具链已切到 `/Applications/Xcode-beta.app`，Xcode 27.0 beta，Apple Swift 6.4。
-- `/Applications/Xcode.app` 的 Xcode 26.5 仅作为回退保留；主线测试不要写死该路径。
+- 当前验证工具链为 `/Applications/Xcode.app` 的 Xcode 26.5（17F42）与 Apple Swift 6.3.2。版本变化后必须重新运行完整质量门，不能把 beta 工具链记录当作当前事实。
 
 ## macOS 测试命令
 
 ```zsh
-cd REDACTED_HOME_PATH
+cd $HOME/Desktop/appcontest-2026-prep/swift-core
 swift test
 ```
 
@@ -72,7 +71,7 @@ $env:Path = "$toolchainBin;$runtimeBin;$env:Path"
 
 ## iOS 工程接入方式
 
-进入 Mac + Xcode 阶段后，把本包作为本地 Swift Package 接入 iOS App。iOS 工程层负责：
+本包已作为本地 Swift Package 接入 iOS App。iOS 工程层负责：
 
 - SwiftData 持久化适配。
 - UserNotifications 本地提醒适配。
@@ -107,4 +106,4 @@ $env:Path = "$toolchainBin;$runtimeBin;$env:Path"
 - 医疗 AI 请求提示构造，确保未授权快照不会被拼入请求，并保留医生或药师复核边界。
 - 风险三类分组、添加入口限制和服药操作撤销记录。
 
-当前新 Mac 测试结果：95 个 Swift Testing 测试全部通过。
+当前测试数量、验证日期与完整门结果统一见 `../docs/PROJECT_STATUS.md`。

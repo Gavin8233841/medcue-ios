@@ -6,12 +6,17 @@ on:
       - main
   pull_request:
   workflow_dispatch:
+    inputs:
+      diff_base:
+        description: Full commit SHA used as the complete tree-diff base
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: native-verification-${{ github.ref }}
+  group: native-verification-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -19,10 +24,119 @@ jobs:
     name: Core, Broker, iOS and Watch
     runs-on: macos-26
     timeout-minutes: 60
+    env:
+      VERIFY_NATIVE_CI_EVENT: ${{ github.event_name }}
+      VERIFY_NATIVE_CI_REF: ${{ github.ref }}
+      VERIFY_NATIVE_EXPECTED_HEAD: ${{ github.sha }}
+      VERIFY_NATIVE_MANUAL_DIFF_BASE: ${{ inputs.diff_base || '' }}
+      VERIFY_NATIVE_PR_DIFF_BASE: ${{ github.event.pull_request.base.sha || '' }}
+      VERIFY_NATIVE_PUSH_DIFF_BASE: ${{ github.event.before || '' }}
+      VERIFY_NATIVE_PUSH_FORCED: ${{ github.event.forced || false }}
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Resolve exact verification base
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          remove_checkout_credentials() {
+            local credential_key
+            while IFS= read -r credential_key; do
+              [[ -n "$credential_key" ]] || continue
+              git config --local --unset-all "$credential_key" || true
+            done < <(git config --local --name-only --get-regexp '^http\..*\.extraheader$' || true)
+            git config --local --unset-all core.sshCommand || true
+          }
+          trap remove_checkout_credentials EXIT
+
+          case "$VERIFY_NATIVE_CI_EVENT" in
+            workflow_dispatch)
+              requested_diff_base="$VERIFY_NATIVE_MANUAL_DIFF_BASE"
+              ;;
+            pull_request)
+              requested_diff_base="$VERIFY_NATIVE_PR_DIFF_BASE"
+              ;;
+            push)
+              requested_diff_base="$VERIFY_NATIVE_PUSH_DIFF_BASE"
+              ;;
+            *)
+              echo "Unsupported verification event: $VERIFY_NATIVE_CI_EVENT" >&2
+              exit 2
+              ;;
+          esac
+
+          [[ -n "$requested_diff_base" ]] || {
+            echo "diff_base is required for $VERIFY_NATIVE_CI_EVENT" >&2
+            exit 2
+          }
+          [[ "$requested_diff_base" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "diff_base must be a full lowercase commit SHA" >&2
+            exit 2
+          }
+
+          head_sha="$(git rev-parse --verify HEAD)"
+          [[ "$head_sha" == "$VERIFY_NATIVE_EXPECTED_HEAD" ]] || {
+            echo "Checked-out HEAD does not match the event SHA" >&2
+            exit 2
+          }
+          echo "Verification HEAD: $head_sha"
+          echo "Requested diff base: $requested_diff_base"
+
+          zero_sha="0000000000000000000000000000000000000000"
+          verification_full_tree=0
+          if [[ "$requested_diff_base" == "$zero_sha" ]]; then
+            [[ "$VERIFY_NATIVE_CI_EVENT" == "push" && "$VERIFY_NATIVE_CI_REF" == "refs/heads/main" ]] || {
+              echo "The all-zero diff base is valid only for a push to main" >&2
+              exit 2
+            }
+            resolved_diff_base="$(git hash-object -w -t tree /dev/null)"
+            verification_mode="full-tree-after-new-main-ref"
+            verification_full_tree=1
+          elif [[ "$requested_diff_base" == "$head_sha" ]]; then
+            echo "diff_base must differ from HEAD; refusing a self-diff" >&2
+            exit 2
+          elif [[ "$VERIFY_NATIVE_CI_EVENT" == "push" && "$VERIFY_NATIVE_CI_REF" == "refs/heads/main" && "$VERIFY_NATIVE_PUSH_FORCED" == "true" ]]; then
+            resolved_diff_base="$(git hash-object -w -t tree /dev/null)"
+            verification_mode="full-tree-after-forced-main-push"
+            verification_full_tree=1
+          elif git cat-file -e "${requested_diff_base}^{commit}" 2>/dev/null; then
+            resolved_diff_base="$requested_diff_base"
+            verification_mode="exact-commit-diff"
+          else
+            git fetch --no-tags --no-recurse-submodules --depth=1 origin "$requested_diff_base"
+            fetched_sha="$(git rev-parse --verify 'FETCH_HEAD^{commit}')"
+            [[ "$fetched_sha" == "$requested_diff_base" ]] || {
+              echo "Fetched diff_base does not match the requested commit" >&2
+              exit 2
+            }
+            git cat-file -e "${requested_diff_base}^{commit}"
+            resolved_diff_base="$requested_diff_base"
+            verification_mode="exact-shallow-commit-diff"
+          fi
+
+          echo "Resolved diff base: $resolved_diff_base"
+          echo "Verification mode: $verification_mode"
+          echo "VERIFY_NATIVE_DIFF_BASE=$resolved_diff_base" >> "$GITHUB_ENV"
+          echo "VERIFY_NATIVE_FULL_TREE=$verification_full_tree" >> "$GITHUB_ENV"
+
+          remove_checkout_credentials
+          trap - EXIT
+          if git config --local --name-only --list | grep -Eiq '^(http\..*\.extraheader|core\.sshcommand)$'; then
+            echo "Checkout credentials remain in the local Git configuration" >&2
+            exit 2
+          fi
+
+      - name: Use deployed Broker Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "18.15.0"
 
       - name: Record toolchain
         run: |
@@ -31,9 +145,6 @@ jobs:
           swift --version
           node --version
           xcodebuild -showsdks
-
-      - name: Install verification tools
-        run: brew install ripgrep
 
       - name: Test AI broker
         working-directory: cloudfunctions/medcue-ai-broker

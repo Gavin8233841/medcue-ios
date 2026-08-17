@@ -1,0 +1,59 @@
+name: Feature or product improvement
+description: Turn a product idea into a reviewable requirement before implementation.
+title: "[Feature] "
+labels:
+  - feature
+body:
+  - type: markdown
+    attributes:
+      value: Use synthetic or sanitized examples only. Do not include real medication or health records, API tokens, device identifiers, or absolute user paths.
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: Who is affected, what happens today, and why it matters.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Intended outcome
+      description: Describe the user-visible result, not the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and non-goals
+      description: What is included and explicitly excluded?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List observable conditions that prove completion.
+      placeholder: |
+        - [ ] Given ..., when ..., then ...
+        - [ ] Failure/cancellation behavior is ...
+    validations:
+      required: true
+  - type: textarea
+    id: quality
+    attributes:
+      label: Safety and quality impact
+      description: Medical, privacy, data, accessibility, localization, performance, platform, migration, competition, intellectual-property, and dependency-license considerations.
+    validations:
+      required: true
+  - type: textarea
+    id: decisions
+    attributes:
+      label: Product decisions or unknowns
+      description: Decisions needed from the product owner and evidence still unavailable.
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification plan
+      description: Automated tests, CI, physical-device checks, and success measurements.
+    validations:
+      required: true

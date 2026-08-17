@@ -4,7 +4,7 @@
 
 项目路径：
 
-`REDACTED_HOME_PATH`
+`$HOME/Desktop/appcontest-2026-prep`
 
 背景：
 
@@ -69,13 +69,13 @@ struct LocalFoundationMedicalAIClient: MedicalAIClient {
 验证命令：
 
 ```zsh
-cd REDACTED_HOME_PATH
+cd $HOME/Desktop/appcontest-2026-prep/swift-core
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift test
 ```
 
 ```zsh
-cd REDACTED_HOME_PATH
+cd $HOME/Desktop/appcontest-2026-prep
 ./tools/ios-preflight-check.sh
 ```
 

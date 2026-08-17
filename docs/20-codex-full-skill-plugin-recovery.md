@@ -11,10 +11,10 @@
 ## 复制给 Codex 的提示词
 
 ```text
-请在当前项目中恢复并验证 Codex 的全部竞赛工程 skills 和插件。不要删除、清理、归档、重置任何文件或线程历史。不要执行 rm -rf、git clean、git reset --hard、git checkout -- . 或任何递归/通配符删除。不要把 REDACTED_HOME_PATH 改成只读。
+请在当前项目中恢复并验证 Codex 的全部竞赛工程 skills 和插件。不要删除、清理、归档、重置任何文件或线程历史。不要执行 rm -rf、git clean、git reset --hard、git checkout -- . 或任何递归/通配符删除。不要把 $HOME/.codex/config.toml 改成只读。
 
 项目路径：
-REDACTED_HOME_PATH
+$HOME/Desktop/appcontest-2026-prep
 
 目标：
 1. 恢复并验证 Codex 插件：Build iOS Apps、ShipSwift、Product Design、GitHub、Google Drive、Figma、Gmail、Browser、Computer Use、Documents、Spreadsheets、Presentations、LaTeX、Expo。
@@ -26,7 +26,7 @@ REDACTED_HOME_PATH
 
 先运行：
 
-cd REDACTED_HOME_PATH
+cd $HOME/Desktop/appcontest-2026-prep
 which codex
 codex plugin --help
 codex plugin marketplace list
@@ -34,9 +34,9 @@ codex plugin list
 
 恢复插件 marketplace：
 
-codex plugin marketplace add REDACTED_HOME_PATH || true
-codex plugin marketplace add REDACTED_HOME_PATH || true
-codex plugin marketplace add REDACTED_HOME_PATH || true
+codex plugin marketplace add $HOME/.codex/.tmp/bundled-marketplaces/openai-bundled || true
+codex plugin marketplace add $HOME/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime || true
+codex plugin marketplace add $HOME/.codex/.tmp/marketplaces/role-specific-plugins || true
 
 恢复插件：
 
@@ -60,25 +60,25 @@ codex plugin add expo@openai-curated || true
 验证插件必须显示 installed, enabled：
 
 codex plugin list | rg 'build-ios-apps|shipswift|product-design|github|google-drive|figma|gmail|browser|computer-use|documents|spreadsheets|presentations|latex|expo'
-rg -n 'build-ios-apps|shipswift|product-design|github|google-drive|figma|gmail|documents|spreadsheets|presentations|expo' REDACTED_HOME_PATH
+rg -n 'build-ios-apps|shipswift|product-design|github|google-drive|figma|gmail|documents|spreadsheets|presentations|expo' $HOME/.codex/config.toml
 
 恢复 mattpocock/skills 的 10 个竞赛工程推进技能。先检查这些目录：
 
 ls -ld \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH
+  $HOME/.codex/skills/diagnose \
+  $HOME/.codex/skills/grill-with-docs \
+  $HOME/.codex/skills/improve-codebase-architecture \
+  $HOME/.codex/skills/prototype \
+  $HOME/.codex/skills/tdd \
+  $HOME/.codex/skills/to-issues \
+  $HOME/.codex/skills/to-prd \
+  $HOME/.codex/skills/teach \
+  $HOME/.codex/skills/handoff \
+  $HOME/.codex/skills/grill-me
 
 如果上述任一目录缺失，使用 Codex 自带安装器从精确 GitHub 路径安装。不要覆盖已存在目录：
 
-python3 REDACTED_HOME_PATH \
+python3 $HOME/.codex/skills/.system/skill-installer/scripts/install-skill-from-github.py \
   --repo mattpocock/skills \
   --path \
     skills/engineering/diagnose \
@@ -91,23 +91,23 @@ python3 REDACTED_HOME_PATH \
     skills/productivity/teach \
     skills/productivity/handoff \
     skills/productivity/grill-me \
-  --dest REDACTED_HOME_PATH
+  --dest $HOME/.codex/skills
 
 恢复 GSAP skills。先检查这些目录；缺失时再安装：
 
 ls -ld \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH
+  $HOME/.codex/skills/gsap-core \
+  $HOME/.codex/skills/gsap-timeline \
+  $HOME/.codex/skills/gsap-scrolltrigger \
+  $HOME/.codex/skills/gsap-plugins \
+  $HOME/.codex/skills/gsap-utils \
+  $HOME/.codex/skills/gsap-react \
+  $HOME/.codex/skills/gsap-performance \
+  $HOME/.codex/skills/gsap-frameworks
 
 如果缺失，安装：
 
-python3 REDACTED_HOME_PATH \
+python3 $HOME/.codex/skills/.system/skill-installer/scripts/install-skill-from-github.py \
   --repo greensock/gsap-skills \
   --path \
     skills/gsap-core \
@@ -118,23 +118,23 @@ python3 REDACTED_HOME_PATH \
     skills/gsap-react \
     skills/gsap-performance \
     skills/gsap-frameworks \
-  --dest REDACTED_HOME_PATH
+  --dest $HOME/.codex/skills
 
 恢复 Understand Anything skills。GitHub 仓库为 Egonex-AI/Understand-Anything，skill 路径在 understand-anything-plugin/skills。先检查：
 
 ls -ld \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH
+  $HOME/.codex/skills/understand \
+  $HOME/.codex/skills/understand-chat \
+  $HOME/.codex/skills/understand-dashboard \
+  $HOME/.codex/skills/understand-diff \
+  $HOME/.codex/skills/understand-domain \
+  $HOME/.codex/skills/understand-explain \
+  $HOME/.codex/skills/understand-knowledge \
+  $HOME/.codex/skills/understand-onboard
 
 如果缺失，安装：
 
-python3 REDACTED_HOME_PATH \
+python3 $HOME/.codex/skills/.system/skill-installer/scripts/install-skill-from-github.py \
   --repo Egonex-AI/Understand-Anything \
   --path \
     understand-anything-plugin/skills/understand \
@@ -145,62 +145,62 @@ python3 REDACTED_HOME_PATH \
     understand-anything-plugin/skills/understand-explain \
     understand-anything-plugin/skills/understand-knowledge \
     understand-anything-plugin/skills/understand-onboard \
-  --dest REDACTED_HOME_PATH
+  --dest $HOME/.codex/skills
 
 恢复 ShipSwift 本地辅助 skills。先检查：
 
 ls -ld \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH
+  $HOME/.codex/skills/add-component \
+  $HOME/.codex/skills/build-feature \
+  $HOME/.codex/skills/explore-recipes
 
 如果缺失，从 ShipSwift 插件缓存或源目录定点复制，不覆盖已存在目录。优先使用：
 
-REDACTED_HOME_PATH
+$HOME/.codex/plugins/cache/personal/shipswift/1.0.2/skills
 
 其次使用：
 
-REDACTED_HOME_PATH
+$HOME/plugins/shipswift/skills
 
 恢复本地 A3 skill。先检查：
 
-test -f REDACTED_HOME_PATH
-test -f REDACTED_HOME_PATH
+test -f $HOME/.codex/skills/software-cup-a3-web-stack/SKILL.md
+test -f $HOME/.codex/skills/software-cup-a3-web-stack/references/resources.md
 
 如果缺失，从项目备份恢复：
 
-REDACTED_HOME_PATH
-REDACTED_HOME_PATH
+$HOME/Desktop/appcontest-2026-prep/docs/codex-local-skills/software-cup-a3-web-stack/SKILL.md
+$HOME/Desktop/appcontest-2026-prep/docs/codex-local-skills/software-cup-a3-web-stack/references/resources.md
 
 验证所有本地 skills：
 
-find REDACTED_HOME_PATH -maxdepth 2 -name SKILL.md -type f -print | sort
+find $HOME/.codex/skills -maxdepth 2 -name SKILL.md -type f -print | sort
 rg -n '^name:|^description:' \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH \
-  REDACTED_HOME_PATH
+  $HOME/.codex/skills/diagnose/SKILL.md \
+  $HOME/.codex/skills/grill-with-docs/SKILL.md \
+  $HOME/.codex/skills/improve-codebase-architecture/SKILL.md \
+  $HOME/.codex/skills/prototype/SKILL.md \
+  $HOME/.codex/skills/tdd/SKILL.md \
+  $HOME/.codex/skills/to-issues/SKILL.md \
+  $HOME/.codex/skills/to-prd/SKILL.md \
+  $HOME/.codex/skills/teach/SKILL.md \
+  $HOME/.codex/skills/handoff/SKILL.md \
+  $HOME/.codex/skills/grill-me/SKILL.md \
+  $HOME/.codex/skills/software-cup-a3-web-stack/SKILL.md
 
 验证插件 skills 数量：
 
-find REDACTED_HOME_PATH -maxdepth 5 -type f -name SKILL.md -print
-find REDACTED_HOME_PATH -maxdepth 5 -type f -name SKILL.md -print
-find REDACTED_HOME_PATH -maxdepth 5 -type f -name SKILL.md -print
+find $HOME/.codex/plugins/cache/personal/shipswift -maxdepth 5 -type f -name SKILL.md -print
+find $HOME/.codex/plugins/cache/personal/product-design -maxdepth 5 -type f -name SKILL.md -print
+find $HOME/.codex/plugins/cache/openai-curated/build-ios-apps -maxdepth 5 -type f -name SKILL.md -print
 
 验证 MCP 和 prompt 暴露：
 
 codex mcp list
 codex mcp get xcodebuildmcp
 printf '%s\n%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"codex-check","version":"1.0.0"}}}' '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' | PATH="/Applications/Codex.app/Contents/Resources/cua_node/bin:/usr/bin:/bin:/usr/sbin:/sbin" XCODEBUILDMCP_ENABLED_WORKFLOWS="simulator,ui-automation,debugging" /Applications/Codex.app/Contents/Resources/cua_node/bin/npx -y xcodebuildmcp@latest mcp
-codex debug prompt-input '验证插件和技能恢复' > /tmp/codex-prompt-input-check.json
-rg -n 'Build iOS Apps|ShipSwift|Product Design|GitHub|Google Drive|Documents|Spreadsheets|Presentations|software-cup-a3-web-stack|diagnose|tdd|prototype|understand|gsap' /tmp/codex-prompt-input-check.json
+codex debug prompt-input '验证插件和技能恢复' > [HISTORICAL_TEMP_PATH_REDACTED]
+rg -n 'Build iOS Apps|ShipSwift|Product Design|GitHub|Google Drive|Documents|Spreadsheets|Presentations|software-cup-a3-web-stack|diagnose|tdd|prototype|understand|gsap' [HISTORICAL_TEMP_PATH_REDACTED]
 
 最后汇报：
 1. 哪些插件 installed, enabled。
@@ -292,4 +292,4 @@ Stitch 状态：
 - 已打开的旧线程通常不会热刷新刚安装的插件和 skills。
 - `codex plugin list` 显示 `installed, enabled` 代表配置层已恢复。
 - 新线程、重启 Codex、或同目录分叉后更容易拿到最新插件和 skills 列表。
-- 不要把 `REDACTED_HOME_PATH` 改成只读。Codex App 需要写入插件和运行时状态，只读会增加插件再次丢失的风险。
+- 不要把 `$HOME/.codex/config.toml` 改成只读。Codex App 需要写入插件和运行时状态，只读会增加插件再次丢失的风险。

@@ -21,6 +21,8 @@ AISecrets.plist
 .codex-xcode-derived/
 .codex-verification/
 .tools/
+/.codex-worktrees/
+/.understand-anything/
 /tmp/
 ios-app/MedicationAdherenceApp/.codex-build/
 ios-app/MedicationAdherenceApp/Frameworks/llama.xcframework/
@@ -37,6 +39,8 @@ docs/codex-local-skills/
 /MedCue Final .pptx
 /MedCue 用药跟踪 — 初赛作品说明文档.pdf
 /MedCue_初赛作品说明文档_文字落实版_v0.5.docx
+/MedCue-Figma-Windows-Handoff-2026-08-05/
+/MedCue-Figma-Windows-Handoff-2026-08-05.zip
 /new1.png
 /new2.png
 /new3.png

@@ -1,5 +1,7 @@
 # Core AI / 本地智能体验证包
 
+> 历史探索模块：这里记录早期 Foundation Models、迁移与救援实验，不是当前 MedCue AI 运行路线。当前实现以 iOS `LocalMedicalAIClient`/`LocalMedicalModelRuntime`、CloudBase Broker 和 `docs/PROJECT_STATUS.md` 为准。
+
 本目录用于推进“用端侧 AI 替代智能体 Tab 外部 API 依赖”的技术验证与交接。当前不直接改主 App 源码，先把可行路线、证据、构建提示和迁移边界固定下来，避免未验证方案污染稳定主线。
 
 ## 当前结论

@@ -1,0 +1,43 @@
+name: Technical debt
+description: Record evidence-based maintainability, reliability, performance, or operations debt.
+title: "[Debt] "
+labels:
+  - technical-debt
+body:
+  - type: markdown
+    attributes:
+      value: Use synthetic or sanitized examples only. Do not include real medication or health records, API tokens, device identifiers, or absolute user paths.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Point to measurements, code paths, incidents, duplication, or missing verification.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Current impact
+      description: Explain the reliability, delivery, performance, security, or maintenance cost.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome and exit condition
+      description: Define observable completion without prescribing an unreviewed implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: risk
+    attributes:
+      label: Risk and dependencies
+      description: Include migration, rollback, device, account, or product-decision dependencies.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification plan
+    validations:
+      required: true

@@ -1,0 +1,28 @@
+name: Product direction or observation
+description: Describe an idea, concern, or experience in everyday language; engineering will formalize it.
+title: "[Intake] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        You do not need to provide technical terms, architecture, acceptance criteria, or a test plan. Describe what you want or observed. The engineering agent will investigate evidence, identify decisions, and turn it into the appropriate Issue or specification.
+
+        Use synthetic or sanitized examples only. Do not include real medication or health records, API tokens, device identifiers, or absolute user paths.
+  - type: textarea
+    id: direction
+    attributes:
+      label: Direction or observation
+      description: What should improve, or what happened?
+      placeholder: Describe the screen, workflow, result, or product idea in your own words.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Why it matters
+      description: Who is affected and what consequence or value do you notice?
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Optional evidence
+      description: Steps, frequency, device context, screenshots, or logs with secrets and health details removed.
