@@ -69,4 +69,3 @@ public struct VisitSummaryBuilder: Sendable {
         )
     }
 }
-

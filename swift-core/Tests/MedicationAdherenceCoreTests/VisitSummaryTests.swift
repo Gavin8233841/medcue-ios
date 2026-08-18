@@ -28,4 +28,3 @@ import Testing
     #expect(summary.lines[0].notes == ["Forgot while outside"])
     #expect(summary.safetyNote.contains("不能替代"))
 }
-

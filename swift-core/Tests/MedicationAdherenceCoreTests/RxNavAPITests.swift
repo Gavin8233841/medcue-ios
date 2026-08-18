@@ -14,4 +14,3 @@ import Testing
     #expect(drugClass.name == "Analgesics")
     #expect(drugClass.source == "MEDRT")
 }
-
