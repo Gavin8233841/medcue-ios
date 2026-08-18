@@ -35,6 +35,29 @@ final class MedicationAdherenceAppUITests: XCTestCase {
                 app.descendants(matching: .any)[identifier].waitForExistence(timeout: 5),
                 "Missing content identifier: \(identifier)"
             )
+            if identifier == "tab.assistant" {
+                dismissAssistantGatesIfPresented(in: app)
+            }
+        }
+    }
+
+    private func dismissAssistantGatesIfPresented(in app: XCUIApplication) {
+        let noticeAcceptButton = app.buttons["assistant.thirdPartyNotice.accept"]
+        if noticeAcceptButton.waitForExistence(timeout: 5) {
+            noticeAcceptButton.tap()
+            XCTAssertTrue(
+                noticeAcceptButton.waitForNonExistence(timeout: 5),
+                "Third-party notice did not dismiss"
+            )
+        }
+
+        let consentCancelButton = app.buttons["assistant.consent.cancel"]
+        if consentCancelButton.waitForExistence(timeout: 5) {
+            consentCancelButton.tap()
+            XCTAssertTrue(
+                consentCancelButton.waitForNonExistence(timeout: 5),
+                "AI consent sheet did not dismiss"
+            )
         }
     }
 

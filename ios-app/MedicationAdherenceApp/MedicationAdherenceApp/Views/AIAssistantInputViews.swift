@@ -182,6 +182,7 @@ struct ThirdPartyMedicalAgentNoticeSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("我已知晓", action: accept)
                         .fontWeight(.semibold)
+                        .accessibilityIdentifier("assistant.thirdPartyNotice.accept")
                 }
             }
         }
@@ -246,6 +247,7 @@ struct AIConsentSheet: View {
                     Button("取消") {
                         dismiss()
                     }
+                    .accessibilityIdentifier("assistant.consent.cancel")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
