@@ -2,7 +2,6 @@ name: 技术债务 / Technical debt
 description: 记录有证据支持的可维护性、可靠性、性能或运维债务 / Record evidence-based maintainability, reliability, performance, or operations debt.
 title: "[技术债务] "
 labels:
-  - technical-debt
   - 技术债务
 body:
   - type: markdown

@@ -2,7 +2,6 @@ name: 缺陷报告 / Bug report
 description: 记录可复现的缺陷及预期行为 / Record a reproducible defect and its expected behavior.
 title: "[缺陷] "
 labels:
-  - bug
   - 缺陷
 body:
   - type: markdown

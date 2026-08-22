@@ -175,7 +175,7 @@ To claim work:
 
 If the scope or intended files expand, update the GitHub ownership record before
 editing the new area. Keep `state:in-progress` while implementing or responding
-to review, and use `blocked` only for a named dependency. A handoff records the
+to review, and use `已阻塞` only for a named dependency. A handoff records the
 full base and HEAD SHAs, dirty files, pushed checkpoint, completed checks, open
 Blocker/Required items, and one next action. Prefer a clean pushed checkpoint;
 inaccessible dirty files do not authorize another agent to overwrite a worktree
@@ -343,12 +343,12 @@ preserved.
 Create labels only when they become useful. The currently available vocabulary
 is:
 
-- type: `bug`, `feature`, `technical-debt`, `documentation`, `governance`
+- type: `缺陷`, `功能`, `技术债务`, `文档`, `治理`
 - priority: `P0`, `P1`, `P2`
-- state: `needs-product-decision`, `device-validation`, `blocked`
+- state: `需要产品决策`, `设备验证`, `已阻塞`
 - coordination state: `state:in-progress`
 - execution context: `execution:windows-capable`
-- area: `platform`, `ai`, `privacy`, `release`
+- area: `平台`, `医疗 AI`, `隐私`, `发布`
 
 Create `P3`, `ready`, and additional area labels only when the first real Issue
 needs them; do not prebuild a large taxonomy.
