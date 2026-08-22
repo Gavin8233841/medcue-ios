@@ -15,6 +15,10 @@ const DOUBAO_RESPONSES_ENDPOINT =
   "https://ark.cn-beijing.volces.com/api/v3/responses";
 const DEFAULT_PROVIDER_TIMEOUT_MS = 20_000;
 const DEFAULT_PROVIDER_RESPONSE_MAX_BYTES = 65_536;
+const DEFAULT_IDEMPOTENCY_TTL_MS = 300_000;
+const MAX_IDEMPOTENCY_TTL_MS = 300_000;
+const DEFAULT_IDEMPOTENCY_CACHE_MAX = 1_000;
+const MAX_IDEMPOTENCY_CACHE_MAX = 1_000;
 
 class BrokerConfigurationError extends Error {
   constructor() {
@@ -43,17 +47,32 @@ function validateBrokerConfig(config) {
     config?.providerTimeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS;
   const providerResponseMaxBytes =
     config?.providerResponseMaxBytes ?? DEFAULT_PROVIDER_RESPONSE_MAX_BYTES;
+  const idempotencyTTLms =
+    config?.idempotencyTTLms ?? DEFAULT_IDEMPOTENCY_TTL_MS;
+  const idempotencyCacheMax =
+    config?.idempotencyCacheMax ?? DEFAULT_IDEMPOTENCY_CACHE_MAX;
   const hasInvalidLimit =
     !Number.isSafeInteger(providerTimeoutMs) ||
     providerTimeoutMs <= 0 ||
     !Number.isSafeInteger(providerResponseMaxBytes) ||
-    providerResponseMaxBytes <= 0;
+    providerResponseMaxBytes <= 0 ||
+    !Number.isSafeInteger(idempotencyTTLms) ||
+    idempotencyTTLms <= 0 ||
+    idempotencyTTLms > MAX_IDEMPOTENCY_TTL_MS ||
+    !Number.isSafeInteger(idempotencyCacheMax) ||
+    idempotencyCacheMax <= 0 ||
+    idempotencyCacheMax > MAX_IDEMPOTENCY_CACHE_MAX;
 
   if (hasInvalidRequiredValue || hasInvalidLimit) {
     throw new BrokerConfigurationError();
   }
 
-  return { providerTimeoutMs, providerResponseMaxBytes };
+  return {
+    providerTimeoutMs,
+    providerResponseMaxBytes,
+    idempotencyTTLms,
+    idempotencyCacheMax,
+  };
 }
 
 function abortError() {
@@ -126,9 +145,13 @@ function abortProviderResponse(abortController) {
   abortController.abort();
 }
 
-function createBrokerHandler({ config, fetchProvider }) {
-  const { providerTimeoutMs, providerResponseMaxBytes } =
-    validateBrokerConfig(config);
+function createBrokerHandler({ config, fetchProvider, now = Date.now }) {
+  const {
+    providerTimeoutMs,
+    providerResponseMaxBytes,
+    idempotencyTTLms,
+    idempotencyCacheMax,
+  } = validateBrokerConfig(config);
   const completedResponses = new Map();
   const requestTimestamps = [];
 
@@ -223,9 +246,15 @@ function createBrokerHandler({ config, fetchProvider }) {
       });
     }
 
-    const now = Date.now();
+    const currentTime = now();
+    for (const [requestId, completedResponse] of completedResponses) {
+      if (completedResponse.expiresAt <= currentTime) {
+        completedResponses.delete(requestId);
+      }
+    }
+
     const completed = completedResponses.get(payload.request_id);
-    if (completed && completed.expiresAt > now) {
+    if (completed) {
       if (completed.prompt !== payload.prompt) {
         return jsonResponse(409, {
           error: {
@@ -236,15 +265,12 @@ function createBrokerHandler({ config, fetchProvider }) {
       }
       return completed.response;
     }
-    if (completed) {
-      completedResponses.delete(payload.request_id);
-    }
 
     const rateLimitWindowMs = config.rateLimitWindowMs ?? 60_000;
     const rateLimitMax = config.rateLimitMax ?? 30;
     while (
       requestTimestamps.length > 0 &&
-      requestTimestamps[0] <= now - rateLimitWindowMs
+      requestTimestamps[0] <= currentTime - rateLimitWindowMs
     ) {
       requestTimestamps.shift();
     }
@@ -256,7 +282,7 @@ function createBrokerHandler({ config, fetchProvider }) {
         },
       });
     }
-    requestTimestamps.push(now);
+    requestTimestamps.push(currentTime);
 
     const abortController = new AbortController();
     const timeout = setTimeout(() => abortController.abort(), providerTimeoutMs);
@@ -384,15 +410,14 @@ function createBrokerHandler({ config, fetchProvider }) {
       request_id: payload.request_id,
       answer,
     });
-    const cacheMax = config.idempotencyCacheMax ?? 1000;
-    if (completedResponses.size >= cacheMax) {
+    if (completedResponses.size >= idempotencyCacheMax) {
       const oldestKey = completedResponses.keys().next().value;
       completedResponses.delete(oldestKey);
     }
     completedResponses.set(payload.request_id, {
       prompt: payload.prompt,
       response,
-      expiresAt: now + (config.idempotencyTTLms ?? 300_000),
+      expiresAt: currentTime + idempotencyTTLms,
     });
     return response;
   };
