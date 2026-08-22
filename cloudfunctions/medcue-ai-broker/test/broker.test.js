@@ -532,6 +532,29 @@ test("redacts malformed provider JSON", async () => {
   assert.equal(response.body.includes("sensitive_provider_detail"), false);
 });
 
+test("redacts structurally invalid provider JSON", async () => {
+  for (const providerPayload of [
+    null,
+    { output: "sensitive provider shape" },
+  ]) {
+    const handler = createBrokerHandler({
+      config: validConfig(),
+      fetchProvider: async () => jsonProviderResponse(providerPayload),
+    });
+
+    const response = await handler(validRequest());
+
+    assert.equal(response.status, 502);
+    assert.deepEqual(JSON.parse(response.body), {
+      error: {
+        code: "invalid_provider_response",
+        message: "AI provider returned an invalid response.",
+      },
+    });
+    assert.equal(response.body.includes("sensitive provider shape"), false);
+  }
+});
+
 test("times out and cancels a stalled provider response body", async () => {
   let cancelled = false;
   const handler = createBrokerHandler({

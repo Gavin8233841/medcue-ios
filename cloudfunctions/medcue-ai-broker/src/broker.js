@@ -361,13 +361,15 @@ function createBrokerHandler({ config, fetchProvider }) {
       clearTimeout(timeout);
     }
     const outputText =
-      typeof providerPayload.output_text === "string"
+      typeof providerPayload?.output_text === "string"
         ? providerPayload.output_text
-        : providerPayload.output
-            ?.flatMap((item) => item?.content ?? [])
-            .map((content) => content?.text)
-            .filter((text) => typeof text === "string")
-            .join("\n");
+        : Array.isArray(providerPayload?.output)
+          ? providerPayload.output
+              .flatMap((item) => item?.content ?? [])
+              .map((content) => content?.text)
+              .filter((text) => typeof text === "string")
+              .join("\n")
+          : undefined;
     const answer = typeof outputText === "string" ? outputText.trim() : "";
     if (answer.length === 0) {
       return jsonResponse(502, {
