@@ -3,6 +3,7 @@ description: 记录可复现的缺陷及预期行为 / Record a reproducible def
 title: "[缺陷] "
 labels:
   - bug
+  - 缺陷
 body:
   - type: markdown
     attributes:

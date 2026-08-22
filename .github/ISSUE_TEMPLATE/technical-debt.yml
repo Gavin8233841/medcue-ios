@@ -3,6 +3,7 @@ description: 记录有证据支持的可维护性、可靠性、性能或运维�
 title: "[技术债务] "
 labels:
   - technical-debt
+  - 技术债务
 body:
   - type: markdown
     attributes:
