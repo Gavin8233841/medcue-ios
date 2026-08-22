@@ -2,7 +2,6 @@ name: 功能或产品改进 / Feature or product improvement
 description: 在实现前把产品想法整理成可评审的需求 / Turn a product idea into a reviewable requirement before implementation.
 title: "[功能] "
 labels:
-  - feature
   - 功能
 body:
   - type: markdown
