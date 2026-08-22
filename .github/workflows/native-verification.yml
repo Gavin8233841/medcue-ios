@@ -20,10 +20,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
-    name: Core, Broker, iOS and Watch
-    runs-on: macos-26
-    timeout-minutes: 60
+  classify:
+    name: Classify exact diff
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      lane: ${{ steps.classify.outputs.lane }}
+      diff_base: ${{ steps.classify.outputs.diff_base }}
+      full_tree: ${{ steps.classify.outputs.full_tree }}
+      changed_files: ${{ steps.classify.outputs.changed_files }}
+      head: ${{ steps.classify.outputs.head }}
+      requested_base: ${{ steps.classify.outputs.requested_base }}
     env:
       VERIFY_NATIVE_CI_EVENT: ${{ github.event_name }}
       VERIFY_NATIVE_CI_REF: ${{ github.ref }}
@@ -32,7 +39,6 @@ jobs:
       VERIFY_NATIVE_PR_DIFF_BASE: ${{ github.event.pull_request.base.sha || '' }}
       VERIFY_NATIVE_PUSH_DIFF_BASE: ${{ github.event.before || '' }}
       VERIFY_NATIVE_PUSH_FORCED: ${{ github.event.forced || false }}
-
     steps:
       - name: Check out source
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -41,30 +47,21 @@ jobs:
           fetch-depth: 1
           persist-credentials: true
 
-      - name: Resolve exact verification base
+      - name: Classify changed files
+        id: classify
         shell: bash
         run: |
           set -euo pipefail
 
-          remove_checkout_credentials() {
-            local credential_key
-            while IFS= read -r credential_key; do
-              [[ -n "$credential_key" ]] || continue
-              git config --local --unset-all "$credential_key" || true
-            done < <(git config --local --name-only --get-regexp '^http\..*\.extraheader$' || true)
-            git config --local --unset-all core.sshCommand || true
-          }
-          trap remove_checkout_credentials EXIT
-
           case "$VERIFY_NATIVE_CI_EVENT" in
             workflow_dispatch)
-              requested_diff_base="$VERIFY_NATIVE_MANUAL_DIFF_BASE"
+              requested_base="$VERIFY_NATIVE_MANUAL_DIFF_BASE"
               ;;
             pull_request)
-              requested_diff_base="$VERIFY_NATIVE_PR_DIFF_BASE"
+              requested_base="$VERIFY_NATIVE_PR_DIFF_BASE"
               ;;
             push)
-              requested_diff_base="$VERIFY_NATIVE_PUSH_DIFF_BASE"
+              requested_base="$VERIFY_NATIVE_PUSH_DIFF_BASE"
               ;;
             *)
               echo "Unsupported verification event: $VERIFY_NATIVE_CI_EVENT" >&2
@@ -72,64 +69,163 @@ jobs:
               ;;
           esac
 
-          [[ -n "$requested_diff_base" ]] || {
-            echo "diff_base is required for $VERIFY_NATIVE_CI_EVENT" >&2
-            exit 2
-          }
-          [[ "$requested_diff_base" =~ ^[0-9a-f]{40}$ ]] || {
-            echo "diff_base must be a full lowercase commit SHA" >&2
-            exit 2
-          }
-
-          head_sha="$(git rev-parse --verify HEAD)"
-          [[ "$head_sha" == "$VERIFY_NATIVE_EXPECTED_HEAD" ]] || {
-            echo "Checked-out HEAD does not match the event SHA" >&2
-            exit 2
-          }
-          echo "Verification HEAD: $head_sha"
-          echo "Requested diff base: $requested_diff_base"
-
-          zero_sha="0000000000000000000000000000000000000000"
-          verification_full_tree=0
-          if [[ "$requested_diff_base" == "$zero_sha" ]]; then
-            [[ "$VERIFY_NATIVE_CI_EVENT" == "push" && "$VERIFY_NATIVE_CI_REF" == "refs/heads/main" ]] || {
-              echo "The all-zero diff base is valid only for a push to main" >&2
-              exit 2
-            }
-            resolved_diff_base="$(git hash-object -w -t tree /dev/null)"
-            verification_mode="full-tree-after-new-main-ref"
-            verification_full_tree=1
-          elif [[ "$requested_diff_base" == "$head_sha" ]]; then
-            echo "diff_base must differ from HEAD; refusing a self-diff" >&2
-            exit 2
-          elif [[ "$VERIFY_NATIVE_CI_EVENT" == "push" && "$VERIFY_NATIVE_CI_REF" == "refs/heads/main" && "$VERIFY_NATIVE_PUSH_FORCED" == "true" ]]; then
-            resolved_diff_base="$(git hash-object -w -t tree /dev/null)"
-            verification_mode="full-tree-after-forced-main-push"
-            verification_full_tree=1
-          elif git cat-file -e "${requested_diff_base}^{commit}" 2>/dev/null; then
-            resolved_diff_base="$requested_diff_base"
-            verification_mode="exact-commit-diff"
+          static_full_guard=0
+          if [[ "$VERIFY_NATIVE_CI_EVENT" == push && "$VERIFY_NATIVE_CI_REF" == refs/heads/main ]]; then
+            static_full_guard=1
           else
-            git fetch --no-tags --no-recurse-submodules --depth=1 origin "$requested_diff_base"
-            fetched_sha="$(git rev-parse --verify 'FETCH_HEAD^{commit}')"
-            [[ "$fetched_sha" == "$requested_diff_base" ]] || {
-              echo "Fetched diff_base does not match the requested commit" >&2
+            [[ "$requested_base" =~ ^[0-9a-f]{40}$ ]] || {
+              echo "requested base must be a full lowercase commit SHA" >&2
               exit 2
             }
-            git cat-file -e "${requested_diff_base}^{commit}"
-            resolved_diff_base="$requested_diff_base"
-            verification_mode="exact-shallow-commit-diff"
+            [[ "$requested_base" != "$VERIFY_NATIVE_EXPECTED_HEAD" ]] || {
+              echo "requested base must differ from HEAD" >&2
+              exit 2
+            }
+            if ! git cat-file -e "$requested_base^{commit}" 2>/dev/null; then
+              git fetch --no-tags --no-recurse-submodules --depth=1 origin "$requested_base"
+            fi
+            git cat-file -e "$requested_base^{commit}"
+            while IFS= read -r -d '' path; do
+              case "$path" in
+                .github/workflows/*|tools/*)
+                  static_full_guard=1
+                  ;;
+              esac
+            done < <(git diff --name-only -z "$requested_base" "$VERIFY_NATIVE_EXPECTED_HEAD")
           fi
 
-          echo "Resolved diff base: $resolved_diff_base"
-          echo "Verification mode: $verification_mode"
-          echo "VERIFY_NATIVE_DIFF_BASE=$resolved_diff_base" >> "$GITHUB_ENV"
-          echo "VERIFY_NATIVE_FULL_TREE=$verification_full_tree" >> "$GITHUB_ENV"
-
-          remove_checkout_credentials
-          trap - EXIT
+          classification="$(bash tools/native-verification-classifier.sh \
+            --base "$requested_base" \
+            --head "$VERIFY_NATIVE_EXPECTED_HEAD" \
+            --event "$VERIFY_NATIVE_CI_EVENT" \
+            --ref "$VERIFY_NATIVE_CI_REF" \
+            --forced "$VERIFY_NATIVE_PUSH_FORCED")"
+          printf '%s\n' "$classification"
+          printf 'requested_base=%s\n' "$requested_base" >> "$GITHUB_OUTPUT"
+          while IFS='=' read -r key value; do
+            [[ -n "$key" ]] || continue
+            printf '%s=%s\n' "$key" "$value" >> "$GITHUB_OUTPUT"
+          done <<< "$classification"
+          if [[ "$static_full_guard" == 1 ]]; then
+            selected_lane="$(printf '%s\n' "$classification" | awk -F= '$1 == "lane" { print $2 }')"
+            [[ "$selected_lane" == full ]] || {
+              echo "Static trusted-entry guard requires the full lane" >&2
+              exit 2
+            }
+            if [[ "$VERIFY_NATIVE_CI_EVENT" == push && "$VERIFY_NATIVE_CI_REF" == refs/heads/main ]]; then
+              full_tree_mode="$(printf '%s\n' "$classification" | awk -F= '$1 == "full_tree" { print $2 }')"
+              [[ "$full_tree_mode" == 1 ]] || {
+                echo "Every main push must use full-tree verification" >&2
+                exit 2
+              }
+            fi
+          fi
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          git config --local --unset-all core.sshCommand || true
           if git config --local --name-only --list | grep -Eiq '^(http\..*\.extraheader|core\.sshcommand)$'; then
-            echo "Checkout credentials remain in the local Git configuration" >&2
+            echo "Checkout credentials remain in local Git configuration" >&2
+            exit 2
+          fi
+
+  docs:
+    name: Docs/governance fast lane
+    needs: classify
+    if: ${{ needs.classify.result == 'success' && needs.classify.outputs.lane == 'docs' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      VERIFY_NATIVE_DIFF_BASE: ${{ needs.classify.outputs.diff_base }}
+      VERIFY_NATIVE_EXPECTED_HEAD: ${{ needs.classify.outputs.head }}
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Verify exact docs diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_head="$(git rev-parse --verify HEAD)"
+          [[ "$actual_head" == "$VERIFY_NATIVE_EXPECTED_HEAD" ]] || {
+            echo "Checked-out HEAD does not match the classified event SHA" >&2
+            exit 2
+          }
+          if ! git cat-file -e "$VERIFY_NATIVE_DIFF_BASE^{commit}" 2>/dev/null; then
+            git fetch --no-tags --no-recurse-submodules --depth=1 origin "$VERIFY_NATIVE_DIFF_BASE"
+          fi
+          git cat-file -e "$VERIFY_NATIVE_DIFF_BASE^{commit}"
+          git diff --check "$VERIFY_NATIVE_DIFF_BASE" "$VERIFY_NATIVE_EXPECTED_HEAD"
+          git diff --cached --check
+          while IFS= read -r -d '' path; do
+            case "$path" in
+              docs/*|README.md|CHANGELOG.md|LICENSE|LICENSE.*|CODE_OF_CONDUCT.md|CONTRIBUTING.md|.github/ISSUE_TEMPLATE/*|.github/pull_request_template.md|.github/GITHUB_LOCALIZATION.md)
+                ;;
+              *)
+                echo "Unexpected non-documentation path: $path" >&2
+                exit 2
+                ;;
+            esac
+          done < <(git diff --name-only -z "$VERIFY_NATIVE_DIFF_BASE" "$VERIFY_NATIVE_EXPECTED_HEAD")
+          printf 'Docs lane verified head=%s base=%s changed_files=%s\n' \
+            "$VERIFY_NATIVE_EXPECTED_HEAD" "$VERIFY_NATIVE_DIFF_BASE" \
+            "${{ needs.classify.outputs.changed_files }}"
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          git config --local --unset-all core.sshCommand || true
+          if git config --local --name-only --list | grep -Eiq '^(http\..*\.extraheader|core\.sshcommand)$'; then
+            echo "Checkout credentials remain in local Git configuration" >&2
+            exit 2
+          fi
+
+  broker:
+    name: Broker-only Node lane
+    needs: classify
+    if: ${{ needs.classify.result == 'success' && needs.classify.outputs.lane == 'broker' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      VERIFY_NATIVE_DIFF_BASE: ${{ needs.classify.outputs.diff_base }}
+      VERIFY_NATIVE_EXPECTED_HEAD: ${{ needs.classify.outputs.head }}
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Resolve exact Broker diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_head="$(git rev-parse --verify HEAD)"
+          [[ "$actual_head" == "$VERIFY_NATIVE_EXPECTED_HEAD" ]] || {
+            echo "Checked-out HEAD does not match the classified event SHA" >&2
+            exit 2
+          }
+          if ! git cat-file -e "$VERIFY_NATIVE_DIFF_BASE^{commit}" 2>/dev/null; then
+            git fetch --no-tags --no-recurse-submodules --depth=1 origin "$VERIFY_NATIVE_DIFF_BASE"
+          fi
+          git cat-file -e "$VERIFY_NATIVE_DIFF_BASE^{commit}"
+          git diff --check "$VERIFY_NATIVE_DIFF_BASE" "$VERIFY_NATIVE_EXPECTED_HEAD"
+          git diff --cached --check
+          while IFS= read -r -d '' path; do
+            case "$path" in
+              cloudfunctions/medcue-ai-broker/*.js|cloudfunctions/medcue-ai-broker/*/*.js)
+                node --check "$path"
+                ;;
+              *)
+                echo "Unexpected non-JavaScript Broker path: $path" >&2
+                exit 2
+                ;;
+            esac
+          done < <(git diff --name-only -z "$VERIFY_NATIVE_DIFF_BASE" "$VERIFY_NATIVE_EXPECTED_HEAD")
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          git config --local --unset-all core.sshCommand || true
+          if git config --local --name-only --list | grep -Eiq '^(http\..*\.extraheader|core\.sshcommand)$'; then
+            echo "Checkout credentials remain in local Git configuration" >&2
             exit 2
           fi
 
@@ -137,6 +233,63 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "18.15.0"
+
+      - name: Test AI broker
+        working-directory: cloudfunctions/medcue-ai-broker
+        run: node --test
+
+  full:
+    name: Full Native Verification
+    needs: classify
+    if: ${{ needs.classify.result == 'success' && needs.classify.outputs.lane == 'full' }}
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      VERIFY_NATIVE_CI_EVENT: ${{ github.event_name }}
+      VERIFY_NATIVE_CI_REF: ${{ github.ref }}
+      VERIFY_NATIVE_EXPECTED_HEAD: ${{ needs.classify.outputs.head }}
+      VERIFY_NATIVE_DIFF_BASE: ${{ needs.classify.outputs.diff_base }}
+      VERIFY_NATIVE_FULL_TREE: ${{ needs.classify.outputs.full_tree }}
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Resolve exact full-lane diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_head="$(git rev-parse --verify HEAD)"
+          [[ "$actual_head" == "$VERIFY_NATIVE_EXPECTED_HEAD" ]] || {
+            echo "Checked-out HEAD does not match the classified event SHA" >&2
+            exit 2
+          }
+          if [[ "$VERIFY_NATIVE_FULL_TREE" == 0 ]]; then
+            if ! git cat-file -e "$VERIFY_NATIVE_DIFF_BASE^{commit}" 2>/dev/null; then
+              git fetch --no-tags --no-recurse-submodules --depth=1 origin "$VERIFY_NATIVE_DIFF_BASE"
+            fi
+            git cat-file -e "$VERIFY_NATIVE_DIFF_BASE^{commit}"
+          else
+            git cat-file -e "$VERIFY_NATIVE_DIFF_BASE^{tree}"
+          fi
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          git config --local --unset-all core.sshCommand || true
+          if git config --local --name-only --list | grep -Eiq '^(http\..*\.extraheader|core\.sshcommand)$'; then
+            echo "Checkout credentials remain in local Git configuration" >&2
+            exit 2
+          fi
+
+      - name: Use deployed Broker Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "18.15.0"
+
+      - name: Test AI broker
+        working-directory: cloudfunctions/medcue-ai-broker
+        run: node --test
 
       - name: Record toolchain
         run: |
@@ -146,10 +299,6 @@ jobs:
           node --version
           xcodebuild -showsdks
 
-      - name: Test AI broker
-        working-directory: cloudfunctions/medcue-ai-broker
-        run: node --test
-
       - name: Run native verification gate
         env:
           MEDCUE_DISABLE_LOCAL_LLAMA: "1"
@@ -157,3 +306,55 @@ jobs:
           VERIFY_NATIVE_WATCH_SIMULATOR_SDK: watchsimulator
           VERIFY_NATIVE_WATCH_DEVICE_SDK: watchos
         run: tools/verify-native.sh
+
+  aggregate:
+    name: Native Verification (required result)
+    if: ${{ always() }}
+    needs: [classify, docs, broker, full]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CLASSIFY_RESULT: ${{ needs.classify.result }}
+      SELECTED_LANE: ${{ needs.classify.outputs.lane }}
+      DOCS_RESULT: ${{ needs.docs.result }}
+      BROKER_RESULT: ${{ needs.broker.result }}
+      FULL_RESULT: ${{ needs.full.result }}
+    steps:
+      - name: Require the selected lane
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CLASSIFY_RESULT" == success ]] || {
+            echo "Classification failed; fail closed to a required failure" >&2
+            exit 1
+          }
+          case "$SELECTED_LANE" in
+            docs)
+              [[ "$DOCS_RESULT" == success ]] || { echo "Docs lane: $DOCS_RESULT" >&2; exit 1; }
+              [[ "$BROKER_RESULT" == skipped && "$FULL_RESULT" == skipped ]] || {
+                echo "Unselected lanes must remain skipped" >&2
+                exit 1
+              }
+              ;;
+            broker)
+              [[ "$BROKER_RESULT" == success ]] || { echo "Broker lane: $BROKER_RESULT" >&2; exit 1; }
+              [[ "$DOCS_RESULT" == skipped && "$FULL_RESULT" == skipped ]] || {
+                echo "Unselected lanes must remain skipped" >&2
+                exit 1
+              }
+              ;;
+            full)
+              [[ "$FULL_RESULT" == success ]] || { echo "Full lane: $FULL_RESULT" >&2; exit 1; }
+              [[ "$DOCS_RESULT" == skipped && "$BROKER_RESULT" == skipped ]] || {
+                echo "Unselected lanes must remain skipped" >&2
+                exit 1
+              }
+              ;;
+            *)
+              echo "Unknown classified lane: $SELECTED_LANE" >&2
+              exit 1
+              ;;
+          esac
+          printf 'Required result passed for lane=%s head=%s changed_files=%s\n' \
+            "$SELECTED_LANE" "${{ needs.classify.outputs.head }}" \
+            "${{ needs.classify.outputs.changed_files }}"

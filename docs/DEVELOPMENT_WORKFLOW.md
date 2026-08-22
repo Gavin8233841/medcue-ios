@@ -186,9 +186,10 @@ checks, complete cumulative self-review, and current Pull Request body. Before
 requesting formal review, use the strongest available model and reasoning
 appropriate to the task risk, review the complete base-to-HEAD diff after the
 last tracked-file change, and complete the Pull Request checklist. The current
-HEAD must have successful full relevant CI, shared-file ownership must still be
-valid, and no prior Blocker or Required item may remain open. Report unavailable
-checks and reasoned N/A evidence without implying that missing evidence exists.
+HEAD must have successful relevant lane CI (and the full gate for native/full
+changes and every main push), shared-file ownership must still be valid, and no
+prior Blocker or Required item may remain open. Report unavailable checks and
+reasoned N/A evidence without implying that missing evidence exists.
 
 Any tracked-file commit invalidates the prior author self-review and requires
 new exact-head CI; it also invalidates an earlier approval. A body-only Pull
@@ -210,12 +211,29 @@ permission or external dependency, or a completed ready-for-review gate. Wake
 the product owner only for product value or behavior, medical claims, privacy
 posture, cost, account actions, release timing, or external/destructive choices.
 
-The coordinating agent reviews and approves only the current cumulative HEAD,
-verifies current-base integration and required high-risk evidence, and controls
-the merge. After merge, verify the exact `main` SHA and `main` CI, confirm that
+The coordinating agent reviews the current cumulative HEAD, scope, and
+integration evidence, but does not provide a second approval when the
+autonomous merge gate is satisfied. After merge, verify the exact `main` SHA and `main` CI, confirm that
 shared-file integration preserved the intended behavior, close the Issue, clear
 coordination labels, and remove the branch when safe. A merge with failed or
 pending post-merge evidence is not complete.
+
+The approved autonomous merge gate permits the author to mark the Pull Request
+Ready and squash merge without a second coordinator approval after the
+cumulative self-review, Issue-specified fresh-context review, Blocker 0 /
+Required 0, successful exact-head relevant CI, clean current-main integration,
+and required device/account/external evidence or reasoned N/A are complete.
+Every tracked-file commit invalidates prior review, approval, and CI evidence;
+repeat the gate for the new HEAD. Stop and wake the coordinator or product
+owner for unresolved product, medical, privacy/consent, cost, account,
+credential, deployment, legal, or release decisions; hard-to-reverse actions;
+missing required external evidence; overlap, scope expansion, conflict,
+permission failure, or unauthorized trusted CI/release/packaging/permission
+changes; unavailable specified model or fresh context; unsuccessful exact-head
+CI; or any remaining Blocker or Required finding. High-risk work remains
+eligible when its approved scope and additional failure, rollback,
+data-integrity, independent-review, and applicable device/account evidence are
+complete.
 
 ### Controlled Demo builds
 
@@ -240,6 +258,37 @@ bundle credentials, local model files, user databases, device evidence, or
 competition tooling/media with it.
 
 ### 6. Review and CI
+
+#### Native Verification lanes
+
+The Native Verification workflow validates the exact event base and checked-out
+HEAD with full lowercase commit SHAs before selecting a lane. It covers the
+complete changed-file set, including additions, modifications, deletions, and
+renames. Missing or invalid inputs, unknown or mixed paths, workflow/tooling
+changes, and classifier failures fail closed to the full lane. The all-zero
+base is valid only for a new main push; every main push uses the empty-tree SHA
+and the full Route A gate.
+
+| Lane | Selection | Required checks |
+| --- | --- | --- |
+| Docs/governance | Every changed path is an approved documentation or governance path | Exact HEAD/base check, full diff whitespace check, and repository-structure check on Ubuntu |
+| Broker-only | Every changed path is under cloudfunctions/medcue-ai-broker/ and is not workflow/tooling | Exact HEAD/base check, JavaScript syntax checks, and Node 18.15.0 node --test on Ubuntu |
+| Full Native Verification | Native, Watch, UI, project/package/configuration, trusted workflow/tooling, mixed, unknown, rename/deletion edge cases, or any main push | Exact HEAD/base check, Broker Node 18.15.0 tests, and the complete tools/verify-native.sh Route A gate on macOS |
+
+Before this split, representative single-job Native Verification durations were
+17:03 for a documentation/label main run, 19:03 for a governance Pull Request,
+20:52 for a label-migration main run, 14:18 for another governance Pull Request,
+and 13:49 for a Broker-only Pull Request. The Issue #39 Pull Request records
+the new exact-head docs, Broker, and full-lane durations after they complete;
+these historical values are not reused as evidence.
+
+The workflow always publishes one Native Verification (required result)
+aggregation job. It succeeds only when classification succeeds, the selected
+lane succeeds, and all unselected lanes are explicitly skipped. Runs cancel
+obsolete work for the same event/ref; no result from an earlier SHA can satisfy
+a later SHA. Pull Requests record actual selected-lane and full-lane durations
+from their exact-head hosted runs; historical single-lane timing is context,
+not a substitute for a new run.
 
 The agent performs a correctness, regression, privacy, medical-safety,
 performance, accessibility, and test-quality review. `Native Verification`
