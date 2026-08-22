@@ -2,27 +2,30 @@
 
 Last audited: 2026-08-22
 Authoritative branch: `main`
-Authoritative revision: `280e5b3f8425f155d5e20a71841f4169a63bc59d`
-Exact-head CI: [Native Verification run 32171788727](https://github.com/Gavin8233841/medcue-ios/actions/runs/32171788727)
+Post-migration audit baseline: `280e5b3f8425f155d5e20a71841f4169a63bc59d`
+Audit-baseline CI: [Native Verification run 32171788727](https://github.com/Gavin8233841/medcue-ios/actions/runs/32171788727)
 
 This is the single current engineering-status document. GitHub Issues hold the
 active backlog, Pull Requests hold implementation and review evidence, and
 accepted ADRs hold durable decisions. Historical notes and local files do not
-override the exact repository revision or GitHub evidence.
+override the exact repository revision or GitHub evidence. The SHA above is the
+exact baseline used for this post-migration audit, not a prediction of a later
+merge commit. The authoritative working revision is the commit currently
+resolved by `main`; every evidence claim below remains scoped to its named SHA.
 
 ## Current Verified Snapshot
 
-- `main` is the repository default branch and is synchronized with the exact
-  revision above.
+- At the audit baseline, `main` was the repository default branch and was
+  synchronized with the exact baseline revision above.
 - The repository is private. This records current GitHub visibility only; it
   does not claim that previous clones, caches, or provider retention have been
   purged.
 - The canonical history-normalization prerequisite in [Issue #1](https://github.com/Gavin8233841/medcue-ios/issues/1)
   is complete. The sanitized lineage and the current tree are preserved by the
   published archive and audit/preparation refs listed below.
-- The current tree contains 334 tracked files, 215 tracked Swift files, and
-  53,899 tracked Swift lines (`git ls-files` plus line counting at the exact
-  revision).
+- The audit-baseline tree contains 334 tracked files and 215 tracked Swift
+  files. Its Swift sources contain 53,899 non-empty lines (`Length -gt 0`) and
+  58,952 full physical lines.
 - The project contains six Xcode targets: the iOS app, Live Activity extension,
   Watch app, Watch widget, hosted unit tests, and UI tests.
 - The project uses Swift 6.0 language mode with iOS 17.0 and watchOS 10.0
@@ -39,9 +42,39 @@ evidence is:
 - XCUITest smoke: `2/2`
 - Token Broker: `17/17`
 
-This evidence is exact-head CI evidence for the canonical `main`. It does not
-certify physical-device behavior, Apple account configuration, provider
-retention, App Store Connect answers, or commercial-production readiness.
+This is exact-revision CI evidence for the audit baseline; it does not transfer
+to a later `main` HEAD. It also does not certify physical-device behavior,
+Apple account configuration, provider retention, App Store Connect answers, or
+commercial-production readiness.
+
+### Reproduce The Audit-Baseline Counts
+
+The following PowerShell command reads the named Git tree directly, so later
+working-tree or `main` changes do not alter the result:
+
+```powershell
+$Revision = '280e5b3f8425f155d5e20a71841f4169a63bc59d'
+$TrackedFiles = @(git ls-tree -r --name-only $Revision)
+$SwiftFiles = @($TrackedFiles | Where-Object { $_.EndsWith('.swift') })
+$NonEmpty = 0
+$Physical = 0
+
+foreach ($Path in $SwiftFiles) {
+  $Lines = @(git show "${Revision}:$Path")
+  $NonEmpty += @($Lines | Where-Object { $_.Length -gt 0 }).Count
+  $Physical += $Lines.Count
+}
+
+[pscustomobject]@{
+  Revision = $Revision
+  TrackedFiles = $TrackedFiles.Count
+  SwiftFiles = $SwiftFiles.Count
+  NonEmptySwiftLines = $NonEmpty
+  PhysicalSwiftLines = $Physical
+}
+```
+
+Expected values are `334`, `215`, `53899`, and `58952`, respectively.
 
 ## History And Privacy Boundary
 
@@ -66,12 +99,15 @@ backup, or hosting-provider retention copy has been removed.
 
 ## Current Delivery State
 
-The repository now uses the Issue -> branch -> Pull Request -> CI workflow.
-Open work remains in the GitHub backlog; normalization is no longer a delivery
-blocker. Draft PR #30 owns the active-work coordination additions in
-`.github/pull_request_template.md` and its new coordination section in
-`docs/DEVELOPMENT_WORKFLOW.md`. Draft PR #26 owns the controlled-demo build
-changes. Neither PR is modified by this Issue.
+The repository uses the Issue -> branch -> Pull Request -> CI workflow. Open
+work remains in the GitHub backlog; normalization is no longer a delivery
+blocker. At this audit, Draft PR #30 owned the new active-work coordination
+protocol and label vocabulary, while Draft PR #26 owned the Controlled Demo
+workflow plus its product/build changes. Both PRs included disjoint additions
+to `docs/DEVELOPMENT_WORKFLOW.md`; this governance change replaces only the two
+fulfilled history-normalization prerequisites that already existed in the
+baseline file. The shared-file ownership and cumulative-diff rule are recorded
+in that workflow document.
 
 The open Issues carrying `blocked` are exactly:
 
@@ -121,11 +157,12 @@ database/store suffixes used by the native artifact scan: `*.sqlite`,
 Ignore rules reduce accidental staging risk; they do not replace release
 scanning or review of intentionally added fixtures.
 
-## Next Stage
+## Continuing Delivery
 
-1. Review and merge the focused governance PR after exact-head CI and review.
-2. Keep the canonical `main` as the only feature-delivery starting point; do
+1. Keep the canonical `main` as the only feature-delivery starting point; do
    not import raw pre-normalization history or rewrite refs.
+2. Require review and exact-head CI for each proposed merge; evidence from an
+   earlier commit does not transfer to a new HEAD.
 3. Work through the remaining GitHub Issues one focused branch and Pull Request
    at a time, with macOS/Xcode, device, account, and provider checks recorded
    where Windows cannot provide them.
