@@ -146,6 +146,61 @@ Issue, explain the solution and scope, map results to acceptance criteria, show
 test/build/device evidence, and call out migrations, privacy changes, rollout,
 rollback, and remaining risk.
 
+### Active work coordination
+
+GitHub is the durable coordination record. Issue state, assignees, labels,
+comments, branches, and Pull Requests are the source of truth; Codex chat
+history and local handoff files are not. The `state:in-progress` label is a
+human coordination lease, not a technical lock, so the single-writer rule still
+applies.
+
+Before starting an Issue, each contributor must check the Issue's assignee,
+labels, recent comments, linked or open Pull Requests, and the requested file
+areas. If another contributor owns or has claimed the Issue, or an open PR
+touches the same files, stop and coordinate before editing. Split the work into
+sub-Issues or record disjoint file ownership in the Issue; do not silently
+share a writer boundary.
+
+To claim work:
+
+1. Assign the Issue to one contributor.
+2. Add `state:in-progress`.
+3. Create a short-lived branch named `codex/<issue-number>-<short-name>` from
+   the authoritative `main`.
+4. Add one concise Issue comment or Draft PR section containing the owner,
+   branch, exact UTC start time, scope, intended file areas, and first check.
+5. Open a Draft PR early when the work is large enough to create integration
+   risk.
+
+Use status comments only at meaningful boundaries: claim, checkpoint, blocker,
+handoff, and ready-for-review. A handoff must record the exact HEAD SHA, dirty
+files, completed checks, open blockers, and one next action. Update GitHub before
+leaving work so another agent can resume without reading the original Codex
+conversation.
+
+Suggested handoff format:
+
+```text
+Status: ACTIVE | HANDOFF | BLOCKED | READY FOR REVIEW
+Owner: @github-login
+Issue / PR: #... / #...
+Branch and exact HEAD: codex/... / <full SHA>
+Dirty files: <paths or clean>
+Completed checks: <commands and results>
+Open blockers: <none or named dependency>
+Next action: <one concrete action>
+```
+
+Keep `state:in-progress` while the owner is actively editing or responding to
+review. Remove it when implementation ownership is released to review or to a
+new owner, and record that transition in the Issue or PR. Re-add it when work
+resumes. Use the existing `blocked` label only when a named dependency prevents
+progress; always name that dependency in a comment.
+
+The coordinating agent reviews the complete diff before merge. A contributor
+must not force-push over another active branch, merge another contributor's PR,
+or discard another working tree's changes to resolve a coordination problem.
+
 ### 6. Review and CI
 
 The agent performs a correctness, regression, privacy, medical-safety,
@@ -229,6 +284,8 @@ is:
 - type: `bug`, `feature`, `technical-debt`, `documentation`, `governance`
 - priority: `P0`, `P1`, `P2`
 - state: `needs-product-decision`, `device-validation`, `blocked`
+- coordination state: `state:in-progress`
+- execution context: `execution:windows-capable`
 - area: `platform`, `ai`, `privacy`, `release`
 
 Create `P3`, `ready`, and additional area labels only when the first real Issue

@@ -2,6 +2,18 @@
 
 Closes #
 
+## Coordination
+
+- Work owner: @
+- Work state: Active / Handoff / Ready for review
+- Branch:
+- Exact head SHA:
+- Intended file areas:
+- [ ] I checked the Issue assignee, labels, recent comments, and open PRs before editing.
+- [ ] No other active contributor or PR owns the same files, or the disjoint ownership is recorded in the Issue.
+- [ ] The Issue has `state:in-progress` while implementation is active, or the release/transfer is recorded below.
+- [ ] If this is a handoff, the latest status records dirty files, completed checks, blockers, and one next action.
+
 Use synthetic or sanitized evidence only. Do not include real medication or
 health records, API tokens, device identifiers, or absolute user paths.
 
