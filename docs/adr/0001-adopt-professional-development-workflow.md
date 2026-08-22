@@ -35,6 +35,14 @@ and working-branch histories must be normalized through a separately reviewed
 operation tracked in
 [GitHub Issue #1](https://github.com/Gavin8233841/medcue-ios/issues/1).
 
+### Implementation note (2026-08-22)
+
+Issue #1 fulfilled this prerequisite and established the authoritative `main`
+without rewriting this historical decision. The current repository keeps the
+sanitized archive/audit refs and does not restore raw pre-normalization history.
+This note records the implementation state; it does not claim that prior
+clones, caches, or provider retention copies were purged.
+
 ## Consequences
 
 - Product intent and completion evidence become traceable.

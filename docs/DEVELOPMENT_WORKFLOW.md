@@ -129,7 +129,7 @@ them as a few Issue bullets and does not require separate documents.
 
 ### 4. Branch and implementation
 
-After the Git histories are normalized:
+With the authoritative `main` established:
 
 ```text
 main -> codex/<issue-number>-<short-name> -> Pull Request -> main
@@ -250,8 +250,8 @@ requires a measurement.
 
 ### 8. Merge and release record
 
-Prefer squash merge for one Issue -> one coherent commit after history is
-normalized. Delete merged branches. Close the linked Issue. User-visible
+Prefer squash merge for one Issue -> one coherent commit after review and CI
+are green. Delete merged branches. Close the linked Issue. User-visible
 release changes go into a release note/changelog; durable decisions go into an
 ADR; current engineering truth updates `docs/PROJECT_STATUS.md`.
 
@@ -275,6 +275,30 @@ not override source, tests, official documentation, or exact-revision evidence.
 A generated graph must identify the revision and exclusions it represents. Keep
 large generated graph artifacts local and ignored; rebuild them when useful, not
 as a mandatory Pull Request gate.
+
+### Shared-file ownership recorded on 2026-08-22
+
+Three Draft Pull Requests based on post-migration audit baseline
+`280e5b3f8425f155d5e20a71841f4169a63bc59d` intentionally had disjoint semantic
+ownership in this file:
+
+- PR #31 replaces only two fulfilled history-normalization prerequisites in the
+  pre-existing branch and merge guidance. It does not own either new section
+  described below.
+- PR #30 adds the Active work coordination protocol and its label vocabulary;
+  it also changes `.github/pull_request_template.md`. PR #31 does not import or
+  edit that protocol.
+- PR #26 adds the Controlled Demo build workflow in this file and changes the
+  Demo app, scheme, project, tests, and preflight implementation. It therefore
+  does include `docs/DEVELOPMENT_WORKFLOW.md`; PR #31 does not import or edit
+  that section.
+
+PR #26 and PR #30 both insert their owned section immediately before the
+baseline's Review and CI section. If any of these PRs merges first, every
+remaining PR that touches this file must rebase or reapply its owned change,
+inspect the complete cumulative file diff, and rerun exact-head CI before
+merge. A conflict-free merge alone does not prove that all owned sections were
+preserved.
 
 ## Definition Of Done
 

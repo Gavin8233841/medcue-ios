@@ -69,9 +69,10 @@ product safety boundary, and release timing.
 - Use `PROJECT_UPDATE_LOG.md` only as a historical journal. It is not the
   backlog or the current source of truth.
 
-Until the unrelated Git histories documented in `docs/PROJECT_STATUS.md` are
-reconciled, do not merge, rebase, force-push, or start feature work from the
-remote default branch without an explicit history-normalization plan.
+The unrelated Git histories documented in `docs/PROJECT_STATUS.md` were
+reconciled through [Issue #1](https://github.com/Gavin8233841/medcue-ios/issues/1).
+Start new feature work from the authoritative `main`, do not import raw
+pre-normalization history, and never force-push over an active contributor.
 
 ## 4. Coordinate AI Work Deliberately
 
