@@ -101,13 +101,14 @@ backup, or hosting-provider retention copy has been removed.
 
 The repository uses the Issue -> branch -> Pull Request -> CI workflow. Open
 work remains in the GitHub backlog; normalization is no longer a delivery
-blocker. At this audit, Draft PR #30 owned the new active-work coordination
-protocol and label vocabulary, while Draft PR #26 owned the Controlled Demo
-workflow plus its product/build changes. Both PRs included disjoint additions
-to `docs/DEVELOPMENT_WORKFLOW.md`; this governance change replaces only the two
-fulfilled history-normalization prerequisites that already existed in the
-baseline file. The shared-file ownership and cumulative-diff rule are recorded
-in that workflow document.
+blocker. At the 2026-08-22 integration checkpoint, PR #30 had merged as `main`
+commit `6ee4c481fa112496e7df808cf6854e45b6288c7e`, establishing the active-work
+coordination protocol and label vocabulary. PR #26 remained a Draft at
+`5f8780f06990a78a36f9956e528e2f3fa9abadd2` and owned the Controlled Demo
+workflow plus its product/build changes. This governance change replaces only
+the two fulfilled history-normalization prerequisites that already existed in
+the audit-baseline file. The shared-file ownership and cumulative-diff rule are
+recorded in `docs/DEVELOPMENT_WORKFLOW.md`.
 
 The open Issues carrying `blocked` are exactly:
 
