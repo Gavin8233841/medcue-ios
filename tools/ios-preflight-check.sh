@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PROJECT_DIR="$ROOT_DIR/ios-app/MedicationAdherenceApp"
 PROJECT_FILE="$PROJECT_DIR/MedicationAdherenceApp.xcodeproj/project.pbxproj"
 SHARED_SCHEME="$PROJECT_DIR/MedicationAdherenceApp.xcodeproj/xcshareddata/xcschemes/MedicationAdherenceApp.xcscheme"
+DEMO_SCHEME="$PROJECT_DIR/MedicationAdherenceApp.xcodeproj/xcshareddata/xcschemes/MedicationAdherenceApp-Demo.xcscheme"
 APP_DIR="$PROJECT_DIR/MedicationAdherenceApp"
 IOS_TEST_SOURCE="$PROJECT_DIR/MedicationAdherenceAppTests/MedicationAdherenceAppTests.swift"
 APP_INFO="$APP_DIR/Info.plist"
@@ -115,6 +116,7 @@ project_object_block_by_id() {
 section "Paths"
 require_file "$PROJECT_FILE" "Xcode project"
 require_file "$SHARED_SCHEME" "Shared MedicationAdherenceApp scheme"
+require_file "$DEMO_SCHEME" "Shared controlled Demo scheme"
 require_file "$IOS_TEST_SOURCE" "iOS unit test source"
 require_file "$APP_INFO" "Main app Info.plist"
 require_file "$APP_ENTITLEMENTS" "Main app entitlements"
@@ -269,6 +271,45 @@ if [[ -f "$PROJECT_FILE" ]]; then
 		pass "Watch app product registered in Embed Watch Content phase"
 	fi
 fi
+
+section "Controlled Demo Boundary"
+if [[ -f "$DEMO_SCHEME" ]]; then
+	demo_scheme_configuration_count="$(grep -Fc 'buildConfiguration = "Demo"' "$DEMO_SCHEME")"
+	if [[ "$demo_scheme_configuration_count" == "5" ]]; then
+		pass "Controlled Demo scheme uses Demo for test, launch, profile, analyze, and archive actions"
+	else
+		fail "Controlled Demo scheme expected 5 Demo action configurations, got $demo_scheme_configuration_count"
+	fi
+	if grep -Fq 'buildConfiguration = "Release"' "$DEMO_SCHEME" ||
+		grep -Fq 'buildConfiguration = "Debug"' "$DEMO_SCHEME"; then
+		fail "Controlled Demo scheme mixes ordinary Debug or Release actions"
+	else
+		pass "Controlled Demo scheme does not mix ordinary Debug or Release actions"
+	fi
+fi
+if [[ -f "$PROJECT_FILE" ]]; then
+	demo_configuration_count="$(grep -Fc 'name = Demo;' "$PROJECT_FILE")"
+	if [[ "$demo_configuration_count" == "7" ]]; then
+		pass "Project and all six targets define the Demo configuration"
+	else
+		fail "Expected 7 Demo configurations, got $demo_configuration_count"
+	fi
+	demo_condition_count="$(grep -Fc 'SWIFT_ACTIVE_COMPILATION_CONDITIONS = "MEDCUE_DEMO $(inherited)";' "$PROJECT_FILE")"
+	if [[ "$demo_condition_count" == "1" ]]; then
+		pass "MEDCUE_DEMO is scoped only to the main app Demo configuration"
+	else
+		fail "Expected one main-app MEDCUE_DEMO condition, got $demo_condition_count"
+	fi
+fi
+if grep -Fq 'MEDCUE_DEMO' "$SHARED_SCHEME"; then
+	fail "Ordinary shared scheme must not enable the controlled Demo condition"
+else
+	pass "Ordinary shared scheme does not enable the controlled Demo condition"
+fi
+require_text "$APP_DIR/FirstLaunchSetupView.swift" "#if DEBUG || MEDCUE_DEMO" "First-launch Demo entry is limited to Debug or controlled Demo builds"
+require_text "$APP_DIR/Models/DemoDataSeeder.swift" "#if DEBUG || MEDCUE_DEMO" "Demo rebuild implementation is limited to Debug or controlled Demo builds"
+require_text "$APP_DIR/AppRootView.swift" "#if DEBUG || MEDCUE_DEMO" "App-root Demo action is limited to Debug or controlled Demo builds"
+require_text "$APP_DIR/Views/HelpCenterView.swift" "#if DEBUG || MEDCUE_DEMO" "Help Center Demo action is limited to Debug or controlled Demo builds"
 
 section "Current UI Route Expectations"
 if grep -Fq "今日 / 药品 / AI 助手 / 记录 / 个人" "$ROOT_DIR/docs/13-iphone-signing-and-live-activity-test.md"; then

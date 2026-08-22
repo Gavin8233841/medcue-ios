@@ -217,6 +217,28 @@ shared-file integration preserved the intended behavior, close the Issue, clear
 coordination labels, and remove the branch when safe. A merge with failed or
 pending post-merge evidence is not complete.
 
+### Controlled Demo builds
+
+Use the shared `MedicationAdherenceApp-Demo` scheme only for an owner-controlled
+MedCue demonstration device. Its `Demo` configuration inherits Release build
+settings and adds `MEDCUE_DEMO` only to the main app target. It does not define
+`DEBUG`, and the guarded build phase excludes `AISecrets.plist` from this
+non-Debug artifact. The ordinary `MedicationAdherenceApp` Release path must not
+show or execute the demo-data action.
+
+The Demo scheme uses the same bundle identifiers as the ordinary app, so an
+installation replaces the existing MedCue build on that device. Use a
+controlled device without real medication or health data. On the first-launch
+page, the `Demo` action replaces records already marked `isDemoContent`, keeps
+non-demo records, writes the synthetic dataset, and exits successfully so the
+app can reopen with a fresh model context. Relaunch, then finish or skip the
+first-launch tour to view the data. The Help Center product tour exposes the
+same refresh action in Debug and Demo builds.
+
+This build path is not an App Store or ordinary Beta Release artifact. Do not
+bundle credentials, local model files, user databases, device evidence, or
+competition tooling/media with it.
+
 ### 6. Review and CI
 
 The agent performs a correctness, regression, privacy, medical-safety,

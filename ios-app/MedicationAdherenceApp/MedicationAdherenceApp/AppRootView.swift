@@ -90,7 +90,7 @@ struct AppRootView: View {
                     },
                     startDemoMode: {
                         Task {
-                            await startDebugDemoMode()
+                            await startDemoMode()
                         }
                     }
                 )
@@ -215,15 +215,15 @@ struct AppRootView: View {
     }
 
     @MainActor
-    private func startDebugDemoMode() async {
-        #if DEBUG
+    private func startDemoMode() async {
+        #if DEBUG || MEDCUE_DEMO
         guard !isCompletingFirstLaunch else {
             return
         }
         isCompletingFirstLaunch = true
         hasCompletedFirstLaunchSetup = false
         do {
-            try await DebugDemoModeLauncher.rebuildAndExit(in: modelContext)
+            try await DemoModeLauncher.rebuildAndExit(in: modelContext)
         } catch {
             isCompletingFirstLaunch = false
             isShowingDemoModeError = true
