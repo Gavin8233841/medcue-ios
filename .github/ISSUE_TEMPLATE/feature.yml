@@ -3,6 +3,7 @@ description: 在实现前把产品想法整理成可评审的需求 / Turn a pro
 title: "[功能] "
 labels:
   - feature
+  - 功能
 body:
   - type: markdown
     attributes:
