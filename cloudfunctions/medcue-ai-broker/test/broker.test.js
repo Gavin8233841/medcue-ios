@@ -312,7 +312,7 @@ test("sends a fixed Doubao request and returns only the normalized answer", asyn
   });
 });
 
-test("fails construction when required security configuration is incomplete", () => {
+test("fails construction when security configuration or limits are invalid", () => {
   const invalidConfigs = [
     {},
     validConfig({ clientToken: undefined }),
@@ -324,6 +324,16 @@ test("fails construction when required security configuration is incomplete", ()
     validConfig({ providerTimeoutMs: 0 }),
     validConfig({ providerResponseMaxBytes: 0 }),
     validConfig({ providerResponseMaxBytes: 1.5 }),
+    validConfig({ idempotencyTTLms: -1 }),
+    validConfig({ idempotencyTTLms: 0 }),
+    validConfig({ idempotencyTTLms: 1.5 }),
+    validConfig({ idempotencyTTLms: Number.MAX_SAFE_INTEGER + 1 }),
+    validConfig({ idempotencyTTLms: 300_001 }),
+    validConfig({ idempotencyCacheMax: -1 }),
+    validConfig({ idempotencyCacheMax: 0 }),
+    validConfig({ idempotencyCacheMax: 1.5 }),
+    validConfig({ idempotencyCacheMax: Number.MAX_SAFE_INTEGER + 1 }),
+    validConfig({ idempotencyCacheMax: 1_001 }),
   ];
 
   for (const config of invalidConfigs) {
@@ -645,6 +655,81 @@ test("reuses a completed response for the same request_id", async () => {
 
   assert.deepEqual(retry, first);
   assert.equal(providerCallCount, 1);
+});
+
+test("does not replay an expired response after an unrelated request", async () => {
+  let currentTime = 1_000_000;
+  let providerCallCount = 0;
+  const handler = createBrokerHandler({
+    config: validConfig({
+      idempotencyTTLms: 10,
+      idempotencyCacheMax: 3,
+    }),
+    fetchProvider: async () => {
+      providerCallCount += 1;
+      return jsonProviderResponse({
+        output_text: `synthetic-answer-${providerCallCount}`,
+      });
+    },
+    now: () => currentTime,
+  });
+  const firstRequest = validRequest({
+    body: JSON.stringify({
+      request_id: "11111111-1111-4111-8111-111111111111",
+      prompt: "synthetic first prompt",
+    }),
+  });
+  const unrelatedRequest = validRequest({
+    body: JSON.stringify({
+      request_id: "22222222-2222-4222-8222-222222222222",
+      prompt: "synthetic unrelated prompt",
+    }),
+  });
+
+  const first = await handler(firstRequest);
+  currentTime += 10;
+  const unrelated = await handler(unrelatedRequest);
+  // A wall-clock rollback proves the unrelated request removed the expired entry.
+  currentTime -= 5;
+  const replay = await handler(firstRequest);
+
+  assert.equal(JSON.parse(first.body).answer, "synthetic-answer-1");
+  assert.equal(JSON.parse(unrelated.body).answer, "synthetic-answer-2");
+  assert.equal(JSON.parse(replay.body).answer, "synthetic-answer-3");
+  assert.equal(providerCallCount, 3);
+});
+
+test("evicts completed responses in deterministic FIFO order", async () => {
+  let providerCallCount = 0;
+  const handler = createBrokerHandler({
+    config: validConfig({ idempotencyCacheMax: 2 }),
+    fetchProvider: async () => {
+      providerCallCount += 1;
+      return jsonProviderResponse({
+        output_text: `synthetic-answer-${providerCallCount}`,
+      });
+    },
+  });
+  const requests = [
+    ["11111111-1111-4111-8111-111111111111", "synthetic prompt one"],
+    ["22222222-2222-4222-8222-222222222222", "synthetic prompt two"],
+    ["33333333-3333-4333-8333-333333333333", "synthetic prompt three"],
+  ].map(([requestId, prompt]) =>
+    validRequest({
+      body: JSON.stringify({ request_id: requestId, prompt }),
+    }),
+  );
+
+  const first = await handler(requests[0]);
+  const second = await handler(requests[1]);
+  assert.deepEqual(await handler(requests[0]), first);
+  await handler(requests[2]);
+  assert.deepEqual(await handler(requests[1]), second);
+
+  const replay = await handler(requests[0]);
+
+  assert.equal(JSON.parse(replay.body).answer, "synthetic-answer-4");
+  assert.equal(providerCallCount, 4);
 });
 
 test("rejects request bodies larger than 32768 bytes", async () => {
