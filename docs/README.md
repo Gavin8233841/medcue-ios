@@ -1,5 +1,7 @@
 # MedCue Documentation Map
 
+[English](README.md) · [简体中文](README.zh-CN.md)
+
 Use this index to avoid treating historical notes as current engineering truth.
 When documents disagree, use the authority order below and verify consequential
 claims against the exact source revision and tests.
@@ -28,6 +30,7 @@ documents are navigation aids. They do not override the sources above.
 | `ARCHITECTURE.md` | Module, state, persistence, platform, and trust boundaries |
 | `TEST_STRATEGY.md` | Risk-to-evidence map and verification expectations |
 | `DEVELOPMENT_WORKFLOW.md` | Issue, branch, Pull Request, CI, review, and release flow |
+| `GITHUB_LOCALIZATION.md` | Chinese-first, English-preserved GitHub documentation, template, and label conventions |
 | `adr/` | Accepted durable decisions and their consequences |
 | `../CONTEXT.md` | Product context, current release scope, actors, terms, invariants, and platform roles |
 | `../AGENTS.md` | Short repository-wide rules for engineering agents |

@@ -1,5 +1,7 @@
 # MedCue
 
+[English](README.md) · [简体中文](README.zh-CN.md)
+
 MedCue is a native medication-management app for iPhone and Apple Watch. It helps people organize medication plans, record dose events, review adherence trends, monitor supply, and prepare concise information for follow-up visits.
 
 MedCue supports medication safety and routine management. It does not diagnose conditions, prescribe medication, or replace a clinician or pharmacist.
@@ -13,7 +15,7 @@ MedCue supports medication safety and routine management. It does not diagnose c
 - Optional HealthKit signals presented as contextual trends without diagnostic interpretation.
 - Local OCR and barcode-assisted import with mandatory user review before persistence.
 - Cloud and on-device medical-assistant modes with explicit consent, scoped context sharing, transport validation, and response safety boundaries.
-- Simplified Chinese source localization backed by a project-wide String Catalog.
+- Simplified Chinese source localization is present in the iPhone app's String Catalog; complete localization across companion bundles remains tracked in [Issue #20](https://github.com/Gavin8233841/medcue-ios/issues/20), [Issue #21](https://github.com/Gavin8233841/medcue-ios/issues/21), and [Issue #22](https://github.com/Gavin8233841/medcue-ios/issues/22).
 - VoiceOver labels and stable accessibility identifiers on selected navigation
   and editor controls.
 
@@ -123,8 +125,11 @@ neither the CI stub nor a successful link build proves real-model behavior.
 Development uses an Issue -> branch -> Pull Request -> CI workflow. Start with
 `AGENTS.md`, `CONTEXT.md`, `docs/PROJECT_STATUS.md`, and
 `docs/DEVELOPMENT_WORKFLOW.md`. `docs/README.md` indexes current architecture,
-test, operational, and historical material. Historical append-only logs are
-retained for audit but are not the active backlog.
+test, operational, historical, and GitHub localization material. The Chinese
+entry point is [`README.zh-CN.md`](README.zh-CN.md), and the bilingual GitHub
+workflow is recorded in [`docs/GITHUB_LOCALIZATION.md`](docs/GITHUB_LOCALIZATION.md).
+Historical append-only logs are retained for audit but are not the active
+backlog.
 
 ## Medical Disclaimer
 
