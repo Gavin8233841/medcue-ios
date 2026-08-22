@@ -1,28 +1,30 @@
-name: Product direction or observation
-description: Describe an idea, concern, or experience in everyday language; engineering will formalize it.
-title: "[Intake] "
+name: 产品方向或观察 / Product direction or observation
+description: 用日常语言描述想法、担忧或体验，工程团队会将其整理为正式需求 / Describe an idea, concern, or experience in everyday language; engineering will formalize it.
+title: "[方向] "
 body:
   - type: markdown
     attributes:
       value: |
+        不需要提供技术术语、架构、验收标准或测试计划。描述你想要改进的内容或观察到的现象即可。工程代理会调查证据、识别决策，并将其整理为合适的 Issue 或规格说明。
         You do not need to provide technical terms, architecture, acceptance criteria, or a test plan. Describe what you want or observed. The engineering agent will investigate evidence, identify decisions, and turn it into the appropriate Issue or specification.
 
+        只使用合成或已清理的示例。不要填写真实用药记录、健康信息、API token、设备标识符或绝对路径。
         Use synthetic or sanitized examples only. Do not include real medication or health records, API tokens, device identifiers, or absolute user paths.
   - type: textarea
     id: direction
     attributes:
-      label: Direction or observation
-      description: What should improve, or what happened?
-      placeholder: Describe the screen, workflow, result, or product idea in your own words.
+      label: 方向或观察 / Direction or observation
+      description: 你希望改进什么，或者发生了什么？ / What should improve, or what happened?
+      placeholder: 用自己的话描述页面、流程、结果或产品想法。 / Describe the screen, workflow, result, or product idea in your own words.
     validations:
       required: true
   - type: textarea
     id: impact
     attributes:
-      label: Why it matters
-      description: Who is affected and what consequence or value do you notice?
+      label: 为什么重要 / Why it matters
+      description: 谁受到影响，你观察到什么后果或价值？ / Who is affected and what consequence or value do you notice?
   - type: textarea
     id: evidence
     attributes:
-      label: Optional evidence
-      description: Steps, frequency, device context, screenshots, or logs with secrets and health details removed.
+      label: 可选证据 / Optional evidence
+      description: 提供已移除密钥和健康细节的步骤、频率、设备上下文、截图或日志。 / Steps, frequency, device context, screenshots, or logs with secrets and health details removed.

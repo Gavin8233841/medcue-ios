@@ -1,59 +1,59 @@
-name: Feature or product improvement
-description: Turn a product idea into a reviewable requirement before implementation.
-title: "[Feature] "
+name: 功能或产品改进 / Feature or product improvement
+description: 在实现前把产品想法整理成可评审的需求 / Turn a product idea into a reviewable requirement before implementation.
+title: "[功能] "
 labels:
   - feature
 body:
   - type: markdown
     attributes:
-      value: Use synthetic or sanitized examples only. Do not include real medication or health records, API tokens, device identifiers, or absolute user paths.
+      value: 使用合成或已清理的示例。不要填写真实用药记录、健康信息、API token、设备标识符或绝对路径。 / Use synthetic or sanitized examples only. Do not include real medication or health records, API tokens, device identifiers, or absolute user paths.
   - type: textarea
     id: problem
     attributes:
-      label: User problem
-      description: Who is affected, what happens today, and why it matters.
+      label: 用户问题 / User problem
+      description: 谁受到影响、当前发生什么，以及为什么重要。 / Who is affected, what happens today, and why it matters.
     validations:
       required: true
   - type: textarea
     id: outcome
     attributes:
-      label: Intended outcome
-      description: Describe the user-visible result, not the implementation.
+      label: 预期结果 / Intended outcome
+      description: 描述用户可观察到的结果，不要先规定实现方式。 / Describe the user-visible result, not the implementation.
     validations:
       required: true
   - type: textarea
     id: scope
     attributes:
-      label: Scope and non-goals
-      description: What is included and explicitly excluded?
+      label: 范围与非目标 / Scope and non-goals
+      description: 明确包含什么，以及明确排除什么。 / What is included and explicitly excluded?
     validations:
       required: true
   - type: textarea
     id: acceptance
     attributes:
-      label: Acceptance criteria
-      description: List observable conditions that prove completion.
+      label: 验收标准 / Acceptance criteria
+      description: 列出可以证明完成的可观察条件。 / List observable conditions that prove completion.
       placeholder: |
-        - [ ] Given ..., when ..., then ...
-        - [ ] Failure/cancellation behavior is ...
+        - [ ] 给定……，当……时，那么…… / Given ..., when ..., then ...
+        - [ ] 失败/取消行为为…… / Failure/cancellation behavior is ...
     validations:
       required: true
   - type: textarea
     id: quality
     attributes:
-      label: Safety and quality impact
-      description: Medical, privacy, data, accessibility, localization, performance, platform, migration, competition, intellectual-property, and dependency-license considerations.
+      label: 安全与质量影响 / Safety and quality impact
+      description: 说明医疗、隐私、数据、无障碍、本地化、性能、平台、迁移、竞赛、知识产权和依赖许可影响。 / Medical, privacy, data, accessibility, localization, performance, platform, migration, competition, intellectual-property, and dependency-license considerations.
     validations:
       required: true
   - type: textarea
     id: decisions
     attributes:
-      label: Product decisions or unknowns
-      description: Decisions needed from the product owner and evidence still unavailable.
+      label: 产品决策或未知项 / Product decisions or unknowns
+      description: 仍需产品负责人决定的事项，以及尚未获得的证据。 / Decisions needed from the product owner and evidence still unavailable.
   - type: textarea
     id: verification
     attributes:
-      label: Verification plan
-      description: Automated tests, CI, physical-device checks, and success measurements.
+      label: 验证计划 / Verification plan
+      description: 自动化测试、CI、真机检查和成功度量。 / Automated tests, CI, physical-device checks, and success measurements.
     validations:
       required: true

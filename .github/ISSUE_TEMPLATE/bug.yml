@@ -1,54 +1,54 @@
-name: Bug report
-description: Record a reproducible defect and its expected behavior.
-title: "[Bug] "
+name: 缺陷报告 / Bug report
+description: 记录可复现的缺陷及预期行为 / Record a reproducible defect and its expected behavior.
+title: "[缺陷] "
 labels:
   - bug
 body:
   - type: markdown
     attributes:
-      value: Use synthetic or sanitized examples only. Do not include real medication or health records, API tokens, device identifiers, or absolute user paths.
+      value: 使用合成或已清理的示例。不要填写真实用药记录、健康信息、API token、设备标识符或绝对路径。 / Use synthetic or sanitized examples only. Do not include real medication or health records, API tokens, device identifiers, or absolute user paths.
   - type: textarea
     id: impact
     attributes:
-      label: User impact
-      description: Who is affected and how severe is the consequence?
+      label: 用户影响 / User impact
+      description: 谁受到影响，后果有多严重？ / Who is affected and how severe is the consequence?
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
-      label: Reproduction steps
-      description: Use exact screens, controls, data conditions, and sequence.
+      label: 复现步骤 / Reproduction steps
+      description: 写出准确的页面、控件、数据条件和操作顺序。 / Use exact screens, controls, data conditions, and sequence.
       placeholder: |
-        1. Open ...
-        2. Tap ...
-        3. Observe ...
+        1. 打开 ... / Open ...
+        2. 点击 ... / Tap ...
+        3. 观察 ... / Observe ...
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Expected and actual behavior
+      label: 预期行为与实际行为 / Expected and actual behavior
     validations:
       required: true
   - type: textarea
     id: environment
     attributes:
-      label: Environment and evidence
-      description: App revision, device, OS, build type, frequency, logs, screenshots, or measurements without sensitive data.
+      label: 环境与证据 / Environment and evidence
+      description: 填写 App 版本、设备、系统、构建类型、出现频率、日志、截图或测量结果；不得包含敏感数据。 / App revision, device, OS, build type, frequency, logs, screenshots, or measurements without sensitive data.
     validations:
       required: true
   - type: textarea
     id: acceptance
     attributes:
-      label: Fix acceptance criteria
-      description: Include regression, failure-path, and device expectations.
+      label: 修复验收标准 / Fix acceptance criteria
+      description: 包含回归、失败路径和真机预期。 / Include regression, failure-path, and device expectations.
     validations:
       required: true
   - type: textarea
     id: safety
     attributes:
-      label: Medical, privacy, and data risk
-      description: State whether records, reminders, medication guidance, or shared health context may be affected.
+      label: 医疗、隐私与数据风险 / Medical, privacy, and data risk
+      description: 说明记录、提醒、用药指导或共享健康上下文是否可能受到影响。 / State whether records, reminders, medication guidance, or shared health context may be affected.
     validations:
       required: true
