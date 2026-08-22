@@ -25,6 +25,15 @@ AISecrets.plist
 /.understand-anything/
 /tmp/
 ios-app/MedicationAdherenceApp/.codex-build/
+/.codex-build/
+/.verify-native-output/
+*.xcresult/
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.store
+*.store-*
 ios-app/MedicationAdherenceApp/Frameworks/llama.xcframework/
 outputs/
 artifacts/

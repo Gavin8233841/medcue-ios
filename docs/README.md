@@ -48,14 +48,16 @@ documents are navigation aids. They do not override the sources above.
 ## Historical Evidence
 
 The numbered planning, strategy, snapshot, hardening, dependency-map, and
-handoff documents from `01-...` through `23-...`, plus
-`watchos-support/CONTINUATION_HANDOFF_2026-07-13.md` and
-`watchos-support/devlog.md`, are retained for audit and context. They are not an
-active backlog and may contain statements that were current only when written.
+architecture documents that remain tracked from `01-...` through `25-...` are
+retained for audit and context. They are not an active backlog and may contain
+statements that were current only when written.
 
-`../PROJECT_UPDATE_LOG.md` and `11-development-todo.md` are frozen historical
-records. New work belongs in GitHub Issues; verification and review evidence
-belongs in Pull Requests; durable decisions belong in ADRs.
+`11-development-todo.md` is a frozen historical record. The repository does not
+contain `../PROJECT_UPDATE_LOG.md`, the removed Watch handoff/devlog files, or
+privacy-removed migration assets and placeholders. These absent materials are
+not current evidence and must not be reconstructed from guessed or raw inputs.
+New work belongs in GitHub Issues; verification and review evidence belongs in
+Pull Requests; durable decisions belong in ADRs.
 
 ## Maintenance Rule
 
