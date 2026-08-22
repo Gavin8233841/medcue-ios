@@ -148,58 +148,74 @@ rollback, and remaining risk.
 
 ### Active work coordination
 
-GitHub is the durable coordination record. Issue state, assignees, labels,
-comments, branches, and Pull Requests are the source of truth; Codex chat
-history and local handoff files are not. The `state:in-progress` label is a
-human coordination lease, not a technical lock, so the single-writer rule still
-applies.
+GitHub is the durable coordination record. Issue assignees and labels show who
+owns active work, the Issue owns scope and decisions, and the Pull Request owns
+the current implementation and verification evidence. Codex conversations and
+local handoff files are not long-term coordination records. These are minimum
+controls; an agent may add checks when the evidence or risk warrants them.
 
-Before starting an Issue, each contributor must check the Issue's assignee,
-labels, recent comments, linked or open Pull Requests, and the requested file
-areas. If another contributor owns or has claimed the Issue, or an open PR
-touches the same files, stop and coordinate before editing. Split the work into
-sub-Issues or record disjoint file ownership in the Issue; do not silently
-share a writer boundary.
+The `state:in-progress` label is a human work lease, not a technical lock.
+Before editing, the contributor checks the Issue assignee, labels, latest
+meaningful comments, current `main`, and the complete file lists of open Pull
+Requests. The default boundary is one active writer per file. If an open Pull
+Request already touches an intended file, stop and ask the coordinating agent
+to record a serial integration order before editing. Use same-file parallelism
+only as a narrow documented exception with disjoint sections and one named
+integration owner.
 
 To claim work:
 
-1. Assign the Issue to one contributor.
-2. Add `state:in-progress`.
-3. Create a short-lived branch named `codex/<issue-number>-<short-name>` from
-   the authoritative `main`.
-4. Add one concise Issue comment or Draft PR section containing the owner,
-   branch, exact UTC start time, scope, intended file areas, and first check.
-5. Open a Draft PR early when the work is large enough to create integration
-   risk.
+1. Assign the Issue to one contributor and add `state:in-progress`.
+2. Create a unique `codex/<issue-number>-<short-name>` branch from the current
+   authoritative `main`.
+3. Record the owner, branch, full base SHA, UTC start time, scope, exact intended
+   files, and first check in one concise Issue comment.
+4. Open a Draft Pull Request after the first coherent pushed checkpoint; open it
+   earlier for high-risk work or known shared-file pressure.
 
-Use status comments only at meaningful boundaries: claim, checkpoint, blocker,
-handoff, and ready-for-review. A handoff must record the exact HEAD SHA, dirty
-files, completed checks, open blockers, and one next action. Update GitHub before
-leaving work so another agent can resume without reading the original Codex
-conversation.
+If the scope or intended files expand, update the GitHub ownership record before
+editing the new area. Keep `state:in-progress` while implementing or responding
+to review, and use `blocked` only for a named dependency. A handoff records the
+full base and HEAD SHAs, dirty files, pushed checkpoint, completed checks, open
+Blocker/Required items, and one next action. Prefer a clean pushed checkpoint;
+inaccessible dirty files do not authorize another agent to overwrite a worktree
+or branch.
 
-Suggested handoff format:
+The contributor owns routine technical decisions, implementation, focused
+checks, complete cumulative self-review, and current Pull Request body. Before
+requesting formal review, use the strongest available model and reasoning
+appropriate to the task risk, review the complete base-to-HEAD diff after the
+last tracked-file change, and complete the Pull Request checklist. The current
+HEAD must have successful full relevant CI, shared-file ownership must still be
+valid, and no prior Blocker or Required item may remain open. Report unavailable
+checks and reasoned N/A evidence without implying that missing evidence exists.
 
-```text
-Status: ACTIVE | HANDOFF | BLOCKED | READY FOR REVIEW
-Owner: @github-login
-Issue / PR: #... / #...
-Branch and exact HEAD: codex/... / <full SHA>
-Dirty files: <paths or clean>
-Completed checks: <commands and results>
-Open blockers: <none or named dependency>
-Next action: <one concrete action>
-```
+Any tracked-file commit invalidates the prior author self-review and requires
+new exact-head CI; it also invalidates an earlier approval. A body-only Pull
+Request edit does not invalidate code CI, but the contributor must recheck every
+revision and evidence reference. Running, queued, cancelled, failed, or old-SHA
+CI is not successful evidence.
 
-Keep `state:in-progress` while the owner is actively editing or responding to
-review. Remove it when implementation ownership is released to review or to a
-new owner, and record that transition in the Issue or PR. Re-add it when work
-resumes. Use the existing `blocked` label only when a named dependency prevents
-progress; always name that dependency in a comment.
+When this author gate passes, post one `READY FOR REVIEW` status containing the
+full base and HEAD SHAs, CI URL, limitations, and remaining independent-review
+or device requirements; then mark the Pull Request ready and remove
+`state:in-progress`. If changes are requested, resume the active lease and repeat
+the author gate after the last tracked-file change.
 
-The coordinating agent reviews the complete diff before merge. A contributor
-must not force-push over another active branch, merge another contributor's PR,
-or discard another working tree's changes to resolve a coordination problem.
+Contributors do not need to wake the coordinating agent for routine repository
+research, implementation choices, tests, or review fixes. Wake the coordinator
+for unresolved ownership overlap, a material scope or acceptance change,
+requirements that cannot be satisfied together, a handoff, an unavailable
+permission or external dependency, or a completed ready-for-review gate. Wake
+the product owner only for product value or behavior, medical claims, privacy
+posture, cost, account actions, release timing, or external/destructive choices.
+
+The coordinating agent reviews and approves only the current cumulative HEAD,
+verifies current-base integration and required high-risk evidence, and controls
+the merge. After merge, verify the exact `main` SHA and `main` CI, confirm that
+shared-file integration preserved the intended behavior, close the Issue, clear
+coordination labels, and remove the branch when safe. A merge with failed or
+pending post-merge evidence is not complete.
 
 ### 6. Review and CI
 
