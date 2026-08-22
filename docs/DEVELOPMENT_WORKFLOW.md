@@ -146,6 +146,77 @@ Issue, explain the solution and scope, map results to acceptance criteria, show
 test/build/device evidence, and call out migrations, privacy changes, rollout,
 rollback, and remaining risk.
 
+### Active work coordination
+
+GitHub is the durable coordination record. Issue assignees and labels show who
+owns active work, the Issue owns scope and decisions, and the Pull Request owns
+the current implementation and verification evidence. Codex conversations and
+local handoff files are not long-term coordination records. These are minimum
+controls; an agent may add checks when the evidence or risk warrants them.
+
+The `state:in-progress` label is a human work lease, not a technical lock.
+Before editing, the contributor checks the Issue assignee, labels, latest
+meaningful comments, current `main`, and the complete file lists of open Pull
+Requests. The default boundary is one active writer per file. If an open Pull
+Request already touches an intended file, stop and ask the coordinating agent
+to record a serial integration order before editing. Use same-file parallelism
+only as a narrow documented exception with disjoint sections and one named
+integration owner.
+
+To claim work:
+
+1. Assign the Issue to one contributor and add `state:in-progress`.
+2. Create a unique `codex/<issue-number>-<short-name>` branch from the current
+   authoritative `main`.
+3. Record the owner, branch, full base SHA, UTC start time, scope, exact intended
+   files, and first check in one concise Issue comment.
+4. Open a Draft Pull Request after the first coherent pushed checkpoint; open it
+   earlier for high-risk work or known shared-file pressure.
+
+If the scope or intended files expand, update the GitHub ownership record before
+editing the new area. Keep `state:in-progress` while implementing or responding
+to review, and use `blocked` only for a named dependency. A handoff records the
+full base and HEAD SHAs, dirty files, pushed checkpoint, completed checks, open
+Blocker/Required items, and one next action. Prefer a clean pushed checkpoint;
+inaccessible dirty files do not authorize another agent to overwrite a worktree
+or branch.
+
+The contributor owns routine technical decisions, implementation, focused
+checks, complete cumulative self-review, and current Pull Request body. Before
+requesting formal review, use the strongest available model and reasoning
+appropriate to the task risk, review the complete base-to-HEAD diff after the
+last tracked-file change, and complete the Pull Request checklist. The current
+HEAD must have successful full relevant CI, shared-file ownership must still be
+valid, and no prior Blocker or Required item may remain open. Report unavailable
+checks and reasoned N/A evidence without implying that missing evidence exists.
+
+Any tracked-file commit invalidates the prior author self-review and requires
+new exact-head CI; it also invalidates an earlier approval. A body-only Pull
+Request edit does not invalidate code CI, but the contributor must recheck every
+revision and evidence reference. Running, queued, cancelled, failed, or old-SHA
+CI is not successful evidence.
+
+When this author gate passes, post one `READY FOR REVIEW` status containing the
+full base and HEAD SHAs, CI URL, limitations, and remaining independent-review
+or device requirements; then mark the Pull Request ready and remove
+`state:in-progress`. If changes are requested, resume the active lease and repeat
+the author gate after the last tracked-file change.
+
+Contributors do not need to wake the coordinating agent for routine repository
+research, implementation choices, tests, or review fixes. Wake the coordinator
+for unresolved ownership overlap, a material scope or acceptance change,
+requirements that cannot be satisfied together, a handoff, an unavailable
+permission or external dependency, or a completed ready-for-review gate. Wake
+the product owner only for product value or behavior, medical claims, privacy
+posture, cost, account actions, release timing, or external/destructive choices.
+
+The coordinating agent reviews and approves only the current cumulative HEAD,
+verifies current-base integration and required high-risk evidence, and controls
+the merge. After merge, verify the exact `main` SHA and `main` CI, confirm that
+shared-file integration preserved the intended behavior, close the Issue, clear
+coordination labels, and remove the branch when safe. A merge with failed or
+pending post-merge evidence is not complete.
+
 ### 6. Review and CI
 
 The agent performs a correctness, regression, privacy, medical-safety,
@@ -229,6 +300,8 @@ is:
 - type: `bug`, `feature`, `technical-debt`, `documentation`, `governance`
 - priority: `P0`, `P1`, `P2`
 - state: `needs-product-decision`, `device-validation`, `blocked`
+- coordination state: `state:in-progress`
+- execution context: `execution:windows-capable`
 - area: `platform`, `ai`, `privacy`, `release`
 
 Create `P3`, `ready`, and additional area labels only when the first real Issue
