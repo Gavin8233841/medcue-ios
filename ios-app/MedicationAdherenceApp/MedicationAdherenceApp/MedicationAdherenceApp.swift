@@ -168,6 +168,24 @@ private enum MedicalAISmokeTestRunner {
 
 private struct MedicalAISmokeTimeoutError: Error {}
 
+enum ReminderLiveActivitySmokeDiagnostic {
+    static let setupCompleteLine = "[ReminderLiveActivity-Smoke] setup-complete"
+
+    static func stateLine(
+        notificationAuthorized: Bool,
+        pendingBaseNotificationCount: Int,
+        activeLiveActivityCount: Int
+    ) -> String {
+        "[ReminderLiveActivity-Smoke] notificationAuthorized=\(notificationAuthorized) "
+            + "pendingBaseNotifications=\(bounded(pendingBaseNotificationCount)) "
+            + "activeLiveActivities=\(bounded(activeLiveActivityCount))"
+    }
+
+    private static func bounded(_ count: Int) -> Int {
+        min(max(count, 0), 999)
+    }
+}
+
 private enum ReminderLiveActivitySmokeTestRunner {
     @MainActor private static var didRun = false
 
@@ -216,8 +234,12 @@ private enum ReminderLiveActivitySmokeTestRunner {
         await MedicationLiveActivityService().startIfNeeded(for: task, medication: medication)
         let pendingNotificationCount = await pendingBaseNotificationCount(prefix: notificationService.notificationIdentifierPrefix)
         let activeActivityCount = activeLiveActivityCount(for: task.id)
-        print("[ReminderLiveActivity-Smoke] taskID=\(task.id.uuidString) medication=\(userFacingMedicationName(for: medication)) dueAt=\(dueAt.timeIntervalSince1970)")
-        print("[ReminderLiveActivity-Smoke] notificationAuthorized=\(hasNotificationAuthorization) pendingBaseNotifications=\(pendingNotificationCount) activeLiveActivities=\(activeActivityCount)")
+        print(ReminderLiveActivitySmokeDiagnostic.setupCompleteLine)
+        print(ReminderLiveActivitySmokeDiagnostic.stateLine(
+            notificationAuthorized: hasNotificationAuthorization,
+            pendingBaseNotificationCount: pendingNotificationCount,
+            activeLiveActivityCount: activeActivityCount
+        ))
         finish(hasNotificationAuthorization && pendingNotificationCount > 0 && activeActivityCount > 0 ? 0 : 1)
     }
 
