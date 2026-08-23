@@ -25,11 +25,11 @@ objects. It creates:
 
 The ZIP contains `SOURCE_MANIFEST.json` and `SHA256SUMS`. The manifest records
 the full commit SHA, tree SHA, policy version, exact file list, modes, sizes,
-hashes, dependency inventory, asset inventory, and the zlib version used for
+hashes, dependency inventory, asset inventory, and the runtime zlib version used for
 compression. `SHA256SUMS` covers every payload entry and the manifest, but
 intentionally excludes itself to avoid a self-reference. ZIP timestamps and
 compression settings are fixed; byte-for-byte reproduction from the same tree
-additionally requires the same zlib version, which is recorded in the manifest.
+additionally requires the same runtime zlib version, which is recorded in the manifest.
 
 ## Allowlist And Exclusions
 
@@ -83,7 +83,7 @@ exact source and output SHA-256 values. Pull-request workflows may package the
 ephemeral merge commit (`refs/pull/<number>/merge`) rather than the branch
 commit; record both SHAs and verify that their source tree is the same instead
 of relabeling the manifest revision. A Windows/macOS digest comparison is only
-valid when the revision/tree and zlib version are held constant. The source
+valid when the revision/tree and runtime zlib version are held constant. The source
 package does not provide physical-device, Apple-account, provider-retention, or
 real-model evidence.
 The existing `tools/verify-native.sh` gate runs the synthetic matrix, builds the

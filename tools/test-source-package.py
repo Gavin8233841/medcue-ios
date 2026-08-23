@@ -149,7 +149,11 @@ class SourcePackageTests(unittest.TestCase):
             manifest = json.loads(archive.read("SOURCE_MANIFEST.json"))
             self.assertEqual(manifest["sourceRevision"], revision)
             self.assertEqual(manifest["sourceTree"], command("git", "rev-parse", "HEAD^{tree}", cwd=self.repo).stdout.strip())
-            self.assertEqual(manifest["reproducibility"]["zlibVersion"], SOURCE_PACKAGE.zlib.ZLIB_VERSION)
+            self.assertEqual(manifest["toolVersion"], "0.2.0")
+            self.assertEqual(
+                manifest["reproducibility"]["zlibVersion"],
+                SOURCE_PACKAGE.zlib.ZLIB_RUNTIME_VERSION,
+            )
             self.assertEqual(
                 manifest["reproducibility"]["sameTreeSameBytes"],
                 "requires the same zlib version and ZIP settings",

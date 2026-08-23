@@ -47,7 +47,7 @@ diagnostic signals, not proof that a medication workflow is safe or complete.
   limits, encrypted/directory/non-deflate/non-fixed-timestamp entries,
   non-standard creator/mode metadata, SHA256SUMS self-reference, output paths
   inside the repository, bare JWT scanning, and malformed approved PNGs. The
-  manifest records the zlib version; same-tree byte comparisons must hold that
+  manifest records the runtime zlib version; same-tree byte comparisons must hold that
   version and the exact source tree constant. Real submission archives and
   health data are never test fixtures.
 

@@ -23,7 +23,7 @@ import zipfile
 import zlib
 
 
-TOOL_VERSION = "0.1.0"
+TOOL_VERSION = "0.2.0"
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 CONTROL_CHAR = re.compile(r"[\x00-\x1f\x7f]")
 WINDOWS_LOCAL_PATH = re.compile(
@@ -497,7 +497,7 @@ def make_manifest(revision: str, tree: str, blobs: dict[str, bytes], entries: li
             "sensitiveChecks": ["secrets", "models", "databases", "local-paths", "unapproved-media"],
         },
         "reproducibility": {
-            "zlibVersion": zlib.ZLIB_VERSION,
+            "zlibVersion": zlib.ZLIB_RUNTIME_VERSION,
             "sameTreeSameBytes": "requires the same zlib version and ZIP settings",
         },
         "dependencyInventory": dependency_inventory(blobs),
