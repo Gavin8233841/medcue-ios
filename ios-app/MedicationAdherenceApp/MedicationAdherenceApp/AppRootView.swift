@@ -6,6 +6,7 @@ struct AppRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var systemColorScheme
     @AppStorage("appColorSchemePreference") private var appColorSchemePreference = AppColorSchemePreference.system.rawValue
+    @AppStorage(AppExperienceMode.storageKey) private var appExperienceModeRaw = AppExperienceMode.complete.rawValue
     @AppStorage("hasCompletedFirstLaunchSetup") private var hasCompletedFirstLaunchSetup = false
     @AppStorage(AppPersistenceCommitter.failureMessageDefaultsKey) private var persistenceFailureMessage = ""
     @StateObject private var notificationService = NotificationService()
@@ -18,6 +19,7 @@ struct AppRootView: View {
     @State private var isCompletingFirstLaunch = false
     @State private var didDismissForcedFirstLaunch = false
     @State private var isShowingDemoModeError = false
+    @State private var isShowingElderSettings = false
     @State private var topGradientState = AppTabTopGradientState()
     @State private var persistenceIntegrityStartupCheck = PersistenceIntegrityStartupCheck()
 
@@ -37,42 +39,18 @@ struct AppRootView: View {
         preferredAppColorScheme ?? systemColorScheme
     }
 
+    private var appExperienceMode: AppExperienceMode {
+        AppExperienceMode(rawValue: appExperienceModeRaw) ?? .complete
+    }
+
     var body: some View {
         ZStack {
-            TabView(selection: selectedTabBinding) {
-                ForEach(AppTab.allCases) { tab in
-                    NavigationStack {
-                        AppTabContentView(
-                            tab: tab,
-                            isLoaded: loadedTabs.contains(tab)
-                        )
-                        .equatable()
-                    }
-                    .tabItem { tab.label }
-                    .accessibilityIdentifier(tab.accessibilityIdentifier)
-                    .tag(tab)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .allowsHitTesting(!isFirstLaunchOverlayActive)
-            .accessibilityHidden(isFirstLaunchOverlayActive)
-            .environment(\.openMedicationAIQuestion) { question in
-                pendingAIQuestion = question
-                activateTab(.assistant)
-            }
-            .environment(\.openMedicationToday) {
-                activateTab(.today)
-            }
-            .environment(\.pendingMedicationAIQuestion, pendingAIQuestion)
-            .environment(\.clearPendingMedicationAIQuestion) {
-                pendingAIQuestion = ""
-            }
-            .environment(\.activeAppTab, selectedTab)
-            .environment(\.setAppTabTopGradientProgress) { tab, progress in
-                topGradientState.updateProgress(for: tab, progress: progress, activeTab: selectedTab)
-            }
+            experienceContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .allowsHitTesting(!isFirstLaunchOverlayActive)
+                .accessibilityHidden(isFirstLaunchOverlayActive)
 
-            if !isFirstLaunchOverlayActive {
+            if !isFirstLaunchOverlayActive && appExperienceMode == .complete {
                 AppTabTopGradientOverlay(
                     state: topGradientState
                 )
@@ -158,6 +136,18 @@ struct AppRootView: View {
         }
         .preferredColorScheme(preferredAppColorScheme)
         .environment(\.colorScheme, resolvedAppColorScheme)
+        .sheet(isPresented: $isShowingElderSettings) {
+            NavigationStack {
+                SettingsView(focusesElderHelpContact: true)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("完成") {
+                                isShowingElderSettings = false
+                            }
+                        }
+                    }
+            }
+        }
         .alert(
             "更改未能保存",
             isPresented: Binding(
@@ -179,6 +169,55 @@ struct AppRootView: View {
             Button("知道了", role: .cancel) {}
         } message: {
             Text("演示数据未能保存，请重新打开 App 后再试。")
+        }
+    }
+
+    @ViewBuilder
+    private var experienceContent: some View {
+        if appExperienceMode == .elder {
+            NavigationStack {
+                TodayView(
+                    presentation: .elder,
+                    openElderSettings: {
+                        isShowingElderSettings = true
+                    },
+                    switchToCompleteMode: {
+                        activateTab(.today)
+                        appExperienceModeRaw = AppExperienceMode.complete.rawValue
+                    }
+                )
+            }
+            .accessibilityIdentifier(AppAccessibilityID.elderHome)
+        } else {
+            TabView(selection: selectedTabBinding) {
+                ForEach(AppTab.allCases) { tab in
+                    NavigationStack {
+                        AppTabContentView(
+                            tab: tab,
+                            isLoaded: loadedTabs.contains(tab)
+                        )
+                        .equatable()
+                    }
+                    .tabItem { tab.label }
+                    .accessibilityIdentifier(tab.accessibilityIdentifier)
+                    .tag(tab)
+                }
+            }
+            .environment(\.openMedicationAIQuestion) { question in
+                pendingAIQuestion = question
+                activateTab(.assistant)
+            }
+            .environment(\.openMedicationToday) {
+                activateTab(.today)
+            }
+            .environment(\.pendingMedicationAIQuestion, pendingAIQuestion)
+            .environment(\.clearPendingMedicationAIQuestion) {
+                pendingAIQuestion = ""
+            }
+            .environment(\.activeAppTab, selectedTab)
+            .environment(\.setAppTabTopGradientProgress) { tab, progress in
+                topGradientState.updateProgress(for: tab, progress: progress, activeTab: selectedTab)
+            }
         }
     }
 

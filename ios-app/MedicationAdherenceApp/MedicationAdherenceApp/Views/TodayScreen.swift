@@ -600,6 +600,273 @@ func todayDoseStatusText(
     }
 }
 
+struct ElderTodayScreenActions {
+    let logicalDoseKey: (StoredDoseTask) -> String
+    let completionVerb: (StoredMedication?) -> String
+    let markTaken: (StoredDoseTask) -> Void
+    let delay: (StoredDoseTask) -> Void
+    let confirm: (StoredDoseTask) -> Void
+    let cancelConfirmation: (StoredDoseTask) -> Void
+    let requestHelp: () -> Void
+    let openSettings: () -> Void
+    let switchToCompleteMode: () -> Void
+    let initialLoad: () async -> Void
+    let timerTick: () -> Void
+    let becameActive: () -> Void
+    let cleanup: () -> Void
+}
+
+struct ElderTodayScreen: View {
+    @Environment(\.scenePhase) private var scenePhase
+    let snapshot: ElderTodayRenderSnapshot
+    let pendingDoseConfirmation: PendingDoseConfirmation?
+    let pendingDoseFeedback: PendingDoseFeedback?
+    @Binding var dosePersistenceErrorMessage: String?
+    @Binding var helpOpeningErrorMessage: String?
+    let actions: ElderTodayScreenActions
+    private let liveActivityRefreshTimer = Timer
+        .publish(every: 60, on: .main, in: .common)
+        .autoconnect()
+
+    private var activeConfirmation: PendingDoseConfirmation.Kind? {
+        guard let task = snapshot.currentTask,
+              pendingDoseConfirmation?.doseKey == actions.logicalDoseKey(task)
+        else {
+            return nil
+        }
+        return pendingDoseConfirmation?.kind
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("现在只需处理一件事")
+                        .font(.largeTitle.bold())
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("无操作会保持未确认，不会自动记成忽略。")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if let task = snapshot.currentTask {
+                    currentTaskCard(task)
+                    Text("还有 \(snapshot.remainingOpenTaskCount) 项待处理")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    ContentUnavailableView {
+                        Label("目前没有需要确认的用药任务", systemImage: "checklist")
+                    } description: {
+                        Text("这里不会推断为全部已服用；有新的待确认任务时会显示在这里。")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 32)
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 24)
+        }
+        .navigationTitle("用药提醒")
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("完整模式", action: actions.switchToCompleteMode)
+                    .accessibilityIdentifier(AppAccessibilityID.elderSwitchToComplete)
+                    .accessibilityHint("返回包含今日、药品、智能体、记录和个人页面的完整模式")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: actions.openSettings) {
+                    Label("同机设置", systemImage: "gearshape")
+                }
+                .accessibilityIdentifier(AppAccessibilityID.elderOpenSettings)
+            }
+        }
+        .task {
+            await actions.initialLoad()
+        }
+        .onReceive(liveActivityRefreshTimer) { _ in
+            actions.timerTick()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else {
+                return
+            }
+            actions.becameActive()
+        }
+        .alert(
+            "用药记录未保存",
+            isPresented: Binding(
+                get: { dosePersistenceErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        dosePersistenceErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("好", role: .cancel) {
+                dosePersistenceErrorMessage = nil
+            }
+        } message: {
+            Text(dosePersistenceErrorMessage ?? DoseActionPersistenceError.saveFailed.userMessage)
+        }
+        .alert(
+            "未能打开电话确认界面",
+            isPresented: Binding(
+                get: { helpOpeningErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        helpOpeningErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("好", role: .cancel) {
+                helpOpeningErrorMessage = nil
+            }
+        } message: {
+            Text(helpOpeningErrorMessage ?? "请在同机设置中检查帮助号码后重试。")
+        }
+        .onDisappear(perform: actions.cleanup)
+    }
+
+    private func currentTaskCard(_ task: StoredDoseTask) -> some View {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(snapshot.currentMedication.map(userFacingMedicationName(for:)) ?? "待核对药品")
+                    .font(.largeTitle.bold())
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let currentStatus = snapshot.currentStatus {
+                    StatusBadge(text: currentStatus.displayName, color: .blue)
+                }
+
+                Text("每次 \(task.doseValue.formatted()) \(localizedMedicationUnit(task.doseUnit))")
+                    .font(.title2.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Label(AppFormatters.time.string(from: task.dueAt), systemImage: "clock")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let confirmationKind = activeConfirmation {
+                ElderDoseConfirmationPanel(
+                    kind: confirmationKind,
+                    confirm: { actions.confirm(task) },
+                    cancel: { actions.cancelConfirmation(task) }
+                )
+            } else {
+                VStack(spacing: 14) {
+                    ElderDoseActionButton(
+                        title: actions.completionVerb(snapshot.currentMedication),
+                        systemImage: "checkmark.circle.fill",
+                        tint: .green,
+                        isProminent: true,
+                        accessibilityIdentifier: AppAccessibilityID.elderMarkTaken,
+                        action: { actions.markTaken(task) }
+                    )
+                    ElderDoseActionButton(
+                        title: "\(DoseDelayPolicy.delayMinutes) 分钟后提醒",
+                        systemImage: "clock.arrow.circlepath",
+                        tint: .blue,
+                        isProminent: false,
+                        accessibilityIdentifier: AppAccessibilityID.elderDelay,
+                        action: { actions.delay(task) }
+                    )
+                    ElderDoseActionButton(
+                        title: "需要帮助",
+                        systemImage: "phone.fill",
+                        tint: .orange,
+                        isProminent: false,
+                        accessibilityIdentifier: AppAccessibilityID.elderRequestHelp,
+                        action: actions.requestHelp
+                    )
+                }
+                .disabled(pendingDoseFeedback?.doseKey == actions.logicalDoseKey(task))
+            }
+        }
+        .padding(20)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.blue.opacity(0.16), lineWidth: 1)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(AppAccessibilityID.elderCurrentTask)
+    }
+}
+
+private struct ElderDoseActionButton: View {
+    let title: String
+    let systemImage: String
+    let tint: Color
+    let isProminent: Bool
+    let accessibilityIdentifier: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.title2.weight(.bold))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 60)
+                .padding(.horizontal, 12)
+                .foregroundStyle(isProminent ? Color.white : tint)
+                .background(
+                    isProminent ? tint : tint.opacity(0.12),
+                    in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                )
+        }
+        .buttonStyle(.plain)
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityIdentifier(accessibilityIdentifier)
+    }
+}
+
+private struct ElderDoseConfirmationPanel: View {
+    let kind: PendingDoseConfirmation.Kind
+    let confirm: () -> Void
+    let cancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label(kind.title, systemImage: kind.iconName)
+                .font(.title2.bold())
+                .foregroundStyle(kind.tint)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(kind.message(delayDurationText: "\(DoseDelayPolicy.delayMinutes) 分钟"))
+                .font(.title3)
+                .fixedSize(horizontal: false, vertical: true)
+            ElderDoseActionButton(
+                title: kind.confirmTitle,
+                systemImage: "checkmark",
+                tint: kind.tint,
+                isProminent: true,
+                accessibilityIdentifier: AppAccessibilityID.elderConfirmationConfirm,
+                action: confirm
+            )
+            ElderDoseActionButton(
+                title: "取消",
+                systemImage: "xmark",
+                tint: .gray,
+                isProminent: false,
+                accessibilityIdentifier: AppAccessibilityID.elderConfirmationCancel,
+                action: cancel
+            )
+        }
+        .padding(16)
+        .background(kind.tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .accessibilityElement(children: .contain)
+    }
+}
+
 func todayCompletionVerb(for medication: StoredMedication?) -> String {
     guard let medication else {
         return "已完成"

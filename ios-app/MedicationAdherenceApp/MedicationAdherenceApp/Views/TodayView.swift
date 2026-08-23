@@ -2,6 +2,11 @@ import MedicationAdherenceCore
 import SwiftData
 import SwiftUI
 
+enum TodayPresentation {
+    case complete
+    case elder
+}
+
 struct TodayView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var tasks: [StoredDoseTask]
@@ -33,10 +38,27 @@ struct TodayView: View {
     @State private var showingHelpCenter = false
     @State private var pendingPermissionGate: AppPermissionGate?
     @State private var dosePersistenceErrorMessage: String?
+    @State private var elderHelpOpeningErrorMessage: String?
     @State private var doseProjectionStore = TodayDoseProjectionStore()
+    private let presentation: TodayPresentation
+    private let openElderSettings: () -> Void
+    private let switchToCompleteMode: () -> Void
+    private let elderHelpContactStore: any ElderHelpContactStoring
+    private let elderHelpOpener: any ElderHelpOpening
     private let reminderPolicy = DoseReminderPolicy.competitionDemo
 
-    init() {
+    init(
+        presentation: TodayPresentation = .complete,
+        openElderSettings: @escaping () -> Void = {},
+        switchToCompleteMode: @escaping () -> Void = {},
+        elderHelpContactStore: any ElderHelpContactStoring = KeychainElderHelpContactStore(),
+        elderHelpOpener: any ElderHelpOpening = SystemElderHelpOpener()
+    ) {
+        self.presentation = presentation
+        self.openElderSettings = openElderSettings
+        self.switchToCompleteMode = switchToCompleteMode
+        self.elderHelpContactStore = elderHelpContactStore
+        self.elderHelpOpener = elderHelpOpener
         let calendar = Calendar.current
         let todayStart = calendar.startOfDay(for: Date())
         let queryStart = calendar.date(byAdding: .day, value: -1, to: todayStart) ?? todayStart.addingTimeInterval(-86_400)
@@ -96,10 +118,35 @@ struct TodayView: View {
     }
 
     var body: some View {
+        let now = Date()
         let snapshot = doseProjectionStore.projection(
-            for: doseProjectionInput(now: Date())
+            for: doseProjectionInput(now: now)
         )
-        TodayScreen(
+        if presentation == .elder {
+            ElderTodayScreen(
+                snapshot: snapshot.elderSnapshot(medications: medications, now: now),
+                pendingDoseConfirmation: pendingDoseConfirmation,
+                pendingDoseFeedback: doseInteraction.pendingDoseFeedback,
+                dosePersistenceErrorMessage: $dosePersistenceErrorMessage,
+                helpOpeningErrorMessage: $elderHelpOpeningErrorMessage,
+                actions: ElderTodayScreenActions(
+                    logicalDoseKey: logicalDoseKey,
+                    completionVerb: todayCompletionVerb,
+                    markTaken: requestMarkTaken,
+                    delay: requestDelay,
+                    confirm: confirmPendingDoseConfirmation,
+                    cancelConfirmation: clearPendingDoseConfirmation,
+                    requestHelp: requestElderHelp,
+                    openSettings: openElderSettings,
+                    switchToCompleteMode: switchToCompleteMode,
+                    initialLoad: initialTodayLoad,
+                    timerTick: refreshTodayTimer,
+                    becameActive: todayBecameActive,
+                    cleanup: cleanupTodayScreen
+                )
+            )
+        } else {
+            TodayScreen(
             snapshot: snapshot,
             notificationUnavailableMessage: reminderNotificationUnavailableMessage,
             completionRateFeedback: completionRateFeedback,
@@ -160,28 +207,52 @@ struct TodayView: View {
                         requestAuthorization: requestAuthorization
                     )
                 },
-                initialLoad: {
-                    consumeExternalDosePersistenceFailure()
-                    runInitialTodayMaintenanceIfNeeded()
-                    await notificationService.refreshAuthorizationStatus()
-                    await notificationService.refreshPendingReminderCount()
-                },
-                timerTick: {
-                    Task {
-                        await refreshLiveActivities()
-                    }
-                },
-                becameActive: {
-                    consumeExternalDosePersistenceFailure()
-                    scheduleLiveActivityRefresh()
-                    Task {
-                        await notificationService.refreshAuthorizationStatus()
-                        await notificationService.refreshPendingReminderCount()
-                    }
-                },
+                initialLoad: initialTodayLoad,
+                timerTick: refreshTodayTimer,
+                becameActive: todayBecameActive,
                 cleanup: cleanupTodayScreen
             )
         )
+        }
+    }
+
+    @MainActor
+    private func initialTodayLoad() async {
+        consumeExternalDosePersistenceFailure()
+        runInitialTodayMaintenanceIfNeeded()
+        await notificationService.refreshAuthorizationStatus()
+        await notificationService.refreshPendingReminderCount()
+    }
+
+    private func refreshTodayTimer() {
+        Task {
+            await refreshLiveActivities()
+        }
+    }
+
+    private func todayBecameActive() {
+        consumeExternalDosePersistenceFailure()
+        scheduleLiveActivityRefresh()
+        Task {
+            await notificationService.refreshAuthorizationStatus()
+            await notificationService.refreshPendingReminderCount()
+        }
+    }
+
+    private func requestElderHelp() {
+        ElderHelpRequestCoordinator(
+            contactStore: elderHelpContactStore,
+            opener: elderHelpOpener
+        ).request { outcome in
+            switch outcome {
+            case .requiresSettings:
+                openElderSettings()
+            case .openedConfirmation:
+                break
+            case .failed:
+                elderHelpOpeningErrorMessage = "电话确认界面没有打开；用药任务保持原状。请检查帮助号码后重试。"
+            }
+        }
     }
 
     private func cleanupTodayScreen() {
