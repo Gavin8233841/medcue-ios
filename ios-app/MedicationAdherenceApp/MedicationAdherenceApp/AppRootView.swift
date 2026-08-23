@@ -13,6 +13,7 @@ struct AppRootView: View {
     @State private var loadedTabs: Set<AppTab> = [.today]
     @State private var pendingAIQuestion = ""
     @State private var didSeedStartupData = false
+    @State private var didRepairLegacyAutoSkips = false
     @State private var didScheduleStartupReminderReconcile = false
     @State private var isCompletingFirstLaunch = false
     @State private var didDismissForcedFirstLaunch = false
@@ -128,10 +129,16 @@ struct AppRootView: View {
             guard !shouldShowFirstLaunchSetup else {
                 return
             }
+            guard repairLegacyAutoSkipsIfNeeded() else {
+                return
+            }
             await reconcileStartupReminders(after: .milliseconds(700))
         }
         .onOpenURL { url in
             guard let request = MedicationReminderLiveActivityActionURL.request(from: url) else {
+                return
+            }
+            guard repairLegacyAutoSkipsIfNeeded() else {
                 return
             }
             activateTab(.today)
@@ -244,11 +251,32 @@ struct AppRootView: View {
             return
         }
         _ = persistenceIntegrityStartupCheck.run(modelContext: modelContext)
+        guard repairLegacyAutoSkipsIfNeeded() else {
+            return
+        }
         await reconcileStartupReminders(after: .milliseconds(1_400))
     }
 
     @MainActor
+    private func repairLegacyAutoSkipsIfNeeded() -> Bool {
+        guard !didRepairLegacyAutoSkips else {
+            return true
+        }
+        do {
+            _ = try LegacyAutoSkipRepairCommand().perform(in: modelContext)
+            didRepairLegacyAutoSkips = true
+            return true
+        } catch {
+            AppPersistenceCommitter.reportFailure(operation: "legacy-auto-skip-repair")
+            return false
+        }
+    }
+
+    @MainActor
     private func consumeCompletedLiveActivityActions() async {
+        guard repairLegacyAutoSkipsIfNeeded() else {
+            return
+        }
         await MedicationReminderLiveActivityActionService(notificationService: notificationService)
             .consumeCompletedLiveActivities(in: modelContext)
     }

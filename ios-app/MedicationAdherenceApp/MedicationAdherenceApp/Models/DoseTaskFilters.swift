@@ -1,6 +1,21 @@
 import Foundation
 import MedicationAdherenceCore
 
+enum LegacyAutoSkipRecordMarker {
+    private static let archiveMarker = "用户已归档"
+    static let overdue = "超过计划时间 15 分钟未确认，已自动记录为忽略。"
+    static let reopened = "撤销后超过 15 分钟仍未重新确认，已自动记录为忽略。"
+    static let mergedDuplicate = "同一剂量重复提醒已随本次自动忽略合并。"
+
+    static func matches(_ note: String) -> Bool {
+        note == overdue || note == reopened || note == mergedDuplicate
+    }
+
+    static func matchesCurrentTaskReason(_ reason: String, for logNote: String) -> Bool {
+        reason == logNote || reason == [logNote, archiveMarker].joined(separator: "；")
+    }
+}
+
 extension StoredDoseTask {
     var isSystemDisabledFutureReminder: Bool {
         status == .skipped && reason.contains("未来提醒已停用")
@@ -11,14 +26,11 @@ extension StoredDoseTask {
     }
 
     var isAutoSkippedByReminderSettlement: Bool {
-        status == .skipped && reason.contains("自动记录为忽略")
+        status == .skipped && LegacyAutoSkipRecordMarker.matches(reason)
     }
 
     var effectiveAdherenceRecordedAt: Date? {
-        if isAutoSkippedByReminderSettlement {
-            return DoseReminderPolicy.competitionDemo.autoSkipRecordedAt(for: dueAt)
-        }
-        return recordedAt
+        recordedAt
     }
 
     var effectiveAdherenceDate: Date {

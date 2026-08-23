@@ -53,10 +53,6 @@ struct TodayView: View {
         "\(DoseDelayPolicy.delayMinutes) 分钟"
     }
 
-    private var isDoseInteractionAnimationActive: Bool {
-        doseInteraction.isAnimationActive
-    }
-
     private var systemSurfaceSynchronizer: TodaySystemSurfaceSynchronizer {
         TodaySystemSurfaceSynchronizer(
             notificationService: notificationService,
@@ -171,14 +167,12 @@ struct TodayView: View {
                     await notificationService.refreshPendingReminderCount()
                 },
                 timerTick: {
-                    settleOverdueTasksIfNeeded()
                     Task {
                         await refreshLiveActivities()
                     }
                 },
                 becameActive: {
                     consumeExternalDosePersistenceFailure()
-                    settleOverdueTasksIfNeeded()
                     scheduleLiveActivityRefresh()
                     Task {
                         await notificationService.refreshAuthorizationStatus()
@@ -364,55 +358,6 @@ struct TodayView: View {
         }
         withAnimation(.easeInOut(duration: 0.16)) {
             pendingDoseConfirmation = nil
-        }
-    }
-
-    private func settleOverdueTasksIfNeeded(force: Bool = false) {
-        let now = Date()
-        if isDoseInteractionAnimationActive {
-            guard !force else {
-                return
-            }
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 1_400_000_000)
-                guard !Task.isCancelled else {
-                    return
-                }
-                settleOverdueTasksIfNeeded(force: true)
-            }
-            return
-        }
-        guard TodayPerformanceGate.shouldRunOverdueSettlement(now: now, force: force) else {
-            return
-        }
-        guard hasPotentialOverdueDoseTask(now: now) else {
-            return
-        }
-        let settlement = NotificationService().settleOverdueDoseTasks(in: modelContext)
-        guard settlement.updatedCount > 0 else {
-            return
-        }
-        for taskID in settlement.updatedTaskIDs {
-            Task {
-                notificationService.cancelReminder(for: taskID)
-                await liveActivityService.end(for: taskID)
-            }
-        }
-        scheduleLiveActivityRefresh(after: 0.35)
-    }
-
-    private func hasPotentialOverdueDoseTask(now: Date) -> Bool {
-        tasks.contains { task in
-            guard task.isAdherenceMeasurable,
-                  isOpenStatus(task.status),
-                  !task.reason.contains("自动记录为忽略")
-            else {
-                return false
-            }
-            if task.reason.contains("用户撤销后等待确认") {
-                return true
-            }
-            return reminderPolicy.shouldAutoSkip(plannedDueAt: task.dueAt, now: now)
         }
     }
 
@@ -905,7 +850,6 @@ struct TodayView: View {
             return
         }
         didRunInitialTodayMaintenance = true
-        settleOverdueTasksIfNeeded()
         scheduleLiveActivityRefresh()
     }
 

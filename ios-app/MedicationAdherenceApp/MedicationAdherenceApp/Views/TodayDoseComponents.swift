@@ -4,28 +4,6 @@ import SwiftData
 import SwiftUI
 import UIKit
 
-@MainActor
-enum TodayPerformanceGate {
-    private static var lastOverdueSettlementAt: Date?
-    private static let minimumOverdueSettlementInterval: TimeInterval = 45
-
-    static func shouldRunOverdueSettlement(now: Date, force: Bool) -> Bool {
-        if force {
-            lastOverdueSettlementAt = now
-            return true
-        }
-        guard let lastOverdueSettlementAt else {
-            self.lastOverdueSettlementAt = now
-            return true
-        }
-        guard now.timeIntervalSince(lastOverdueSettlementAt) >= minimumOverdueSettlementInterval else {
-            return false
-        }
-        self.lastOverdueSettlementAt = now
-        return true
-    }
-}
-
 struct PendingDoseFeedback: Equatable {
     enum Action: Equatable {
         case taken

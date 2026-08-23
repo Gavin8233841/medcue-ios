@@ -531,6 +531,8 @@ struct TodayDoseProjectionTests {
         #expect(beforeProjection.overdueOpenTaskCount == 0)
         #expect(afterProjection.nextReminderTask == nil)
         #expect(afterProjection.overdueOpenTaskCount == 1)
+        #expect(task.status == .pending)
+        #expect(task.recordedAt == nil)
     }
 
     @Test @MainActor

@@ -10,14 +10,6 @@ struct MedicationReminderScheduleBatch {
     var cancelledTaskIDs: [UUID]
 }
 
-struct MedicationReminderSettlement {
-    var updatedTaskIDs: [UUID]
-
-    var updatedCount: Int {
-        updatedTaskIDs.count
-    }
-}
-
 struct MedicationReminderScheduleEntry {
     var task: StoredDoseTask
     var medication: StoredMedication
