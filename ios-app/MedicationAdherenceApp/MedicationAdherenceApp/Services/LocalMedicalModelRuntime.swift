@@ -29,6 +29,7 @@ actor LocalMedicalModelRuntime: LocalMedicalGenerating {
 
     func generateResponse(prompt: String, modelURL: URL, maxTokens: Int) async throws -> String {
         #if canImport(llama)
+        try Task.checkCancellation()
         let context = try LlamaCppContext(modelURL: modelURL)
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPrompt.isEmpty else {
@@ -47,8 +48,9 @@ actor LocalMedicalModelRuntime: LocalMedicalGenerating {
 
     func generateResponseStream(prompt: String, modelURL: URL, maxTokens: Int) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let worker = Task {
                 do {
+                    try Task.checkCancellation()
                     #if canImport(llama)
                     let context = try LlamaCppContext(modelURL: modelURL)
                     let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -56,11 +58,12 @@ actor LocalMedicalModelRuntime: LocalMedicalGenerating {
                         throw LocalMedicalAIError.emptyResponse
                     }
                     _ = try context.generate(prompt: trimmedPrompt, maxTokens: maxTokens) { delta in
-                        guard !delta.isEmpty else {
+                        guard !delta.isEmpty, !Task.isCancelled else {
                             return
                         }
                         continuation.yield(delta)
                     }
+                    try Task.checkCancellation()
                     continuation.finish()
                     #else
                     throw LocalMedicalAIError.runtimeUnavailable
@@ -68,6 +71,9 @@ actor LocalMedicalModelRuntime: LocalMedicalGenerating {
                 } catch {
                     continuation.finish(throwing: error)
                 }
+            }
+            continuation.onTermination = { @Sendable _ in
+                worker.cancel()
             }
         }
     }
@@ -121,12 +127,13 @@ private final class LlamaCppContext {
 
     deinit {
         llama_sampler_free(sampler)
-        llama_model_free(model)
         llama_free(context)
+        llama_model_free(model)
         llama_backend_free()
     }
 
     func generate(prompt: String, maxTokens: Int, onToken: ((String) -> Void)? = nil) throws -> String {
+        try Task.checkCancellation()
         pendingUTF8Bytes.removeAll()
         llama_memory_clear(llama_get_memory(context), true)
         llama_sampler_reset(sampler)
@@ -144,6 +151,7 @@ private final class LlamaCppContext {
             throw LocalMedicalAIError.emptyResponse
         }
 
+        try Task.checkCancellation()
         var promptTokensForDecode = promptTokens
         let promptDecodeStatus = promptTokensForDecode.withUnsafeMutableBufferPointer { tokens in
             let promptBatch = llama_batch_get_one(tokens.baseAddress, Int32(tokens.count))
@@ -153,10 +161,13 @@ private final class LlamaCppContext {
         guard promptDecodeStatus == 0 else {
             throw LocalMedicalAIError.runtimeUnavailable
         }
+        try Task.checkCancellation()
 
         var output = ""
         for _ in 0..<tokenLimit {
+            try Task.checkCancellation()
             let newToken = llama_sampler_sample(sampler, context, -1)
+            try Task.checkCancellation()
             if llama_vocab_is_eog(vocab, newToken) {
                 output += flushPendingUTF8Bytes()
                 break
@@ -165,6 +176,7 @@ private final class LlamaCppContext {
             let piece = appendTokenPiece(newToken)
             output += piece
             onToken?(piece)
+            try Task.checkCancellation()
             llama_sampler_accept(sampler, newToken)
             var tokenForDecode = newToken
             let tokenBatch = llama_batch_get_one(&tokenForDecode, 1)
@@ -172,6 +184,7 @@ private final class LlamaCppContext {
             guard llama_decode(context, tokenBatch) == 0 else {
                 throw LocalMedicalAIError.runtimeUnavailable
             }
+            try Task.checkCancellation()
         }
 
         output += flushPendingUTF8Bytes()
