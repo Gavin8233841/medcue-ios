@@ -521,6 +521,24 @@ class SourcePackageTests(unittest.TestCase):
         )
         assert_direct_failure(self_reference_zip, self_reference_sha, "duplicate or unknown path")
 
+        missing_zlib_zip = self.temp / "missing-zlib.zip"
+        with zipfile.ZipFile(source_zip) as source, zipfile.ZipFile(
+            missing_zlib_zip, "w", compression=zipfile.ZIP_DEFLATED
+        ) as target:
+            for info in source.infolist():
+                data = source.read(info)
+                if info.filename == "SOURCE_MANIFEST.json":
+                    manifest = json.loads(data)
+                    manifest.pop("reproducibility", None)
+                    data = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                target.writestr(info, data)
+        missing_zlib_sha = self.temp / "missing-zlib.sha256"
+        missing_zlib_sha.write_text(
+            f"{hashlib.sha256(missing_zlib_zip.read_bytes()).hexdigest()}  {missing_zlib_zip.name}\n",
+            encoding="ascii",
+        )
+        assert_direct_failure(missing_zlib_zip, missing_zlib_sha, "reproducibility.zlibVersion")
+
     def test_unsupported_mode_fails(self) -> None:
         self.write("linked", "README.md")
         command("git", "add", "linked", cwd=self.repo)
