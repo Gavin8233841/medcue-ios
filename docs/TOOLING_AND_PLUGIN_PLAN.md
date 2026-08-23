@@ -29,6 +29,10 @@
 - 旧 Build iOS Apps 插件和独立 XcodeBuildMCP 已移除，不安装、不恢复、不调用；
 - 不启用或读取旧 Xcode 回退副本；回退需要产品负责人另行明确决定；
 - 不自动升级部署目标、改签名、清理 DerivedData 或修改工程设置来掩盖失败。
+- 当前 Xcode 27 暴露的 Watch SDK 名称是 `watchsimulator27.0` 和
+  `watchos27.0`；`tools/verify-native.sh` 的本机默认值仍是 26.5。脚本完成
+  独立治理前，本机完整门禁须通过其公开环境变量传入上述已验证名称；CI
+  已传入通用 `watchsimulator` 和 `watchos`，不受该本机默认值影响。
 
 ## 当前需要的能力
 

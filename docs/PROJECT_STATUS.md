@@ -2,7 +2,7 @@
 
 Last audited: 2026-08-23
 Authoritative branch: `main`
-Authoritative `main` observed at: `c47416944790c5c4e7f1e3a03c4958473c1856fd`
+Authoritative `main` observed at: `15517b3649639539c05015970d2f6088df7426f9`
 Post-migration audit baseline: `280e5b3f8425f155d5e20a71841f4169a63bc59d`
 Audit-baseline CI: [Native Verification run 32171788727](https://github.com/Gavin8233841/medcue-ios/actions/runs/32171788727)
 
@@ -67,6 +67,14 @@ Route A gate successfully in
 on 2026-08-23. This is the exact post-merge evidence required by Issue #39; it
 does not transfer to the local finals documentation branch.
 
+The iOS DEBUG diagnostic-log privacy fix from Issue #23 / PR #43 merged at
+`15517b3649639539c05015970d2f6088df7426f9`. Its push-triggered full Route A
+gate and required-result job completed successfully in
+[run 32624679340](https://github.com/Gavin8233841/medcue-ios/actions/runs/32624679340)
+on 2026-08-23. The fix removes medication display text, task identifiers, and
+due-time values from the reminder/Live Activity smoke success log; it does not
+change reminder actions, persistence, or medical behavior.
+
 ### Reproduce The Audit-Baseline Counts
 
 The following PowerShell command reads the named Git tree directly, so later
@@ -130,10 +138,11 @@ security changes, bounded Broker idempotency-cache expiry/capacity from Issue
 lanes from Issue #39 / PR #40. PR #40 passed exact-head CI, Blocker 0 / Required
 0 review, code-owner approval, and the post-merge exact-main gate above.
 
-Issue #5 remains open, assigned to YZY, and queued without an implementation
-branch. Its prerequisite sequence is now complete; starting it still requires
-the recorded exact-main and open-file-overlap start check. No start signal or
-branch exists at this audit.
+Issue #5 remains open and assigned to YZY. Its implementation is active in PR
+#44 on `codex/5-reproducible-source-package-yzy1020`; that Pull Request owns the
+source-package scripts and its listed documentation/tooling files until it is
+integrated or handed off. The local finals baseline therefore remains a local
+milestone while its overlapping documentation files wait for PR #44 to merge.
 
 ### Accepted Finals Direction — Planning Only
 
@@ -170,9 +179,9 @@ evidence-backed `feature` type and has no invented priority or milestone.
   constrained Broker remain the current architectural boundaries.
 - Live Activity URL authorization remains tracked by Issue #2.
 - Broker fail-closed startup, bounded provider responses, and bounded
-  idempotency-cache expiry/capacity are merged. Issue #23 now has no Broker
-  dependency and tracks only the remaining iOS DEBUG reminder/Live Activity
-  diagnostic log that exposes a task identifier and medication display text.
+  idempotency-cache expiry/capacity are merged. Issue #23 / PR #43 also closed
+  the remaining iOS DEBUG reminder/Live Activity diagnostic-log exposure; its
+  exact post-merge evidence is recorded above.
 - The finals direction adds planned dual-experience and unconfirmed-action
   invariants. Runtime implementation and evidence remain future milestone work.
 - Consent revocation transactionality, persistent-store recovery, physical

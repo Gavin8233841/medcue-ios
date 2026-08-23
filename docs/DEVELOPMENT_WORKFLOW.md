@@ -384,9 +384,12 @@ as a mandatory Pull Request gate.
 PR #26, #30, #31, and #40 are merged. PR #40 owns the Native Verification lane
 and autonomous-merge rules now present in this file. The finals baseline branch
 waited for PR #40 and merged exact `main@c47416944790c5c4e7f1e3a03c4958473c1856fd`
-before adding local-milestone rules. Future same-file work must repeat the open
-Pull Request overlap check and review the complete cumulative diff; a
-conflict-free merge alone is not evidence that both rule sets survived.
+before adding local-milestone rules, then merged Issue #23 / PR #43's exact
+`main@15517b3649639539c05015970d2f6088df7426f9`. PR #44 now owns overlapping
+documentation files until its source-package work is integrated or handed off.
+Future same-file work must repeat the open Pull Request overlap check and review
+the complete cumulative diff; a conflict-free merge alone is not evidence that
+both rule sets survived.
 
 ## Definition Of Done
 
