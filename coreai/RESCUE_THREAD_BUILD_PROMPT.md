@@ -1,10 +1,14 @@
 # 发给竞赛-救援接力线程的提示词
 
+> 历史接力材料：其中产品与 SDK 判断只代表编写时状态。当前执行前先读
+> `../CONTEXT.md`、`../docs/PROJECT_STATUS.md` 和 `../docs/FINALS_PRODUCT_PLAN.md`，
+> 不得把本文件当作当前任务授权。
+
 请接手一个独立构建验证任务，不要覆盖主线程进展，不要清理工作区，不要删除文件。
 
 项目路径：
 
-`$HOME/Desktop/appcontest-2026-prep`
+`/Users/Admin/Developer/MedCue/appcontest-2026-prep`
 
 背景：
 
@@ -69,20 +73,16 @@ struct LocalFoundationMedicalAIClient: MedicalAIClient {
 验证命令：
 
 ```zsh
-cd $HOME/Desktop/appcontest-2026-prep/swift-core
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swift test
+cd /Users/Admin/Developer/MedCue/appcontest-2026-prep/swift-core
+swift test
 ```
 
 ```zsh
-cd $HOME/Desktop/appcontest-2026-prep
+cd /Users/Admin/Developer/MedCue/appcontest-2026-prep
 ./tools/ios-preflight-check.sh
 ```
 
-再用 Build iOS Apps MCP：
-
-- `session_show_defaults`
-- `build_sim({ "extraArgs": ["CODE_SIGNING_ALLOWED=NO"] })`
+Xcode 项目和 Simulator 验证使用 `/Applications/Xcode.app` 内 Xcode 27 Beta 5 的原生 MCP；不要安装、恢复或调用旧 Build iOS Apps/XcodeBuildMCP 插件。
 
 请最终回报：
 

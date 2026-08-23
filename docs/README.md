@@ -10,14 +10,16 @@ claims against the exact source revision and tests.
 
 1. `../CONTEXT.md` for product context, current release scope, intended behavior,
    language, and safety invariants.
-2. Source, tests, committed configuration, and exact-revision evidence for what
+2. `FINALS_PRODUCT_PLAN.md` for the accepted finals priority, milestones, and
+   collaboration direction.
+3. Source, tests, committed configuration, and exact-revision evidence for what
    the implementation actually does.
-3. `PROJECT_STATUS.md` for current verified engineering state and top risks.
-4. `ARCHITECTURE.md` and `TEST_STRATEGY.md` for intended engineering boundaries.
-5. `DEVELOPMENT_WORKFLOW.md` and `../AGENTS.md` for delivery rules.
-6. Accepted ADRs for specific durable decisions; reflect their consequences in
+4. `PROJECT_STATUS.md` for current verified engineering state and top risks.
+5. `ARCHITECTURE.md` and `TEST_STRATEGY.md` for intended engineering boundaries.
+6. `DEVELOPMENT_WORKFLOW.md` and `../AGENTS.md` for delivery rules.
+7. Accepted ADRs for specific durable decisions; reflect their consequences in
    `ARCHITECTURE.md` or `TEST_STRATEGY.md` when those boundaries change.
-7. Operational references and historical evidence listed below.
+8. Operational references and historical evidence listed below.
 
 Generated summaries, knowledge graphs, model evaluations, chats, and handoff
 documents are navigation aids. They do not override the sources above.
@@ -26,6 +28,8 @@ documents are navigation aids. They do not override the sources above.
 
 | Document | Purpose |
 | --- | --- |
+| `FINALS_PRODUCT_PLAN.md` | Accepted product focus, differentiation, milestone gates, and team boundaries through the finals |
+| `TOOLING_AND_PLUGIN_PLAN.md` | Current local workspace, Xcode, MCP, plugin, and privacy boundaries |
 | `PROJECT_STATUS.md` | Current verified baseline, blockers, debt, and owner decisions |
 | `ARCHITECTURE.md` | Module, state, persistence, platform, and trust boundaries |
 | `TEST_STRATEGY.md` | Risk-to-evidence map and verification expectations |
@@ -59,8 +63,10 @@ statements that were current only when written.
 contain `../PROJECT_UPDATE_LOG.md`, the removed Watch handoff/devlog files, or
 privacy-removed migration assets and placeholders. These absent materials are
 not current evidence and must not be reconstructed from guessed or raw inputs.
-New work belongs in GitHub Issues; verification and review evidence belongs in
-Pull Requests; durable decisions belong in ADRs.
+Locally owned work stays in one focused finals milestone until it reaches the
+GitHub threshold in `DEVELOPMENT_WORKFLOW.md`. Remote or deferred work belongs
+in GitHub Issues; integration evidence belongs in Pull Requests; durable
+decisions belong in ADRs.
 
 ## Maintenance Rule
 

@@ -17,7 +17,7 @@ Swift 命令需要从 Developer PowerShell for VS 2022 进入，普通 PowerShel
 ## Codex 插件状态
 
 - GitHub 插件：可用，适合后续版本管理、仓库查看、提交和 PR。
-- Build iOS Apps 插件：可用；2026-06-10 重启后已实测 `mcp__xcodebuildmcp__session_show_defaults` 和 `mcp__xcodebuildmcp__list_sims` 可直接调用，`list_sims` 已返回 iOS 26.5 模拟器列表。
+- Xcode 工具约定：使用 `/Applications/Xcode.app` 内 Xcode 27 Beta 5（27A5237l）自带的原生 MCP；`xcode-select` 已指向 `/Applications/Xcode.app/Contents/Developer`，命令行无需额外设置 `DEVELOPER_DIR`。旧 Build iOS Apps/XcodeBuildMCP 已卸载，不恢复、不调用。
 - ShipSwift 插件：可用；2026-06-10 重启后已实测 `mcp__shipswift__listRecipes` 和 `mcp__shipswift__getRecipe` 可直接调用。
 - 内置浏览器：可用，已用于核对官网和官方附件。
 - Chrome 专用控制：当前未暴露可用入口，也未出现在可安装插件列表。
@@ -29,9 +29,8 @@ Swift 命令需要从 Developer PowerShell for VS 2022 进入，普通 PowerShel
 - 指导老师信息，计划由班主任担任。
 - 参赛队名。
 - 学校、学院、专业等报名信息。
-- 选定 App 方向。
-- 若继续启迪：macOS/Xcode 或可被 Codex 使用的 iOS 构建环境。
+- 官方决赛日期与最终提交材料要求公布后重新校准计划。
 
 ## Xcode 与 Scheme
 
-当前不需要用户提供 Xcode、Scheme 或模拟器信息。等出现 `.xcodeproj` 或 `.xcworkspace` 后，先用 Build iOS Apps 插件读取会话默认值和项目配置；如果插件无法确定 Scheme、Target、Bundle ID 或模拟器，再要求用户补充精确信息。
+当前工程、Scheme、Target、Bundle ID 和 iOS 26.5 模拟器已通过 Xcode 27 原生 MCP 与本机构建路径核对，不需要用户重复提供。只有当前变更产生了原生工具无法回答的新外部事实时，才请求补充。

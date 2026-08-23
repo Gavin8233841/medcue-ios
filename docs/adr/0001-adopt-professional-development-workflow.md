@@ -43,6 +43,14 @@ sanitized archive/audit refs and does not restore raw pre-normalization history.
 This note records the implementation state; it does not claim that prior
 clones, caches, or provider retention copies were purged.
 
+### Product-delivery amendment (2026-08-22)
+
+[ADR-0002](0002-focus-finals-on-reliable-medication-core-and-elder-friendly-mode.md)
+allows small verified local steps to be grouped under one focused milestone
+brief and branch before the GitHub integration checkpoint. Remote collaboration,
+durable backlog, Pull Request review, exact-head CI, safety evidence, and merge
+to `main` remain required as described in `../DEVELOPMENT_WORKFLOW.md`.
+
 ## Consequences
 
 - Product intent and completion evidence become traceable.

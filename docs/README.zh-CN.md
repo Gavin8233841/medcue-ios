@@ -7,12 +7,13 @@
 ## 权威顺序
 
 1. `../CONTEXT.md`：产品上下文、当前发布范围、目标行为、语言和安全不变量。
-2. 源码、测试、已提交配置和准确版本证据：实现实际做了什么。
-3. `PROJECT_STATUS.md`：当前已验证的工程状态和主要风险。
-4. `ARCHITECTURE.md` 与 `TEST_STRATEGY.md`：预期工程边界。
-5. `DEVELOPMENT_WORKFLOW.md` 与 `../AGENTS.md`：交付流程和协作规则。
-6. 已接受的 ADR：具体持久架构决策及其后果。
-7. 下方列出的运行与历史资料。
+2. `FINALS_PRODUCT_PLAN.md`：已确认的决赛优先级、里程碑和协作方向。
+3. 源码、测试、已提交配置和准确版本证据：实现实际做了什么。
+4. `PROJECT_STATUS.md`：当前已验证的工程状态和主要风险。
+5. `ARCHITECTURE.md` 与 `TEST_STRATEGY.md`：预期工程边界。
+6. `DEVELOPMENT_WORKFLOW.md` 与 `../AGENTS.md`：交付流程和协作规则。
+7. 已接受的 ADR：具体持久架构决策及其后果。
+8. 下方列出的运行与历史资料。
 
 生成的摘要、知识图谱、模型评估、聊天记录和交接文档只能用于导航，不能覆盖上述来源。
 
@@ -20,6 +21,8 @@
 
 | 文档 | 用途 |
 | --- | --- |
+| `FINALS_PRODUCT_PLAN.md` | 决赛前的产品主线、差异化、里程碑门和团队边界 |
+| `TOOLING_AND_PLUGIN_PLAN.md` | 当前本机工作区、Xcode、MCP、插件和隐私边界 |
 | `PROJECT_STATUS.md` | 当前基线、阻塞项、技术债务和产品决策 |
 | `ARCHITECTURE.md` | 模块、状态、持久化、平台和信任边界 |
 | `TEST_STRATEGY.md` | 风险到证据的验证映射 |
@@ -41,7 +44,7 @@
 
 仓库中仍保留从 `01-...` 到 `25-...` 的编号规划、策略、快照、加固、依赖图和架构资料，用于审计和上下文参考。它们不是当前 backlog，可能包含只在当时成立的陈述。
 
-`11-development-todo.md` 是冻结的历史记录。仓库不包含 `../PROJECT_UPDATE_LOG.md`、已移除的 Watch 交接/开发日志文件或隐私清理后的迁移资产和占位符。不要根据猜测或原始输入重建这些缺失材料。新工作进入 GitHub Issue；验证和评审证据进入 Pull Request；持久架构决策进入 ADR。
+`11-development-todo.md` 是冻结的历史记录。仓库不包含 `../PROJECT_UPDATE_LOG.md`、已移除的 Watch 交接/开发日志文件或隐私清理后的迁移资产和占位符。不要根据猜测或原始输入重建这些缺失材料。本机工作在达到 `DEVELOPMENT_WORKFLOW.md` 规定的 GitHub 使用门槛前归入一个聚焦决赛里程碑；远程或延期工作进入 GitHub Issue，整合证据进入 Pull Request，持久架构决策进入 ADR。
 
 ## 维护规则
 

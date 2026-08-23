@@ -1,19 +1,23 @@
 # 开发顺序与调试路径
 
+> 本文件保留早期开发与调试证据，不再承担当前决赛路线。当前优先级见
+> `FINALS_PRODUCT_PLAN.md`，当前工程事实见 `PROJECT_STATUS.md`，工具事实见
+> `TOOLING_AND_PLUGIN_PLAN.md`。
+
 ## 当前阶段
 
 已切到新 Mac 接力。SwiftPM 核心包和 SwiftUI iOS App 工程均已建立；当前重点是把演示/占位能力逐步改成可交互流程，并保持所有外部 API 都有离线演示路径。
 
 ## 新 Mac 环境状态
 
-- 项目路径：`$HOME/Desktop/appcontest-2026-prep`。
-- 主线 Xcode：`/Applications/Xcode-beta.app`，Xcode 27.0 beta，Build version 27A5194q。
-- 主线 Developer 目录：`/Applications/Xcode-beta.app/Contents/Developer`。
+- 唯一活动项目路径：`/Users/Admin/Developer/MedCue/appcontest-2026-prep`；桌面迁移副本只读，不在那里开发或构建。
+- 主线 Xcode：`/Applications/Xcode.app`，Xcode 27 Beta 5，Build version 27A5237l（2026-08-23 已核对）。
+- 主线 Developer 目录：`/Applications/Xcode.app/Contents/Developer`。
 - 主线 Swift：Apple Swift 6.4。
-- 备用 Xcode：`/Applications/Xcode.app`，Xcode 26.5，Build version 17F42；仅在 Xcode 27 beta 明确不可用时作为回退。
-- 当前系统默认 `xcode-select -p` 已切到 `/Applications/Xcode-beta.app/Contents/Developer`，直接运行 `swift`、`xcodebuild`、`xcrun simctl` 和 `xcrun devicectl` 均应来自 Xcode 27 beta。
-- 后续主线开发不要在命令或插件配置中写死 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`；如确需回退 Xcode 26.5，必须在当次命令中显式说明回退原因。
-- 根目录 `.git` 已用非破坏性 `git init` 补齐，`git status` 可用；当前是重新初始化后的本地仓库，文件显示为未跟踪，未执行清理、回滚或破坏性操作。
+- 当前不启用或读取旧 Xcode 回退副本；如需回退，必须由产品负责人另行明确决定。
+- `xcode-select -p` 已指向上述 Developer 目录；直接运行 `swift`、`xcodebuild` 和 `xcrun` 使用同一套 Xcode 27 工具链。
+- Xcode 项目、Scheme、构建和 Simulator 操作优先使用 Xcode 27 原生 MCP；不要恢复或调用旧 Build iOS Apps/XcodeBuildMCP 插件。
+- 当前权威 Git 仓库为规范化后的远端仓库，本地开发从最新 `main` 建立聚焦分支；旧的“重新初始化且全部未跟踪”描述已经失效。
 
 ## 阶段 1：核心模块
 
@@ -128,7 +132,7 @@
 主线使用 Xcode 27 beta：
 
 ```zsh
-cd $HOME/Desktop/appcontest-2026-prep/swift-core
+cd /Users/Admin/Developer/MedCue/appcontest-2026-prep/swift-core
 swift test
 ```
 
@@ -144,7 +148,7 @@ swift --version
 ## iOS App 构建命令
 
 ```zsh
-cd $HOME/Desktop/appcontest-2026-prep
+cd /Users/Admin/Developer/MedCue/appcontest-2026-prep
 xcodebuild \
   -project ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj \
   -scheme MedicationAdherenceApp \
@@ -217,13 +221,13 @@ xcodebuild \
 - v0.9.3 实机问题接力文档：`docs/16-v0.9.3-live-device-issues-handoff.md`
 - v0.9.3 已记录待修问题：今日撤销动画卡顿、实机医疗 AI 无法调用、灵动岛安全区、HealthKit 授权完成态、药品中文化、连续打卡统计、药品页记录入口背景简化、概览卡片可交互跳转和 PDF 导出报告视觉重设计。
 - 根目录项目修改更新操作日志：`PROJECT_UPDATE_LOG.md`。继续工作时应先读该文件，再读 `README.md`、`docs/08-development-roadmap-and-debugging.md`、`docs/11-development-todo.md` 和 `docs/16-v0.9.3-live-device-issues-handoff.md`。
-- 2026-06-07 今日页动效补漏：标记完成/忽略保留按钮确认小特效，并通过已处理汇总条、迁移快照小条和提交后展开隐藏跨分组重排；撤销时先淡化目标行，再同时折叠已处理区与待处理区，提交后展开待处理区。Build iOS Apps `build_sim`、`build_run_sim` 和今日页 UI 快照已通过，仍需 iPhone 实机最终确认手感。
+- 2026-06-07 今日页动效补漏：标记完成/忽略保留按钮确认小特效，并通过已处理汇总条、迁移快照小条和提交后展开隐藏跨分组重排；撤销时先淡化目标行，再同时折叠已处理区与待处理区，提交后展开待处理区。该条历史验证曾使用旧 Build iOS Apps 插件；当前同类操作改用 Xcode 27 beta 原生 MCP，仍需 iPhone 实机最终确认手感。
 - 当前 Google Drive 工具仍不支持任意 `.tar.gz` 原始文件上传；Google Doc 记录的是云端索引和校验信息，压缩包本体仍在本机路径。
 - 2026-06-07 提醒核心补强：滚动任务生成、授权后重排程、pending notification request 计数和“稍后 30 分钟”重启稳定性已在 iPhone 17 Pro 模拟器验证。仍需真机验证锁屏响铃、勿扰/静音、AlarmKit 闹钟和灵动岛展示。
 
 ## iPhone 真机签名与运行
 
-1. 用 Xcode 打开 `$HOME/Desktop/appcontest-2026-prep/ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj`。
+1. 用 Xcode 打开 `/Users/Admin/Developer/MedCue/appcontest-2026-prep/ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj`。
 2. 在左侧项目导航选择 `MedicationAdherenceApp` 工程，再选择主 App target `MedicationAdherenceApp`。
 3. 打开 `Signing & Capabilities`，确认 Team 选择你的 Apple Developer Team 或个人 Apple ID Team。
 4. Bundle Identifier 保持 `com.gwyy.appcontest2026.medicationadherence`；如果 Xcode 提示已被占用，再改成带你个人前缀的唯一值，同时让扩展 bundle id 自动跟随主 App 前缀。
