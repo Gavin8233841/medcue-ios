@@ -15,17 +15,20 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import struct
 import subprocess
 import sys
 from typing import NoReturn
 import zipfile
+import zlib
 
 
 TOOL_VERSION = "0.1.0"
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 CONTROL_CHAR = re.compile(r"[\x00-\x1f\x7f]")
-WINDOWS_PRIVATE_PATH = re.compile(
-    rb"(?<![A-Za-z0-9_])[A-Za-z]:[\\/](?:Users|Documents and Settings)[\\/]"
+WINDOWS_LOCAL_PATH = re.compile(
+    rb"(?<![A-Za-z0-9_])[A-Za-z]:[\\/](?!(?:Program Files(?: \(x86\))?|Windows)[\\/])",
+    re.IGNORECASE,
 )
 PRIVATE_POSIX_ROOTS = tuple(b"/" + part + b"/" for part in (b"Users", b"home", b"private", b"Volumes"))
 SECRET_VALUE = re.compile(
@@ -158,6 +161,14 @@ FORBIDDEN_BASENAME = re.compile(
     r"^(?:AISecrets\.plist|\.env(?:\..*)?|.*\.gguf)$", re.IGNORECASE
 )
 HISTORICAL_IMAGE = re.compile(r"^IMG_[^/]+\.(?:png|jpe?g)$", re.IGNORECASE)
+APP_ICON_PREFIXES = (
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/AppIcon.appiconset/",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceWatchApp/Assets.xcassets/AppIcon.appiconset/",
+)
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+WINDOWS_RESERVED_COMPONENT = re.compile(
+    r"^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$", re.IGNORECASE
+)
 
 
 class PackageError(RuntimeError):
@@ -206,7 +217,17 @@ def validate_archive_path(path: str, folded: dict[str, str]) -> None:
     if CONTROL_CHAR.search(path) or "\\" in path:
         fail(f"forbidden control character or backslash in path: {path!r}")
     pure = PurePosixPath(path)
-    if path.startswith("/") or any(part in {"", ".", ".."} for part in pure.parts):
+    if (
+        path.startswith("/")
+        or pure.as_posix() != path
+        or any(part in {"", ".", ".."} for part in pure.parts)
+        or any(
+            ":" in part
+            or part.endswith((" ", "."))
+            or WINDOWS_RESERVED_COMPONENT.fullmatch(part)
+            for part in pure.parts
+        )
+    ):
         fail(f"unsafe archive path: {path!r}")
     key = path.casefold()
     if key in folded:
@@ -216,6 +237,49 @@ def validate_archive_path(path: str, folded: dict[str, str]) -> None:
 
 def allowed_path(path: str) -> bool:
     return path in ROOT_FILES or path.startswith(ALLOWED_PREFIXES)
+
+
+def approved_app_icon(path: str) -> bool:
+    return path.casefold().endswith(".png") and path.startswith(APP_ICON_PREFIXES)
+
+
+def validate_png(path: str, data: bytes) -> None:
+    if not data.startswith(PNG_SIGNATURE):
+        fail(f"approved AppIcon is not a PNG file: {path}")
+    offset = len(PNG_SIGNATURE)
+    seen_header = False
+    seen_data = False
+    seen_end = False
+    while offset < len(data):
+        if offset + 12 > len(data):
+            fail(f"approved AppIcon has a truncated PNG chunk: {path}")
+        length = struct.unpack(">I", data[offset : offset + 4])[0]
+        chunk_type = data[offset + 4 : offset + 8]
+        chunk_end = offset + 12 + length
+        if chunk_end > len(data):
+            fail(f"approved AppIcon has a truncated PNG chunk: {path}")
+        chunk_data = data[offset + 8 : offset + 8 + length]
+        expected_crc = struct.unpack(">I", data[offset + 8 + length : chunk_end])[0]
+        if zlib.crc32(chunk_type + chunk_data) & 0xFFFFFFFF != expected_crc:
+            fail(f"approved AppIcon has an invalid PNG checksum: {path}")
+        if not seen_header:
+            if chunk_type != b"IHDR" or length != 13:
+                fail(f"approved AppIcon is missing its PNG header: {path}")
+            width, height = struct.unpack(">II", chunk_data[:8])
+            if width <= 0 or height <= 0 or width > 4096 or height > 4096:
+                fail(f"approved AppIcon has invalid PNG dimensions: {path}")
+            seen_header = True
+        elif chunk_type == b"IHDR":
+            fail(f"approved AppIcon has duplicate PNG headers: {path}")
+        if chunk_type == b"IDAT":
+            seen_data = True
+        if chunk_type == b"IEND":
+            if length != 0 or chunk_end != len(data):
+                fail(f"approved AppIcon has invalid trailing PNG content: {path}")
+            seen_end = True
+        offset = chunk_end
+    if not (seen_header and seen_data and seen_end):
+        fail(f"approved AppIcon has an incomplete PNG structure: {path}")
 
 
 def forbidden_path(path: str) -> str | None:
@@ -235,14 +299,14 @@ def forbidden_path(path: str) -> str | None:
         return "generated application, framework, model, archive, or result bundle"
     if ".xcframework/" in lower:
         return "binary frameworks are external release inputs and are not bundled"
-    if any(lower.endswith(suffix) for suffix in FORBIDDEN_SUFFIXES):
-        if lower.endswith(".png") and ".xcassets/" in lower:
+    if lower.endswith(".png"):
+        if approved_app_icon(path):
             return None
-        return "forbidden archive/media/database/credential extension"
-    if lower.endswith(".png") and ".xcassets/" not in lower:
-        return "PNG is only allowed for tracked Asset Catalog icons"
-    if lower.endswith(".svg") and ".xcassets/" not in lower:
+        return "PNG is only allowed in approved AppIcon asset catalogs"
+    if lower.endswith(".svg"):
         return "SVG media is not approved for this source package"
+    if any(lower.endswith(suffix) for suffix in FORBIDDEN_SUFFIXES):
+        return "forbidden archive/media/database/credential extension"
     return None
 
 
@@ -263,11 +327,13 @@ def read_blobs(repo: Path, entries: list[dict[str, object]]) -> dict[str, bytes]
         if reason:
             fail(f"{path}: {reason}")
         data = git(repo, "cat-file", "blob", sha)
-        if b"\0" in data and not (
-            path.casefold().endswith(".png") and ".xcassets/" in path.casefold()
-        ):
+        if b"\0" in data and not approved_app_icon(path):
             fail(f"binary content is not an approved Asset Catalog icon: {path}")
-        if WINDOWS_PRIVATE_PATH.search(data) or any(root in data for root in PRIVATE_POSIX_ROOTS):
+        if approved_app_icon(path):
+            validate_png(path, data)
+        if not approved_app_icon(path) and (
+            WINDOWS_LOCAL_PATH.search(data) or any(root in data for root in PRIVATE_POSIX_ROOTS)
+        ):
             fail(f"absolute local path detected in tracked content: {path}")
         if SECRET_VALUE.search(data):
             fail(f"secret-like value detected in tracked content: {path}")
@@ -275,7 +341,7 @@ def read_blobs(repo: Path, entries: list[dict[str, object]]) -> dict[str, bytes]
     missing = sorted(REQUIRED_PATHS - blobs.keys())
     if missing:
         fail(f"required build/review paths are missing: {', '.join(missing)}")
-    if not any(path.casefold().endswith(".png") and ".xcassets/" in path.casefold() for path in blobs):
+    if not any(approved_app_icon(path) for path in blobs):
         fail("required tracked Asset Catalog icons are missing")
     notice = blobs["docs/THIRD_PARTY_NOTICES.md"]
     if b"llama.cpp" not in notice or b"MIT" not in notice:
@@ -343,7 +409,7 @@ def dependency_inventory(blobs: dict[str, bytes]) -> list[dict[str, object]]:
 
 
 def asset_inventory(blobs: dict[str, bytes]) -> dict[str, object]:
-    icons = sorted(path for path in blobs if ".xcassets/" in path and path.casefold().endswith(".png"))
+    icons = sorted(path for path in blobs if approved_app_icon(path))
     fonts = sorted(path for path in blobs if path.casefold().endswith((".ttf", ".otf")))
     media = sorted(
         path

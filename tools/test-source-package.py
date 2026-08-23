@@ -8,12 +8,14 @@ import importlib.util
 import json
 from pathlib import Path
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import unittest
 import warnings
 import zipfile
+import zlib
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +27,20 @@ if SPEC is None or SPEC.loader is None:
     raise RuntimeError("cannot load source-package builder")
 SOURCE_PACKAGE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SOURCE_PACKAGE)
+
+
+def synthetic_png() -> bytes:
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        checksum = zlib.crc32(kind + data) & 0xFFFFFFFF
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", checksum)
+
+    header = struct.pack(">IIBBBBB", 1, 1, 8, 6, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(b"\x00\x00\x00\x00\x00"))
+        + chunk(b"IEND", b"")
+    )
 
 
 def command(*args: str, cwd: Path, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -53,7 +69,7 @@ class SourcePackageTests(unittest.TestCase):
         self.write("docs/THIRD_PARTY_NOTICES.md", "llama.cpp MIT; source-only notice.\n")
         self.write(
             "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
-            b"PNG synthetic iOS icon",
+            synthetic_png(),
         )
         self.write(
             "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/AppIcon.appiconset/Contents.json",
@@ -61,7 +77,7 @@ class SourcePackageTests(unittest.TestCase):
         )
         self.write(
             "ios-app/MedicationAdherenceApp/MedicationAdherenceWatchApp/Assets.xcassets/AppIcon.appiconset/WatchIcon-1024.png",
-            b"PNG synthetic Watch icon",
+            synthetic_png(),
         )
         self.write(
             "ios-app/MedicationAdherenceApp/MedicationAdherenceWatchApp/Assets.xcassets/AppIcon.appiconset/Contents.json",
@@ -171,7 +187,7 @@ class SourcePackageTests(unittest.TestCase):
         self.assertIn("forbidden archive", forbidden.stderr)
 
         command("git", "rm", "-q", "docs/delivery.zip", cwd=self.repo)
-        private_path = "C:" + "\\Users\\fixture\\private.txt\n"
+        private_path = "D:" + "\\work\\private-project\\private.txt\n"
         self.write("docs/path.md", private_path)
         revision = self.commit()
         local_path = self.run_builder(revision, self.temp / "local-path")
@@ -179,6 +195,59 @@ class SourcePackageTests(unittest.TestCase):
         self.assertIn("absolute local path", local_path.stderr)
 
         command("git", "rm", "-q", "docs/path.md", cwd=self.repo)
+        unapproved_svg = (
+            "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/"
+            "AppIcon.appiconset/unapproved.svg"
+        )
+        self.write(unapproved_svg, "<svg/>\n")
+        revision = self.commit()
+        svg = self.run_builder(revision, self.temp / "svg")
+        self.assertNotEqual(svg.returncode, 0)
+        self.assertIn("SVG media", svg.stderr)
+
+        command("git", "rm", "-q", unapproved_svg, cwd=self.repo)
+        disguised_png = (
+            "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/"
+            "AppIcon.appiconset/Payload.png"
+        )
+        contents_path = (
+            "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/"
+            "AppIcon.appiconset/Contents.json"
+        )
+        self.write(disguised_png, b"SQLite format 3\x00synthetic")
+        self.write(
+            contents_path,
+            '{"images":[{"filename":"AppIcon-1024.png"},{"filename":"Payload.png"}]}\n',
+        )
+        revision = self.commit()
+        disguised = self.run_builder(revision, self.temp / "disguised-png")
+        self.assertNotEqual(disguised.returncode, 0)
+        self.assertIn("not a PNG", disguised.stderr)
+
+        command("git", "rm", "-q", disguised_png, cwd=self.repo)
+        self.write(contents_path, '{"images":[{"filename":"AppIcon-1024.png"}]}\n')
+        unapproved_png = (
+            "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/"
+            "Unapproved.imageset/Decoration.png"
+        )
+        self.write(unapproved_png, synthetic_png())
+        self.write(
+            "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/"
+            "Unapproved.imageset/Contents.json",
+            '{"images":[{"filename":"Decoration.png"}]}\n',
+        )
+        revision = self.commit()
+        unapproved = self.run_builder(revision, self.temp / "unapproved-png")
+        self.assertNotEqual(unapproved.returncode, 0)
+        self.assertIn("approved AppIcon", unapproved.stderr)
+
+        command(
+            "git",
+            "rm",
+            "-qr",
+            "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/Unapproved.imageset",
+            cwd=self.repo,
+        )
         self.write("tools/node_modules/cache.js", "synthetic cache\n")
         revision = self.commit()
         cache = self.run_builder(revision, self.temp / "cache")
@@ -225,7 +294,17 @@ class SourcePackageTests(unittest.TestCase):
     def test_path_validation_rejects_traversal_control_and_collision(self) -> None:
         folded: dict[str, str] = {}
         SOURCE_PACKAGE.validate_archive_path("docs/ok.md", folded)
-        for path in ("../escape", "/absolute", "docs/../escape", "docs\\bad", "docs/bad\nname"):
+        for path in (
+            "../escape",
+            "/absolute",
+            "docs/../escape",
+            "docs//bad",
+            "docs/./bad",
+            "docs/trailing/",
+            "docs/CON",
+            "docs\\bad",
+            "docs/bad\nname",
+        ):
             with self.assertRaises(SOURCE_PACKAGE.PackageError):
                 SOURCE_PACKAGE.validate_archive_path(path, folded.copy())
         with self.assertRaises(SOURCE_PACKAGE.PackageError):
@@ -265,6 +344,9 @@ class SourcePackageTests(unittest.TestCase):
         collision = rejected_archive("collision", ["README.md", "readme.MD"])
         self.assertNotEqual(collision.returncode, 0)
         self.assertIn("collision", collision.stderr)
+        noncanonical = rejected_archive("noncanonical", ["docs/value", "docs//value"])
+        self.assertNotEqual(noncanonical.returncode, 0)
+        self.assertIn("unsafe", noncanonical.stderr)
 
     def test_unsupported_mode_fails(self) -> None:
         self.write("linked", "README.md")

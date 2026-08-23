@@ -16,6 +16,9 @@ import zipfile
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 SUM_LINE = re.compile(r"^([0-9a-f]{64})  (.+)$")
 CONTROL_CHAR = re.compile(r"[\x00-\x1f\x7f]")
+WINDOWS_RESERVED_COMPONENT = re.compile(
+    r"^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?$", re.IGNORECASE
+)
 MAX_ENTRIES = 10_000
 MAX_ENTRY_SIZE = 32 * 1024 * 1024
 MAX_TOTAL_SIZE = 128 * 1024 * 1024
@@ -33,7 +36,17 @@ def validate_path(path: str, folded: dict[str, str]) -> None:
     if CONTROL_CHAR.search(path) or "\\" in path:
         fail(f"unsafe control character or backslash in ZIP entry: {path!r}")
     pure = PurePosixPath(path)
-    if path.startswith("/") or any(part in {"", ".", ".."} for part in pure.parts):
+    if (
+        path.startswith("/")
+        or pure.as_posix() != path
+        or any(part in {"", ".", ".."} for part in pure.parts)
+        or any(
+            ":" in part
+            or part.endswith((" ", "."))
+            or WINDOWS_RESERVED_COMPONENT.fullmatch(part)
+            for part in pure.parts
+        )
+    ):
         fail(f"unsafe ZIP entry path: {path!r}")
     key = path.casefold()
     if key in folded:

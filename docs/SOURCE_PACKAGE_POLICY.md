@@ -39,7 +39,11 @@ rejects wrapper directories, traversal and control characters, case collisions,
 symlinks, submodules, unusual modes, unapproved paths, secrets, local paths,
 models, databases, archives, audio/video, and unapproved media. Historical
 `IMG_*.png` delivery evidence is excluded; PNGs under tracked Asset Catalogs
-remain allowed as product icons.
+remain allowed only in the two approved `AppIcon.appiconset` directories when
+their catalog metadata references them and their PNG structure is valid. SVGs
+and other Asset Catalog media are excluded. Archive paths must already be in
+canonical POSIX form; redundant separators, dot components, Windows-reserved
+names, trailing dots/spaces, and alternate-data-stream colons fail closed.
 
 The repository intentionally omits `llama.xcframework`. The package records its
 upstream release and license status in the manifest and includes the source-only
