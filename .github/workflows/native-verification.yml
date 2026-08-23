@@ -245,7 +245,7 @@ jobs:
   full:
     name: Full Native Verification
     needs: classify
-    if: ${{ (needs.classify.result == 'success' && needs.classify.outputs.lane == 'full') || needs.classify.result == 'failure' }}
+    if: ${{ always() && ((needs.classify.result == 'success' && needs.classify.outputs.lane == 'full') || needs.classify.result == 'failure') }}
     runs-on: macos-26
     timeout-minutes: 60
     env:
