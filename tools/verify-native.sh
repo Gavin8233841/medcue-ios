@@ -9,6 +9,9 @@ XCODE_PROJECT="$ROOT_DIR/ios-app/MedicationAdherenceApp/MedicationAdherenceApp.x
 SWIFT_CORE_DIR="$ROOT_DIR/swift-core"
 PREFLIGHT_SCRIPT="$ROOT_DIR/tools/ios-preflight-check.sh"
 SOURCE_SIZE_SCRIPT="$ROOT_DIR/tools/swift-source-size-check.sh"
+SOURCE_PACKAGE_BUILDER="$ROOT_DIR/tools/build-source-package.py"
+SOURCE_PACKAGE_TESTS="$ROOT_DIR/tools/test-source-package.py"
+SOURCE_PACKAGE_VERIFIER="$ROOT_DIR/tools/verify-source-package.py"
 
 MAIN_APP_TARGET="MedicationAdherenceApp"
 IOS_TEST_SCHEME="MedicationAdherenceApp"
@@ -336,6 +339,29 @@ run_swift_core_tests() {
     assert_verification_tree_safe
 }
 
+run_source_package_gate() {
+    local revision
+    local output_dir
+    local package_path
+    local digest_path
+    local temp_parent="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+
+    [[ -d "$temp_parent" ]] || fail "source-package temporary parent not found: $temp_parent"
+    output_dir="$(mktemp -d "${temp_parent%/}/medcue-source-package.XXXXXX")"
+    revision="$(git rev-parse --verify HEAD)"
+
+    PYTHONDONTWRITEBYTECODE=1 python3 "$SOURCE_PACKAGE_TESTS"
+    PYTHONDONTWRITEBYTECODE=1 python3 "$SOURCE_PACKAGE_BUILDER" \
+        --revision "$revision" \
+        --output-dir "$output_dir" \
+        --repository "$ROOT_DIR"
+    package_path="$output_dir/MedCue-source-${revision:0:12}.zip"
+    digest_path="$package_path.sha256"
+    PYTHONDONTWRITEBYTECODE=1 python3 "$SOURCE_PACKAGE_VERIFIER" "$package_path" "$digest_path"
+    unzip -t "$package_path"
+    printf 'Source-package evidence retained at: %s\n' "$output_dir"
+}
+
 run_xcode_build() {
     local target="$1"
     local configuration="$2"
@@ -461,16 +487,23 @@ main() {
     cd "$ROOT_DIR"
 
     require_command git
+    require_command mktemp
     require_command plutil
+    require_command python3
     require_command realpath
     require_command swift
+    require_command unzip
     require_command xcodebuild
     require_file "$PROJECT_FILE"
     require_file "$SWIFT_CORE_DIR/Package.swift"
     require_file "$PREFLIGHT_SCRIPT"
+    require_file "$SOURCE_PACKAGE_BUILDER"
+    require_file "$SOURCE_PACKAGE_TESTS"
+    require_file "$SOURCE_PACKAGE_VERIFIER"
     require_file "$SOURCE_SIZE_SCRIPT"
 
     run_step "Git diff check" verify_git_diff
+    run_step "Exact source-package gate" run_source_package_gate
     run_step "Xcode project plist lint" plutil -lint "$PROJECT_FILE"
     run_step "Swift source size limit" bash "$SOURCE_SIZE_SCRIPT"
     run_step "iOS preflight" bash "$PREFLIGHT_SCRIPT"
