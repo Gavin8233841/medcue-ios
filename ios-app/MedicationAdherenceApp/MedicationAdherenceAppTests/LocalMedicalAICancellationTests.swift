@@ -1,0 +1,349 @@
+import Foundation
+import MedicationAdherenceCore
+import Testing
+@testable import MedicationAdherenceApp
+
+/// Issue #6: cancellation of a local AI request must propagate through the
+/// client stream into the runtime worker, must never surface as a generation
+/// failure, and must leave room for an immediate retry. These tests drive the
+/// client through a scripted `LocalMedicalGenerating` seam; no real GGUF model
+/// or llama binary is involved.
+struct LocalMedicalAICancellationTests {
+    @Test
+    func cancellationBeforeGenerationStartsProducesNoFailureOrCompletion() async {
+        let runtime = CancellationFakeRuntime(plans: [
+            StreamPlan(initialDelay: .milliseconds(300), deltas: ["<answer>今天可以核对提醒并及时记录处理情况。</answer>"])
+        ])
+        let client = LocalMedicalAIClient(
+            modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"),
+            runtime: runtime
+        )
+        let collector = EventCollector()
+        let consumer = consume(client: client, into: collector)
+        consumer.cancel()
+        await consumer.value
+
+        #expect(await collector.failureCount == 0)
+        #expect(await collector.completionCount == 0)
+        #expect(await collector.answerDeltaCount == 0)
+        // Depending on scheduling the worker may observe cancellation before
+        // it ever reaches the runtime; every runtime stream that was created
+        // must have been terminated exactly once.
+        #expect(await waitUntil { await runtime.terminationCount == runtime.streamCallCount })
+        #expect(await runtime.streamCallCount <= 1)
+    }
+
+    @Test
+    func cancellationDuringStreamingStopsTokenDelivery() async {
+        let runtime = CancellationFakeRuntime(plans: [
+            StreamPlan(
+                deltas: ["<answer>今天", "可以核对", "提醒并", "及时记录", "处理情况。</answer>"],
+                gap: .milliseconds(60)
+            )
+        ])
+        let client = LocalMedicalAIClient(
+            modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"),
+            runtime: runtime
+        )
+        let collector = EventCollector()
+        let consumer = consume(client: client, into: collector)
+        #expect(await waitUntil { await collector.answerDeltaCount >= 1 })
+        consumer.cancel()
+        await consumer.value
+
+        #expect(await collector.answerDeltaCount < 5)
+        #expect(await collector.failureCount == 0)
+        #expect(await collector.completionCount == 0)
+        #expect(await waitUntil { await runtime.terminationCount == 1 })
+    }
+
+    @Test
+    func lateRuntimeEventsAfterCancellationAreRejected() async {
+        let runtime = CancellationFakeRuntime(plans: [
+            StreamPlan(
+                deltas: ["<answer>今天", "可以核对", "提醒并", "及时记录", "处理情况。</answer>"],
+                gap: .milliseconds(40),
+                ignoreCancellation: true
+            )
+        ])
+        let client = LocalMedicalAIClient(
+            modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"),
+            runtime: runtime
+        )
+        let collector = EventCollector()
+        let consumer = consume(client: client, into: collector)
+        #expect(await waitUntil { await collector.answerDeltaCount >= 1 })
+        consumer.cancel()
+        await consumer.value
+        // Allow the rude runtime to finish attempting its late deliveries.
+        try? await Task.sleep(for: .milliseconds(300))
+
+        #expect(await collector.answerDeltaCount < 5)
+        #expect(await collector.failureCount == 0)
+        #expect(await collector.completionCount == 0)
+        #expect(await runtime.terminationCount == 1)
+    }
+
+    @Test
+    func runtimeStreamCleanupRunsExactlyOncePerRequest() async {
+        let runtime = CancellationFakeRuntime(plans: [
+            StreamPlan(
+                deltas: ["<answer>今天", "可以核对", "提醒并", "及时记录", "处理情况。</answer>"],
+                gap: .milliseconds(50)
+            )
+        ])
+        let client = LocalMedicalAIClient(
+            modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"),
+            runtime: runtime
+        )
+        let collector = EventCollector()
+        let consumer = consume(client: client, into: collector)
+        #expect(await waitUntil { await collector.answerDeltaCount >= 1 })
+        consumer.cancel()
+        await consumer.value
+
+        #expect(await waitUntil { await runtime.terminationCount == 1 })
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(await runtime.terminationCount == 1)
+        #expect(await runtime.streamCallCount == 1)
+    }
+
+    @Test
+    func cancelThenImmediateRetryCompletesNewRequestIndependently() async {
+        let runtime = CancellationFakeRuntime(plans: [
+            StreamPlan(
+                initialDelay: .milliseconds(150),
+                deltas: ["<answer>旧请求", "不应该", "完成。</answer>"],
+                gap: .milliseconds(150)
+            ),
+            StreamPlan(deltas: ["<answer>今天可以核对提醒并及时记录处理情况。</answer>"])
+        ])
+        let client = LocalMedicalAIClient(
+            modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"),
+            runtime: runtime
+        )
+        let staleCollector = EventCollector()
+        let retryCollector = EventCollector()
+
+        let staleConsumer = consume(client: client, into: staleCollector)
+        // Wait until the stale request has actually reached the runtime so the
+        // cancel below cannot race ahead of the first stream creation.
+        #expect(await waitUntil { await runtime.streamCallCount >= 1 })
+        staleConsumer.cancel()
+
+        let retryConsumer = consume(client: client, into: retryCollector)
+        await staleConsumer.value
+        await retryConsumer.value
+
+        #expect(await staleCollector.completionCount == 0)
+        #expect(await staleCollector.failureCount == 0)
+        #expect(await retryCollector.failureCount == 0)
+        let completions = await retryCollector.completions
+        #expect(completions.count == 1)
+        #expect(completions.first?.answer.contains("核对提醒") == true)
+        #expect(await runtime.streamCallCount == 2)
+        #expect(await runtime.generateResponseCallCount == 0)
+    }
+
+    @Test
+    func runtimeCancellationErrorIsNotReportedAsGenerationFailure() async {
+        let runtime = CancellationFakeRuntime(plans: [
+            StreamPlan(deltas: ["<answer>今天"], failure: .cancellation)
+        ])
+        let client = LocalMedicalAIClient(
+            modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"),
+            runtime: runtime
+        )
+        let collector = EventCollector()
+        let consumer = consume(client: client, into: collector)
+        await consumer.value
+
+        #expect(await collector.threwCancellation)
+        #expect(await collector.failureCount == 0)
+        #expect(await collector.completionCount == 0)
+    }
+
+    @Test
+    func nonCancellationErrorYieldsExactlyOneFailureEvent() async {
+        let runtime = CancellationFakeRuntime(plans: [
+            StreamPlan(deltas: ["<answer>今天"], failure: .runtimeUnavailable)
+        ])
+        let client = LocalMedicalAIClient(
+            modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"),
+            runtime: runtime
+        )
+        let collector = EventCollector()
+        let consumer = consume(client: client, into: collector)
+        await consumer.value
+
+        #expect(await collector.failureCount == 1)
+        #expect(await collector.completionCount == 0)
+        #expect(await collector.threwCancellation == false)
+        #expect(await collector.thrownErrorDescription == String(describing: LocalMedicalAIError.runtimeUnavailable))
+    }
+
+    private func consume(
+        client: LocalMedicalAIClient,
+        into collector: EventCollector
+    ) -> Task<Void, Never> {
+        Task {
+            let stream = client.streamResponse(to: Self.request())
+            do {
+                for try await event in stream {
+                    await collector.record(event)
+                }
+            } catch {
+                await collector.recordError(error)
+            }
+        }
+    }
+
+    private func waitUntil(
+        timeout: Duration = .seconds(5),
+        condition: @escaping @Sendable () async -> Bool
+    ) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if await condition() {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return await condition()
+    }
+
+    private static func request() -> MedicalAIRequest {
+        MedicalAIRequest(
+            kind: .chat,
+            userMessage: "今天需要注意什么？",
+            authorization: MedicalAIUserAuthorization(
+                grantedScopes: [],
+                grantedAt: Date(),
+                expiresAt: Date().addingTimeInterval(300)
+            )
+        )
+    }
+}
+
+private struct StreamPlan: Sendable {
+    enum Failure: Sendable {
+        case none
+        case cancellation
+        case runtimeUnavailable
+    }
+
+    var initialDelay: Duration = .zero
+    var deltas: [String] = []
+    var gap: Duration = .zero
+    var failure: Failure = .none
+    var ignoreCancellation = false
+}
+
+/// Scripted `LocalMedicalGenerating` seam. Each streaming call dequeues one
+/// plan; termination of the returned stream is recorded so tests can prove
+/// the client tears the runtime worker down exactly once.
+private actor CancellationFakeRuntime: LocalMedicalGenerating {
+    private var plans: [StreamPlan]
+    private(set) var streamCallCount = 0
+    private(set) var terminationCount = 0
+    private(set) var generateResponseCallCount = 0
+
+    init(plans: [StreamPlan]) {
+        self.plans = plans
+    }
+
+    func generateResponse(prompt: String, modelURL: URL, maxTokens: Int) async throws -> String {
+        generateResponseCallCount += 1
+        throw LocalMedicalAIError.unstableResponse
+    }
+
+    func generateResponseStream(
+        prompt: String,
+        modelURL: URL,
+        maxTokens: Int
+    ) -> AsyncThrowingStream<String, Error> {
+        streamCallCount += 1
+        let plan = plans.isEmpty ? StreamPlan() : plans.removeFirst()
+        return AsyncThrowingStream { continuation in
+            let producer = Task {
+                if plan.initialDelay > .zero {
+                    try? await Task.sleep(for: plan.initialDelay)
+                }
+                for delta in plan.deltas {
+                    if plan.gap > .zero {
+                        try? await Task.sleep(for: plan.gap)
+                    }
+                    if !plan.ignoreCancellation, Task.isCancelled {
+                        break
+                    }
+                    continuation.yield(delta)
+                }
+                switch plan.failure {
+                case .none:
+                    continuation.finish()
+                case .cancellation:
+                    continuation.finish(throwing: CancellationError())
+                case .runtimeUnavailable:
+                    continuation.finish(throwing: LocalMedicalAIError.runtimeUnavailable)
+                }
+            }
+            continuation.onTermination = { @Sendable _ in
+                producer.cancel()
+                Task {
+                    await self.recordTermination()
+                }
+            }
+        }
+    }
+
+    private func recordTermination() {
+        terminationCount += 1
+    }
+}
+
+private actor EventCollector {
+    private(set) var events: [LocalLLMGenerationEvent] = []
+    private(set) var threwCancellation = false
+    private(set) var thrownErrorDescription: String?
+
+    func record(_ event: LocalLLMGenerationEvent) {
+        events.append(event)
+    }
+
+    func recordError(_ error: Error) {
+        threwCancellation = error is CancellationError
+        thrownErrorDescription = String(describing: error)
+    }
+
+    var answerDeltaCount: Int {
+        events.filter { event in
+            if case .answerDelta = event {
+                return true
+            }
+            return false
+        }.count
+    }
+
+    var failureCount: Int {
+        events.filter { event in
+            if case .generationFailed = event {
+                return true
+            }
+            return false
+        }.count
+    }
+
+    var completionCount: Int {
+        completions.count
+    }
+
+    var completions: [(answer: String, thinking: String)] {
+        events.compactMap { event in
+            if case let .generationCompleted(answer, thinking) = event {
+                return (answer, thinking)
+            }
+            return nil
+        }
+    }
+}

@@ -63,6 +63,7 @@ struct LocalMedicalAIClient: MedicalAIClient {
                             continuation.yield(event)
                         }
                     }
+                    try Task.checkCancellation()
                     let completed = parser.finish()
                     for event in completed.events {
                         continuation.yield(event)
@@ -80,6 +81,8 @@ struct LocalMedicalAIClient: MedicalAIClient {
                         thinking: resolved.thinking
                     ))
                     continuation.finish()
+                } catch is CancellationError {
+                    continuation.finish(throwing: CancellationError())
                 } catch {
                     continuation.yield(.generationFailed(error.localizedDescription))
                     continuation.finish(throwing: error)
