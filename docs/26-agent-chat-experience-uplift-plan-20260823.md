@@ -2,7 +2,7 @@
 
 - 日期：2026-08-23
 - 状态：提案（未实施）
-- 参考实现：CatPawAgent（iOS SwiftUI 云端 Agent 聊天应用，本机 `/Users/Admin/xcodebuild_ws/CatPawAgent`）
+- 参考实现：CatPawAgent（iOS SwiftUI 云端 Agent 聊天应用，产品 owner 本机只读参考目录（`xcodebuild_ws/CatPawAgent`，绝对路径不入库））
 - 关联文档：`coreai/LOCAL_AGENT_MIGRATION_PLAN.md`（端侧优先迁移计划）、`docs/25-token-broker-deployment-prerequisites-20260727.md`
 
 ## 1. 结论摘要

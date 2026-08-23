@@ -11,7 +11,7 @@ Codex，你好。你是本仓库的主干编码 agent，继续遵守 `AGENTS.md`
 ## 1. 背景与已有产出（请先阅读）
 
 - 迁移方案：`docs/26-agent-chat-experience-uplift-plan-20260823.md`（含附录 A：开放 issue 对照）。方案核心：Phase 0 Markdown 渲染迁移 → Phase 1 统一双通道流式事件契约 → Phase 2 多轮记忆 → Phase 3 云端 broker 流式化（可选）→ Phase 4 只读工具闭环。
-- 参考实现：本机 `/Users/Admin/xcodebuild_ws/CatPawAgent`（一个已验证可运行的 iOS SwiftUI 流式 Agent 聊天应用）。CatPaw 对它做过逐模块的耦合度分析，方案第 3 节有组件清单。**该目录是只读参考，任何一方不得修改它，也不得把它加入本仓库 Git。**
+- 参考实现：产品 owner 本机只读参考目录 `xcodebuild_ws/CatPawAgent`（一个已验证可运行的 iOS SwiftUI 流式 Agent 聊天应用；绝对路径不入库）。CatPaw 对它做过逐模块的耦合度分析，方案第 3 节有组件清单。**该目录是只读参考，任何一方不得修改它，也不得把它加入本仓库 Git。**
 - 附录 A 已确认：#6、#9、#10、#11 可由参考实现的模式直接帮助；#6 为 P1 且无人认领。
 
 ## 2. 对 CatPaw 的任务分配原则
