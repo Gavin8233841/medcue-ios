@@ -27,6 +27,11 @@ if SPEC is None or SPEC.loader is None:
     raise RuntimeError("cannot load source-package builder")
 SOURCE_PACKAGE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(SOURCE_PACKAGE)
+VERIFIER_SPEC = importlib.util.spec_from_file_location("source_package_verifier", VERIFIER)
+if VERIFIER_SPEC is None or VERIFIER_SPEC.loader is None:
+    raise RuntimeError("cannot load source-package verifier")
+SOURCE_VERIFIER = importlib.util.module_from_spec(VERIFIER_SPEC)
+VERIFIER_SPEC.loader.exec_module(SOURCE_VERIFIER)
 
 
 def synthetic_png() -> bytes:
@@ -144,11 +149,20 @@ class SourcePackageTests(unittest.TestCase):
             manifest = json.loads(archive.read("SOURCE_MANIFEST.json"))
             self.assertEqual(manifest["sourceRevision"], revision)
             self.assertEqual(manifest["sourceTree"], command("git", "rev-parse", "HEAD^{tree}", cwd=self.repo).stdout.strip())
+            self.assertEqual(manifest["reproducibility"]["zlibVersion"], SOURCE_PACKAGE.zlib.ZLIB_VERSION)
+            self.assertEqual(
+                manifest["reproducibility"]["sameTreeSameBytes"],
+                "requires the same zlib version and ZIP settings",
+            )
             sums = archive.read("SHA256SUMS").decode("utf-8").splitlines()
             self.assertTrue(all(len(line.split()) == 2 for line in sums))
         again = self.run_builder(revision, first)
         self.assertNotEqual(again.returncode, 0)
         self.assertIn("never overwritten", again.stderr)
+
+        inside_repo = self.run_builder(revision, self.repo / "package-output")
+        self.assertNotEqual(inside_repo.returncode, 0)
+        self.assertIn("outside the Git repository", inside_repo.stderr)
 
         bad_digest = second / "bad.sha256"
         bad_digest.write_text("0" * 64 + f"  {zip_b.name}\n", encoding="ascii")
@@ -195,6 +209,19 @@ class SourcePackageTests(unittest.TestCase):
         self.assertIn("absolute local path", local_path.stderr)
 
         command("git", "rm", "-q", "docs/path.md", cwd=self.repo)
+        jwt = (
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+            "eyJzdWIiOiIxMjM0NTY3ODkwIn0."
+            "synthetic-signature"
+        )
+        self.write("docs/jwt.md", jwt + "\n")
+        revision = self.commit()
+        bare_jwt = self.run_builder(revision, self.temp / "bare-jwt")
+        self.assertNotEqual(bare_jwt.returncode, 0)
+        self.assertIn("secret-like value", bare_jwt.stderr)
+        self.assertNotIn(jwt, bare_jwt.stderr)
+
+        command("git", "rm", "-q", "docs/jwt.md", cwd=self.repo)
         unapproved_svg = (
             "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/"
             "AppIcon.appiconset/unapproved.svg"
@@ -248,11 +275,36 @@ class SourcePackageTests(unittest.TestCase):
             "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/Unapproved.imageset",
             cwd=self.repo,
         )
+        corrupt_png = (
+            "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/"
+            "AppIcon.appiconset/Corrupt.png"
+        )
+        self.write(corrupt_png, synthetic_png()[:-1] + b"\x00")
+        self.write(contents_path, '{"images":[{"filename":"AppIcon-1024.png"},{"filename":"Corrupt.png"}]}\n')
+        revision = self.commit()
+        corrupt = self.run_builder(revision, self.temp / "corrupt-png")
+        self.assertNotEqual(corrupt.returncode, 0)
+        self.assertIn("checksum", corrupt.stderr)
+
+        command("git", "rm", "-q", corrupt_png, cwd=self.repo)
+        self.write(contents_path, '{"images":[{"filename":"AppIcon-1024.png"}]}\n')
         self.write("tools/node_modules/cache.js", "synthetic cache\n")
         revision = self.commit()
         cache = self.run_builder(revision, self.temp / "cache")
         self.assertNotEqual(cache.returncode, 0)
         self.assertIn("cache", cache.stderr)
+
+        command("git", "rm", "-qr", "tools/node_modules", cwd=self.repo)
+        self.write("docs/synthetic.mobileprovision", "device profile fixture\n")
+        revision = self.commit()
+        mobileprovision = self.run_builder(revision, self.temp / "mobileprovision")
+        self.assertNotEqual(mobileprovision.returncode, 0)
+
+        command("git", "rm", "-q", "docs/synthetic.mobileprovision", cwd=self.repo)
+        self.write("ios-app/xcuserdata/session/state", "device session fixture\n")
+        revision = self.commit()
+        xcuserdata = self.run_builder(revision, self.temp / "xcuserdata")
+        self.assertNotEqual(xcuserdata.returncode, 0)
 
     def test_invalid_revision_head_mismatch_and_secret_fail(self) -> None:
         revision = command("git", "rev-parse", "HEAD", cwd=self.repo).stdout.strip()
@@ -347,6 +399,127 @@ class SourcePackageTests(unittest.TestCase):
         noncanonical = rejected_archive("noncanonical", ["docs/value", "docs//value"])
         self.assertNotEqual(noncanonical.returncode, 0)
         self.assertIn("unsafe", noncanonical.stderr)
+
+    def test_verifier_rejects_all_archive_defense_shapes(self) -> None:
+        def write_archive(
+            name: str,
+            entries: list[tuple[str, bytes]],
+            configure: object | None = None,
+        ) -> tuple[Path, Path]:
+            archive_path = self.temp / f"{name}.zip"
+            with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                for entry, data in entries:
+                    info = zipfile.ZipInfo(entry, date_time=(1980, 1, 1, 0, 0, 0))
+                    info.compress_type = zipfile.ZIP_DEFLATED
+                    info.create_system = 3
+                    info.external_attr = 0o100644 << 16
+                    if configure is not None:
+                        configure(info, entry)
+                    archive.writestr(info, data)
+            digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+            digest_path = self.temp / f"{name}.sha256"
+            digest_path.write_text(f"{digest}  {archive_path.name}\n", encoding="ascii")
+            return archive_path, digest_path
+
+        def assert_direct_failure(archive_path: Path, digest_path: Path, expected: str) -> None:
+            with self.assertRaises(SOURCE_VERIFIER.VerificationError) as context:
+                SOURCE_VERIFIER.verify(archive_path, digest_path)
+            self.assertIn(expected, str(context.exception))
+
+        entry_count_zip, entry_count_sha = write_archive(
+            "entry-count",
+            [(f"entry-{index}.txt", b"x") for index in range(3)],
+        )
+        original_max_entries = SOURCE_VERIFIER.MAX_ENTRIES
+        SOURCE_VERIFIER.MAX_ENTRIES = 2
+        try:
+            assert_direct_failure(entry_count_zip, entry_count_sha, "entry count")
+        finally:
+            SOURCE_VERIFIER.MAX_ENTRIES = original_max_entries
+
+        entry_size_zip, entry_size_sha = write_archive("entry-size", [("README.md", b"xx")])
+        original_max_entry_size = SOURCE_VERIFIER.MAX_ENTRY_SIZE
+        SOURCE_VERIFIER.MAX_ENTRY_SIZE = 1
+        try:
+            assert_direct_failure(entry_size_zip, entry_size_sha, "exceeds size limit")
+        finally:
+            SOURCE_VERIFIER.MAX_ENTRY_SIZE = original_max_entry_size
+
+        total_size_zip, total_size_sha = write_archive(
+            "total-size", [("one", b"xx"), ("two", b"xx")]
+        )
+        original_max_total_size = SOURCE_VERIFIER.MAX_TOTAL_SIZE
+        SOURCE_VERIFIER.MAX_TOTAL_SIZE = 3
+        try:
+            assert_direct_failure(total_size_zip, total_size_sha, "uncompressed payload")
+        finally:
+            SOURCE_VERIFIER.MAX_TOTAL_SIZE = original_max_total_size
+
+        encrypted_zip, encrypted_sha = write_archive("encrypted", [("README.md", b"x")])
+        encrypted_bytes = bytearray(encrypted_zip.read_bytes())
+        cursor = 0
+        while (index := encrypted_bytes.find(b"PK\x03\x04", cursor)) >= 0:
+            struct.pack_into("<H", encrypted_bytes, index + 6, 0x1)
+            cursor = index + 4
+        cursor = 0
+        while (index := encrypted_bytes.find(b"PK\x01\x02", cursor)) >= 0:
+            struct.pack_into("<H", encrypted_bytes, index + 8, 0x1)
+            cursor = index + 4
+        encrypted_zip.write_bytes(encrypted_bytes)
+        encrypted_sha.write_text(
+            f"{hashlib.sha256(encrypted_bytes).hexdigest()}  {encrypted_zip.name}\n", encoding="ascii"
+        )
+        assert_direct_failure(encrypted_zip, encrypted_sha, "encrypted ZIP entries")
+
+        directory_zip, directory_sha = write_archive("directory", [("folder/", b"")])
+        assert_direct_failure(directory_zip, directory_sha, "directory entries")
+
+        stored_zip, stored_sha = write_archive(
+            "stored", [("README.md", b"x")], configure=lambda info, _: setattr(info, "compress_type", zipfile.ZIP_STORED)
+        )
+        assert_direct_failure(stored_zip, stored_sha, "unsupported ZIP compression")
+
+        timestamp_zip, timestamp_sha = write_archive(
+            "timestamp", [("README.md", b"x")], configure=lambda info, _: setattr(info, "date_time", (2024, 1, 1, 0, 0, 0))
+        )
+        assert_direct_failure(timestamp_zip, timestamp_sha, "non-deterministic ZIP timestamp")
+
+        mode_zip, mode_sha = write_archive(
+            "mode", [("README.md", b"x")], configure=lambda info, _: setattr(info, "external_attr", 0o100600 << 16)
+        )
+        assert_direct_failure(mode_zip, mode_sha, "unsupported ZIP file mode")
+
+        creator_zip, creator_sha = write_archive("creator", [("README.md", b"x")])
+        creator_bytes = bytearray(creator_zip.read_bytes())
+        cursor = 0
+        while (index := creator_bytes.find(b"PK\x01\x02", cursor)) >= 0:
+            creator_bytes[index + 5] = 0
+            cursor = index + 4
+        creator_zip.write_bytes(creator_bytes)
+        creator_sha.write_text(
+            f"{hashlib.sha256(creator_bytes).hexdigest()}  {creator_zip.name}\n", encoding="ascii"
+        )
+        assert_direct_failure(creator_zip, creator_sha, "unsupported ZIP creator platform")
+
+        revision = command("git", "rev-parse", "HEAD", cwd=self.repo).stdout.strip()
+        valid_result = self.run_builder(revision, self.temp / "self-reference-source")
+        self.assertEqual(valid_result.returncode, 0, valid_result.stderr)
+        source_zip = next((self.temp / "self-reference-source").glob("*.zip"))
+        self_reference_zip = self.temp / "self-reference.zip"
+        with zipfile.ZipFile(source_zip) as source, zipfile.ZipFile(
+            self_reference_zip, "w", compression=zipfile.ZIP_DEFLATED
+        ) as target:
+            for info in source.infolist():
+                data = source.read(info)
+                if info.filename == "SHA256SUMS":
+                    data = b"0" * 64 + b"  SHA256SUMS\n"
+                target.writestr(info, data)
+        self_reference_sha = self.temp / "self-reference.sha256"
+        self_reference_sha.write_text(
+            f"{hashlib.sha256(self_reference_zip.read_bytes()).hexdigest()}  {self_reference_zip.name}\n",
+            encoding="ascii",
+        )
+        assert_direct_failure(self_reference_zip, self_reference_sha, "duplicate or unknown path")
 
     def test_unsupported_mode_fails(self) -> None:
         self.write("linked", "README.md")

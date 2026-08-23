@@ -43,8 +43,13 @@ diagnostic signals, not proof that a medication workflow is safe or complete.
   Synthetic tests must cover dirty/staged/untracked input, invalid revisions,
   path traversal/case collisions/control characters, symlinks/submodules,
   forbidden media/secrets/local paths, deterministic bytes, and non-overwrite
-  failure behavior. Real submission archives and health data are never test
-  fixtures.
+  failure behavior. They also exercise ZIP entry, per-entry and total-size
+  limits, encrypted/directory/non-deflate/non-fixed-timestamp entries,
+  non-standard creator/mode metadata, SHA256SUMS self-reference, output paths
+  inside the repository, bare JWT scanning, and malformed approved PNGs. The
+  manifest records the zlib version; same-tree byte comparisons must hold that
+  version and the exact source tree constant. Real submission archives and
+  health data are never test fixtures.
 
 ## Pull Request Expectations
 

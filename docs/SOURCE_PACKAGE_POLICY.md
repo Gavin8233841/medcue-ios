@@ -25,10 +25,11 @@ objects. It creates:
 
 The ZIP contains `SOURCE_MANIFEST.json` and `SHA256SUMS`. The manifest records
 the full commit SHA, tree SHA, policy version, exact file list, modes, sizes,
-hashes, dependency inventory, and asset inventory. `SHA256SUMS` covers every
-payload entry and the manifest, but intentionally excludes itself to avoid a
-self-reference. ZIP timestamps and compression settings are fixed so two clean
-builds from the same Git tree have the same bytes.
+hashes, dependency inventory, asset inventory, and the zlib version used for
+compression. `SHA256SUMS` covers every payload entry and the manifest, but
+intentionally excludes itself to avoid a self-reference. ZIP timestamps and
+compression settings are fixed; byte-for-byte reproduction from the same tree
+additionally requires the same zlib version, which is recorded in the manifest.
 
 ## Allowlist And Exclusions
 
@@ -44,6 +45,14 @@ their catalog metadata references them and their PNG structure is valid. SVGs
 and other Asset Catalog media are excluded. Archive paths must already be in
 canonical POSIX form; redundant separators, dot components, Windows-reserved
 names, trailing dots/spaces, and alternate-data-stream colons fail closed.
+
+Content scanning rejects known secret formats, including bare JWT-shaped values
+without a bearer prefix. Approved AppIcon PNGs must have a valid PNG signature,
+chunk structure, dimensions, and CRCs; this is not a general media allowance.
+Device/account evidence is excluded structurally: `.mobileprovision` files and
+`xcuserdata` directories are forbidden. The policy does not reject every
+UUID-shaped string because the source contains legitimate identifiers; no device
+identifier or account artifact is treated as package evidence.
 
 The repository intentionally omits `llama.xcframework`. The package records its
 upstream release and license status in the manifest and includes the source-only
@@ -70,8 +79,13 @@ python tools/verify-source-package.py <zip-path> <zip-sha256-path>
 
 On macOS/CI, also run `unzip -t` against the produced ZIP, verify every line in
 `SHA256SUMS`, run Broker tests and the relevant native gate, and record the
-exact source and output SHA-256 values. The source package does not provide
-physical-device, Apple-account, provider-retention, or real-model evidence.
+exact source and output SHA-256 values. Pull-request workflows may package the
+ephemeral merge commit (`refs/pull/<number>/merge`) rather than the branch
+commit; record both SHAs and verify that their source tree is the same instead
+of relabeling the manifest revision. A Windows/macOS digest comparison is only
+valid when the revision/tree and zlib version are held constant. The source
+package does not provide physical-device, Apple-account, provider-retention, or
+real-model evidence.
 The existing `tools/verify-native.sh` gate runs the synthetic matrix, builds the
 exact current commit, executes the read-only verifier, and runs `unzip -t`; it
 retains its temporary output path in the log for audit instead of recursively

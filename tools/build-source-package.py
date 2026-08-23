@@ -37,6 +37,9 @@ SECRET_VALUE = re.compile(
     rb"github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,}|"
     rb"xox[baprs]-[A-Za-z0-9-]{20,}|Bearer[ \t]+[A-Za-z0-9._-]{20,})"
 )
+BARE_JWT = re.compile(
+    rb"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}(?![A-Za-z0-9_-])"
+)
 
 ROOT_FILES = {
     ".gitignore",
@@ -335,7 +338,7 @@ def read_blobs(repo: Path, entries: list[dict[str, object]]) -> dict[str, bytes]
             WINDOWS_LOCAL_PATH.search(data) or any(root in data for root in PRIVATE_POSIX_ROOTS)
         ):
             fail(f"absolute local path detected in tracked content: {path}")
-        if SECRET_VALUE.search(data):
+        if SECRET_VALUE.search(data) or BARE_JWT.search(data):
             fail(f"secret-like value detected in tracked content: {path}")
         blobs[path] = data
     missing = sorted(REQUIRED_PATHS - blobs.keys())
@@ -493,6 +496,10 @@ def make_manifest(revision: str, tree: str, blobs: dict[str, bytes], entries: li
             "modeChecks": ["regular-files-only", "100644", "100755"],
             "sensitiveChecks": ["secrets", "models", "databases", "local-paths", "unapproved-media"],
         },
+        "reproducibility": {
+            "zlibVersion": zlib.ZLIB_VERSION,
+            "sameTreeSameBytes": "requires the same zlib version and ZIP settings",
+        },
         "dependencyInventory": dependency_inventory(blobs),
         "assetInventory": asset_inventory(blobs),
         "files": files,
@@ -507,7 +514,6 @@ def zip_bytes(payload: dict[str, bytes], mode_by_path: dict[str, str]) -> bytes:
             info.compress_type = zipfile.ZIP_DEFLATED
             info.create_system = 3
             info.external_attr = (int(mode_by_path.get(path, "100644"), 8) & 0xFFFF) << 16
-            info.flag_bits = 0x800
             archive.writestr(info, payload[path])
     return buffer.getvalue()
 
