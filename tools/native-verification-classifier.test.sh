@@ -74,6 +74,11 @@ commit_case "broker metadata and deep path change"
 expect_lane broker broker-deep-path
 
 reset_case
+printf '{invalid-json}\n' > cloudfunctions/medcue-ai-broker/package.json
+commit_case "invalid broker metadata"
+expect_lane broker broker-invalid-metadata
+
+reset_case
 printf 'updated synthetic native source\n' > ios-app/App.swift
 commit_case "native change"
 expect_lane full native-only

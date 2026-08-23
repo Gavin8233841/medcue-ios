@@ -62,7 +62,7 @@ aggregation result rather than being silently accepted.
 | Change set | Hosted evidence |
 | --- | --- |
 | Documentation/governance-only | Ubuntu exact HEAD/base and full diff whitespace/structure checks; no iOS or Watch build |
-| Broker-only | Ubuntu exact HEAD/base, syntax checks for existing changed JavaScript files at any Broker depth, and deployed Node 18.15.0 node --test; no iOS or Watch build |
+| Broker-only | Ubuntu exact HEAD/base, JavaScript syntax and JSON structure checks for existing changed files at any Broker depth, and deployed Node 18.15.0 node --test; no iOS or Watch build |
 | Native, Watch, UI, project/package/configuration, trusted tooling, mixed, unknown, rename/deletion, or every main push | macOS exact HEAD/base, Broker Node 18.15.0 tests, and the complete Route A tools/verify-native.sh gate |
 
 One required aggregation result fails when the selected lane or validated

@@ -217,6 +217,7 @@ jobs:
                 if [[ -f "$path" ]]; then
                   case "$path" in
                     *.js) node --check "$path" ;;
+                    *.json) node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$path" ;;
                   esac
                 fi
                 ;;

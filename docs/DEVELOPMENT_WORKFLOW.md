@@ -274,7 +274,7 @@ push uses the empty-tree SHA and the full Route A gate.
 | Lane | Selection | Required checks |
 | --- | --- | --- |
 | Docs/governance | Every changed path is an approved documentation or governance path | Exact HEAD/base check, full diff whitespace check, and repository-structure check on Ubuntu |
-| Broker-only | Every changed path is under cloudfunctions/medcue-ai-broker/ and is not workflow/tooling | Exact HEAD/base check, syntax checks for existing changed JavaScript files at any Broker depth, and Node 18.15.0 node --test on Ubuntu |
+| Broker-only | Every changed path is under cloudfunctions/medcue-ai-broker/ and is not workflow/tooling | Exact HEAD/base check, JavaScript syntax and JSON structure checks for existing changed files at any Broker depth, and Node 18.15.0 node --test on Ubuntu |
 | Full Native Verification | Native, Watch, UI, project/package/configuration, trusted workflow/tooling, mixed, unknown, rename/deletion edge cases, or any main push | Exact HEAD/base check, Broker Node 18.15.0 tests, and the complete tools/verify-native.sh Route A gate on macOS |
 
 Before this split, representative single-job Native Verification durations were
@@ -294,6 +294,15 @@ durations from their exact-head hosted runs; historical single-lane timing is
 context, not a substitute for a new run. Because workflow files are trusted
 evidence, any change under `.github/workflows/` remains a full-lane change and
 requires fresh-context security review before approval.
+
+This repository currently has no enforced branch-protection ruleset or
+`CODEOWNERS` policy. A `pull_request` workflow is therefore evaluated from the
+PR merge revision, so the static guard is not an independently base-trusted
+security boundary. Do not claim the workflow self-protection acceptance item is
+complete, mark this Issue ready, or merge this change until a coordinator adds
+an independently base-trusted `pull_request_target` guard or an equivalent
+enforced repository rule. Fresh-context review remains necessary but does not
+substitute for that enforcement.
 
 The agent performs a correctness, regression, privacy, medical-safety,
 performance, accessibility, and test-quality review. `Native Verification`
