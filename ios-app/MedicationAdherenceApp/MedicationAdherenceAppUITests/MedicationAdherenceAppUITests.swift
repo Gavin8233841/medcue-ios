@@ -2,15 +2,16 @@ import XCTest
 
 @MainActor
 final class MedicationAdherenceAppUITests: XCTestCase {
-    private let clearedPersistenceFailureArguments = [
+    private let stableLaunchArguments = [
         "-AppPersistenceCommitter.failureMessage", "",
-        "-DoseActionPersistence.failureMessage", ""
+        "-DoseActionPersistence.failureMessage", "",
+        "-appExperienceMode", "complete"
     ]
 
     func testPrimaryTabsAreReachable() {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = clearedPersistenceFailureArguments + [
+        app.launchArguments = stableLaunchArguments + [
             "-hasCompletedFirstLaunchSetup", "YES"
         ]
         app.launch()
@@ -64,7 +65,7 @@ final class MedicationAdherenceAppUITests: XCTestCase {
     func testFirstLaunchOffersProgressAndSkipActions() {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = clearedPersistenceFailureArguments + ["-showFirstLaunch"]
+        app.launchArguments = stableLaunchArguments + ["-showFirstLaunch"]
         app.launch()
 
         let nextButton = app.buttons["firstLaunch.next"]
