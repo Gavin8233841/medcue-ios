@@ -265,14 +265,16 @@ The Native Verification workflow validates the exact event base and checked-out
 HEAD with full lowercase commit SHAs before selecting a lane. It covers the
 complete changed-file set, including additions, modifications, deletions, and
 renames. Missing or invalid inputs, unknown or mixed paths, workflow/tooling
-changes, and classifier failures fail closed to the full lane. The all-zero
-base is valid only for a new main push; every main push uses the empty-tree SHA
-and the full Route A gate.
+changes, and classifier failures trigger a validated full-lane fallback. The
+fallback re-derives the event base from trusted event context, rejects missing,
+malformed, self-referential, or unavailable bases, and therefore cannot mask an
+invalid input. The all-zero base is valid only for a new main push; every main
+push uses the empty-tree SHA and the full Route A gate.
 
 | Lane | Selection | Required checks |
 | --- | --- | --- |
 | Docs/governance | Every changed path is an approved documentation or governance path | Exact HEAD/base check, full diff whitespace check, and repository-structure check on Ubuntu |
-| Broker-only | Every changed path is under cloudfunctions/medcue-ai-broker/ and is not workflow/tooling | Exact HEAD/base check, JavaScript syntax checks, and Node 18.15.0 node --test on Ubuntu |
+| Broker-only | Every changed path is under cloudfunctions/medcue-ai-broker/ and is not workflow/tooling | Exact HEAD/base check, syntax checks for existing changed JavaScript files at any Broker depth, and Node 18.15.0 node --test on Ubuntu |
 | Full Native Verification | Native, Watch, UI, project/package/configuration, trusted workflow/tooling, mixed, unknown, rename/deletion edge cases, or any main push | Exact HEAD/base check, Broker Node 18.15.0 tests, and the complete tools/verify-native.sh Route A gate on macOS |
 
 Before this split, representative single-job Native Verification durations were
@@ -283,12 +285,15 @@ the new exact-head docs, Broker, and full-lane durations after they complete;
 these historical values are not reused as evidence.
 
 The workflow always publishes one Native Verification (required result)
-aggregation job. It succeeds only when classification succeeds, the selected
-lane succeeds, and all unselected lanes are explicitly skipped. Runs cancel
-obsolete work for the same event/ref; no result from an earlier SHA can satisfy
-a later SHA. Pull Requests record actual selected-lane and full-lane durations
-from their exact-head hosted runs; historical single-lane timing is context,
-not a substitute for a new run.
+aggregation job. It succeeds when classification succeeds and the selected lane
+succeeds, or when classification fails but the validated full-lane fallback
+succeeds; in either case all unselected lanes must be explicitly skipped. Runs
+cancel obsolete work for the same event/ref; no result from an earlier SHA can
+satisfy a later SHA. Pull Requests record actual selected-lane and full-lane
+durations from their exact-head hosted runs; historical single-lane timing is
+context, not a substitute for a new run. Because workflow files are trusted
+evidence, any change under `.github/workflows/` remains a full-lane change and
+requires fresh-context security review before approval.
 
 The agent performs a correctness, regression, privacy, medical-safety,
 performance, accessibility, and test-quality review. `Native Verification`

@@ -67,6 +67,13 @@ commit_case "broker change"
 expect_lane broker broker-only
 
 reset_case
+printf '{"name":"synthetic-broker"}\n' > cloudfunctions/medcue-ai-broker/package.json
+mkdir -p cloudfunctions/medcue-ai-broker/deep/nested
+printf 'deep broker source\n' > cloudfunctions/medcue-ai-broker/deep/nested/README.md
+commit_case "broker metadata and deep path change"
+expect_lane broker broker-deep-path
+
+reset_case
 printf 'updated synthetic native source\n' > ios-app/App.swift
 commit_case "native change"
 expect_lane full native-only
@@ -123,6 +130,7 @@ output="$("$CLASSIFIER" --base "$BASE_SHA" --head "$head_sha" --event push --ref
 [[ "$(printf '%s\n' "$output" | awk -F= '$1 == "diff_base" { print $2 }')" == "$EMPTY_TREE" ]]
 
 expect_failure invalid-head --base "$BASE_SHA" --head not-a-sha --event pull_request --ref refs/pull/1/merge --forced false
+expect_failure invalid-main-base --base not-a-sha --head "$head_sha" --event push --ref refs/heads/main --forced false
 expect_failure self-diff --base "$head_sha" --head "$head_sha" --event pull_request --ref refs/pull/1/merge --forced false
 expect_failure missing-base --base 1111111111111111111111111111111111111111 --head "$head_sha" --event pull_request --ref refs/pull/1/merge --forced false
 expect_failure invalid-event --base "$BASE_SHA" --head "$head_sha" --event unknown --ref refs/pull/1/merge --forced false

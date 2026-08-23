@@ -44,8 +44,8 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 1
-          persist-credentials: true
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Classify changed files
         id: classify
@@ -141,8 +141,8 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 1
-          persist-credentials: true
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Verify exact docs diff
         shell: bash
@@ -193,8 +193,8 @@ jobs:
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 1
-          persist-credentials: true
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Resolve exact Broker diff
         shell: bash
@@ -213,8 +213,12 @@ jobs:
           git diff --cached --check
           while IFS= read -r -d '' path; do
             case "$path" in
-              cloudfunctions/medcue-ai-broker/*.js|cloudfunctions/medcue-ai-broker/*/*.js)
-                node --check "$path"
+              cloudfunctions/medcue-ai-broker/*)
+                if [[ -f "$path" ]]; then
+                  case "$path" in
+                    *.js) node --check "$path" ;;
+                  esac
+                fi
                 ;;
               *)
                 echo "Unexpected non-JavaScript Broker path: $path" >&2
@@ -241,7 +245,7 @@ jobs:
   full:
     name: Full Native Verification
     needs: classify
-    if: ${{ needs.classify.result == 'success' && needs.classify.outputs.lane == 'full' }}
+    if: ${{ (needs.classify.result == 'success' && needs.classify.outputs.lane == 'full') || needs.classify.result == 'failure' }}
     runs-on: macos-26
     timeout-minutes: 60
     env:
@@ -250,31 +254,106 @@ jobs:
       VERIFY_NATIVE_EXPECTED_HEAD: ${{ needs.classify.outputs.head }}
       VERIFY_NATIVE_DIFF_BASE: ${{ needs.classify.outputs.diff_base }}
       VERIFY_NATIVE_FULL_TREE: ${{ needs.classify.outputs.full_tree }}
+      VERIFY_NATIVE_CLASSIFY_RESULT: ${{ needs.classify.result }}
+      VERIFY_NATIVE_SELECTED_LANE: ${{ needs.classify.outputs.lane }}
+      VERIFY_NATIVE_PR_DIFF_BASE: ${{ github.event.pull_request.base.sha || '' }}
+      VERIFY_NATIVE_PUSH_DIFF_BASE: ${{ github.event.before || '' }}
+      VERIFY_NATIVE_MANUAL_DIFF_BASE: ${{ inputs.diff_base || '' }}
     steps:
       - name: Check out exact source
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 1
-          persist-credentials: true
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Resolve exact full-lane diff
         shell: bash
         run: |
           set -euo pipefail
           actual_head="$(git rev-parse --verify HEAD)"
-          [[ "$actual_head" == "$VERIFY_NATIVE_EXPECTED_HEAD" ]] || {
+          expected_head="${{ github.sha }}"
+          [[ "$actual_head" == "$expected_head" ]] || {
             echo "Checked-out HEAD does not match the classified event SHA" >&2
             exit 2
           }
-          if [[ "$VERIFY_NATIVE_FULL_TREE" == 0 ]]; then
-            if ! git cat-file -e "$VERIFY_NATIVE_DIFF_BASE^{commit}" 2>/dev/null; then
-              git fetch --no-tags --no-recurse-submodules --depth=1 origin "$VERIFY_NATIVE_DIFF_BASE"
+          diff_base="$VERIFY_NATIVE_DIFF_BASE"
+          full_tree="$VERIFY_NATIVE_FULL_TREE"
+          if [[ "$VERIFY_NATIVE_CLASSIFY_RESULT" == failure ]]; then
+            case "$VERIFY_NATIVE_CI_EVENT" in
+              pull_request)
+                requested_base="$VERIFY_NATIVE_PR_DIFF_BASE"
+                ;;
+              push)
+                requested_base="$VERIFY_NATIVE_PUSH_DIFF_BASE"
+                ;;
+              workflow_dispatch)
+                requested_base="$VERIFY_NATIVE_MANUAL_DIFF_BASE"
+                ;;
+              *)
+                echo "Unsupported verification event during full-lane fallback: $VERIFY_NATIVE_CI_EVENT" >&2
+                exit 2
+                ;;
+            esac
+            [[ "$requested_base" =~ ^[0-9a-f]{40}$ ]] || {
+              echo "Fallback base must be a full lowercase commit SHA" >&2
+              exit 2
+            }
+            if [[ "$VERIFY_NATIVE_CI_EVENT" == push && "$VERIFY_NATIVE_CI_REF" == refs/heads/main ]]; then
+              zero_sha="0000000000000000000000000000000000000000"
+              if [[ "$requested_base" != "$zero_sha" ]]; then
+                [[ "$requested_base" != "$expected_head" ]] || {
+                  echo "Fallback base must differ from HEAD" >&2
+                  exit 2
+                }
+                if ! git cat-file -e "$requested_base^{commit}" 2>/dev/null; then
+                  git fetch --no-tags --no-recurse-submodules --depth=1 origin "$requested_base"
+                fi
+                git cat-file -e "$requested_base^{commit}"
+              fi
+              diff_base="$(git hash-object -w -t tree /dev/null)"
+              full_tree=1
+            else
+              [[ "$requested_base" != "$expected_head" ]] || {
+                echo "Fallback base must differ from HEAD" >&2
+                exit 2
+              }
+              if ! git cat-file -e "$requested_base^{commit}" 2>/dev/null; then
+                git fetch --no-tags --no-recurse-submodules --depth=1 origin "$requested_base"
+              fi
+              git cat-file -e "$requested_base^{commit}"
+              diff_base="$requested_base"
+              full_tree=0
             fi
-            git cat-file -e "$VERIFY_NATIVE_DIFF_BASE^{commit}"
+            printf 'Classifier failed; using validated full-lane fallback base=%s full_tree=%s\n' \
+              "$diff_base" "$full_tree"
           else
-            git cat-file -e "$VERIFY_NATIVE_DIFF_BASE^{tree}"
+            [[ "$VERIFY_NATIVE_CLASSIFY_RESULT" == success ]] || {
+              echo "Classification was not successful or failed; refusing full-lane resolution" >&2
+              exit 2
+            }
+            [[ "$VERIFY_NATIVE_SELECTED_LANE" == full ]] || {
+              echo "Full job requires the full classified lane" >&2
+              exit 2
+            }
+            [[ "$full_tree" == 0 || "$full_tree" == 1 ]] || {
+              echo "Classified full_tree output is invalid" >&2
+              exit 2
+            }
+            if [[ "$full_tree" == 0 ]]; then
+              if ! git cat-file -e "$diff_base^{commit}" 2>/dev/null; then
+                git fetch --no-tags --no-recurse-submodules --depth=1 origin "$diff_base"
+              fi
+              git cat-file -e "$diff_base^{commit}"
+            else
+              git cat-file -e "$diff_base^{tree}"
+            fi
           fi
+          {
+            printf 'VERIFY_NATIVE_EXPECTED_HEAD=%s\n' "$expected_head"
+            printf 'VERIFY_NATIVE_DIFF_BASE=%s\n' "$diff_base"
+            printf 'VERIFY_NATIVE_FULL_TREE=%s\n' "$full_tree"
+          } >> "$GITHUB_ENV"
           git config --local --unset-all http.https://github.com/.extraheader || true
           git config --local --unset-all core.sshCommand || true
           if git config --local --name-only --list | grep -Eiq '^(http\..*\.extraheader|core\.sshcommand)$'; then
@@ -324,8 +403,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [[ "$CLASSIFY_RESULT" == failure ]]; then
+            [[ "$FULL_RESULT" == success ]] || {
+              echo "Classifier failed and validated full-lane fallback did not pass: $FULL_RESULT" >&2
+              exit 1
+            }
+            [[ "$DOCS_RESULT" == skipped && "$BROKER_RESULT" == skipped ]] || {
+              echo "Fallback must leave docs and Broker lanes skipped" >&2
+              exit 1
+            }
+            printf 'Required result passed via classifier-failure full fallback head=%s\n' \
+              "${{ github.sha }}"
+            exit 0
+          fi
           [[ "$CLASSIFY_RESULT" == success ]] || {
-            echo "Classification failed; fail closed to a required failure" >&2
+            echo "Classification was cancelled or unavailable; fail closed to a required failure" >&2
             exit 1
           }
           case "$SELECTED_LANE" in
