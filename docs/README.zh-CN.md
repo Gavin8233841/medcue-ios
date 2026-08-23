@@ -25,6 +25,8 @@
 | `TEST_STRATEGY.md` | 风险到证据的验证映射 |
 | `DEVELOPMENT_WORKFLOW.md` | Issue、branch、Pull Request、CI、评审和发布流程 |
 | `GITHUB_LOCALIZATION.md` | 中文优先、英文保留的 GitHub 文档、模板和标签约定 |
+| `SOURCE_PACKAGE_POLICY.md` | 基于准确 Git 对象的源码打包、白名单、溯源和发布检查 |
+| `THIRD_PARTY_NOTICES.md` | 仅源码包的依赖、许可和署名边界 |
 | `adr/` | 已接受的持久架构决策及其后果 |
 | `../CONTEXT.md` | 产品上下文、发布范围、参与者、术语、不变量和平台职责 |
 | `../AGENTS.md` | 仓库级协作和安全规则 |

@@ -37,6 +37,15 @@ diagnostic signals, not proof that a medication workflow is safe or complete.
   archive contents, hash, prohibited artifacts, install/upgrade behavior, and
   rollback record.
 
+- Source-package gate: run `python tools/test-source-package.py`, build from a
+  clean full SHA with `tools/build-source-package.py`, run `unzip -t`, verify
+  `SOURCE_MANIFEST.json` and `SHA256SUMS`, and record the external ZIP digest.
+  Synthetic tests must cover dirty/staged/untracked input, invalid revisions,
+  path traversal/case collisions/control characters, symlinks/submodules,
+  forbidden media/secrets/local paths, deterministic bytes, and non-overwrite
+  failure behavior. Real submission archives and health data are never test
+  fixtures.
+
 ## Pull Request Expectations
 
 - During implementation, run the smallest focused tests and
