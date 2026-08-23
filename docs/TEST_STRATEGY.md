@@ -49,6 +49,29 @@ diagnostic signals, not proof that a medication workflow is safe or complete.
 - Do not accept generated summaries, screenshots, model scores, or a successful
   build as substitutes for acceptance criteria and behavior evidence.
 
+## Native Verification Lane Map
+
+The Native Verification workflow first validates the event-provided full base
+and checked-out HEAD SHA, then classifies every changed path. Additions,
+modifications, deletions, and renames are included. Missing or invalid inputs,
+unknown paths, mixed paths, and workflow/tooling changes select the full lane.
+If the classifier itself fails, the workflow re-derives and validates the event
+base before running the full lane; invalid fallback inputs fail the required
+aggregation result rather than being silently accepted.
+
+| Change set | Hosted evidence |
+| --- | --- |
+| Documentation/governance-only | Ubuntu exact HEAD/base and full diff whitespace/structure checks; no iOS or Watch build |
+| Broker-only | Ubuntu exact HEAD/base, JavaScript syntax and JSON structure checks for existing changed files at any Broker depth, and deployed Node 18.15.0 node --test; no iOS or Watch build |
+| Native, Watch, UI, project/package/configuration, trusted tooling, mixed, unknown, rename/deletion, or every main push | macOS exact HEAD/base, Broker Node 18.15.0 tests, and the complete Route A tools/verify-native.sh gate |
+
+One required aggregation result fails when the selected lane or validated
+classifier-failure fallback fails, when fallback inputs are invalid, or when an
+unselected lane unexpectedly runs. A new SHA always requires new hosted
+evidence; queued, cancelled, failed, or old-SHA runs do not count.
+Pull Requests record the actual duration of each selected lane and the full
+lane baseline after the exact-head runs complete.
+
 ## Current Baseline And Known Limits
 
 Exact current counts and dates live in `PROJECT_STATUS.md`. Current UI automation
