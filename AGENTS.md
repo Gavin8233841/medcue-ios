@@ -57,12 +57,16 @@ product safety boundary, and release timing.
 
 ## 3. Use GitHub As The Work System
 
-- Track active requirements, bugs, and technical debt in GitHub Issues.
-- Use one focused branch and one Pull Request per coherent Issue.
-- Branch from the authoritative, up-to-date `main` as
-  `codex/<issue-number>-<short-name>`.
+- Keep one locally owned finals milestone on one focused branch and verify it in
+  small steps. Use GitHub Issues for remote ownership, durable/deferred backlog,
+  bugs or debt that must outlive the milestone, and integration coordination.
+- Use one focused branch per coherent local milestone and one Pull Request per
+  coherent Issue. Branch from the authoritative, up-to-date `main` as
+  `codex/<short-milestone>` before the GitHub checkpoint, or
+  `codex/<issue-number>-<short-name>` when an Issue already exists.
 - Do not push feature work directly to `main`.
-- Link the Pull Request to its Issue and keep scope changes visible.
+- Before pushing for shared integration or opening a Pull Request, create or
+  align one Issue, link the Pull Request to it, and keep scope changes visible.
 - Require green relevant CI, a completed review checklist, and the approved
   autonomous-merge gate before merge.
 - Record durable architecture decisions in `docs/adr/`; do not bury them in a
@@ -77,9 +81,10 @@ pre-normalization history, and never force-push over an active contributor.
 
 ## 4. Coordinate AI Work Deliberately
 
-- At the start of a task or after context recovery, confirm the linked Issue or
-  Pull Request, branch and upstream, exact HEAD, working-tree status, and the
-  applicable product and engineering truth documents.
+- At the start of a task or after context recovery, confirm the active local
+  milestone and any linked Issue or Pull Request, branch and upstream, exact
+  HEAD, working-tree status, and the applicable product and engineering truth
+  documents.
 - One coordinating agent owns scope, integration, and final evidence. Delegate
   only bounded work with explicit ownership; parallel writers may touch only
   disjoint files or separate worktrees. The coordinator reviews every result and
@@ -91,8 +96,9 @@ pre-normalization history, and never force-push over an active contributor.
 - CI workflows, verification gates, release scans, and packaging scripts also
   require fresh-context security review because they define trusted evidence.
 - A handoff records the exact revision, dirty files, completed evidence,
-  blockers, and one next action. Durable state belongs in the Issue or Pull
-  Request, not in another permanent handoff log.
+  blockers, and one next action. Shared remote state belongs in the Issue or
+  Pull Request; accepted finals priority belongs in `docs/FINALS_PRODUCT_PLAN.md`,
+  not in another permanent handoff or daily progress log.
 - Skills, plugins, MCP results, model scores, and generated knowledge graphs are
   aids, not sources of truth. Verify consequential claims against the exact
   source revision, tests, official platform documentation, or external system.

@@ -10,6 +10,7 @@ diagnostic signals, not proof that a medication workflow is safe or complete.
 | Swift Core tests | Portable domain rules, time boundaries, planning, trends, inventory, risk, and medical-response behavior |
 | iOS hosted tests | SwiftData transactions, migration, rollback, idempotency, commands, projections, adapters, and failure paths |
 | XCUITest | A small set of deterministic critical user journeys and process-recovery behavior |
+| Task-based usability evidence | Whether a non-developer can understand and complete the primary medication task without coaching; records confusion and recovery, not a fabricated score |
 | Broker Node tests | Authentication gates, endpoint policy, request/response limits, timeout, cancellation, and provider failure behavior |
 | Preflight and build gates | Target/configuration integrity, source boundaries, Release products, privacy manifests, Watch embedding, and sensitive artifacts |
 | Physical-device evidence | Notifications, Live Activities, permissions, Watch/Widget behavior, signing, lock state, performance, and memory |
@@ -22,6 +23,20 @@ diagnostic signals, not proof that a medication workflow is safe or complete.
   idempotency, old-schema data, and post-commit side-effect suppression.
 - View or user journey: test the highest deterministic interface first; use UI
   automation only for behavior that lower layers cannot prove.
+- Elder-friendly experience: combine shared-command tests, XCUITest for taken,
+  remind-later, and request-help paths, process-restart evidence, VoiceOver,
+  Dynamic Type, large touch targets, and task observation with representative
+  non-developers. Large text or a screenshot alone is not usability evidence.
+- Dose semantics: prove that the absence of a response remains unconfirmed;
+  intentional skip, taken, remind later, correction, and reopen remain
+  distinguishable across persistence, restart, notification, Live Activity,
+  Watch, and experience-mode changes where those entry points apply.
+- Experience-mode change: prove that both modes render the same committed state
+  and call the same application commands. Switching must not duplicate plans,
+  tasks, logs, reminders, or side effects.
+- Family-help action: test a sanitized configured number, missing-number failure,
+  explicit system confirmation, cancellation, and return to the app. Do not read
+  or upload Contacts as test setup.
 - Notification, Live Activity, Watch, Widget, permission, or lock-state change:
   combine hosted adapter/command tests with a numbered physical-device script.
 - External input or trust boundary: cover malformed, missing, substituted,
@@ -48,6 +63,9 @@ diagnostic signals, not proof that a medication workflow is safe or complete.
   and any untested boundary in the Pull Request.
 - Do not accept generated summaries, screenshots, model scores, or a successful
   build as substitutes for acceptance criteria and behavior evidence.
+- Xcode agents and specialist tools may generate code, prototypes,
+  accessibility suggestions, or tests, but their output must pass the same
+  source review, behavior, privacy, and exact-revision gates.
 
 ## Native Verification Lane Map
 
@@ -79,6 +97,10 @@ only proves first launch and primary navigation; it does not yet cover the
 critical medication journeys. CI disables the real local llama binary and tests
 the stub path. These boundaries must remain visible in Pull Requests and release
 claims.
+
+The elder-friendly mode is an accepted direction, not a verified runtime
+capability. No plan, Preview, screenshot, or generated prototype may be reported
+as implemented behavior before its milestone tests and device evidence exist.
 
 Active delivery gaps belong in GitHub Issues rather than this durable strategy.
 The current UI-journey, contest-package, and physical-device evidence work is

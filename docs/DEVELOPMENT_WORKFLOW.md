@@ -15,15 +15,20 @@ without copying a large company's approval bureaucracy.
   approaches need comparison before implementation.
 - **ADR (Architecture Decision Record)**: a short permanent record of an
   important architecture decision, its alternatives, and consequences.
+- **Local milestone brief**: a compact description of one coherent local
+  outcome, scope, acceptance criteria, evidence plan, ownership, and next gate.
+  `FINALS_PRODUCT_PLAN.md` may own it; do not create a new file for every step.
 - **Issue**: the GitHub work item that owns a requirement, bug, or technical
-  debt item.
-- **Acceptance criteria**: observable conditions that must be true for the Issue
-  to be complete.
+  debt item when remote coordination or durable backlog is needed.
+- **Acceptance criteria**: observable conditions that must be true for the
+  local milestone or Issue to be complete.
 - **Implementation task plan**: an ordered breakdown that maps requirements and
   design decisions to implementation and verification work.
 - **PR (Pull Request)**: the reviewable code and evidence proposed for merge.
 - **CI (Continuous Integration)**: automated tests and builds run by GitHub for
   each Pull Request.
+- **Integration checkpoint**: a coherent, locally verified revision worth
+  pushing for review, collaboration, CI, or merge to `main`.
 - **Definition of Ready**: the minimum clarity required before implementation.
 - **Definition of Done**: the evidence required before work is truly complete.
 
@@ -42,8 +47,9 @@ remain theirs; routine technical choices belong to the agent.
 ### Engineering agent
 
 The agent investigates repository facts, identifies hidden risks, drafts the
-Issue/PRD, proposes alternatives, implements sufficiently defined scope, adds
-tests, runs verification, prepares the Pull Request, and reports residual risk.
+local specification or Issue/PRD, proposes alternatives, implements sufficiently
+defined scope, adds tests, runs verification, prepares integration evidence,
+and reports residual risk.
 It must challenge a materially worse approach with evidence and a concrete
 alternative rather than optimize for agreement. It must identify any requested
 medical claim or privacy choice that crosses the product's safety, evidence,
@@ -65,9 +71,9 @@ answers require that evidence only if App Store distribution enters scope.
 
 | Change | Required artifact |
 | --- | --- |
-| Small, obvious bug | Bug Issue with reproduction and acceptance criteria |
-| Routine feature | Feature Issue containing a concise PRD |
-| Cross-module or high-risk feature | Requirements, design, and implementation task plan in the Issue or a linked spec; expand the design into an RFC only when alternatives matter |
+| Small, obvious local bug | Reproduction and acceptance criteria in the active local milestone; create an Issue if delegated, deferred, or needed as durable backlog |
+| Routine locally owned feature | Concise PRD in the active local milestone; create or align an Issue before remote ownership or a Pull Request integration checkpoint |
+| Cross-module or high-risk feature | Requirements, design, risk analysis, and tasks in a local spec; create or update an Issue before remote ownership or a shared high-risk integration checkpoint |
 | Durable architecture/data/security decision | ADR after the decision is accepted |
 | Technical debt | Evidence-based debt Issue with impact and an exit condition |
 | Emergency release fix | Incident/bug Issue, narrow PR, explicit follow-up debt |
@@ -84,13 +90,14 @@ change-risk assessment.
 | Change risk | Minimum control |
 | --- | --- |
 | Routine and reversible, with no observable behavior change | Keep the diff focused, use an existing aligned Issue/PR when available, and run relevant quick checks during iteration. No separate PRD is required; merge still requires exact-revision green CI. |
-| Standard product behavior | Use an Issue with acceptance criteria, a short branch and Pull Request, focused tests, and the full relevant CI gate. |
+| Standard product behavior | Use a local milestone brief with acceptance criteria, a short branch, and focused tests; create or align an Issue before the Pull Request and relevant CI integration gate. |
 | Safety-critical: medication records/actions, medical AI, privacy, security, migration, or trusted system entry points | Add failure, rollback, misuse, and data-integrity analysis; require complete relevant CI, fresh-context independent review, and device/account evidence where applicable. |
 | External or difficult to reverse: history rewrite, data destruction, credential rotation, paid service, or release | Write the exact execution, verification, and rollback plan and obtain product-owner approval before the external action. |
 
 For a new trust boundary, external input, credential, health-data flow, or
-medication write path, answer four questions in the Issue: what are we changing,
-what can go wrong, how is it controlled, and how will the control be verified.
+medication write path, answer four questions in the local specification and its
+Issue before integration: what are we changing, what can go wrong, how is it
+controlled, and how will the control be verified.
 Do not require a full threat-model document for unrelated routine work.
 
 ## Delivery Flow
@@ -103,7 +110,7 @@ product behavior. Newly discovered adjacent issues are recorded separately.
 
 ### 2. Definition of Ready
 
-Implementation can start when the Issue has:
+Implementation can start when the active local milestone or Issue has:
 
 - a clear problem and intended outcome;
 - scope and non-goals;
@@ -117,7 +124,7 @@ Implementation can start when the Issue has:
 ### 3. Design and task breakdown
 
 For medium, large, cross-module, or high-risk work, keep three auditable layers
-in the Issue or a linked specification:
+in the local specification, Issue, or a linked document:
 
 - requirements define the intended behavior, scope, and acceptance criteria;
 - design records boundaries, data and failure behavior, and alternatives only
@@ -132,7 +139,8 @@ them as a few Issue bullets and does not require separate documents.
 With the authoritative `main` established:
 
 ```text
-main -> codex/<issue-number>-<short-name> -> Pull Request -> main
+main -> codex/<issue-number>-<short-name> or codex/<short-milestone>
+     -> Issue integration checkpoint -> Pull Request -> main
 ```
 
 Use short commits that each leave the branch understandable. Start with the
@@ -141,10 +149,12 @@ out of the Pull Request.
 
 ### 5. Pull Request
 
-Open a Draft Pull Request early for substantial work. The PR must link its
-Issue, explain the solution and scope, map results to acceptance criteria, show
-test/build/device evidence, and call out migrations, privacy changes, rollout,
-rollback, and remaining risk.
+Open a Draft Pull Request early for substantial shared or high-risk work. A
+locally owned milestone may stay local until a coherent integration checkpoint.
+At that checkpoint, create or align one Issue before pushing shared work. The
+PR links its Issue, explains the solution and scope, maps
+results to acceptance criteria, shows test/build/device evidence, and calls out
+migrations, privacy changes, rollout, rollback, and remaining risk.
 
 ### Active work coordination
 
@@ -153,6 +163,11 @@ owns active work, the Issue owns scope and decisions, and the Pull Request owns
 the current implementation and verification evidence. Codex conversations and
 local handoff files are not long-term coordination records. These are minimum
 controls; an agent may add checks when the evidence or risk warrants them.
+
+These coordination leases apply when work is remote, shared, deferred, or at an
+integration checkpoint. They do not require a new Issue for every reversible
+local step inside one already approved finals milestone. File-overlap checks and
+the one-writer rule apply in both local and GitHub phases.
 
 The `state:in-progress` label is a human work lease, not a technical lock.
 Before editing, the contributor checks the Issue assignee, labels, latest
@@ -280,9 +295,10 @@ push uses the empty-tree SHA and the full Route A gate.
 Before this split, representative single-job Native Verification durations were
 17:03 for a documentation/label main run, 19:03 for a governance Pull Request,
 20:52 for a label-migration main run, 14:18 for another governance Pull Request,
-and 13:49 for a Broker-only Pull Request. The Issue #39 Pull Request records
-the new exact-head docs, Broker, and full-lane durations after they complete;
-these historical values are not reused as evidence.
+and 13:49 for a Broker-only Pull Request. Issue #39 / PR #40 records two
+exact-head docs probes at 4s and 7s, two Broker probes at 14s and 18s, and its
+final full lane at 17:07. Those named runs are evidence only for their exact
+revisions.
 
 The workflow always publishes one Native Verification (required result)
 aggregation job. It succeeds when classification succeeds and the selected lane
@@ -295,24 +311,24 @@ context, not a substitute for a new run. Because workflow files are trusted
 evidence, any change under `.github/workflows/` remains a full-lane change and
 requires fresh-context security review before approval.
 
-This repository currently has no enforced branch-protection ruleset or
-`CODEOWNERS` policy. A `pull_request` workflow is therefore evaluated from the
-PR merge revision, so the static guard is not an independently base-trusted
-security boundary. Do not claim the workflow self-protection acceptance item is
-complete, mark this Issue ready, or merge this change until a coordinator adds
-an independently base-trusted `pull_request_target` guard or an equivalent
-enforced repository rule. Fresh-context review remains necessary but does not
-substitute for that enforcement.
+At `main@c47416944790c5c4e7f1e3a03c4958473c1856fd`, the active
+`main-trusted-delivery` ruleset has no bypass, requires the Native Verification
+required result, blocks branch deletion and force-push, and requires resolved
+review threads. Base-branch `CODEOWNERS` requires reciprocal maintainer review
+for `/.github/` and `/tools/`; ordinary changes outside those protected paths
+retain the autonomous-merge gate. Because a Pull Request can edit its own
+workflow revision, the base-branch ruleset and CODEOWNERS policy are the trusted
+enforcement layer; fresh-context security review remains required for changes
+to that layer.
 
 The agent performs a correctness, regression, privacy, medical-safety,
 performance, accessibility, and test-quality review. `Native Verification`
 must be green. A failure is investigated and fixed; it is never waived by a
 claim that a local build worked.
 
-Repository visibility and branch-protection capabilities are verified against
-current GitHub metadata before they are described here. Until an approved
-ruleset is confirmed on the authoritative repository, this workflow is
-enforced manually: no direct `main` push and no merge without green CI.
+Repository visibility, ruleset, CODEOWNERS, and required-check metadata must be
+read back before a change relies on them. No direct `main` push and no merge
+without the applicable green exact-head CI are allowed.
 
 Classify review feedback so that review improves quality without chasing
 perfection:
@@ -335,18 +351,20 @@ requires a measurement.
 
 ### 8. Merge and release record
 
-Prefer squash merge for one Issue -> one coherent commit after review and CI
-are green. Delete merged branches. Close the linked Issue. User-visible
-release changes go into a release note/changelog; durable decisions go into an
+Prefer squash merge for one local milestone and its integration Issue -> one
+coherent commit after review and CI are green. Delete merged branches. Close
+the linked Issue. User-visible release changes go into a release note/changelog;
+durable decisions go into an
 ADR; current engineering truth updates `docs/PROJECT_STATUS.md`.
 
 ## Session And Multi-Agent Harness
 
-At task start or after context recovery, inspect the linked Issue/PR, exact
-branch and HEAD, upstream, `git status`, and the current truth documents before
-acting. A handoff must state the exact revision, dirty files, completed checks,
-open blockers, and one next action. Persistent progress belongs in GitHub; use a
-redacted ignored temporary handoff only when no suitable Issue or PR exists.
+At task start or after context recovery, inspect the active local milestone and
+any linked Issue/PR, exact branch and HEAD, upstream, `git status`, and current
+truth documents before acting. A handoff states the exact revision, dirty files,
+completed checks, open blockers, and one next action. Shared remote progress
+belongs in GitHub; accepted finals priority belongs in
+`FINALS_PRODUCT_PLAN.md`. Do not add a permanent daily progress log.
 
 One coordinating agent owns scope and integration. Parallel work is appropriate
 for bounded read-only investigation, testing, or explicitly disjoint files and
@@ -361,29 +379,14 @@ A generated graph must identify the revision and exclusions it represents. Keep
 large generated graph artifacts local and ignored; rebuild them when useful, not
 as a mandatory Pull Request gate.
 
-### Shared-file ownership recorded on 2026-08-22
+### Shared-file integration checkpoint on 2026-08-23
 
-Three Draft Pull Requests based on post-migration audit baseline
-`280e5b3f8425f155d5e20a71841f4169a63bc59d` intentionally had disjoint semantic
-ownership in this file:
-
-- PR #31 replaces only two fulfilled history-normalization prerequisites in the
-  pre-existing branch and merge guidance. It does not own either new section
-  described below.
-- PR #30 adds the Active work coordination protocol and its label vocabulary;
-  it also changes `.github/pull_request_template.md`. PR #31 does not import or
-  edit that protocol.
-- PR #26 adds the Controlled Demo build workflow in this file and changes the
-  Demo app, scheme, project, tests, and preflight implementation. It therefore
-  does include `docs/DEVELOPMENT_WORKFLOW.md`; PR #31 does not import or edit
-  that section.
-
-PR #26 and PR #30 both insert their owned section immediately before the
-baseline's Review and CI section. If any of these PRs merges first, every
-remaining PR that touches this file must rebase or reapply its owned change,
-inspect the complete cumulative file diff, and rerun exact-head CI before
-merge. A conflict-free merge alone does not prove that all owned sections were
-preserved.
+PR #26, #30, #31, and #40 are merged. PR #40 owns the Native Verification lane
+and autonomous-merge rules now present in this file. The finals baseline branch
+waited for PR #40 and merged exact `main@c47416944790c5c4e7f1e3a03c4958473c1856fd`
+before adding local-milestone rules. Future same-file work must repeat the open
+Pull Request overlap check and review the complete cumulative diff; a
+conflict-free merge alone is not evidence that both rule sets survived.
 
 ## Definition Of Done
 
@@ -396,9 +399,10 @@ preserved.
 - Applicable competition, intellectual-property, dependency-license, and
   attribution obligations are addressed.
 - Documentation and operational steps are current.
-- CI is green on the proposed revision.
+- CI is green on the proposed integration revision; local intermediate commits
+  carry the focused evidence defined by their milestone.
 - Required device/account checks are recorded.
-- Residual risk and follow-up Issues are explicit.
+- Residual risk and follow-up plan items or Issues are explicit.
 - No secrets, user data, generated caches, or unapproved assets are included.
 
 ## Minimal GitHub Organization
@@ -431,11 +435,17 @@ benefit from a board.
 
 - `README.md`: public product and build entry point.
 - `CONTEXT.md`: product context, current release scope, language, and invariants.
+- `docs/FINALS_PRODUCT_PLAN.md`: accepted finals focus, scope, milestones, and
+  local/remote collaboration boundary.
+- `docs/TOOLING_AND_PLUGIN_PLAN.md`: current workspace, Xcode, MCP, plugin, and
+  local privacy boundary.
 - `docs/PROJECT_STATUS.md`: one current verified engineering snapshot.
-- GitHub Issues: active requirements, bugs, and technical debt.
+- GitHub Issues: remote ownership, durable backlog, bugs, and technical debt
+  that must outlive the current local milestone.
 - Pull Requests: implementation and verification evidence.
 - `docs/adr/`: durable decisions.
-- `PROJECT_UPDATE_LOG.md` and old handoffs: historical audit only.
+- Removed daily logs and old handoffs: historical audit only; do not
+  reconstruct them.
 
 This structure replaces append-only vibe-coding logs with traceable decisions
 without discarding their history.

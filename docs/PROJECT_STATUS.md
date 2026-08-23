@@ -2,7 +2,7 @@
 
 Last audited: 2026-08-23
 Authoritative branch: `main`
-Authoritative `main` observed at: `c8b9dffd2cfaa481f6e654ea399645a847745a73`
+Authoritative `main` observed at: `c47416944790c5c4e7f1e3a03c4958473c1856fd`
 Post-migration audit baseline: `280e5b3f8425f155d5e20a71841f4169a63bc59d`
 Audit-baseline CI: [Native Verification run 32171788727](https://github.com/Gavin8233841/medcue-ios/actions/runs/32171788727)
 
@@ -54,11 +54,18 @@ to a later `main` HEAD. It also does not certify physical-device behavior,
 Apple account configuration, provider retention, App Store Connect answers, or
 commercial-production readiness.
 
-The current `main` at `c8b9dffd2cfaa481f6e654ea399645a847745a73`
-completed Native Verification successfully in
+The prior CODEOWNERS bootstrap revision
+`c8b9dffd2cfaa481f6e654ea399645a847745a73` completed Native Verification in
 [run 32620495542](https://github.com/Gavin8233841/medcue-ios/actions/runs/32620495542).
 This proves the full gate for that exact CODEOWNERS bootstrap revision; it does
 not transfer to later local or Pull Request changes.
+
+The CI risk-lane merge at
+`c47416944790c5c4e7f1e3a03c4958473c1856fd` completed its push-triggered full
+Route A gate successfully in
+[run 32622093916](https://github.com/Gavin8233841/medcue-ios/actions/runs/32622093916)
+on 2026-08-23. This is the exact post-merge evidence required by Issue #39; it
+does not transfer to the local finals documentation branch.
 
 ### Reproduce The Audit-Baseline Counts
 
@@ -119,14 +126,14 @@ is no longer a blocker.
 
 `main` includes the Controlled Demo path, active-work coordination, Broker
 security changes, bounded Broker idempotency-cache expiry/capacity from Issue
-#35 / PR #38, and the trusted CODEOWNERS bootstrap from PR #42.
+#35 / PR #38, the trusted CODEOWNERS bootstrap from PR #42, and the CI risk
+lanes from Issue #39 / PR #40. PR #40 passed exact-head CI, Blocker 0 / Required
+0 review, code-owner approval, and the post-merge exact-main gate above.
 
-Issue #39 / PR #40 is owned by YZY. PR HEAD
-`c5ef0bf36974437acf265503318843a97d2cf13b` includes the latest `main`; its
-fresh-context result and code-owner review are Blocker 0 / Required 0 and
-approved. Its new exact-head full CI is still running, so no CI success is
-claimed. It must complete that CI, merge, and pass exact-main CI before Issue #5
-starts.
+Issue #5 remains open, assigned to YZY, and queued without an implementation
+branch. Its prerequisite sequence is now complete; starting it still requires
+the recorded exact-main and open-file-overlap start check. No start signal or
+branch exists at this audit.
 
 ### Accepted Finals Direction — Planning Only
 

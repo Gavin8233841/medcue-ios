@@ -81,10 +81,9 @@ MedCue 是面向一般用药人群的本地优先用药管理工具。它帮助�
 
 截至 2026-08-23 的串行顺序：
 
-1. YZY 先完成 Issue #39 / PR #40：当前 HEAD `c5ef0bf` 已整合含 CODEOWNERS 的最新 `main`，并完成 Blocker 0 / Required 0 复审和代码所有者批准；仍须等待该 HEAD 的完整 CI 成功后才能合入；
-2. PR #40 合入后等待准确 `main` 的完整 Native Verification 成功；
-3. 随后才启动 Issue #5 的可复现决赛源码包；
-4. 本机不替 YZY 重做，不为了协作新增工作项。
+1. Issue #39 / PR #40 已合入为 `main@c474169`，准确 PR HEAD 与合入后 `main` 的完整 Native Verification 均成功；
+2. Issue #5 是 YZY 的下一项可复现决赛源码包工作，目前仍为已指派、无分支的排队状态；启动前须记录最新 `main` 和开放文件重叠核对；
+3. 本机继续自己的产品里程碑，不替 YZY 重做或擅自启动其远端任务。
 
 ## 8. GitHub 使用边界
 
