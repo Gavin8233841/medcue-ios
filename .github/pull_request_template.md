@@ -39,10 +39,11 @@ health records, API tokens, device identifiers, or absolute user paths.
 - [ ] 最后一次已跟踪文件变更后，我使用与任务风险相称的最强可用模型/推理能力，检查了完整的 base-to-HEAD 累积 diff 和当前 Pull Request 正文。 / After the last tracked-file change, I reviewed the complete base-to-HEAD cumulative diff and current Pull Request body using the strongest available model/reasoning appropriate to the task risk.
 - [ ] base SHA、head SHA、Pull Request 正文和成功 CI 证据都描述当前版本；没有声称任何待定或已过时的结果。 / The base SHA, head SHA, Pull Request body, and successful CI evidence all describe the current revision; no pending or superseded result is claimed.
 - [ ] 重点自动化测试通过 / Focused automated tests pass.
-- [ ] `tools/verify-native.sh --quick` 通过 / passes.
-- [ ] 相关完整验证通过 / Full relevant verification passes.
+- [ ] 选定 lane 的 exact-head 检查通过；native/full lane 或 `main` push 还通过完整 `tools/verify-native.sh` / The selected lane passes at the exact HEAD; native/full lanes and `main` pushes also pass the complete `tools/verify-native.sh` gate.
+- [ ] `tools/verify-native.sh --quick` 通过，或在 Windows 等无 macOS/Xcode 环境中如实记录不可用原因 / `tools/verify-native.sh --quick` passes, or its unavailable macOS/Xcode prerequisites are recorded honestly.
 - [ ] 所需真机/账号检查已完成，或说明理由后标记 N/A；只有 Draft Pull Request 可以保留待完成证据。 / Required physical-device/account checks are complete or marked N/A with a reason. Pending evidence is allowed only while this Pull Request is Draft.
 - [ ] 安全关键工作已完成新上下文独立评审，或说明理由后标记 N/A。 / Fresh-context independent review is complete for safety-critical work, or this is marked N/A with a reason.
+- [ ] 默认自主合并门已满足：累计自审、Issue 指定模型 fresh-context 复审、Blocker 0 / Required 0、exact-head CI、current-main 集成和所需外部证据；否则已记录例外并唤醒协调者 / The autonomous-merge gate is satisfied, or an exception is recorded and the coordinator is notified.
 - [ ] 适用的竞赛、知识产权、依赖许可和署名检查已完成，或说明理由后标记 N/A。 / Applicable competition, intellectual-property, dependency-license, and attribution checks are complete or marked N/A with a reason.
 
 基础版本 / Base revision:
@@ -56,6 +57,12 @@ CI 运行 URL 与准确 head SHA / CI run URL and exact head SHA:
 ```text
 
 ```
+
+独立复审 / Independent review:
+
+- 模型 / Model:
+- 完整审查 HEAD / Reviewed full HEAD:
+- 结论 / Result: Blocker 0 / Required 0 / Suggestions / Questions
 
 ## 风险评审 / Risk Review
 
