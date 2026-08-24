@@ -60,7 +60,7 @@ final class MedicationJourneyUITests: XCTestCase {
         strengthField.tap()
         strengthField.typeText("100mg")
 
-        let saveMedicationButton = app.buttons["保存"]
+        let saveMedicationButton = app.buttons[AccessibilityID.medicationEditSave]
         XCTAssertTrue(saveMedicationButton.waitForExistence(timeout: 5))
         saveMedicationButton.tap()
         let confirmMedicationButton = app.buttons["已核对，保存"]
