@@ -423,6 +423,7 @@ struct AddMedicationView: View {
             set: { newValue in
                 if option.id == .manual,
                    !hasShownNameScanSuggestion,
+                   !AppPermissionGate.isUITestDeterministicMode,
                    displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                    !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     hasShownNameScanSuggestion = true
