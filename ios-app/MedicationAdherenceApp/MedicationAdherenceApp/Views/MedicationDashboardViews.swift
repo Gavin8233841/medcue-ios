@@ -169,6 +169,11 @@ struct MedicationAddOptionsSheet: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(!isEnabled)
+                        .accessibilityIdentifier(
+                            option.id == .manual
+                                ? AppAccessibilityID.medicationAddManual
+                                : "medication.add.\(option.id.rawValue)"
+                        )
                     }
                 }
             }

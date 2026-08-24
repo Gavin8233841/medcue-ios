@@ -320,6 +320,7 @@ struct RecordsModuleIndexCard<
                 ) {
                     RecordsModuleHistoryPreview(latestTask: latestHistoryTask, tint: RecordsModulePalette.history)
                 }
+                .accessibilityIdentifier(AppAccessibilityID.recordsHistory)
             }
         }
     }

@@ -69,6 +69,10 @@ enum AppPermissionGate: String, Identifiable {
         UserDefaults.standard.bool(forKey: gate.authorizationDefaultsKey)
     }
 
+    static var isUITestDeterministicMode: Bool {
+        ProcessInfo.processInfo.arguments.contains("-UITestDeterministicMode")
+    }
+
     static func markAuthorizationCompleted(for gate: AppPermissionGate) {
         UserDefaults.standard.set(true, forKey: gate.authorizationDefaultsKey)
     }

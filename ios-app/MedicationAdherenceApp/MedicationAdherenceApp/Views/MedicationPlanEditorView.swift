@@ -178,6 +178,10 @@ struct PlanEditorView: View {
 
     @MainActor
     private func ensureReminderPermissionForSave() async -> Bool {
+        if AppPermissionGate.isUITestDeterministicMode {
+            AppPermissionGate.markAuthorizationCompleted(for: .notifications)
+            return true
+        }
         switch reminderDeliveryMethod {
         case .notification:
             if await notificationService.hasUsableNotificationAuthorization() {
@@ -204,6 +208,10 @@ struct PlanEditorView: View {
 
     @MainActor
     private func ensureEscalationAlarmPermissionForSave() async -> Bool {
+        if AppPermissionGate.isUITestDeterministicMode {
+            AppPermissionGate.markAuthorizationCompleted(for: .alarm)
+            return true
+        }
         guard escalatesToAlarmWhenUnhandled,
               reminderDeliveryMethod == .notification
         else {
@@ -297,6 +305,7 @@ struct MedicationPresetTextField: View {
     let title: String
     let placeholder: String
     let presets: [String]
+    let accessibilityIdentifier: String
     @Binding var text: String
 
     var body: some View {
@@ -310,6 +319,7 @@ struct MedicationPresetTextField: View {
                 TextField(placeholder, text: $text)
                     .textInputAutocapitalization(.never)
                     .multilineTextAlignment(.leading)
+                    .accessibilityIdentifier(accessibilityIdentifier)
 
                 Menu {
                     Button("清空") {

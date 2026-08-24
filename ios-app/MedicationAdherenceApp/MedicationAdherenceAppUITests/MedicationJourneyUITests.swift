@@ -2,7 +2,26 @@ import XCTest
 
 @MainActor
 final class MedicationJourneyUITests: XCTestCase {
+    private enum AccessibilityID {
+        static let tabMedications = "tab.medications"
+        static let tabToday = "tab.today"
+        static let tabRecords = "tab.records"
+        static let medicationAdd = "medication.add"
+        static let medicationAddManual = "medication.add.manual"
+        static let medicationGroupActive = "medication.group.active"
+        static let medicationCellPrefix = "medication.cell."
+        static let medicationEditSave = "medication.edit.save"
+        static let medicationEditDisplayName = "medication.edit.displayName"
+        static let medicationEditStrength = "medication.edit.strength"
+        static let medicationPlanSave = "medication.plan.save"
+        static let medicationDetailAddPlan = "medication.detail.addPlan"
+        static let todayDoseTaskPrefix = "today.doseTask."
+        static let todayDoseMarkTaken = "today.dose.markTaken"
+        static let todayDoseUndo = "today.dose.undo"
+        static let recordsHistory = "records.history"
+    }
     private var app: XCUIApplication!
+    private let medicationName = "阿司匹林"
 
     override func setUp() {
         super.setUp()
@@ -11,130 +30,113 @@ final class MedicationJourneyUITests: XCTestCase {
     }
 
     func testCreateMedicationPlanDoseCorrectionJourney() {
-        // Launch with deterministic test mode
         app.launchArguments = [
             "-AppPersistenceCommitter.failureMessage", "",
             "-DoseActionPersistence.failureMessage", "",
             "-hasCompletedFirstLaunchSetup", "YES",
-            "-UITestDeterministicMode", "YES",
-            "-UITestFixedDate", "2026-08-24T09:00:00Z"
+            "-UITestDeterministicMode", "YES"
         ]
         app.launch()
 
-        // Step 1: Navigate to medications tab
-        let medicationsTab = app.tabBars.buttons.element(boundBy: 1)
-        XCTAssertTrue(medicationsTab.waitForExistence(timeout: 10))
-        medicationsTab.tap()
-
-        // Step 2: Create a medication
-        let addMedicationButton = app.buttons["medications.add"]
-        XCTAssertTrue(addMedicationButton.waitForExistence(timeout: 5))
+        // Create a medication through the same option sheet as the product flow.
+        tapTab(AccessibilityID.tabMedications)
+        let addMedicationButton = app.buttons[AccessibilityID.medicationAdd]
+        XCTAssertTrue(addMedicationButton.waitForExistence(timeout: 10))
         addMedicationButton.tap()
 
-        let displayNameField = app.textFields["medication.edit.displayName"]
+        let manualAddButton = app.buttons[AccessibilityID.medicationAddManual]
+        XCTAssertTrue(manualAddButton.waitForExistence(timeout: 5))
+        manualAddButton.tap()
+
+        let displayNameField = app.textFields[AccessibilityID.medicationEditDisplayName]
         XCTAssertTrue(displayNameField.waitForExistence(timeout: 5))
         displayNameField.tap()
-        displayNameField.typeText("阿司匹林")
+        displayNameField.typeText(medicationName)
 
-        let strengthField = app.textFields["medication.edit.strength"]
+        let strengthField = app.textFields[AccessibilityID.medicationEditStrength]
+        XCTAssertTrue(strengthField.waitForExistence(timeout: 5))
         strengthField.tap()
         strengthField.typeText("100mg")
 
-        let saveMedicationButton = app.buttons["medication.edit.save"]
+        let saveMedicationButton = app.buttons[AccessibilityID.medicationEditSave]
+        XCTAssertTrue(saveMedicationButton.waitForExistence(timeout: 5))
         saveMedicationButton.tap()
+        let confirmMedicationButton = app.buttons["已核对，保存"]
+        XCTAssertTrue(confirmMedicationButton.waitForExistence(timeout: 5))
+        confirmMedicationButton.tap()
 
-        // Verify medication was created
-        let medicationCell = app.cells["medication.cell.阿司匹林"]
+        // The medication list is intentionally collapsed by default.
+        let medicationGroup = app.buttons[AccessibilityID.medicationGroupActive]
+        XCTAssertTrue(medicationGroup.waitForExistence(timeout: 10))
+        medicationGroup.tap()
+        let medicationCell = app.buttons[AccessibilityID.medicationCellPrefix + medicationName]
         XCTAssertTrue(medicationCell.waitForExistence(timeout: 5))
-
-        // Step 3: Create a plan for the medication
         medicationCell.tap()
 
-        let addPlanButton = app.buttons["medication.detail.addPlan"]
-        XCTAssertTrue(addPlanButton.waitForExistence(timeout: 5))
-        addPlanButton.tap()
+        // AddMedicationView commits the medication and its default one-reminder
+        // plan in one transaction; the generated task proves the plan persisted.
+        XCTAssertTrue(app.staticTexts["疗程与提醒"].waitForExistence(timeout: 5))
 
-        let doseValueField = app.textFields["plan.edit.doseValue"]
-        XCTAssertTrue(doseValueField.waitForExistence(timeout: 5))
-        doseValueField.tap()
-        doseValueField.typeText("1")
-
-        let doseUnitField = app.textFields["plan.edit.doseUnit"]
-        doseUnitField.tap()
-        doseUnitField.typeText("片")
-
-        let reminderTimeButton = app.buttons["plan.edit.addReminderTime"]
-        reminderTimeButton.tap()
-
-        let savePlanButton = app.buttons["plan.edit.save"]
-        savePlanButton.tap()
-
-        // Step 4: Restart the app to verify persistence
+        // Restart to exercise SwiftData persistence and task projection.
         app.terminate()
         app.launch()
+        tapTab(AccessibilityID.tabToday)
 
-        // Navigate back to medications
-        let medicationsTabAfterRestart = app.tabBars.buttons.element(boundBy: 1)
-        XCTAssertTrue(medicationsTabAfterRestart.waitForExistence(timeout: 10))
-        medicationsTabAfterRestart.tap()
-
-        // Verify medication still exists
-        let medicationCellAfterRestart = app.cells["medication.cell.阿司匹林"]
-        XCTAssertTrue(medicationCellAfterRestart.waitForExistence(timeout: 5))
-
-        // Step 5: Navigate to Today tab and verify dose task exists
-        let todayTab = app.tabBars.buttons.element(boundBy: 0)
-        todayTab.tap()
-
-        let doseTaskRow = app.cells["today.doseTask.阿司匹林"]
-        XCTAssertTrue(doseTaskRow.waitForExistence(timeout: 5))
-
-        // Step 6: Record a dose (mark as taken)
-        let markTakenButton = doseTaskRow.buttons["today.dose.markTaken"]
-        XCTAssertTrue(markTakenButton.waitForExistence(timeout: 5))
+        let doseTask = app.descendants(matching: .any).matching(
+            identifier: AccessibilityID.todayDoseTaskPrefix + medicationName
+        )
+        let markTakenButton = app.buttons[AccessibilityID.todayDoseMarkTaken]
+        XCTAssertTrue(markTakenButton.waitForExistence(timeout: 15))
+        XCTAssertEqual(doseTask.count, 1)
         markTakenButton.tap()
+        confirmEarlyDoseIfNeeded()
 
-        // Verify task status changed
-        XCTAssertTrue(doseTaskRow.staticTexts["已服用"].waitForExistence(timeout: 5))
+        // The handled section is collapsed after a transition; expand it for undo.
+        let handledSummary = app.buttons["今日已处理"]
+        XCTAssertTrue(handledSummary.waitForExistence(timeout: 10))
+        handledSummary.tap()
+        let undoButton = app.buttons[AccessibilityID.todayDoseUndo]
+        XCTAssertTrue(undoButton.waitForExistence(timeout: 5))
+        undoButton.tap()
 
-        // Step 7: Perform correction/undo
-        let undoButton = doseTaskRow.buttons["today.dose.undo"]
-        if undoButton.waitForExistence(timeout: 2) {
-            undoButton.tap()
+        XCTAssertTrue(markTakenButton.waitForExistence(timeout: 10))
+        markTakenButton.tap()
+        confirmEarlyDoseIfNeeded()
+        XCTAssertTrue(app.staticTexts["已服用"].waitForExistence(timeout: 10))
 
-            // Verify task returned to open state
-            XCTAssertTrue(markTakenButton.waitForExistence(timeout: 5))
+        // A second restart must retain the final taken state without duplicating tasks.
+        app.terminate()
+        app.launch()
+        tapTab(AccessibilityID.tabToday)
+        let finalHandledSummary = app.buttons["今日已处理"]
+        XCTAssertTrue(finalHandledSummary.waitForExistence(timeout: 15))
+        finalHandledSummary.tap()
+        XCTAssertTrue(app.staticTexts["已服用"].waitForExistence(timeout: 10))
+        let finalDoseTasks = app.descendants(matching: .any).matching(
+            identifier: AccessibilityID.todayDoseTaskPrefix + medicationName
+        )
+        XCTAssertEqual(finalDoseTasks.count, 1)
+
+        // Records exposes the committed history through its history destination.
+        tapTab(AccessibilityID.tabRecords)
+        let historyButton = app.descendants(matching: .any).matching(
+            identifier: AccessibilityID.recordsHistory
+        ).firstMatch
+        XCTAssertTrue(historyButton.waitForExistence(timeout: 10))
+        historyButton.tap()
+        XCTAssertTrue(app.staticTexts[medicationName].waitForExistence(timeout: 10))
+    }
+
+    private func tapTab(_ identifier: String) {
+        let tab = app.tabBars.buttons[identifier]
+        XCTAssertTrue(tab.waitForExistence(timeout: 10))
+        tab.tap()
+    }
+
+    private func confirmEarlyDoseIfNeeded() {
+        let confirmButton = app.buttons["确认已服用"]
+        if confirmButton.waitForExistence(timeout: 3) {
+            confirmButton.tap()
         }
-
-        // Step 8: Record dose again
-        markTakenButton.tap()
-        XCTAssertTrue(doseTaskRow.staticTexts["已服用"].waitForExistence(timeout: 5))
-
-        // Step 9: Second restart to verify final state
-        app.terminate()
-        app.launch()
-
-        let todayTabFinal = app.tabBars.buttons.element(boundBy: 0)
-        XCTAssertTrue(todayTabFinal.waitForExistence(timeout: 10))
-        todayTabFinal.tap()
-
-        // Verify the dose task shows as taken
-        let finalDoseTaskRow = app.cells["today.doseTask.阿司匹林"]
-        XCTAssertTrue(finalDoseTaskRow.waitForExistence(timeout: 5))
-        XCTAssertTrue(finalDoseTaskRow.staticTexts["已服用"].exists)
-
-        // Step 10: Verify no duplicate tasks
-        let allDoseTasks = app.cells.matching(identifier: "today.doseTask.阿司匹林")
-        XCTAssertEqual(allDoseTasks.count, 1, "Should have exactly one dose task, found \(allDoseTasks.count)")
-
-        // Step 11: Navigate to Records tab and verify no duplicate action logs
-        let recordsTab = app.tabBars.buttons.element(boundBy: 3)
-        recordsTab.tap()
-
-        XCTAssertTrue(app.staticTexts["records.title"].waitForExistence(timeout: 5))
-
-        // Verify single action log entry for the medication
-        let actionLogEntries = app.cells.matching(NSPredicate(format: "label CONTAINS '阿司匹林'"))
-        XCTAssertGreaterThanOrEqual(actionLogEntries.count, 1, "Should have at least one action log")
     }
 }

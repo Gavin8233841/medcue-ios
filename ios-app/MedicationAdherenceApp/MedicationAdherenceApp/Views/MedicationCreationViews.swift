@@ -182,6 +182,7 @@ struct AddMedicationView: View {
                         TextField("药品名称", text: displayNameBinding)
                             .textInputAutocapitalization(.words)
                             .multilineTextAlignment(.leading)
+                            .accessibilityIdentifier(AppAccessibilityID.medicationEditDisplayName)
                         if option.id == .manual {
                             Button {
                                 startCameraFlow(.nameScan)
@@ -217,7 +218,8 @@ struct AddMedicationView: View {
                         title: "规格",
                         placeholder: "例如 200 mg 或 10 ml",
                         presets: commonStrengthPresets,
-                        text: $strength
+                        text: $strength,
+                        accessibilityIdentifier: AppAccessibilityID.medicationEditStrength
                     )
                     MedicationFormAndUnitRow(
                         title: "形态/单位",
@@ -317,6 +319,7 @@ struct AddMedicationView: View {
                         showingSaveConfirmation = true
                     }
                     .disabled(!canSave || isSaveFlowActive)
+                    .accessibilityIdentifier(AppAccessibilityID.medicationEditSave)
                 }
             }
             .onAppear {
@@ -540,6 +543,10 @@ struct AddMedicationView: View {
 
     @MainActor
     private func ensureReminderPermissionForSave() async -> Bool {
+        if AppPermissionGate.isUITestDeterministicMode {
+            AppPermissionGate.markAuthorizationCompleted(for: .notifications)
+            return true
+        }
         switch reminderDeliveryMethod {
         case .notification:
             if await notificationService.hasUsableNotificationAuthorization() {
@@ -566,6 +573,10 @@ struct AddMedicationView: View {
 
     @MainActor
     private func ensureEscalationAlarmPermissionForSave() async -> Bool {
+        if AppPermissionGate.isUITestDeterministicMode {
+            AppPermissionGate.markAuthorizationCompleted(for: .alarm)
+            return true
+        }
         guard escalatesToAlarmWhenUnhandled,
               reminderDeliveryMethod == .notification
         else {

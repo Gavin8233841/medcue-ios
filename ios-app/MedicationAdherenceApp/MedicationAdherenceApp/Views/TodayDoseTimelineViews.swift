@@ -100,6 +100,7 @@ struct TimelineDoseTaskRow: View {
                             isConfirming: feedbackAction == .taken,
                             action: markTaken
                         )
+                        .accessibilityIdentifier(AppAccessibilityID.todayDoseMarkTaken)
                         .id("\(task.id.uuidString)-taken")
                         CompactDoseActionButton(
                             title: "稍后",
@@ -162,6 +163,10 @@ struct TimelineDoseTaskRow: View {
             removal: .opacity.combined(with: .move(edge: .bottom))
         ))
         .allowsHitTesting(!isClosing)
+        .accessibilityIdentifier(
+            AppAccessibilityID.todayDoseTaskPrefix
+                + (medication.map(userFacingMedicationName(for:)) ?? "unknown")
+        )
     }
 
     private var timeRail: some View {
@@ -447,9 +452,14 @@ struct HandledDoseTaskRow: View {
             .foregroundStyle(.orange)
             .buttonStyle(.borderless)
             .accessibilityLabel("撤销\(medication.map(userFacingMedicationName(for:)) ?? "这条记录")")
+            .accessibilityIdentifier(AppAccessibilityID.todayDoseUndo)
         }
         .padding(.vertical, 7)
         .contentShape(Rectangle())
+        .accessibilityIdentifier(
+            AppAccessibilityID.todayDoseTaskPrefix
+                + (medication.map(userFacingMedicationName(for:)) ?? "unknown")
+        )
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button {
                 undo()
