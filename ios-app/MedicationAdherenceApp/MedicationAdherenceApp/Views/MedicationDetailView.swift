@@ -248,6 +248,7 @@ struct MedicationDetailView: View {
                 } label: {
                     Label(relatedPlans.isEmpty ? "建立疗程与提醒" : "修改疗程与提醒", systemImage: "calendar.badge.clock")
                 }
+                .accessibilityIdentifier(AppAccessibilityID.medicationDetailAddPlan)
             }
 
             Section("剂量变化记录") {

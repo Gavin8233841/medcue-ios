@@ -63,7 +63,9 @@ struct PlanEditorView: View {
                     Stepper(value: $doseValue, in: 0.5...20, step: 0.5) {
                         Text("每次 \(doseValue.formatted()) \(localizedMedicationUnit(doseUnit))")
                     }
+                    .accessibilityIdentifier(AppAccessibilityID.medicationPlanDoseValue)
                     MedicationUnitPicker(title: "剂量单位", unit: $doseUnit)
+                        .accessibilityIdentifier(AppAccessibilityID.medicationPlanDoseUnit)
                     DatePicker("剂量生效日期", selection: $doseEffectiveFrom, displayedComponents: .date)
                     Text("仅记录剂量变化时间，不生成医疗建议。")
                         .font(.footnote)
