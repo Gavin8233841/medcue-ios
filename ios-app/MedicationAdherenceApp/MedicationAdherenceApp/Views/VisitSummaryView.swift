@@ -21,6 +21,7 @@ struct VisitSummaryView: View {
     @State private var pdfGenerationTask: Task<Void, Never>?
     @State private var generationGate = VisitSummaryGenerationGate()
     @State private var isGeneratingPDF = false
+    @State private var shareCompletionTracking = Set<URL>()
 
     private let pdfLifecycle = VisitSummaryPDFLifecycle.production()
 
@@ -159,7 +160,10 @@ struct VisitSummaryView: View {
             await refreshSnapshot(for: sourceRevision)
         }
         .sheet(item: $previewPDFItem) { item in
-            PDFPreviewSheet(url: item.url)
+            PDFPreviewSheet(url: item.url) {
+                // Preview dismissed - ownership returned, safe to remove
+                pdfLifecycle.remove(item.url)
+            }
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -500,7 +504,7 @@ struct VisitSummaryExportPanel: View {
                     }
                     .buttonStyle(.plain)
 
-                    ShareLink(item: pdfURL) {
+                    ShareLink(item: pdfURL, preview: SharePreview("复诊沟通 PDF", image: Image(systemName: "doc.text"))) {
                         VisitSummaryExportActionLabel(title: "分享", systemImage: "square.and.arrow.up", tint: .teal)
                     }
                 }

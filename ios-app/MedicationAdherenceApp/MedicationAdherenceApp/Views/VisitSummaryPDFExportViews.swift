@@ -38,7 +38,13 @@ enum VisitSummaryPDFExporter {
             // Publish with file protection and verification
             let publishedURL = try lifecycle.publish(data: data, to: targetURL)
 
-            try Task.checkCancellation()
+            // Check for cancellation after publication and remove artifact if cancelled
+            do {
+                try Task.checkCancellation()
+            } catch {
+                lifecycle.remove(publishedURL)
+                throw error
+            }
 
             return publishedURL
         }.value
@@ -52,10 +58,12 @@ struct PDFPreviewItem: Identifiable {
 
 struct PDFPreviewSheet: UIViewControllerRepresentable {
     let url: URL
+    let onDismiss: () -> Void
 
     func makeUIViewController(context: Context) -> QLPreviewController {
         let controller = QLPreviewController()
         controller.dataSource = context.coordinator
+        controller.delegate = context.coordinator
         return controller
     }
 
@@ -65,14 +73,16 @@ struct PDFPreviewSheet: UIViewControllerRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(url: url)
+        Coordinator(url: url, onDismiss: onDismiss)
     }
 
-    final class Coordinator: NSObject, QLPreviewControllerDataSource {
+    final class Coordinator: NSObject, QLPreviewControllerDataSource, QLPreviewControllerDelegate {
         var url: URL
+        let onDismiss: () -> Void
 
-        init(url: URL) {
+        init(url: URL, onDismiss: @escaping () -> Void) {
             self.url = url
+            self.onDismiss = onDismiss
         }
 
         func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
@@ -81,6 +91,10 @@ struct PDFPreviewSheet: UIViewControllerRepresentable {
 
         func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
             url as NSURL
+        }
+
+        func previewControllerDidDismiss(_ controller: QLPreviewController) {
+            onDismiss()
         }
     }
 }

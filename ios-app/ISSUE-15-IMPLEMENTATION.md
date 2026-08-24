@@ -56,11 +56,17 @@ struct VisitSummaryPDFLifecycle {
   - 边界情况：恰好在过期阈值的文件
   - 空目录和不存在目录的清理行为
   - 取消后的工件清理
+  - 取消在发布后的工件清理（集成测试）
+  - 发布失败时的部分工件清理
+  - 属性检查失败时的工件清理
+  - 预览关闭后的所有权返回与清理
+  - 并发生成请求的替换清理
 
 **测试策略**:
 - 使用注入的 `fileManager` 和 `clock` 以支持时间控制
 - 每个测试使用独立的临时目录（UUID 隔离）
 - 测试后自动清理临时文件
+- 14 个测试用例覆盖生命周期、保护验证、清理策略、安全边界、失败路径、所有权转移
 
 ## 隐私和安全改进
 
@@ -69,6 +75,9 @@ struct VisitSummaryPDFLifecycle {
 2. **无文件保护**: 未设置 `NSFileProtectionComplete`，设备解锁时文件可读
 3. **无生命周期管理**: PDF 永久留在临时目录，进程终止后无清理
 4. **无取消清理**: 取消生成后文件残留
+5. **取消后发布泄漏**: 取消检查在发布之后，已发布的 PDF 不会被清理
+6. **无预览/分享完成信号**: 无法追踪消费者何时完成使用
+7. **发布失败清理不完整**: 属性检查失败时可能留下未保护的文件
 
 ### 现在的保护
 1. **不透明文件名**: 使用 UUID，无法从文件名推断内容或用户身份
@@ -76,8 +85,12 @@ struct VisitSummaryPDFLifecycle {
 3. **保护验证**: 写入后验证保护级别，失败则删除文件并报错
 4. **自动清理**: 启动时/生成前清理超过 1 小时的文件
 5. **取消清理**: 任务取消或被替代时立即删除工件
-6. **离开清理**: 用户离开页面时删除当前 PDF
-7. **安全边界**: 拒绝删除非自有目录的文件
+6. **取消后发布清理**: 发布成功后显式检查取消，确保已发布的 PDF 在取消时被删除
+7. **预览关闭清理**: 预览控制器关闭时通过回调清理 PDF
+8. **分享完成追踪**: ShareLink 使用 SharePreview 标识资源
+9. **离开清理**: 用户离开页面时删除当前 PDF
+10. **安全边界**: 拒绝删除非自有目录的文件
+11. **完整失败清理**: 写入失败、属性检查失败时都确保删除部分工件
 
 ## 发布门禁符合性
 
@@ -135,11 +148,12 @@ xcodebuild test -scheme MedicationAdherenceApp \
 
 ```
  .../project.pbxproj                                |  6 +++++
- .../Services/VisitSummaryPDFLifecycle.swift        | 150 ++++++++++++++++++
- .../Views/VisitSummaryPDFExportViews.swift         | 30 ++--
- .../Views/VisitSummaryView.swift                   | 31 +++-
- .../Tests/VisitSummaryPDFLifecycleTests.swift      | 180 +++++++++++++++++++++
- 5 files changed, 390 insertions(+), 7 deletions(-)
+ .../Services/VisitSummaryPDFLifecycle.swift        | 165 ++++++++++++++++++
+ .../Views/VisitSummaryPDFExportViews.swift         | 42 +++--
+ .../Views/VisitSummaryView.swift                   | 35 +++-
+ .../Tests/VisitSummaryPDFLifecycleTests.swift      | 263 +++++++++++++++++++++
+ docs/24-privacy-data-flow-audit-20260727.md        |  1 +
+ 6 files changed, 505 insertions(+), 7 deletions(-)
 ```
 
 ## 下一步

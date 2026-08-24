@@ -53,19 +53,31 @@ struct VisitSummaryPDFLifecycle: Sendable {
     /// - Returns: The successfully protected target URL.
     func publish(data: Data, to targetURL: URL) throws -> URL {
         // Atomic write with NSFileProtectionComplete
-        try data.write(
-            to: targetURL,
-            options: [.atomic, .completeFileProtection]
-        )
+        do {
+            try data.write(
+                to: targetURL,
+                options: [.atomic, .completeFileProtection]
+            )
+        } catch {
+            // Atomic write failed; ensure no partial file remains
+            try? fileManager.removeItem(at: targetURL)
+            throw error
+        }
 
         // Verify that the protection was applied
-        let attributes = try fileManager.attributesOfItem(atPath: targetURL.path)
-        guard let protection = attributes[.protectionKey] as? FileProtectionType,
-              protection == .complete
-        else {
-            // Protection verification failed; remove the file and report failure
+        do {
+            let attributes = try fileManager.attributesOfItem(atPath: targetURL.path)
+            guard let protection = attributes[.protectionKey] as? FileProtectionType,
+                  protection == .complete
+            else {
+                // Protection verification failed; remove the file and report failure
+                try? fileManager.removeItem(at: targetURL)
+                throw VisitSummaryPDFLifecycleError.protectionVerificationFailed
+            }
+        } catch {
+            // Attribute inspection failed; remove the artifact and propagate the error
             try? fileManager.removeItem(at: targetURL)
-            throw VisitSummaryPDFLifecycleError.protectionVerificationFailed
+            throw error
         }
 
         return targetURL
