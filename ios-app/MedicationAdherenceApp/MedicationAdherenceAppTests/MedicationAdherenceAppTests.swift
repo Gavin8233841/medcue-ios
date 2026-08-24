@@ -63,7 +63,7 @@ struct MedicationAdherenceAppTests {
         ))
         try context.save()
 
-        try DemoDataSeeder.rebuildForExplicitDebugDemoMode(in: context)
+        try DemoDataSeeder.rebuildForExplicitDemoMode(in: context)
         try verifyStandardDemoContent(in: context, preserving: userMedicationID)
 
         let demoMedications = try context.fetch(FetchDescriptor<StoredMedication>())
@@ -80,10 +80,10 @@ struct MedicationAdherenceAppTests {
         demoStocks[0].remainingQuantity = 1
         try context.save()
 
-        try DemoDataSeeder.rebuildForExplicitDebugDemoMode(in: context)
+        try DemoDataSeeder.rebuildForExplicitDemoMode(in: context)
         try verifyStandardDemoContent(in: context, preserving: userMedicationID)
 
-        try DemoDataSeeder.rebuildForExplicitDebugDemoMode(in: context)
+        try DemoDataSeeder.rebuildForExplicitDemoMode(in: context)
         try verifyStandardDemoContent(in: context, preserving: userMedicationID)
     }
 
