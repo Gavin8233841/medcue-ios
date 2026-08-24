@@ -791,7 +791,7 @@ struct ElderTodayScreen: View {
                         title: actions.completionVerb(snapshot.currentMedication),
                         systemImage: "checkmark.circle.fill",
                         tint: .green,
-                        isProminent: true,
+                        prominence: .primary,
                         accessibilityIdentifier: AppAccessibilityID.elderMarkTaken,
                         action: { actions.markTaken(task) }
                     )
@@ -799,7 +799,7 @@ struct ElderTodayScreen: View {
                         title: "\(DoseDelayPolicy.delayMinutes) 分钟后提醒",
                         systemImage: "clock.arrow.circlepath",
                         tint: .blue,
-                        isProminent: false,
+                        prominence: .secondary,
                         accessibilityIdentifier: AppAccessibilityID.elderDelay,
                         action: { actions.delay(task) }
                     )
@@ -807,7 +807,7 @@ struct ElderTodayScreen: View {
                         title: "需要帮助",
                         systemImage: "phone.fill",
                         tint: .orange,
-                        isProminent: false,
+                        prominence: .tertiary,
                         accessibilityIdentifier: AppAccessibilityID.elderRequestHelp,
                         action: actions.requestHelp
                     )
@@ -879,31 +879,66 @@ struct ElderTodayScreen: View {
     }
 }
 
+private enum ElderDoseActionProminence {
+    case primary
+    case secondary
+    case tertiary
+
+    var font: Font {
+        switch self {
+        case .primary:
+            return .title2.bold()
+        case .secondary:
+            return .title3.bold()
+        case .tertiary:
+            return .headline.weight(.semibold)
+        }
+    }
+
+    var minimumHeight: CGFloat {
+        switch self {
+        case .primary:
+            return 76
+        case .secondary:
+            return 64
+        case .tertiary:
+            return 60
+        }
+    }
+}
+
 private struct ElderDoseActionButton: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     let title: String
     let systemImage: String
     let tint: Color
-    let isProminent: Bool
+    let prominence: ElderDoseActionProminence
     let accessibilityIdentifier: String
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
-                .font(.title3.weight(.bold))
+                .font(prominence.font)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: 64)
+                .frame(minHeight: prominence.minimumHeight)
                 .padding(.horizontal, 12)
-                .foregroundStyle(isProminent ? Color.white : tint)
+                .foregroundStyle(prominence == .primary ? Color.white : tint)
                 .background(
-                    isProminent ? tint : tint.opacity(0.12),
+                    prominence == .primary ? tint : tint.opacity(0.12),
                     in: RoundedRectangle(cornerRadius: 16, style: .continuous)
                 )
         }
+        .padding(.horizontal, tertiaryHorizontalInset)
         .buttonStyle(CompactDoseActionButtonStyle())
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    private var tertiaryHorizontalInset: CGFloat {
+        prominence == .tertiary && !dynamicTypeSize.isAccessibilitySize ? 36 : 0
     }
 }
 
@@ -925,7 +960,7 @@ private struct ElderDoseConfirmationPanel: View {
                 title: kind.confirmTitle,
                 systemImage: "checkmark",
                 tint: kind.tint,
-                isProminent: true,
+                prominence: .primary,
                 accessibilityIdentifier: AppAccessibilityID.elderConfirmationConfirm,
                 action: confirm
             )
@@ -933,7 +968,7 @@ private struct ElderDoseConfirmationPanel: View {
                 title: "取消",
                 systemImage: "xmark",
                 tint: .gray,
-                isProminent: false,
+                prominence: .secondary,
                 accessibilityIdentifier: AppAccessibilityID.elderConfirmationCancel,
                 action: cancel
             )

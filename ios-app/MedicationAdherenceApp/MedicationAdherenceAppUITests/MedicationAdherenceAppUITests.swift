@@ -51,7 +51,8 @@ final class MedicationAdherenceAppUITests: XCTestCase {
 
         app.launchArguments = stableLaunchArgumentsWithoutExperienceMode + [
             "-appExperienceMode", "elder",
-            "-hasCompletedFirstLaunchSetup", "YES"
+            "-hasCompletedFirstLaunchSetup", "YES",
+            "--seed-demo-data"
         ]
         app.launch()
 
@@ -77,6 +78,16 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         XCTAssertFalse(app.staticTexts["现在只需处理一件事"].exists)
         XCTAssertFalse(app.staticTexts["无操作会保持未确认，不会自动记成忽略。"].exists)
         XCTAssertFalse(app.staticTexts["这里不会推断为全部已服用；有新的待确认任务时会显示在这里。"].exists)
+
+        let completionButton = app.buttons["elder.action.taken"]
+        let delayButton = app.buttons["elder.action.delay"]
+        let helpButton = app.buttons["elder.action.help"]
+        XCTAssertTrue(completionButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(delayButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(helpButton.waitForExistence(timeout: 5))
+        XCTAssertGreaterThan(completionButton.frame.height, delayButton.frame.height)
+        XCTAssertGreaterThan(delayButton.frame.height, helpButton.frame.height)
+        XCTAssertLessThan(helpButton.frame.width, delayButton.frame.width)
     }
 
     private func dismissAssistantGatesIfPresented(in app: XCUIApplication) {
