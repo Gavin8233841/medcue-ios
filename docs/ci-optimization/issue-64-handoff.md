@@ -2,8 +2,8 @@
 
 ## Issue 概述
 
-**Issue 链接**: https://github.com/Gavin8233841/medcue-ios/issues/64  
-**标题**: 优化 GitHub CI 运行时间以应对项目文件增长  
+**Issue 链接**: https://github.com/Gavin8233841/medcue-ios/issues/64
+**标题**: 优化 GitHub CI 运行时间以应对项目文件增长
 **目标**: 将 Full lane CI 运行时间从 60 分钟降至 15-30 分钟（减少 30-50%）
 
 ---
@@ -14,7 +14,7 @@
 - **GitHub 仓库**: https://github.com/Gavin8233841/medcue-ios
 - **本地路径**: `D:\桌面\medcue\medcue-ios`
 - **项目类型**: iOS 应用（Swift + Xcode）
-- **项目规模**: 
+- **项目规模**:
   - 214 个 Swift 文件（163 iOS app + 51 Swift Core）
   - 项目总大小约 106MB
   - 1952 个源代码文件
@@ -59,7 +59,7 @@
 
 #### 1.1 实现 Swift Package Manager 缓存
 
-**文件**: `.github/workflows/native-verification.yml`  
+**文件**: `.github/workflows/native-verification.yml`
 **插入位置**: `full` job 中，在 "Check out exact source" 步骤之后
 
 ```yaml
@@ -78,7 +78,7 @@
 
 #### 1.2 实现测试并行化
 
-**当前问题**: 
+**当前问题**:
 - Swift Core 测试、iOS 单元测试、iOS UI 测试串行执行
 - 总耗时约 15-20 分钟
 
@@ -145,7 +145,7 @@ full-test:
 - 只要涉及 `ios-app/*` 或 `swift-core/*` 就进入 full lane
 - full lane 会执行所有构建和测试
 
-**优化目标**: 
+**优化目标**:
 - 新增 `swift-core-only` lane
 - 新增 `watch-only` lane
 
@@ -210,7 +210,7 @@ jobs:
 
 #### 3.2 评估 GitHub Large Runner
 
-**当前**: `macos-26` 标准 runner（3 核 CPU）  
+**当前**: `macos-26` 标准 runner（3 核 CPU）
 **升级**: `macos-26-xlarge`（12 核 CPU）
 
 **成本**: 约 10 倍（但可能缩短 40-50% 的运行时间）
@@ -258,7 +258,7 @@ jobs:
 1. **必须包含**:
    - `Package.resolved` 哈希（Swift 依赖版本）
    - 操作系统标识 `${{ runner.os }}`
-   
+
 2. **可选包含**:
    - Swift 源文件哈希（触发重建）
    - Xcode 版本（如果会变化）
@@ -307,7 +307,7 @@ jobs:
 ## 可能遇到的问题及解决方案
 
 ### 问题 1: 缓存大小超限
-**症状**: actions/cache 警告缓存过大  
+**症状**: actions/cache 警告缓存过大
 **解决**: 排除 DerivedData 中的日志和索引文件
 
 ```yaml
@@ -317,11 +317,11 @@ path: |
 ```
 
 ### 问题 2: 并行测试失败
-**症状**: 单独运行通过，并行运行失败  
+**症状**: 单独运行通过，并行运行失败
 **解决**: 检查共享资源（如模拟器、端口、临时文件）
 
 ### 问题 3: 缓存恢复后构建失败
-**症状**: 缓存恢复后编译错误  
+**症状**: 缓存恢复后编译错误
 **解决**: 添加更精确的缓存键，包含编译器版本
 
 ```yaml
@@ -329,7 +329,7 @@ key: ${{ runner.os }}-xcode-${{ steps.xcode-version.outputs.version }}-${{ hashF
 ```
 
 ### 问题 4: aggregate job 逻辑不匹配
-**症状**: 优化后 aggregate job 报错  
+**症状**: 优化后 aggregate job 报错
 **解决**: 同步更新 aggregate job 的 needs 和验证逻辑
 
 ---
@@ -439,9 +439,9 @@ bash tools/native-verification-classifier.sh \
 
 ---
 
-**文档版本**: v1.0  
-**创建时间**: 2026-08-24  
-**创建者**: Claude Opus 5 (Background Job)  
+**文档版本**: v1.0
+**创建时间**: 2026-08-24
+**创建者**: Claude Opus 5 (Background Job)
 **目标执行者**: Claude Sonnet 5
 
 祝顺利！如有疑问，请参考本文档或查阅项目原始文件。
