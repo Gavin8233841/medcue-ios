@@ -23,7 +23,7 @@
    ```bash
    # Windows (使用 winget)
    winget install GitHub.cli
-   
+
    # 或下载安装包
    # https://github.com/cli/cli/releases
    ```
