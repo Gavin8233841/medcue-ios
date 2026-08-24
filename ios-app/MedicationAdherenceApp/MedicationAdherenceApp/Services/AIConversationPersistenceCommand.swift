@@ -122,6 +122,7 @@ struct AIConversationPersistenceCommand {
     ) -> AIConversationPersistenceOutcome {
         let command = AIConsentRevocationCommand(
             modelContext: modelContext,
+            saveOperation: saveOperation,
             now: { revokedAt }
         )
         let outcome = command.execute()
