@@ -1,6 +1,7 @@
 import MedicationAdherenceCore
 import SwiftData
 import SwiftUI
+import UIKit
 
 enum TodayPresentation {
     case complete
@@ -9,6 +10,7 @@ enum TodayPresentation {
 
 struct TodayView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Query private var tasks: [StoredDoseTask]
     @Query(sort: \StoredMedication.displayName) private var medications: [StoredMedication]
     @Query(sort: \StoredMedicationPlan.createdAt) private var plans: [StoredMedicationPlan]
@@ -40,6 +42,10 @@ struct TodayView: View {
     @State private var pendingPermissionGate: AppPermissionGate?
     @State private var dosePersistenceErrorMessage: String?
     @State private var elderHelpOpeningErrorMessage: String?
+    @State private var elderHelpMissingMessage: String?
+    @State private var elderHelpConfirmationPhone: ElderHelpPhoneNumber?
+    @State private var elderDoseSuccessMessage: String?
+    @State private var elderIsLoading = true
     @State private var doseProjectionStore = TodayDoseProjectionStore()
     private let presentation: TodayPresentation
     private let openElderSettings: () -> Void
@@ -47,6 +53,10 @@ struct TodayView: View {
     private let elderHelpContactStore: any ElderHelpContactStoring
     private let elderHelpOpener: any ElderHelpOpening
     private let reminderPolicy = DoseReminderPolicy.competitionDemo
+
+    private var reduceMotionEnabled: Bool {
+        prefersReducedAppMotion || systemReduceMotion
+    }
 
     init(
         presentation: TodayPresentation = .complete,
@@ -130,6 +140,10 @@ struct TodayView: View {
                 pendingDoseFeedback: doseInteraction.pendingDoseFeedback,
                 dosePersistenceErrorMessage: $dosePersistenceErrorMessage,
                 helpOpeningErrorMessage: $elderHelpOpeningErrorMessage,
+                helpMissingMessage: $elderHelpMissingMessage,
+                helpConfirmationPhone: $elderHelpConfirmationPhone,
+                successFeedback: $elderDoseSuccessMessage,
+                isLoading: elderIsLoading,
                 actions: ElderTodayScreenActions(
                     logicalDoseKey: logicalDoseKey,
                     completionVerb: todayCompletionVerb,
@@ -137,7 +151,9 @@ struct TodayView: View {
                     delay: requestDelay,
                     confirm: confirmPendingDoseConfirmation,
                     cancelConfirmation: clearPendingDoseConfirmation,
-                    requestHelp: requestElderHelp,
+                    requestHelp: prepareElderHelp,
+                    confirmHelp: confirmElderHelp,
+                    cancelHelp: { elderHelpConfirmationPhone = nil },
                     openSettings: openElderSettings,
                     switchToCompleteMode: switchToCompleteMode,
                     initialLoad: initialTodayLoad,
@@ -155,7 +171,7 @@ struct TodayView: View {
             isCompletionRateFeedbackVisible: isCompletionRateFeedbackVisible,
             shouldShowCompletionCelebration: !isCompletionCelebrationDeferred
                 && completionRateFeedback == nil,
-            prefersReducedMotion: prefersReducedAppMotion,
+            prefersReducedMotion: reduceMotionEnabled,
             isOpenTimelineTemporarilyCollapsed: doseInteraction.isOpenTimelineTemporarilyCollapsed,
             isHandledTimelineTemporarilyCollapsed: doseInteraction.isHandledTimelineTemporarilyCollapsed,
             pendingDoseConfirmation: pendingDoseConfirmation,
@@ -222,6 +238,10 @@ struct TodayView: View {
 
     @MainActor
     private func initialTodayLoad() async {
+        elderIsLoading = true
+        defer {
+            elderIsLoading = false
+        }
         consumeExternalDosePersistenceFailure()
         runInitialTodayMaintenanceIfNeeded()
         await notificationService.refreshAuthorizationStatus()
@@ -243,18 +263,35 @@ struct TodayView: View {
         }
     }
 
-    private func requestElderHelp() {
+    private func prepareElderHelp() {
+        let coordinator = ElderHelpRequestCoordinator(
+            contactStore: elderHelpContactStore,
+            opener: elderHelpOpener
+        )
+        do {
+            guard let phoneNumber = try coordinator.loadPhoneNumber() else {
+                elderHelpMissingMessage = "请先添加帮助号码。"
+                return
+            }
+            elderHelpConfirmationPhone = phoneNumber
+        } catch let error as ElderHelpContactError {
+            elderHelpOpeningErrorMessage = error.userMessage
+        } catch {
+            elderHelpOpeningErrorMessage = ElderHelpContactError.secureStorageUnavailable.userMessage
+        }
+    }
+
+    private func confirmElderHelp() {
+        guard let phoneNumber = elderHelpConfirmationPhone else {
+            return
+        }
+        elderHelpConfirmationPhone = nil
         ElderHelpRequestCoordinator(
             contactStore: elderHelpContactStore,
             opener: elderHelpOpener
-        ).request { outcome in
-            switch outcome {
-            case .requiresSettings:
-                openElderSettings()
-            case .openedConfirmation:
-                break
-            case .failed:
-                elderHelpOpeningErrorMessage = "电话确认界面没有打开；用药任务保持原状。请检查帮助号码后重试。"
+        ).open(phoneNumber: phoneNumber) { outcome in
+            if outcome == .failed {
+                elderHelpOpeningErrorMessage = "电话确认界面没有打开，请检查帮助号码后重试。"
             }
         }
     }
@@ -273,6 +310,9 @@ struct TodayView: View {
         completionCelebrationTask = nil
         completionRateFeedback = nil
         completionRateDisplayedSnapshot = nil
+        elderDoseSuccessMessage = nil
+        elderHelpConfirmationPhone = nil
+        elderHelpMissingMessage = nil
         isCompletionRateFeedbackVisible = false
         isCompletionCelebrationDeferred = false
         doseUndoBannerTask?.cancel()
@@ -444,7 +484,11 @@ struct TodayView: View {
         let doseKey = logicalDoseKey(for: task)
         let migrationSnapshot = action.movesToHandledSection ? doseMigrationSnapshot(for: task, action: action) : nil
         resetDoseTransitionState(animated: false)
-        if !prefersReducedAppMotion {
+        // Keep a previous success from masking a later save failure; a new success is shown only after commit.
+        if presentation == .elder {
+            elderDoseSuccessMessage = nil
+        }
+        if !reduceMotionEnabled {
             withAnimation(.easeInOut(duration: 0.16)) {
                 doseInteraction.pendingDoseFeedback = PendingDoseFeedback(doseKey: doseKey, action: action)
             }
@@ -455,12 +499,13 @@ struct TodayView: View {
             resetDoseTransitionState(animated: false)
             return
         }
+        showElderDoseSuccess(for: task, action: action)
         if doseInteraction.pendingDoseFeedback != nil {
             doseInteraction.pendingDoseFeedback = PendingDoseFeedback(doseKey: logicalDoseKey(for: task), action: action)
         }
 
         doseInteraction.cancelScheduledTransitions()
-        guard !prefersReducedAppMotion else {
+        guard !reduceMotionEnabled else {
             return
         }
 
@@ -515,8 +560,32 @@ struct TodayView: View {
         }
     }
 
+    private func showElderDoseSuccess(for task: StoredDoseTask, action: PendingDoseFeedback.Action) {
+        guard presentation == .elder else {
+            return
+        }
+        let medicationName = medication(for: task).map(userFacingMedicationName(for:)) ?? "这项用药"
+        let message: String
+        switch action {
+        case .taken:
+            message = "\(medicationName)\(todayCompletionVerb(for: medication(for: task)))"
+        case .delay:
+            message = "已设置 \(DoseDelayPolicy.delayMinutes) 分钟后提醒"
+        case .skip:
+            message = "\(medicationName)已跳过"
+        }
+        let present = {
+            elderDoseSuccessMessage = message
+        }
+        if reduceMotionEnabled {
+            present()
+        } else {
+            withAnimation(.easeOut(duration: 0.16), present)
+        }
+    }
+
     private func prepareHandledDropTarget() {
-        guard !prefersReducedAppMotion else {
+        guard !reduceMotionEnabled else {
             return
         }
         withAnimation(.easeInOut(duration: 0.16)) {
@@ -526,7 +595,7 @@ struct TodayView: View {
     }
 
     private func stageHandledArrival(forDoseKey doseKey: String) {
-        guard !prefersReducedAppMotion else {
+        guard !reduceMotionEnabled else {
             return
         }
         withAnimation(.easeInOut(duration: 0.18)) {
@@ -538,7 +607,7 @@ struct TodayView: View {
         let migrationSnapshot = doseMigrationSnapshotForReopen(task)
         let doseKey = logicalDoseKey(for: task)
         resetDoseTransitionState(animated: false)
-        if !prefersReducedAppMotion {
+        if !reduceMotionEnabled {
             withAnimation(.easeInOut(duration: 0.16)) {
                 _ = doseInteraction.reopeningHandledDoseKeys.insert(doseKey)
                 doseInteraction.doseMigrationSnapshot = migrationSnapshot
@@ -548,7 +617,7 @@ struct TodayView: View {
         restore()
 
         doseInteraction.cancelScheduledTransitions()
-        guard !prefersReducedAppMotion else {
+        guard !reduceMotionEnabled else {
             return
         }
 
@@ -676,7 +745,7 @@ struct TodayView: View {
     }
 
     private func prepareReopenedTaskHighlightIfNeeded(_ task: StoredDoseTask) {
-        guard !prefersReducedAppMotion else {
+        guard !reduceMotionEnabled else {
             return
         }
         let doseKey = logicalDoseKey(for: task)
@@ -685,7 +754,7 @@ struct TodayView: View {
     }
 
     private func clearReopenedTaskHighlightAfterDelay(_ task: StoredDoseTask) {
-        guard !prefersReducedAppMotion else {
+        guard !reduceMotionEnabled else {
             return
         }
         let doseKey = logicalDoseKey(for: task)
@@ -740,7 +809,7 @@ struct TodayView: View {
     }
 
     private func updateDoseState(animated: Bool = true, _ updates: () -> Void) {
-        guard animated, !prefersReducedAppMotion else {
+        guard animated, !reduceMotionEnabled else {
             commitWithoutListMutationAnimation(updates)
             return
         }
@@ -766,7 +835,7 @@ struct TodayView: View {
     }
 
     private func deferCompletionCelebrationIfNeeded(_ snapshot: CompletionRateSnapshot) {
-        guard snapshot.isComplete, !prefersReducedAppMotion else {
+        guard snapshot.isComplete, !reduceMotionEnabled else {
             isCompletionCelebrationDeferred = false
             completionCelebrationTask?.cancel()
             completionCelebrationTask = nil
@@ -789,7 +858,7 @@ struct TodayView: View {
     private func presentCompletionRateFeedback(from previousSnapshot: CompletionRateSnapshot, to nextSnapshot: CompletionRateSnapshot) {
         completionRateFeedbackTask?.cancel()
         let feedback = CompletionRateFeedback(previousSnapshot: previousSnapshot, nextSnapshot: nextSnapshot)
-        if prefersReducedAppMotion {
+        if reduceMotionEnabled {
             isCompletionRateFeedbackVisible = true
             completionRateFeedback = feedback
             completionRateDisplayedSnapshot = nextSnapshot

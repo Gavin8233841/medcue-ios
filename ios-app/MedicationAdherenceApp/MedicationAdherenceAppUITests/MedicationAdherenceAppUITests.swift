@@ -2,6 +2,9 @@ import XCTest
 
 @MainActor
 final class MedicationAdherenceAppUITests: XCTestCase {
+    private let regularContentSizeArguments = [
+        "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"
+    ]
     private let stableLaunchArgumentsWithoutExperienceMode = [
         "-AppPersistenceCommitter.failureMessage", "",
         "-DoseActionPersistence.failureMessage", ""
@@ -49,7 +52,7 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
 
-        app.launchArguments = stableLaunchArgumentsWithoutExperienceMode + [
+        app.launchArguments = stableLaunchArgumentsWithoutExperienceMode + regularContentSizeArguments + [
             "-appExperienceMode", "elder",
             "-hasCompletedFirstLaunchSetup", "YES",
             "--seed-demo-data"
@@ -87,7 +90,116 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         XCTAssertTrue(helpButton.waitForExistence(timeout: 5))
         XCTAssertGreaterThan(completionButton.frame.height, delayButton.frame.height)
         XCTAssertGreaterThan(delayButton.frame.height, helpButton.frame.height)
+        XCTAssertFalse(completionButton.frame.intersects(delayButton.frame))
+        XCTAssertFalse(delayButton.frame.intersects(helpButton.frame))
         XCTAssertEqual(helpButton.frame.width, delayButton.frame.width, accuracy: 1)
+        XCTAssertEqual(completionButton.frame.width, delayButton.frame.width, accuracy: 1)
+
+        addScreenshot(named: "elder-default-top", from: app)
+        app.swipeUp()
+        addScreenshot(named: "elder-default-actions", from: app)
+    }
+
+    func testElderPrimaryActionKeepsFullWidthHitRegion() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = stableLaunchArgumentsWithoutExperienceMode + regularContentSizeArguments + [
+            "-appExperienceMode", "elder",
+            "-hasCompletedFirstLaunchSetup", "YES",
+            "--seed-demo-data"
+        ]
+        app.launch()
+        app.swipeUp()
+
+        let completionButton = app.buttons["elder.action.taken"]
+        XCTAssertTrue(completionButton.waitForExistence(timeout: 10))
+        print("elder action frame=\(completionButton.frame) hittable=\(completionButton.isHittable)")
+        XCTAssertTrue(completionButton.isHittable)
+
+        // The visible primary background is inset only for hierarchy; its hit region remains full width.
+        completionButton
+            .coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.5))
+            .tap()
+
+        let confirmation = app.buttons["elder.confirmation.confirm"]
+        if confirmation.waitForExistence(timeout: 3) {
+            let cancel = app.buttons["elder.confirmation.cancel"]
+            XCTAssertTrue(cancel.waitForExistence(timeout: 3))
+            cancel.tap()
+            XCTAssertTrue(completionButton.waitForExistence(timeout: 3))
+        } else {
+            XCTAssertTrue(
+                app.descendants(matching: .any)["elder.feedback.success"].waitForExistence(timeout: 5),
+                "An edge tap should produce confirmation or committed success feedback"
+            )
+        }
+    }
+
+    func testElderAccessibilityXXXLLayoutRemainsScrollable() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        // The simulator's system content-size setting is the source of truth for this layout run.
+        app.launchArguments = stableLaunchArgumentsWithoutExperienceMode + [
+            "-appExperienceMode", "elder",
+            "-hasCompletedFirstLaunchSetup", "YES",
+            "--seed-demo-data"
+        ]
+        app.launch()
+
+        let currentTask = app.otherElements["elder.current-task"]
+        XCTAssertTrue(currentTask.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["elder.action.taken"].waitForExistence(timeout: 10))
+        addScreenshot(named: "elder-axxxl-top", from: app)
+
+        app.swipeUp()
+
+        let delayButton = app.buttons["elder.action.delay"]
+        let helpButton = app.buttons["elder.action.help"]
+        XCTAssertTrue(delayButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(helpButton.waitForExistence(timeout: 5))
+        XCTAssertFalse(delayButton.frame.intersects(helpButton.frame))
+        XCTAssertGreaterThan(delayButton.frame.height, 67)
+        XCTAssertGreaterThan(helpButton.frame.height, 59)
+        addScreenshot(named: "elder-axxxl-actions", from: app)
+    }
+
+    func testElderSecondaryAndHelpActionsKeepFullWidthHitRegions() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = stableLaunchArgumentsWithoutExperienceMode + regularContentSizeArguments + [
+            "-appExperienceMode", "elder",
+            "-hasCompletedFirstLaunchSetup", "YES",
+            "--seed-demo-data"
+        ]
+        app.launch()
+        app.swipeUp()
+
+        let delayButton = app.buttons["elder.action.delay"]
+        XCTAssertTrue(delayButton.waitForExistence(timeout: 10))
+        XCTAssertTrue(delayButton.isHittable)
+        delayButton.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.5)).tap()
+        XCTAssertTrue(
+            dismissElderTransientSurfaceIfPresented(in: app),
+            "A delay edge tap should produce confirmation, committed feedback, or an honest error surface"
+        )
+        XCTAssertTrue(delayButton.waitForExistence(timeout: 5))
+
+        let helpButton = app.buttons["elder.action.help"]
+        XCTAssertTrue(helpButton.waitForExistence(timeout: 5))
+        XCTAssertTrue(helpButton.isHittable)
+        helpButton.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.5)).tap()
+        XCTAssertTrue(
+            dismissElderTransientSurfaceIfPresented(in: app),
+            "A help edge tap should produce a confirmation, missing-number, or honest error surface"
+        )
+        XCTAssertTrue(helpButton.waitForExistence(timeout: 5))
+    }
+
+    private func addScreenshot(named name: String, from app: XCUIApplication) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     private func dismissAssistantGatesIfPresented(in app: XCUIApplication) {
@@ -108,6 +220,35 @@ final class MedicationAdherenceAppUITests: XCTestCase {
                 "AI consent sheet did not dismiss"
             )
         }
+    }
+
+    @discardableResult
+    private func dismissElderTransientSurfaceIfPresented(in app: XCUIApplication) -> Bool {
+        let doseConfirmationCancel = app.buttons["elder.confirmation.cancel"].firstMatch
+        if doseConfirmationCancel.waitForExistence(timeout: 2) {
+            doseConfirmationCancel.tap()
+            return true
+        }
+
+        let helpCancel = app.buttons["elder.help.cancel"].firstMatch
+        if helpCancel.waitForExistence(timeout: 2) {
+            helpCancel.tap()
+            return true
+        }
+
+        let missingCancel = app.buttons["elder.help.missing.cancel"].firstMatch
+        if missingCancel.waitForExistence(timeout: 2) {
+            missingCancel.tap()
+            return true
+        }
+
+        let errorDismiss = app.buttons["elder.help.error.dismiss"].firstMatch
+        if errorDismiss.waitForExistence(timeout: 2) {
+            errorDismiss.tap()
+            return true
+        }
+
+        return app.descendants(matching: .any)["elder.feedback.success"].waitForExistence(timeout: 2)
     }
 
     func testFirstLaunchOffersProgressAndSkipActions() {

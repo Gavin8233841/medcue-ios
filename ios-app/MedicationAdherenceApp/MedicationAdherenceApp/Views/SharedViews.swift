@@ -426,8 +426,29 @@ struct MedicationPhotoView: View {
     let symbolName: String
     let tint: Color
     var size: CGFloat = 64
+    var containerAspectRatio: CGFloat = 1
+    var usesPhotoAspectRatio: Bool = false
+    var contentMode: ContentMode = .fill
+    var cornerRadius: CGFloat = 8
+    var accessibilityLabel: String?
     @State private var decodedImage: UIImage?
     @State private var decodedImageKey: String?
+
+    private var containerHeight: CGFloat {
+        size / resolvedAspectRatio
+    }
+
+    private var resolvedAspectRatio: CGFloat {
+        guard usesPhotoAspectRatio,
+              let decodedImage,
+              decodedImage.size.height > 0
+        else {
+            return max(containerAspectRatio, 0.01)
+        }
+
+        // Keep extreme user photos readable without letting an unusually wide or tall image dominate the task card.
+        return min(max(decodedImage.size.width / decodedImage.size.height, 0.70), 1.25)
+    }
 
     private var targetPixelSize: Int {
         max(1, Int((size * UIScreen.main.scale).rounded()))
@@ -442,21 +463,31 @@ struct MedicationPhotoView: View {
             if let image = decodedImage {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFill()
-                    .frame(width: size, height: size)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    // Fill the bounded aspect-ratio frame so real packaging details stay large without letterboxing.
+                    .aspectRatio(contentMode: contentMode)
+                    .frame(width: size, height: containerHeight)
+                    .background(Color(.systemBackground))
+                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                             .stroke(.quaternary, lineWidth: 1)
                     )
             } else {
-                medicationPhotoPlaceholder(size: size, symbolName: symbolName, tint: tint)
+                medicationPhotoPlaceholder(
+                    size: size,
+                    height: containerHeight,
+                    symbolName: symbolName,
+                    tint: tint,
+                    cornerRadius: cornerRadius
+                )
             }
         }
         .task(id: photoKey) {
             await loadImageIfNeeded()
         }
-        .accessibilityHidden(true)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityLabel ?? "")
+        .accessibilityHidden(accessibilityLabel == nil)
     }
 
     @MainActor
@@ -649,15 +680,25 @@ struct MedicationHeroPhotoView: View {
 }
 
 @ViewBuilder
-private func medicationPhotoPlaceholder(size: CGFloat, symbolName: String, tint: Color) -> some View {
+private func medicationPhotoPlaceholder(
+    size: CGFloat,
+    height: CGFloat,
+    symbolName: String,
+    tint: Color,
+    cornerRadius: CGFloat
+) -> some View {
     ZStack {
-        RoundedRectangle(cornerRadius: 8)
-            .fill(tint.opacity(0.14))
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(Color(.tertiarySystemGroupedBackground))
         Image(systemName: symbolName)
             .font(.title2.weight(.semibold))
-            .foregroundStyle(tint)
+            .foregroundStyle(tint.opacity(0.72))
     }
-    .frame(width: size, height: size)
+    .frame(width: size, height: height)
+    .overlay {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .stroke(.quaternary, lineWidth: 1)
+    }
 }
 
 @MainActor

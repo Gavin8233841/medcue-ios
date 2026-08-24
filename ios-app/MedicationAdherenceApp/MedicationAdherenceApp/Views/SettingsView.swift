@@ -182,15 +182,23 @@ struct ElderHelpRequestCoordinator {
     let contactStore: any ElderHelpContactStoring
     let opener: any ElderHelpOpening
 
+    func loadPhoneNumber() throws -> ElderHelpPhoneNumber? {
+        try contactStore.load()
+    }
+
+    func open(phoneNumber: ElderHelpPhoneNumber, completion: @escaping @MainActor (ElderHelpRequestOutcome) -> Void) {
+        opener.openConfirmation(for: phoneNumber) { didOpen in
+            completion(didOpen ? .openedConfirmation : .failed)
+        }
+    }
+
     func request(completion: @escaping @MainActor (ElderHelpRequestOutcome) -> Void) {
         do {
-            guard let phoneNumber = try contactStore.load() else {
+            guard let phoneNumber = try loadPhoneNumber() else {
                 completion(.requiresSettings)
                 return
             }
-            opener.openConfirmation(for: phoneNumber) { didOpen in
-                completion(didOpen ? .openedConfirmation : .failed)
-            }
+            open(phoneNumber: phoneNumber, completion: completion)
         } catch {
             completion(.failed)
         }
@@ -597,7 +605,7 @@ struct SettingsView: View {
                 }
 
                 Text(elderHelpContactStatus.isEmpty
-                    ? "“需要帮助”只会打开系统电话确认界面；不会改变用药状态，也不代表电话已经拨通。"
+                    ? "可在这里修改帮助号码。"
                     : elderHelpContactStatus)
                     .font(.footnote)
                     .foregroundStyle(.secondary)

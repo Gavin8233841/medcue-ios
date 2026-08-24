@@ -6,6 +6,37 @@ import Testing
 @Suite(.serialized)
 struct ElderModeTests {
     @Test
+    func elderActionHierarchyUsesMeasuredHeightsAndRatios() {
+        #expect(ElderDoseActionProminence.primary.minimumHeight == 76)
+        #expect(ElderDoseActionProminence.secondary.minimumHeight == 68)
+        #expect(ElderDoseActionProminence.tertiary.minimumHeight == 60)
+        #expect(ElderDoseActionProminence.primary.visibleWidthRatio == 1)
+        #expect(ElderDoseActionProminence.secondary.visibleWidthRatio == 0.92)
+        #expect(ElderDoseActionProminence.tertiary.visibleWidthRatio == 0.80)
+        #expect(ElderDoseActionProminence.secondary.contentWidth(availableWidth: 328) == 328 * 0.92)
+        #expect(ElderDoseActionProminence.tertiary.contentWidth(availableWidth: 328) == 328 * 0.80)
+    }
+
+    @Test
+    func elderTaskLayoutUsesAnIdentityBandAndAccessibleReflow() {
+        #expect(ElderTaskLayoutMetrics.regularPhotoWidth == 250)
+        #expect(ElderTaskLayoutMetrics.accessibilityPhotoWidth == 300)
+        #expect(ElderTaskLayoutMetrics.photoContainerAspectRatio == 0.76)
+        #expect(ElderTaskLayoutMetrics.regularPhotoWidth / ElderTaskLayoutMetrics.photoContainerAspectRatio > 230)
+        #expect(ElderTaskLayoutMetrics.accessibilityPhotoWidth / ElderTaskLayoutMetrics.photoContainerAspectRatio > 390)
+        #expect(ElderTaskLayoutMetrics.regularIdentitySpacing >= 12)
+        #expect(ElderTaskLayoutMetrics.actionSpacing >= 12)
+    }
+
+    @Test
+    func elderEmptyStateKeepsNoTasksAndCompletedDistinct() {
+        #expect(ElderTodayEmptyState.noTasks.title == "今天没有用药任务")
+        #expect(ElderTodayEmptyState.complete.title == "今日用药已完成")
+        #expect(ElderTodayEmptyState.noOpenTasks.title == "没有待处理用药")
+        #expect(ElderTodayEmptyState.noTasks != ElderTodayEmptyState.complete)
+    }
+
+    @Test
     func helpPhoneNumberNormalizesOnlySupportedDisplaySeparators() throws {
         let phoneNumber = try ElderHelpPhoneNumber(validating: "+86 (138) 0000-0000")
 
@@ -154,6 +185,30 @@ struct ElderModeTests {
 
         #expect(elder.currentTask?.id == openTask.id)
         #expect(elder.remainingOpenTaskCount == 0)
+    }
+
+    @Test @MainActor
+    func elderProjectionClassifiesEmptyStatesFromPersistedTasks() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let medication = StoredMedication(displayName: "测试药品", kind: .prescription, inputSource: .manual)
+        let store = TodayDoseProjectionStore()
+
+        let noTasks = store.projection(
+            for: TodayDoseProjectionInput(tasks: [], medications: [medication], now: now, calendar: utcCalendar)
+        )
+        #expect(noTasks.elderSnapshot(medications: [medication], now: now).emptyState == .noTasks)
+
+        let takenTask = makeTask(medicationID: medication.id, dueAt: now, status: .taken)
+        let completed = store.projection(
+            for: TodayDoseProjectionInput(tasks: [takenTask], medications: [medication], now: now, calendar: utcCalendar)
+        )
+        #expect(completed.elderSnapshot(medications: [medication], now: now).emptyState == .complete)
+
+        let skippedTask = makeTask(medicationID: medication.id, dueAt: now, status: .skipped)
+        let skipped = store.projection(
+            for: TodayDoseProjectionInput(tasks: [skippedTask], medications: [medication], now: now, calendar: utcCalendar)
+        )
+        #expect(skipped.elderSnapshot(medications: [medication], now: now).emptyState == .noOpenTasks)
     }
 
     private var utcCalendar: Calendar {

@@ -85,11 +85,40 @@ enum ElderDoseDisplayStatus: Equatable {
     }
 }
 
+enum ElderTodayEmptyState: Equatable {
+    case noTasks
+    case complete
+    case noOpenTasks
+
+    var title: String {
+        switch self {
+        case .noTasks:
+            "今天没有用药任务"
+        case .complete:
+            "今日用药已完成"
+        case .noOpenTasks:
+            "没有待处理用药"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .noTasks:
+            "calendar"
+        case .complete:
+            "checkmark.seal.fill"
+        case .noOpenTasks:
+            "checkmark.circle"
+        }
+    }
+}
+
 struct ElderTodayRenderSnapshot {
     let currentTask: StoredDoseTask?
     let currentMedication: StoredMedication?
     let currentStatus: ElderDoseDisplayStatus?
     let remainingOpenTaskCount: Int
+    let emptyState: ElderTodayEmptyState?
 }
 
 extension TodayRenderSnapshot {
@@ -108,7 +137,14 @@ extension TodayRenderSnapshot {
             currentTask: currentTask,
             currentMedication: currentMedication,
             currentStatus: currentTask.flatMap { ElderDoseDisplayStatus.resolve(for: $0, now: now) },
-            remainingOpenTaskCount: max(0, openTasks.count - 1)
+            remainingOpenTaskCount: max(0, openTasks.count - 1),
+            emptyState: currentTask == nil
+                ? (displayTodayTasks.isEmpty
+                    ? .noTasks
+                    : completionRateSnapshot.isComplete
+                        ? .complete
+                        : .noOpenTasks)
+                : nil
         )
     }
 }
