@@ -1,0 +1,75 @@
+name: Prebuild Dependencies
+
+on:
+  schedule:
+    - cron: '0 2 * * 0'  # 每周日凌晨 2 点 UTC
+  workflow_dispatch:  # 允许手动触发
+
+permissions:
+  contents: read
+
+jobs:
+  prebuild:
+    name: Prebuild Swift Dependencies
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+
+      - name: Record toolchain
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          swift --version
+          xcodebuild -showsdks
+
+      - name: Build Swift Core dependencies
+        run: |
+          set -euo pipefail
+          CACHE_DIR=".codex-local/prebuild/swift-core"
+          mkdir -p "$CACHE_DIR"
+          swift build \
+            --package-path swift-core \
+            --configuration release \
+            --cache-path "$CACHE_DIR/cache" \
+            --scratch-path "$CACHE_DIR/scratch"
+
+      - name: Resolve iOS app dependencies
+        run: |
+          set -euo pipefail
+          VERIFICATION_ROOT=".codex-local/prebuild"
+          XCODE_PROJECT="ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj"
+          mkdir -p "$VERIFICATION_ROOT/source-packages"
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme MedicationAdherenceApp \
+            -configuration Debug \
+            -clonedSourcePackagesDirPath "$VERIFICATION_ROOT/source-packages" \
+            -disableAutomaticPackageResolution \
+            -skipPackageUpdates \
+            -resolvePackageDependencies
+
+      - name: Upload prebuilt cache
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-dependencies-${{ github.sha }}
+          path: |
+            .codex-local/prebuild/swift-core/cache
+            .codex-local/prebuild/source-packages
+          retention-days: 14
+          compression-level: 9
+
+      - name: Cache summary
+        run: |
+          set -euo pipefail
+          echo "### Prebuild Cache Created" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Runner**: ${{ runner.os }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Retention**: 14 days" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          du -sh .codex-local/prebuild/swift-core/cache 2>/dev/null || echo "Swift cache: N/A"
+          du -sh .codex-local/prebuild/source-packages 2>/dev/null || echo "Source packages: N/A"
