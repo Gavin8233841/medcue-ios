@@ -83,7 +83,7 @@ struct AIConsentRevocationCommandTests {
     @Test @MainActor
     func saveFailureRestoresConsentAndDeletesAuditMessage() throws {
         let container = try MedicationAdherenceModelContainer.make(isStoredInMemoryOnly: true)
-        let context = FailingModelContext(container: container)
+        let context = ModelContext(container)
         context.autosaveEnabled = false
         let consent = StoredAIConsent(
             sharesMedicationProfile: true,
@@ -96,8 +96,14 @@ struct AIConsentRevocationCommandTests {
         )
         context.insert(consent)
         try context.save()
+
+        let failingSaveOperation: (ModelContext) throws -> Void = { _ in
+            throw SyntheticRevocationSaveError.unavailable
+        }
+
         let command = AIConsentRevocationCommand(
             modelContext: context,
+            saveOperation: failingSaveOperation,
             now: { Date(timeIntervalSince1970: 200) }
         )
 
@@ -149,13 +155,6 @@ struct AIConsentRevocationCommandTests {
         #expect(consent.revokedAt == Date(timeIntervalSince1970: 100))
         let messages = try context.fetch(FetchDescriptor<StoredAIChatMessage>())
         #expect(messages.count == 1)
-    }
-}
-
-@MainActor
-private final class FailingModelContext: ModelContext {
-    override func save() throws {
-        throw SyntheticRevocationSaveError.unavailable
     }
 }
 
