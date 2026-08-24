@@ -117,6 +117,11 @@ struct MedicationsView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier(
+                        selectedLifecycleStatus == .active
+                            ? AppAccessibilityID.medicationGroupActive
+                            : "medication.group.\(selectedLifecycleStatus.rawValue)"
+                    )
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(
                         medicationLifecycleGroupAccessibilityLabel(
@@ -140,6 +145,10 @@ struct MedicationsView: View {
                                     lifecycleClassification: snapshot.lifecycleClassification(for: medication)
                                 )
                             }
+                            .accessibilityIdentifier(
+                                AppAccessibilityID.medicationCellPrefix
+                                    + userFacingMedicationName(for: medication)
+                            )
                         }
                     }
                 }

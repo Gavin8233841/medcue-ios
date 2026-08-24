@@ -63,7 +63,9 @@ struct PlanEditorView: View {
                     Stepper(value: $doseValue, in: 0.5...20, step: 0.5) {
                         Text("每次 \(doseValue.formatted()) \(localizedMedicationUnit(doseUnit))")
                     }
+                    .accessibilityIdentifier(AppAccessibilityID.medicationPlanDoseValue)
                     MedicationUnitPicker(title: "剂量单位", unit: $doseUnit)
+                        .accessibilityIdentifier(AppAccessibilityID.medicationPlanDoseUnit)
                     DatePicker("剂量生效日期", selection: $doseEffectiveFrom, displayedComponents: .date)
                     Text("仅记录剂量变化时间，不生成医疗建议。")
                         .font(.footnote)
@@ -176,6 +178,10 @@ struct PlanEditorView: View {
 
     @MainActor
     private func ensureReminderPermissionForSave() async -> Bool {
+        if AppPermissionGate.isUITestDeterministicMode {
+            AppPermissionGate.markAuthorizationCompleted(for: .notifications)
+            return true
+        }
         switch reminderDeliveryMethod {
         case .notification:
             if await notificationService.hasUsableNotificationAuthorization() {
@@ -202,6 +208,10 @@ struct PlanEditorView: View {
 
     @MainActor
     private func ensureEscalationAlarmPermissionForSave() async -> Bool {
+        if AppPermissionGate.isUITestDeterministicMode {
+            AppPermissionGate.markAuthorizationCompleted(for: .alarm)
+            return true
+        }
         guard escalatesToAlarmWhenUnhandled,
               reminderDeliveryMethod == .notification
         else {

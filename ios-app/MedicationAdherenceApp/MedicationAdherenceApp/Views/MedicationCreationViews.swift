@@ -317,6 +317,7 @@ struct AddMedicationView: View {
                         showingSaveConfirmation = true
                     }
                     .disabled(!canSave || isSaveFlowActive)
+                    .accessibilityIdentifier(AppAccessibilityID.medicationEditSave)
                 }
             }
             .onAppear {
@@ -422,6 +423,7 @@ struct AddMedicationView: View {
             set: { newValue in
                 if option.id == .manual,
                    !hasShownNameScanSuggestion,
+                   !AppPermissionGate.isUITestDeterministicMode,
                    displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                    !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     hasShownNameScanSuggestion = true
@@ -540,6 +542,10 @@ struct AddMedicationView: View {
 
     @MainActor
     private func ensureReminderPermissionForSave() async -> Bool {
+        if AppPermissionGate.isUITestDeterministicMode {
+            AppPermissionGate.markAuthorizationCompleted(for: .notifications)
+            return true
+        }
         switch reminderDeliveryMethod {
         case .notification:
             if await notificationService.hasUsableNotificationAuthorization() {
@@ -566,6 +572,10 @@ struct AddMedicationView: View {
 
     @MainActor
     private func ensureEscalationAlarmPermissionForSave() async -> Bool {
+        if AppPermissionGate.isUITestDeterministicMode {
+            AppPermissionGate.markAuthorizationCompleted(for: .alarm)
+            return true
+        }
         guard escalatesToAlarmWhenUnhandled,
               reminderDeliveryMethod == .notification
         else {

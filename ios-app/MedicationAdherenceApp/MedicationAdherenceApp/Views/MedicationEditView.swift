@@ -44,6 +44,7 @@ struct EditMedicationView: View {
             Form {
                 Section("药品信息") {
                     TextField("药品名称", text: $displayName)
+                        .accessibilityIdentifier(AppAccessibilityID.medicationEditDisplayName)
                     if displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && medicationNeedsNameReview(medication) {
                         Text("原药名无法核对，请补全真实药品名称。")
                             .font(.footnote)
@@ -55,6 +56,7 @@ struct EditMedicationView: View {
                     }
                     TextField("通用名（可选）", text: $genericName)
                     TextField("规格", text: $strength)
+                        .accessibilityIdentifier(AppAccessibilityID.medicationEditStrength)
                     TextField("剂型", text: $form)
                     Picker("类型", selection: $kind) {
                         Text("非处方药").tag(MedicationKind.overTheCounter)
