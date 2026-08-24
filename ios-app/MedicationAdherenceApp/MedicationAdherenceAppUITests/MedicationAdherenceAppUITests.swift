@@ -87,7 +87,7 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         XCTAssertTrue(helpButton.waitForExistence(timeout: 5))
         XCTAssertGreaterThan(completionButton.frame.height, delayButton.frame.height)
         XCTAssertGreaterThan(delayButton.frame.height, helpButton.frame.height)
-        XCTAssertLessThan(helpButton.frame.width, delayButton.frame.width)
+        XCTAssertEqual(helpButton.frame.width, delayButton.frame.width, accuracy: 1)
     }
 
     private func dismissAssistantGatesIfPresented(in app: XCUIApplication) {
