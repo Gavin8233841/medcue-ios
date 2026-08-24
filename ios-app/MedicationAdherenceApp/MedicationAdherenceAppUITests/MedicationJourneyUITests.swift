@@ -128,9 +128,30 @@ final class MedicationJourneyUITests: XCTestCase {
     }
 
     private func tapTab(_ identifier: String) {
-        let tab = app.tabBars.buttons[identifier]
+        // SwiftUI exposes the tab item's identifier on the tab content rather
+        // than on the tab-bar button in this simulator runtime. Keep the
+        // navigation assertion stable by using the product's declared order,
+        // then verify that the requested content identifier is present.
+        let tabOrder = [
+            AccessibilityID.tabToday,
+            AccessibilityID.tabMedications,
+            AccessibilityID.tabAssistant,
+            AccessibilityID.tabRecords,
+            "tab.profile"
+        ]
+        guard let tabIndex = tabOrder.firstIndex(of: identifier) else {
+            XCTFail("Unknown tab identifier: \(identifier)")
+            return
+        }
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 10))
+        let tab = tabBar.buttons.element(boundBy: tabIndex)
         XCTAssertTrue(tab.waitForExistence(timeout: 10))
         tab.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)[identifier].waitForExistence(timeout: 5),
+            "Missing tab content identifier: \(identifier)"
+        )
     }
 
     private func confirmEarlyDoseIfNeeded() {
