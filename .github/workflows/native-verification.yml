@@ -243,6 +243,153 @@ jobs:
         working-directory: cloudfunctions/medcue-ai-broker
         run: node --test
 
+  swift-core-only:
+    name: Swift Core Only Lane
+    needs: classify
+    if: ${{ needs.classify.result == 'success' && needs.classify.outputs.lane == 'swift-core-only' }}
+    runs-on: macos-26
+    timeout-minutes: 15
+    env:
+      VERIFY_NATIVE_DIFF_BASE: ${{ needs.classify.outputs.diff_base }}
+      VERIFY_NATIVE_EXPECTED_HEAD: ${{ needs.classify.outputs.head }}
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            .codex-local/native-verification/swift-core/cache
+            .codex-local/native-verification/source-packages
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved', 'swift-core/Package.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Resolve exact Swift Core diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_head="$(git rev-parse --verify HEAD)"
+          [[ "$actual_head" == "$VERIFY_NATIVE_EXPECTED_HEAD" ]] || {
+            echo "Checked-out HEAD does not match the classified event SHA" >&2
+            exit 2
+          }
+          if ! git cat-file -e "$VERIFY_NATIVE_DIFF_BASE^{commit}" 2>/dev/null; then
+            git fetch --no-tags --no-recurse-submodules --depth=1 origin "$VERIFY_NATIVE_DIFF_BASE"
+          fi
+          git cat-file -e "$VERIFY_NATIVE_DIFF_BASE^{commit}"
+          git diff --check "$VERIFY_NATIVE_DIFF_BASE" "$VERIFY_NATIVE_EXPECTED_HEAD"
+          git diff --cached --check
+          while IFS= read -r -d '' path; do
+            case "$path" in
+              swift-core/*|Package.swift|Package.resolved)
+                ;;
+              *)
+                echo "Unexpected non-Swift-Core path: $path" >&2
+                exit 2
+                ;;
+            esac
+          done < <(git diff --name-only -z "$VERIFY_NATIVE_DIFF_BASE" "$VERIFY_NATIVE_EXPECTED_HEAD")
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          git config --local --unset-all core.sshCommand || true
+          if git config --local --name-only --list | grep -Eiq '^(http\..*\.extraheader|core\.sshcommand)$'; then
+            echo "Checkout credentials remain in local Git configuration" >&2
+            exit 2
+          fi
+
+      - name: Record toolchain
+        run: |
+          set -euo pipefail
+          swift --version
+
+      - name: Run Swift Core tests
+        env:
+          VERIFY_NATIVE_TEST_SUITE: swift-core
+        run: tools/verify-native.sh
+
+  watch-only:
+    name: Watch App Only Lane
+    needs: classify
+    if: ${{ needs.classify.result == 'success' && needs.classify.outputs.lane == 'watch-only' }}
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      VERIFY_NATIVE_DIFF_BASE: ${{ needs.classify.outputs.diff_base }}
+      VERIFY_NATIVE_EXPECTED_HEAD: ${{ needs.classify.outputs.head }}
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            .codex-local/native-verification/swift-core/cache
+            .codex-local/native-verification/source-packages
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved', 'swift-core/Package.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Cache Xcode module cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .codex-local/native-verification/module-cache/clang
+            .codex-local/native-verification/module-cache/swift
+          key: ${{ runner.os }}-xcode-modules-${{ hashFiles('ios-app/**/*.swift', 'swift-core/**/*.swift', '**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-xcode-modules-
+
+      - name: Resolve exact Watch App diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_head="$(git rev-parse --verify HEAD)"
+          [[ "$actual_head" == "$VERIFY_NATIVE_EXPECTED_HEAD" ]] || {
+            echo "Checked-out HEAD does not match the classified event SHA" >&2
+            exit 2
+          }
+          if ! git cat-file -e "$VERIFY_NATIVE_DIFF_BASE^{commit}" 2>/dev/null; then
+            git fetch --no-tags --no-recurse-submodules --depth=1 origin "$VERIFY_NATIVE_DIFF_BASE"
+          fi
+          git cat-file -e "$VERIFY_NATIVE_DIFF_BASE^{commit}"
+          git diff --check "$VERIFY_NATIVE_DIFF_BASE" "$VERIFY_NATIVE_EXPECTED_HEAD"
+          git diff --cached --check
+          while IFS= read -r -d '' path; do
+            case "$path" in
+              ios-app/MedicationAdherenceApp/MedicationAdherenceWatchApp/*|ios-app/MedicationAdherenceApp/MedicationAdherenceWatchWidget/*)
+                ;;
+              *)
+                echo "Unexpected non-Watch-App path: $path" >&2
+                exit 2
+                ;;
+            esac
+          done < <(git diff --name-only -z "$VERIFY_NATIVE_DIFF_BASE" "$VERIFY_NATIVE_EXPECTED_HEAD")
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          git config --local --unset-all core.sshCommand || true
+          if git config --local --name-only --list | grep -Eiq '^(http\..*\.extraheader|core\.sshcommand)$'; then
+            echo "Checkout credentials remain in local Git configuration" >&2
+            exit 2
+          fi
+
+      - name: Record toolchain
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          swift --version
+
+      - name: Build Watch App
+        run: tools/verify-native.sh
+
   full:
     name: Full Native Builds
     needs: classify
@@ -287,6 +434,15 @@ jobs:
           key: ${{ runner.os }}-xcode-modules-${{ hashFiles('ios-app/**/*.swift', 'swift-core/**/*.swift', '**/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-xcode-modules-
+
+      - name: Cache prebuilt frameworks
+        uses: actions/cache@v4
+        with:
+          path: |
+            .codex-local/native-verification/*/products/*/Build/Intermediates.noindex
+          key: ${{ runner.os }}-frameworks-${{ hashFiles('**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-frameworks-
 
       - name: Resolve exact full-lane diff
         shell: bash
@@ -570,7 +726,7 @@ jobs:
   aggregate:
     name: Native Verification (required result)
     if: ${{ always() }}
-    needs: [classify, docs, broker, full, full-tests]
+    needs: [classify, docs, broker, swift-core-only, watch-only, full, full-tests]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
@@ -578,6 +734,8 @@ jobs:
       SELECTED_LANE: ${{ needs.classify.outputs.lane }}
       DOCS_RESULT: ${{ needs.docs.result }}
       BROKER_RESULT: ${{ needs.broker.result }}
+      SWIFT_CORE_ONLY_RESULT: ${{ needs.swift-core-only.result }}
+      WATCH_ONLY_RESULT: ${{ needs.watch-only.result }}
       FULL_RESULT: ${{ needs.full.result }}
       FULL_TESTS_RESULT: ${{ needs.full-tests.result }}
     steps:
@@ -590,8 +748,8 @@ jobs:
               echo "Classifier failed and validated full-lane fallback did not pass: full=$FULL_RESULT tests=$FULL_TESTS_RESULT" >&2
               exit 1
             }
-            [[ "$DOCS_RESULT" == skipped && "$BROKER_RESULT" == skipped ]] || {
-              echo "Fallback must leave docs and Broker lanes skipped" >&2
+            [[ "$DOCS_RESULT" == skipped && "$BROKER_RESULT" == skipped && "$SWIFT_CORE_ONLY_RESULT" == skipped && "$WATCH_ONLY_RESULT" == skipped ]] || {
+              echo "Fallback must leave other lanes skipped" >&2
               exit 1
             }
             printf 'Required result passed via classifier-failure full fallback head=%s\n' \
@@ -605,14 +763,28 @@ jobs:
           case "$SELECTED_LANE" in
             docs)
               [[ "$DOCS_RESULT" == success ]] || { echo "Docs lane: $DOCS_RESULT" >&2; exit 1; }
-              [[ "$BROKER_RESULT" == skipped && "$FULL_RESULT" == skipped && "$FULL_TESTS_RESULT" == skipped ]] || {
+              [[ "$BROKER_RESULT" == skipped && "$SWIFT_CORE_ONLY_RESULT" == skipped && "$WATCH_ONLY_RESULT" == skipped && "$FULL_RESULT" == skipped && "$FULL_TESTS_RESULT" == skipped ]] || {
                 echo "Unselected lanes must remain skipped" >&2
                 exit 1
               }
               ;;
             broker)
               [[ "$BROKER_RESULT" == success ]] || { echo "Broker lane: $BROKER_RESULT" >&2; exit 1; }
-              [[ "$DOCS_RESULT" == skipped && "$FULL_RESULT" == skipped && "$FULL_TESTS_RESULT" == skipped ]] || {
+              [[ "$DOCS_RESULT" == skipped && "$SWIFT_CORE_ONLY_RESULT" == skipped && "$WATCH_ONLY_RESULT" == skipped && "$FULL_RESULT" == skipped && "$FULL_TESTS_RESULT" == skipped ]] || {
+                echo "Unselected lanes must remain skipped" >&2
+                exit 1
+              }
+              ;;
+            swift-core-only)
+              [[ "$SWIFT_CORE_ONLY_RESULT" == success ]] || { echo "Swift Core only lane: $SWIFT_CORE_ONLY_RESULT" >&2; exit 1; }
+              [[ "$DOCS_RESULT" == skipped && "$BROKER_RESULT" == skipped && "$WATCH_ONLY_RESULT" == skipped && "$FULL_RESULT" == skipped && "$FULL_TESTS_RESULT" == skipped ]] || {
+                echo "Unselected lanes must remain skipped" >&2
+                exit 1
+              }
+              ;;
+            watch-only)
+              [[ "$WATCH_ONLY_RESULT" == success ]] || { echo "Watch only lane: $WATCH_ONLY_RESULT" >&2; exit 1; }
+              [[ "$DOCS_RESULT" == skipped && "$BROKER_RESULT" == skipped && "$SWIFT_CORE_ONLY_RESULT" == skipped && "$FULL_RESULT" == skipped && "$FULL_TESTS_RESULT" == skipped ]] || {
                 echo "Unselected lanes must remain skipped" >&2
                 exit 1
               }
@@ -622,7 +794,7 @@ jobs:
                 echo "Full lane: builds=$FULL_RESULT tests=$FULL_TESTS_RESULT" >&2
                 exit 1
               }
-              [[ "$DOCS_RESULT" == skipped && "$BROKER_RESULT" == skipped ]] || {
+              [[ "$DOCS_RESULT" == skipped && "$BROKER_RESULT" == skipped && "$SWIFT_CORE_ONLY_RESULT" == skipped && "$WATCH_ONLY_RESULT" == skipped ]] || {
                 echo "Unselected lanes must remain skipped" >&2
                 exit 1
               }
