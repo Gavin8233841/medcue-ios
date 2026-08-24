@@ -4,8 +4,10 @@ import XCTest
 final class MedicationJourneyUITests: XCTestCase {
     private enum AccessibilityID {
         static let tabMedications = "tab.medications"
+        static let tabAssistant = "tab.assistant"
         static let tabToday = "tab.today"
         static let tabRecords = "tab.records"
+        static let tabProfile = "tab.profile"
         static let medicationAdd = "medication.add"
         static let medicationAddManual = "medication.add.manual"
         static let medicationGroupActive = "medication.group.active"
@@ -137,7 +139,7 @@ final class MedicationJourneyUITests: XCTestCase {
             AccessibilityID.tabMedications,
             AccessibilityID.tabAssistant,
             AccessibilityID.tabRecords,
-            "tab.profile"
+            AccessibilityID.tabProfile
         ]
         guard let tabIndex = tabOrder.firstIndex(of: identifier) else {
             XCTFail("Unknown tab identifier: \(identifier)")
