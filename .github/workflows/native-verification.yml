@@ -244,11 +244,11 @@ jobs:
         run: node --test
 
   full:
-    name: Full Native Verification
+    name: Full Native Builds
     needs: classify
     if: ${{ always() && ((needs.classify.result == 'success' && needs.classify.outputs.lane == 'full') || needs.classify.result == 'failure') }}
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 40
     env:
       VERIFY_NATIVE_CI_EVENT: ${{ github.event_name }}
       VERIFY_NATIVE_CI_REF: ${{ github.ref }}
@@ -267,6 +267,26 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            .codex-local/native-verification/swift-core/cache
+            .codex-local/native-verification/source-packages
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved', 'swift-core/Package.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Cache Xcode module cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .codex-local/native-verification/module-cache/clang
+            .codex-local/native-verification/module-cache/swift
+          key: ${{ runner.os }}-xcode-modules-${{ hashFiles('ios-app/**/*.swift', 'swift-core/**/*.swift', '**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-xcode-modules-
 
       - name: Resolve exact full-lane diff
         shell: bash
@@ -385,12 +405,172 @@ jobs:
           VERIFY_NATIVE_IOS_TEST_DESTINATION: platform=iOS Simulator,name=iPhone 17 Pro,OS=latest
           VERIFY_NATIVE_WATCH_SIMULATOR_SDK: watchsimulator
           VERIFY_NATIVE_WATCH_DEVICE_SDK: watchos
+          VERIFY_NATIVE_TEST_SUITE: builds
+        run: tools/verify-native.sh
+
+  full-tests:
+    name: Full Tests (${{ matrix.test-suite }})
+    needs: [classify, full]
+    if: ${{ always() && needs.full.result == 'success' && ((needs.classify.result == 'success' && needs.classify.outputs.lane == 'full') || needs.classify.result == 'failure') }}
+    runs-on: macos-26
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        test-suite: [swift-core, ios-unit, ios-ui]
+    env:
+      VERIFY_NATIVE_CI_EVENT: ${{ github.event_name }}
+      VERIFY_NATIVE_CI_REF: ${{ github.ref }}
+      VERIFY_NATIVE_EXPECTED_HEAD: ${{ needs.classify.outputs.head }}
+      VERIFY_NATIVE_DIFF_BASE: ${{ needs.classify.outputs.diff_base }}
+      VERIFY_NATIVE_FULL_TREE: ${{ needs.classify.outputs.full_tree }}
+      VERIFY_NATIVE_CLASSIFY_RESULT: ${{ needs.classify.result }}
+      VERIFY_NATIVE_SELECTED_LANE: ${{ needs.classify.outputs.lane }}
+      VERIFY_NATIVE_PR_DIFF_BASE: ${{ github.event.pull_request.base.sha || '' }}
+      VERIFY_NATIVE_PUSH_DIFF_BASE: ${{ github.event.before || '' }}
+      VERIFY_NATIVE_MANUAL_DIFF_BASE: ${{ inputs.diff_base || '' }}
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            .codex-local/native-verification/swift-core/cache
+            .codex-local/native-verification/source-packages
+          key: ${{ runner.os }}-spm-${{ hashFiles('**/Package.resolved', 'swift-core/Package.swift') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
+      - name: Cache Xcode module cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            .codex-local/native-verification/module-cache/clang
+            .codex-local/native-verification/module-cache/swift
+          key: ${{ runner.os }}-xcode-modules-${{ hashFiles('ios-app/**/*.swift', 'swift-core/**/*.swift', '**/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-xcode-modules-
+
+      - name: Resolve exact full-lane diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_head="$(git rev-parse --verify HEAD)"
+          expected_head="${{ github.sha }}"
+          [[ "$actual_head" == "$expected_head" ]] || {
+            echo "Checked-out HEAD does not match the classified event SHA" >&2
+            exit 2
+          }
+          diff_base="$VERIFY_NATIVE_DIFF_BASE"
+          full_tree="$VERIFY_NATIVE_FULL_TREE"
+          if [[ "$VERIFY_NATIVE_CLASSIFY_RESULT" == failure ]]; then
+            case "$VERIFY_NATIVE_CI_EVENT" in
+              pull_request)
+                requested_base="$VERIFY_NATIVE_PR_DIFF_BASE"
+                ;;
+              push)
+                requested_base="$VERIFY_NATIVE_PUSH_DIFF_BASE"
+                ;;
+              workflow_dispatch)
+                requested_base="$VERIFY_NATIVE_MANUAL_DIFF_BASE"
+                ;;
+              *)
+                echo "Unsupported verification event during full-lane fallback: $VERIFY_NATIVE_CI_EVENT" >&2
+                exit 2
+                ;;
+            esac
+            [[ "$requested_base" =~ ^[0-9a-f]{40}$ ]] || {
+              echo "Fallback base must be a full lowercase commit SHA" >&2
+              exit 2
+            }
+            if [[ "$VERIFY_NATIVE_CI_EVENT" == push && "$VERIFY_NATIVE_CI_REF" == refs/heads/main ]]; then
+              zero_sha="0000000000000000000000000000000000000000"
+              if [[ "$requested_base" != "$zero_sha" ]]; then
+                [[ "$requested_base" != "$expected_head" ]] || {
+                  echo "Fallback base must differ from HEAD" >&2
+                  exit 2
+                }
+                if ! git cat-file -e "$requested_base^{commit}" 2>/dev/null; then
+                  git fetch --no-tags --no-recurse-submodules --depth=1 origin "$requested_base"
+                fi
+                git cat-file -e "$requested_base^{commit}"
+              fi
+              diff_base="$(git hash-object -w -t tree /dev/null)"
+              full_tree=1
+            else
+              [[ "$requested_base" != "$expected_head" ]] || {
+                echo "Fallback base must differ from HEAD" >&2
+                exit 2
+              }
+              if ! git cat-file -e "$requested_base^{commit}" 2>/dev/null; then
+                git fetch --no-tags --no-recurse-submodules --depth=1 origin "$requested_base"
+              fi
+              git cat-file -e "$requested_base^{commit}"
+              diff_base="$requested_base"
+              full_tree=0
+            fi
+            printf 'Classifier failed; using validated full-lane fallback base=%s full_tree=%s\n' \
+              "$diff_base" "$full_tree"
+          else
+            [[ "$VERIFY_NATIVE_CLASSIFY_RESULT" == success ]] || {
+              echo "Classification was not successful or failed; refusing full-lane resolution" >&2
+              exit 2
+            }
+            [[ "$VERIFY_NATIVE_SELECTED_LANE" == full ]] || {
+              echo "Full job requires the full classified lane" >&2
+              exit 2
+            }
+            [[ "$full_tree" == 0 || "$full_tree" == 1 ]] || {
+              echo "Classified full_tree output is invalid" >&2
+              exit 2
+            }
+            if [[ "$full_tree" == 0 ]]; then
+              if ! git cat-file -e "$diff_base^{commit}" 2>/dev/null; then
+                git fetch --no-tags --no-recurse-submodules --depth=1 origin "$diff_base"
+              fi
+              git cat-file -e "$diff_base^{commit}"
+            else
+              git cat-file -e "$diff_base^{tree}"
+            fi
+          fi
+          {
+            printf 'VERIFY_NATIVE_EXPECTED_HEAD=%s\n' "$expected_head"
+            printf 'VERIFY_NATIVE_DIFF_BASE=%s\n' "$diff_base"
+            printf 'VERIFY_NATIVE_FULL_TREE=%s\n' "$full_tree"
+          } >> "$GITHUB_ENV"
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          git config --local --unset-all core.sshCommand || true
+          if git config --local --name-only --list | grep -Eiq '^(http\..*\.extraheader|core\.sshcommand)$'; then
+            echo "Checkout credentials remain in local Git configuration" >&2
+            exit 2
+          fi
+
+      - name: Record toolchain
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          swift --version
+          xcodebuild -showsdks
+
+      - name: Run test suite
+        env:
+          MEDCUE_DISABLE_LOCAL_LLAMA: "1"
+          VERIFY_NATIVE_IOS_TEST_DESTINATION: platform=iOS Simulator,name=iPhone 17 Pro,OS=latest
+          VERIFY_NATIVE_WATCH_SIMULATOR_SDK: watchsimulator
+          VERIFY_NATIVE_WATCH_DEVICE_SDK: watchos
+          VERIFY_NATIVE_TEST_SUITE: ${{ matrix.test-suite }}
         run: tools/verify-native.sh
 
   aggregate:
     name: Native Verification (required result)
     if: ${{ always() }}
-    needs: [classify, docs, broker, full]
+    needs: [classify, docs, broker, full, full-tests]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
@@ -399,14 +579,15 @@ jobs:
       DOCS_RESULT: ${{ needs.docs.result }}
       BROKER_RESULT: ${{ needs.broker.result }}
       FULL_RESULT: ${{ needs.full.result }}
+      FULL_TESTS_RESULT: ${{ needs.full-tests.result }}
     steps:
       - name: Require the selected lane
         shell: bash
         run: |
           set -euo pipefail
           if [[ "$CLASSIFY_RESULT" == failure ]]; then
-            [[ "$FULL_RESULT" == success ]] || {
-              echo "Classifier failed and validated full-lane fallback did not pass: $FULL_RESULT" >&2
+            [[ "$FULL_RESULT" == success && "$FULL_TESTS_RESULT" == success ]] || {
+              echo "Classifier failed and validated full-lane fallback did not pass: full=$FULL_RESULT tests=$FULL_TESTS_RESULT" >&2
               exit 1
             }
             [[ "$DOCS_RESULT" == skipped && "$BROKER_RESULT" == skipped ]] || {
@@ -424,20 +605,23 @@ jobs:
           case "$SELECTED_LANE" in
             docs)
               [[ "$DOCS_RESULT" == success ]] || { echo "Docs lane: $DOCS_RESULT" >&2; exit 1; }
-              [[ "$BROKER_RESULT" == skipped && "$FULL_RESULT" == skipped ]] || {
+              [[ "$BROKER_RESULT" == skipped && "$FULL_RESULT" == skipped && "$FULL_TESTS_RESULT" == skipped ]] || {
                 echo "Unselected lanes must remain skipped" >&2
                 exit 1
               }
               ;;
             broker)
               [[ "$BROKER_RESULT" == success ]] || { echo "Broker lane: $BROKER_RESULT" >&2; exit 1; }
-              [[ "$DOCS_RESULT" == skipped && "$FULL_RESULT" == skipped ]] || {
+              [[ "$DOCS_RESULT" == skipped && "$FULL_RESULT" == skipped && "$FULL_TESTS_RESULT" == skipped ]] || {
                 echo "Unselected lanes must remain skipped" >&2
                 exit 1
               }
               ;;
             full)
-              [[ "$FULL_RESULT" == success ]] || { echo "Full lane: $FULL_RESULT" >&2; exit 1; }
+              [[ "$FULL_RESULT" == success && "$FULL_TESTS_RESULT" == success ]] || {
+                echo "Full lane: builds=$FULL_RESULT tests=$FULL_TESTS_RESULT" >&2
+                exit 1
+              }
               [[ "$DOCS_RESULT" == skipped && "$BROKER_RESULT" == skipped ]] || {
                 echo "Unselected lanes must remain skipped" >&2
                 exit 1
