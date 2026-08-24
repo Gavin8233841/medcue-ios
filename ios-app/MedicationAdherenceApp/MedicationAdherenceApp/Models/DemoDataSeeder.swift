@@ -4,6 +4,7 @@ import SwiftData
 
 #if DEBUG || MEDCUE_DEMO
 import Darwin
+import UIKit
 #endif
 
 #if DEBUG || MEDCUE_DEMO
@@ -23,7 +24,7 @@ enum DemoModeLauncher {
 
 enum DemoDataSeeder {
     static func seedIfNeeded(in modelContext: ModelContext) {
-        #if DEBUG
+        #if DEBUG || MEDCUE_DEMO
         let arguments = ProcessInfo.processInfo.arguments
         guard arguments.contains("--seed-demo-data")
                 || arguments.contains("--reminder-live-activity-smoke-test") else {
@@ -125,6 +126,7 @@ enum DemoDataSeeder {
             form: "片剂",
             strength: "200 mg",
             photoSymbolName: "pills.fill",
+            photoAssetName: "DemoAdvil",
             notes: "按药盒或说明书核对后使用；如有胃部不适、过敏或合并用药疑问，请咨询医生或药师。",
             doseUnit: "片",
             reminderTimeRaw: "08:00",
@@ -142,6 +144,7 @@ enum DemoDataSeeder {
             form: "片剂",
             strength: "500 mg",
             photoSymbolName: "cross.case.fill",
+            photoAssetName: "DemoTylenol",
             notes: "按药盒或说明书核对后使用；饮酒、肝功能异常或合并用药时请咨询医生或药师。",
             doseUnit: "片",
             reminderTimeRaw: "13:00",
@@ -159,6 +162,7 @@ enum DemoDataSeeder {
             form: "滴眼液",
             strength: "1 滴",
             photoSymbolName: "eye.fill",
+            photoAssetName: "DemoArtificialTears",
             notes: "提醒时可通过药品图片辅助识别；请按说明书或医生、药师建议核对使用间隔。",
             doseUnit: "滴",
             reminderTimeRaw: "21:00",
@@ -176,6 +180,7 @@ enum DemoDataSeeder {
             form: "片剂",
             strength: "10 mg",
             photoSymbolName: "wind",
+            photoAssetName: "DemoFortuneLoratadine",
             notes: "用于长期提醒管理；如症状持续、加重或合并其他药物，请咨询医生或药师。",
             doseUnit: "片",
             reminderTimeRaw: "18:30",
@@ -193,6 +198,7 @@ enum DemoDataSeeder {
             form: "软胶囊",
             strength: "400 IU",
             photoSymbolName: "sun.max.fill",
+            photoAssetName: nil,
             notes: "用于长期健康管理提醒；请按说明书、医嘱或药师建议核对剂量和疗程。",
             doseUnit: "粒",
             reminderTimeRaw: "22:00",
@@ -268,6 +274,13 @@ enum DemoDataSeeder {
         medication.form = seed.form
         medication.strength = seed.strength
         medication.photoSymbolName = seed.photoSymbolName
+        #if DEBUG || MEDCUE_DEMO
+        if medication.photoData == nil,
+           let photoAssetName = seed.photoAssetName,
+           let photo = UIImage(named: photoAssetName) {
+            medication.photoData = photo.jpegData(compressionQuality: 0.82)
+        }
+        #endif
         if medication.boxNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             medication.boxNumber = seed.boxNumber
         }
@@ -968,6 +981,7 @@ private struct DemoMedicationSeed {
     let form: String
     let strength: String
     let photoSymbolName: String
+    let photoAssetName: String?
     let notes: String
     let doseUnit: String
     let reminderTimeRaw: String

@@ -279,7 +279,7 @@ struct AppRootView: View {
 
     @MainActor
     private func runStartupMaintenance() async {
-        #if DEBUG
+        #if DEBUG || MEDCUE_DEMO
         if !didSeedStartupData {
             didSeedStartupData = true
             DemoDataSeeder.seedIfNeeded(in: modelContext)

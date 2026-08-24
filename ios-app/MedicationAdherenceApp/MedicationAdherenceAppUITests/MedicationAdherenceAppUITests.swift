@@ -2,11 +2,14 @@ import XCTest
 
 @MainActor
 final class MedicationAdherenceAppUITests: XCTestCase {
-    private let stableLaunchArguments = [
+    private let stableLaunchArgumentsWithoutExperienceMode = [
         "-AppPersistenceCommitter.failureMessage", "",
-        "-DoseActionPersistence.failureMessage", "",
-        "-appExperienceMode", "complete"
+        "-DoseActionPersistence.failureMessage", ""
     ]
+
+    private var stableLaunchArguments: [String] {
+        stableLaunchArgumentsWithoutExperienceMode + ["-appExperienceMode", "complete"]
+    }
 
     func testPrimaryTabsAreReachable() {
         continueAfterFailure = false
@@ -40,6 +43,40 @@ final class MedicationAdherenceAppUITests: XCTestCase {
                 dismissAssistantGatesIfPresented(in: app)
             }
         }
+    }
+
+    func testTodayCanOpenElderMode() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+
+        app.launchArguments = stableLaunchArgumentsWithoutExperienceMode + [
+            "-appExperienceMode", "elder",
+            "-hasCompletedFirstLaunchSetup", "YES"
+        ]
+        app.launch()
+
+        let switchToComplete = app.buttons["elder.switch-to-complete"]
+        XCTAssertTrue(switchToComplete.waitForExistence(timeout: 10))
+        switchToComplete.tap()
+        app.terminate()
+
+        app.launchArguments = stableLaunchArgumentsWithoutExperienceMode + [
+            "-hasCompletedFirstLaunchSetup", "YES"
+        ]
+        app.launch()
+
+        let elderModeEntry = app.buttons["today.elder-mode-entry"]
+        XCTAssertTrue(elderModeEntry.waitForExistence(timeout: 10))
+        elderModeEntry.tap()
+
+        XCTAssertTrue(
+            app.buttons["elder.switch-to-complete"].waitForExistence(timeout: 5),
+            "The elder-mode navigation controls did not appear after selecting the Today entry"
+        )
+        XCTAssertFalse(app.tabBars.firstMatch.exists)
+        XCTAssertFalse(app.staticTexts["现在只需处理一件事"].exists)
+        XCTAssertFalse(app.staticTexts["无操作会保持未确认，不会自动记成忽略。"].exists)
+        XCTAssertFalse(app.staticTexts["这里不会推断为全部已服用；有新的待确认任务时会显示在这里。"].exists)
     }
 
     private func dismissAssistantGatesIfPresented(in app: XCUIApplication) {

@@ -17,6 +17,7 @@ struct TodayScreenActions {
     let archive: (StoredDoseTask) -> Void
     let unarchive: (StoredDoseTask) -> Void
     let rollbackUndo: (DoseUndoBanner) -> Void
+    let switchToElderMode: () -> Void
     let requestWeatherRefresh: (Bool) async -> Bool
     let initialLoad: () async -> Void
     let timerTick: () -> Void
@@ -213,6 +214,7 @@ struct TodayScreen: View {
                     )
                 }
 
+                elderModeEntryCard
                 notificationUnavailableBanner
                 openTimelineSection
 
@@ -238,6 +240,48 @@ struct TodayScreen: View {
         }
         .coordinateSpace(name: "TodayTopGradientScroll")
         .background(Color(.systemGroupedBackground))
+    }
+
+    private var elderModeEntryCard: some View {
+        Button(action: actions.switchToElderMode) {
+            HStack(spacing: 14) {
+                Image(systemName: "checklist")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.blue)
+                    .frame(width: 42, height: 42)
+                    .background(
+                        Color.blue.opacity(0.12),
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    )
+
+                Text("适老模式")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .medicationGlassSurface(
+                cornerRadius: 20,
+                tint: .blue,
+                fallbackMaterial: .thinMaterial,
+                isInteractive: true
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(Color.blue.opacity(0.16), lineWidth: 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("适老模式")
+        .accessibilityIdentifier(AppAccessibilityID.todayElderModeEntry)
     }
 
     private var completionRateFeedbackSlot: some View {
@@ -618,6 +662,7 @@ struct ElderTodayScreenActions {
 
 struct ElderTodayScreen: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let snapshot: ElderTodayRenderSnapshot
     let pendingDoseConfirmation: PendingDoseConfirmation?
     let pendingDoseFeedback: PendingDoseFeedback?
@@ -639,30 +684,18 @@ struct ElderTodayScreen: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("现在只需处理一件事")
-                        .font(.largeTitle.bold())
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text("无操作会保持未确认，不会自动记成忽略。")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
+            VStack(alignment: .leading, spacing: 20) {
                 if let task = snapshot.currentTask {
                     currentTaskCard(task)
-                    Text("还有 \(snapshot.remainingOpenTaskCount) 项待处理")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    ContentUnavailableView {
-                        Label("目前没有需要确认的用药任务", systemImage: "checklist")
-                    } description: {
-                        Text("这里不会推断为全部已服用；有新的待确认任务时会显示在这里。")
+                    if snapshot.remainingOpenTaskCount > 0 {
+                        Text("还有 \(snapshot.remainingOpenTaskCount) 项待处理")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
+                } else {
+                    ContentUnavailableView("目前没有待处理用药", systemImage: "checkmark.circle")
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 32)
                     .accessibilityElement(children: .combine)
@@ -671,12 +704,20 @@ struct ElderTodayScreen: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 24)
         }
+        .background(Color(.systemGroupedBackground))
         .navigationTitle("用药提醒")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button("完整模式", action: actions.switchToCompleteMode)
-                    .accessibilityIdentifier(AppAccessibilityID.elderSwitchToComplete)
-                    .accessibilityHint("返回包含今日、药品、智能体、记录和个人页面的完整模式")
+                Button(action: actions.switchToCompleteMode) {
+                    if dynamicTypeSize.isAccessibilitySize {
+                        Image(systemName: "arrow.backward")
+                    } else {
+                        Text("完整模式")
+                    }
+                }
+                .accessibilityLabel("完整模式")
+                .accessibilityIdentifier(AppAccessibilityID.elderSwitchToComplete)
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: actions.openSettings) {
@@ -736,24 +777,7 @@ struct ElderTodayScreen: View {
 
     private func currentTaskCard(_ task: StoredDoseTask) -> some View {
         VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(snapshot.currentMedication.map(userFacingMedicationName(for:)) ?? "待核对药品")
-                    .font(.largeTitle.bold())
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if let currentStatus = snapshot.currentStatus {
-                    StatusBadge(text: currentStatus.displayName, color: .blue)
-                }
-
-                Text("每次 \(task.doseValue.formatted()) \(localizedMedicationUnit(task.doseUnit))")
-                    .font(.title2.weight(.semibold))
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Label(AppFormatters.time.string(from: task.dueAt), systemImage: "clock")
-                    .font(.title2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            taskIdentity(task)
 
             if let confirmationKind = activeConfirmation {
                 ElderDoseConfirmationPanel(
@@ -800,6 +824,59 @@ struct ElderTodayScreen: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(AppAccessibilityID.elderCurrentTask)
     }
+
+    @ViewBuilder
+    private func taskIdentity(_ task: StoredDoseTask) -> some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 16) {
+                medicationPhoto
+                taskDetails(task)
+            }
+        } else {
+            HStack(alignment: .top, spacing: 16) {
+                medicationPhoto
+                taskDetails(task)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private var medicationPhoto: some View {
+        MedicationPhotoView(
+            photoData: snapshot.currentMedication?.photoData,
+            symbolName: snapshot.currentMedication?.photoSymbolName ?? "pills.fill",
+            tint: snapshot.currentMedication.map(medicationColor(for:)) ?? .blue,
+            size: 88
+        )
+    }
+
+    private func taskDetails(_ task: StoredDoseTask) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(snapshot.currentMedication.map(userFacingMedicationName(for:)) ?? "待核对药品")
+                .font(.title.bold())
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let currentStatus = snapshot.currentStatus {
+                Text(currentStatus.displayName)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.blue)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.blue.opacity(0.12), in: Capsule())
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text("每次 \(task.doseValue.formatted()) \(localizedMedicationUnit(task.doseUnit))")
+                .font(.title3.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+
+            Label(AppFormatters.time.string(from: task.dueAt), systemImage: "clock")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+    }
 }
 
 private struct ElderDoseActionButton: View {
@@ -813,10 +890,10 @@ private struct ElderDoseActionButton: View {
     var body: some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
-                .font(.title2.weight(.bold))
+                .font(.title3.weight(.bold))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: 60)
+                .frame(minHeight: 64)
                 .padding(.horizontal, 12)
                 .foregroundStyle(isProminent ? Color.white : tint)
                 .background(
@@ -824,7 +901,7 @@ private struct ElderDoseActionButton: View {
                     in: RoundedRectangle(cornerRadius: 16, style: .continuous)
                 )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(CompactDoseActionButtonStyle())
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityIdentifier(accessibilityIdentifier)
     }

@@ -17,6 +17,7 @@ enum AppAccessibilityID {
     static let assistantSend = "assistant.send"
     static let firstLaunchSkip = "firstLaunch.skip"
     static let firstLaunchNext = "firstLaunch.next"
+    static let todayElderModeEntry = "today.elder-mode-entry"
     static let elderHome = "elder.home"
     static let elderCurrentTask = "elder.current-task"
     static let elderMarkTaken = "elder.action.taken"

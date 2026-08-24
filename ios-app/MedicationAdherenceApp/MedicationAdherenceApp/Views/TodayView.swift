@@ -12,6 +12,7 @@ struct TodayView: View {
     @Query private var tasks: [StoredDoseTask]
     @Query(sort: \StoredMedication.displayName) private var medications: [StoredMedication]
     @Query(sort: \StoredMedicationPlan.createdAt) private var plans: [StoredMedicationPlan]
+    @AppStorage(AppExperienceMode.storageKey) private var appExperienceModeRaw = AppExperienceMode.complete.rawValue
     @AppStorage("prefersReducedAppMotion") private var prefersReducedAppMotion = false
     @AppStorage(NotificationService.reminderNotificationUnavailableMessageKey) private var reminderNotificationUnavailableMessage = ""
     @AppStorage(DoseActionPersistence.failureMessageDefaultsKey) private var externalDosePersistenceErrorMessage = ""
@@ -201,6 +202,9 @@ struct TodayView: View {
                 archive: archive,
                 unarchive: unarchive,
                 rollbackUndo: rollbackDoseUndo,
+                switchToElderMode: {
+                    appExperienceModeRaw = AppExperienceMode.elder.rawValue
+                },
                 requestWeatherRefresh: { requestAuthorization in
                     await weatherMedicationService.refresh(
                         medications: medications,
