@@ -317,6 +317,7 @@ struct AddMedicationView: View {
                         showingSaveConfirmation = true
                     }
                     .disabled(!canSave || isSaveFlowActive)
+                    .accessibilityIdentifier(AppAccessibilityID.medicationEditSave)
                 }
             }
             .onAppear {
