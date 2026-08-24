@@ -88,7 +88,7 @@ struct FirstLaunchSetupView: View {
 
             VStack(spacing: 0) {
                 HStack {
-                    #if DEBUG
+                    #if DEBUG || MEDCUE_DEMO
                     Button("Demo") {
                         startDemoMode()
                     }
@@ -97,7 +97,7 @@ struct FirstLaunchSetupView: View {
                     .buttonStyle(.plain)
                     .padding(.leading, 24)
                     .accessibilityLabel("载入演示数据")
-                    .accessibilityHint("仅在调试版本中载入合成演示数据")
+                    .accessibilityHint("仅在受控调试或演示版本中载入合成演示数据")
                     #endif
                     Spacer()
                     Button("跳过") {

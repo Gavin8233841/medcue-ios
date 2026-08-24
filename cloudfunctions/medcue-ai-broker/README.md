@@ -9,7 +9,7 @@ proxy.
 - CloudBase runtime: `Nodejs18.15`
 - Entry: `scf_bootstrap`, listening on port `9000`
 - Route: `POST /v1/respond`
-- Required request headers: `Authorization: REDACTED_SECRET <client-token>` and
+- Required request headers: `Authorization: Bearer <client-token>` and
   `Content-Type: application/json`
 - Required JSON fields: `request_id` (canonical UUID) and `prompt` (1 to
   12000 characters)
@@ -33,9 +33,15 @@ node --test
 ## Operational limits
 
 The broker denies arbitrary upstream URLs, providers, and model identifiers.
-It has an instance-local 30 requests/minute limit and a 20 second provider
-timeout. Its completed-response cache is also instance-local; it reduces
-retries for warm instances but is not cross-instance exactly-once delivery.
+It refuses to start when any required security configuration is missing or
+empty. Provider requests never follow redirects, have a 20 second timeout that
+covers both the request and response-body read, and stream at most 65536 actual
+response bytes before JSON decoding. The byte cap does not trust
+`Content-Length`.
+
+The broker also has an instance-local 30 requests/minute limit. Its
+completed-response cache is instance-local; it reduces retries for warm
+instances but is not cross-instance exactly-once delivery.
 
 The static client token is a temporary competition/low-volume gate. It is not
 equivalent to user identity or App Attest and must not be described as either.

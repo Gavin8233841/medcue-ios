@@ -49,7 +49,15 @@ function createServer({
 }
 
 if (require.main === module) {
-  createServer().listen(9000);
+  try {
+    createServer().listen(9000);
+  } catch (error) {
+    if (error?.name !== "BrokerConfigurationError") {
+      throw error;
+    }
+    console.error(error.message);
+    process.exitCode = 1;
+  }
 }
 
 module.exports = { createServer };

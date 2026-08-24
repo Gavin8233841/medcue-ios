@@ -1,43 +1,43 @@
-name: Technical debt
-description: Record evidence-based maintainability, reliability, performance, or operations debt.
-title: "[Debt] "
+name: 技术债务 / Technical debt
+description: 记录有证据支持的可维护性、可靠性、性能或运维债务 / Record evidence-based maintainability, reliability, performance, or operations debt.
+title: "[技术债务] "
 labels:
-  - technical-debt
+  - 技术债务
 body:
   - type: markdown
     attributes:
-      value: Use synthetic or sanitized examples only. Do not include real medication or health records, API tokens, device identifiers, or absolute user paths.
+      value: 使用合成或已清理的示例。不要填写真实用药记录、健康信息、API token、设备标识符或绝对路径。 / Use synthetic or sanitized examples only. Do not include real medication or health records, API tokens, device identifiers, or absolute user paths.
   - type: textarea
     id: evidence
     attributes:
-      label: Evidence
-      description: Point to measurements, code paths, incidents, duplication, or missing verification.
+      label: 证据 / Evidence
+      description: 指向测量结果、代码路径、事件、重复实现或缺失的验证。 / Point to measurements, code paths, incidents, duplication, or missing verification.
     validations:
       required: true
   - type: textarea
     id: impact
     attributes:
-      label: Current impact
-      description: Explain the reliability, delivery, performance, security, or maintenance cost.
+      label: 当前影响 / Current impact
+      description: 说明可靠性、交付、性能、安全或维护成本。 / Explain the reliability, delivery, performance, security, or maintenance cost.
     validations:
       required: true
   - type: textarea
     id: outcome
     attributes:
-      label: Desired outcome and exit condition
-      description: Define observable completion without prescribing an unreviewed implementation.
+      label: 预期结果与退出条件 / Desired outcome and exit condition
+      description: 定义可观察的完成条件，不要预先规定未经评审的实现。 / Define observable completion without prescribing an unreviewed implementation.
     validations:
       required: true
   - type: textarea
     id: risk
     attributes:
-      label: Risk and dependencies
-      description: Include migration, rollback, device, account, or product-decision dependencies.
+      label: 风险与依赖 / Risk and dependencies
+      description: 包含迁移、回滚、设备、账号或产品决策依赖。 / Include migration, rollback, device, account, or product-decision dependencies.
     validations:
       required: true
   - type: textarea
     id: verification
     attributes:
-      label: Verification plan
+      label: 验证计划 / Verification plan
     validations:
       required: true

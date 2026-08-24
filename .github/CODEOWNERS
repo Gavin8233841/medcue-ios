@@ -1,0 +1,6 @@
+# Trusted evidence and repository-policy entry points need review by a
+# maintainer other than the Pull Request author. GitHub does not count an
+# author's approval of their own Pull Request, so the two active maintainers
+# provide reciprocal coverage without adding review to ordinary changes.
+/.github/ @Gavin8233841 @yzy1020
+/tools/ @Gavin8233841 @yzy1020

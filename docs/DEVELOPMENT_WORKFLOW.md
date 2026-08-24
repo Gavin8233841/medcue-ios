@@ -175,7 +175,7 @@ To claim work:
 
 If the scope or intended files expand, update the GitHub ownership record before
 editing the new area. Keep `state:in-progress` while implementing or responding
-to review, and use `blocked` only for a named dependency. A handoff records the
+to review, and use `已阻塞` only for a named dependency. A handoff records the
 full base and HEAD SHAs, dirty files, pushed checkpoint, completed checks, open
 Blocker/Required items, and one next action. Prefer a clean pushed checkpoint;
 inaccessible dirty files do not authorize another agent to overwrite a worktree
@@ -186,9 +186,10 @@ checks, complete cumulative self-review, and current Pull Request body. Before
 requesting formal review, use the strongest available model and reasoning
 appropriate to the task risk, review the complete base-to-HEAD diff after the
 last tracked-file change, and complete the Pull Request checklist. The current
-HEAD must have successful full relevant CI, shared-file ownership must still be
-valid, and no prior Blocker or Required item may remain open. Report unavailable
-checks and reasoned N/A evidence without implying that missing evidence exists.
+HEAD must have successful relevant lane CI (and the full gate for native/full
+changes and every main push), shared-file ownership must still be valid, and no
+prior Blocker or Required item may remain open. Report unavailable checks and
+reasoned N/A evidence without implying that missing evidence exists.
 
 Any tracked-file commit invalidates the prior author self-review and requires
 new exact-head CI; it also invalidates an earlier approval. A body-only Pull
@@ -210,14 +211,98 @@ permission or external dependency, or a completed ready-for-review gate. Wake
 the product owner only for product value or behavior, medical claims, privacy
 posture, cost, account actions, release timing, or external/destructive choices.
 
-The coordinating agent reviews and approves only the current cumulative HEAD,
-verifies current-base integration and required high-risk evidence, and controls
-the merge. After merge, verify the exact `main` SHA and `main` CI, confirm that
+The coordinating agent reviews the current cumulative HEAD, scope, and
+integration evidence, but does not provide a second approval when the
+autonomous merge gate is satisfied. After merge, verify the exact `main` SHA and `main` CI, confirm that
 shared-file integration preserved the intended behavior, close the Issue, clear
 coordination labels, and remove the branch when safe. A merge with failed or
 pending post-merge evidence is not complete.
 
+The approved autonomous merge gate permits the author to mark the Pull Request
+Ready and squash merge without a second coordinator approval after the
+cumulative self-review, Issue-specified fresh-context review, Blocker 0 /
+Required 0, successful exact-head relevant CI, clean current-main integration,
+and required device/account/external evidence or reasoned N/A are complete.
+Every tracked-file commit invalidates prior review, approval, and CI evidence;
+repeat the gate for the new HEAD. Stop and wake the coordinator or product
+owner for unresolved product, medical, privacy/consent, cost, account,
+credential, deployment, legal, or release decisions; hard-to-reverse actions;
+missing required external evidence; overlap, scope expansion, conflict,
+permission failure, or unauthorized trusted CI/release/packaging/permission
+changes; unavailable specified model or fresh context; unsuccessful exact-head
+CI; or any remaining Blocker or Required finding. High-risk work remains
+eligible when its approved scope and additional failure, rollback,
+data-integrity, independent-review, and applicable device/account evidence are
+complete.
+
+### Controlled Demo builds
+
+Use the shared `MedicationAdherenceApp-Demo` scheme only for an owner-controlled
+MedCue demonstration device. Its `Demo` configuration inherits Release build
+settings and adds `MEDCUE_DEMO` only to the main app target. It does not define
+`DEBUG`, and the guarded build phase excludes `AISecrets.plist` from this
+non-Debug artifact. The ordinary `MedicationAdherenceApp` Release path must not
+show or execute the demo-data action.
+
+The Demo scheme uses the same bundle identifiers as the ordinary app, so an
+installation replaces the existing MedCue build on that device. Use a
+controlled device without real medication or health data. On the first-launch
+page, the `Demo` action replaces records already marked `isDemoContent`, keeps
+non-demo records, writes the synthetic dataset, and exits successfully so the
+app can reopen with a fresh model context. Relaunch, then finish or skip the
+first-launch tour to view the data. The Help Center product tour exposes the
+same refresh action in Debug and Demo builds.
+
+This build path is not an App Store or ordinary Beta Release artifact. Do not
+bundle credentials, local model files, user databases, device evidence, or
+competition tooling/media with it.
+
 ### 6. Review and CI
+
+#### Native Verification lanes
+
+The Native Verification workflow validates the exact event base and checked-out
+HEAD with full lowercase commit SHAs before selecting a lane. It covers the
+complete changed-file set, including additions, modifications, deletions, and
+renames. Missing or invalid inputs, unknown or mixed paths, workflow/tooling
+changes, and classifier failures trigger a validated full-lane fallback. The
+fallback re-derives the event base from trusted event context, rejects missing,
+malformed, self-referential, or unavailable bases, and therefore cannot mask an
+invalid input. The all-zero base is valid only for a new main push; every main
+push uses the empty-tree SHA and the full Route A gate.
+
+| Lane | Selection | Required checks |
+| --- | --- | --- |
+| Docs/governance | Every changed path is an approved documentation or governance path | Exact HEAD/base check, full diff whitespace check, and repository-structure check on Ubuntu |
+| Broker-only | Every changed path is under cloudfunctions/medcue-ai-broker/ and is not workflow/tooling | Exact HEAD/base check, JavaScript syntax and JSON structure checks for existing changed files at any Broker depth, and Node 18.15.0 node --test on Ubuntu |
+| Full Native Verification | Native, Watch, UI, project/package/configuration, trusted workflow/tooling, mixed, unknown, rename/deletion edge cases, or any main push | Exact HEAD/base check, Broker Node 18.15.0 tests, and the complete tools/verify-native.sh Route A gate on macOS |
+
+Before this split, representative single-job Native Verification durations were
+17:03 for a documentation/label main run, 19:03 for a governance Pull Request,
+20:52 for a label-migration main run, 14:18 for another governance Pull Request,
+and 13:49 for a Broker-only Pull Request. The Issue #39 Pull Request records
+the new exact-head docs, Broker, and full-lane durations after they complete;
+these historical values are not reused as evidence.
+
+The workflow always publishes one Native Verification (required result)
+aggregation job. It succeeds when classification succeeds and the selected lane
+succeeds, or when classification fails but the validated full-lane fallback
+succeeds; in either case all unselected lanes must be explicitly skipped. Runs
+cancel obsolete work for the same event/ref; no result from an earlier SHA can
+satisfy a later SHA. Pull Requests record actual selected-lane and full-lane
+durations from their exact-head hosted runs; historical single-lane timing is
+context, not a substitute for a new run. Because workflow files are trusted
+evidence, any change under `.github/workflows/` remains a full-lane change and
+requires fresh-context security review before approval.
+
+This repository currently has no enforced branch-protection ruleset or
+`CODEOWNERS` policy. A `pull_request` workflow is therefore evaluated from the
+PR merge revision, so the static guard is not an independently base-trusted
+security boundary. Do not claim the workflow self-protection acceptance item is
+complete, mark this Issue ready, or merge this change until a coordinator adds
+an independently base-trusted `pull_request_target` guard or an equivalent
+enforced repository rule. Fresh-context review remains necessary but does not
+substitute for that enforcement.
 
 The agent performs a correctness, regression, privacy, medical-safety,
 performance, accessibility, and test-quality review. `Native Verification`
@@ -278,30 +363,27 @@ as a mandatory Pull Request gate.
 
 ### Shared-file ownership recorded on 2026-08-22
 
-Three Pull Requests based on post-migration audit baseline
-`280e5b3f8425f155d5e20a71841f4169a63bc59d` intentionally have disjoint semantic
-ownership in this file. At the 2026-08-22 integration checkpoint:
+Three Draft Pull Requests based on post-migration audit baseline
+`280e5b3f8425f155d5e20a71841f4169a63bc59d` intentionally had disjoint semantic
+ownership in this file:
 
 - PR #31 replaces only two fulfilled history-normalization prerequisites in the
   pre-existing branch and merge guidance. It does not own either new section
   described below.
-- PR #30 had merged as `main` commit
-  `6ee4c481fa112496e7df808cf6854e45b6288c7e`. Its Active work coordination
-  protocol, label vocabulary, and `.github/pull_request_template.md` changes
-  are established baseline content and are preserved, not owned or edited, by
-  PR #31.
-- PR #26 remained an open Draft at
-  `5f8780f06990a78a36f9956e528e2f3fa9abadd2`. It adds the Controlled Demo build
-  workflow in this file and changes the Demo app, scheme, project, tests, and
-  preflight implementation. It therefore does include
-  `docs/DEVELOPMENT_WORKFLOW.md`; PR #31 does not import or edit that section.
+- PR #30 adds the Active work coordination protocol and its label vocabulary;
+  it also changes `.github/pull_request_template.md`. PR #31 does not import or
+  edit that protocol.
+- PR #26 adds the Controlled Demo build workflow in this file and changes the
+  Demo app, scheme, project, tests, and preflight implementation. It therefore
+  does include `docs/DEVELOPMENT_WORKFLOW.md`; PR #31 does not import or edit
+  that section.
 
-PR #30 inserted its owned section immediately before the baseline's Review and
-CI section; PR #26 proposes its own section at the same boundary. Every
-remaining PR that touches this file must first integrate the latest `main`,
-reapply only its owned semantic change, inspect the complete cumulative file,
-and rerun exact-head CI before merge. A conflict-free merge alone does not
-prove that all owned sections were preserved.
+PR #26 and PR #30 both insert their owned section immediately before the
+baseline's Review and CI section. If any of these PRs merges first, every
+remaining PR that touches this file must rebase or reapply its owned change,
+inspect the complete cumulative file diff, and rerun exact-head CI before
+merge. A conflict-free merge alone does not prove that all owned sections were
+preserved.
 
 ## Definition Of Done
 
@@ -324,12 +406,12 @@ prove that all owned sections were preserved.
 Create labels only when they become useful. The currently available vocabulary
 is:
 
-- type: `bug`, `feature`, `technical-debt`, `documentation`, `governance`
+- type: `缺陷`, `功能`, `技术债务`, `文档`, `治理`
 - priority: `P0`, `P1`, `P2`
-- state: `needs-product-decision`, `device-validation`, `blocked`
+- state: `需要产品决策`, `设备验证`, `已阻塞`
 - coordination state: `state:in-progress`
 - execution context: `execution:windows-capable`
-- area: `platform`, `ai`, `privacy`, `release`
+- area: `平台`, `医疗 AI`, `隐私`, `发布`
 
 Create `P3`, `ready`, and additional area labels only when the first real Issue
 needs them; do not prebuild a large taxonomy.

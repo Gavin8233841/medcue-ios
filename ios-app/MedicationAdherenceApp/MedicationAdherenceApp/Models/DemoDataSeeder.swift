@@ -2,18 +2,18 @@ import Foundation
 import MedicationAdherenceCore
 import SwiftData
 
-#if DEBUG
+#if DEBUG || MEDCUE_DEMO
 import Darwin
 #endif
 
-#if DEBUG
+#if DEBUG || MEDCUE_DEMO
 @MainActor
-enum DebugDemoModeLauncher {
+enum DemoModeLauncher {
     private static let firstLaunchCompletionKey = "hasCompletedFirstLaunchSetup"
 
     static func rebuildAndExit(in modelContext: ModelContext) async throws -> Never {
         UserDefaults.standard.set(false, forKey: firstLaunchCompletionKey)
-        try DemoDataSeeder.rebuildForExplicitDebugDemoMode(in: modelContext)
+        try DemoDataSeeder.rebuildForExplicitDemoMode(in: modelContext)
         try await Task.sleep(for: .milliseconds(300))
         UserDefaults.standard.set(false, forKey: firstLaunchCompletionKey)
         exit(EXIT_SUCCESS)
@@ -33,8 +33,8 @@ enum DemoDataSeeder {
         #endif
     }
 
-    static func rebuildForExplicitDebugDemoMode(in modelContext: ModelContext) throws {
-        #if DEBUG
+    static func rebuildForExplicitDemoMode(in modelContext: ModelContext) throws {
+        #if DEBUG || MEDCUE_DEMO
         try removeExistingDemoContent(in: modelContext)
         try seed(in: modelContext)
         #endif

@@ -63,7 +63,8 @@ product safety boundary, and release timing.
   `codex/<issue-number>-<short-name>`.
 - Do not push feature work directly to `main`.
 - Link the Pull Request to its Issue and keep scope changes visible.
-- Require green CI and a completed review checklist before merge.
+- Require green relevant CI, a completed review checklist, and the approved
+  autonomous-merge gate before merge.
 - Record durable architecture decisions in `docs/adr/`; do not bury them in a
   chat or a daily log.
 - Use `PROJECT_UPDATE_LOG.md` only as a historical journal. It is not the
@@ -82,7 +83,8 @@ pre-normalization history, and never force-push over an active contributor.
 - One coordinating agent owns scope, integration, and final evidence. Delegate
   only bounded work with explicit ownership; parallel writers may touch only
   disjoint files or separate worktrees. The coordinator reviews every result and
-  the complete final diff.
+  the complete final diff, but does not provide a second approval when the
+  autonomous-merge gate below is satisfied.
 - Medication-record, medical-AI, privacy, migration, authorization, and other
   safety-critical changes require an independent fresh-context review before a
   Pull Request is ready. Routine changes do not require a review committee.
@@ -132,9 +134,11 @@ longer applies.
   interface depth, observable behavior tests, and relevant measured performance.
 - Test externally observable behavior, failure paths, ordering, idempotency,
   cancellation, and rollback. Avoid tests that merely mirror implementation.
-- During iteration, run focused tests and `tools/verify-native.sh --quick`.
-- Before a Pull Request is ready, run every relevant focused test plus the full
-  `tools/verify-native.sh` gate. Broker changes also require `node --test` in
+- During iteration, run focused tests and `tools/verify-native.sh --quick` when
+  the local environment provides its prerequisites.
+- Before a Pull Request is ready, run every relevant lane check plus the full
+  `tools/verify-native.sh` gate for native/full-lane changes and every `main`
+  push. Broker changes also require `node --test` in
   `cloudfunctions/medcue-ai-broker`.
 - Performance claims require measurements from the relevant device and build
   configuration. Simulator impressions and source review are not measurements.
@@ -180,3 +184,34 @@ unless the release scope changes.
 When communicating with the product owner, explain an unfamiliar abbreviation
 the first time it appears and translate engineering trade-offs into plain
 product consequences.
+
+## Autonomous Merge Gate
+
+After the last tracked-file change, the author must complete the cumulative
+base-to-HEAD self-review, obtain a fresh-context independent review using the
+Issue-specified model, and resolve every `Blocker` and `Required` finding. The
+current HEAD must have successful exact-head relevant CI, a clean current-main
+integration check, and all required device/account/external evidence (or a
+reasoned `N/A` where the change cannot affect that boundary). The author may
+mark the Pull Request Ready and squash merge without a second coordinator
+approval only when all of those conditions and the Issue acceptance criteria
+are satisfied. After merge, wait for and record the exact `main` CI result.
+
+Every tracked-file commit invalidates prior review, approval, and CI evidence;
+repeat the review and exact-head checks for the new SHA. Body-only Pull Request
+edits do not invalidate code CI, but all revision and evidence references must
+be rechecked.
+
+Stop and wake the coordinator or product owner instead of merging when a
+product, medical claim, privacy/consent, cost, account, credential, deployment,
+legal, or release-time decision is unresolved; a destructive or hard-to-reverse
+operation is requested; device, account, cloud, or other required external
+evidence is missing; files overlap, scope materially expands, conflicts or
+permissions block proof; a trusted CI, release-scan, packaging, permission, or
+workflow rule is changed without Issue authorization; the specified model or
+fresh-context review is unavailable; exact-head CI is not successful; or any
+`Blocker`/`Required` finding remains. High-risk medication, medical-AI,
+privacy, security, migration, authorization, and system-entry work is not
+automatically prohibited, but it needs the approved scope plus its failure,
+rollback, data-integrity, independent-review, and applicable device/account
+evidence before this gate can pass.
