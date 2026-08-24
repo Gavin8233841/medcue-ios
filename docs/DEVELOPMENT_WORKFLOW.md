@@ -295,14 +295,17 @@ context, not a substitute for a new run. Because workflow files are trusted
 evidence, any change under `.github/workflows/` remains a full-lane change and
 requires fresh-context security review before approval.
 
-This repository currently has no enforced branch-protection ruleset or
-`CODEOWNERS` policy. A `pull_request` workflow is therefore evaluated from the
-PR merge revision, so the static guard is not an independently base-trusted
-security boundary. Do not claim the workflow self-protection acceptance item is
-complete, mark this Issue ready, or merge this change until a coordinator adds
-an independently base-trusted `pull_request_target` guard or an equivalent
-enforced repository rule. Fresh-context review remains necessary but does not
-substitute for that enforcement.
+Pull Request #42 established a `.github/CODEOWNERS` trusted-ownership root:
+changes under `.github/` and `tools/` require review by a maintainer other
+than the author, and the two active maintainers provide reciprocal coverage.
+Verified against the GitHub API on 2026-08-23, the repository still has no
+enforced branch-protection ruleset on `main`. A `pull_request` workflow is
+therefore evaluated from the PR merge revision, so the static guard is not an
+independently base-trusted security boundary. Until an approved ruleset is
+confirmed on the authoritative repository, the workflow is enforced manually:
+no direct `main` push and no merge without green CI. Fresh-context review of
+workflow changes remains necessary and does not substitute for that
+enforcement.
 
 The agent performs a correctness, regression, privacy, medical-safety,
 performance, accessibility, and test-quality review. `Native Verification`
@@ -361,29 +364,41 @@ A generated graph must identify the revision and exclusions it represents. Keep
 large generated graph artifacts local and ignored; rebuild them when useful, not
 as a mandatory Pull Request gate.
 
-### Shared-file ownership recorded on 2026-08-22
+### Shared-file ownership recorded on 2026-08-23
 
-Three Draft Pull Requests based on post-migration audit baseline
-`280e5b3f8425f155d5e20a71841f4169a63bc59d` intentionally had disjoint semantic
-ownership in this file:
+The 2026-08-22 Draft Pull Request trio recorded below has merged into `main`
+(#26, #30, #31), so its per-PR section ownership is closed and retained as
+historical integration evidence only.
 
-- PR #31 replaces only two fulfilled history-normalization prerequisites in the
-  pre-existing branch and merge guidance. It does not own either new section
-  described below.
-- PR #30 adds the Active work coordination protocol and its label vocabulary;
-  it also changes `.github/pull_request_template.md`. PR #31 does not import or
-  edit that protocol.
-- PR #26 adds the Controlled Demo build workflow in this file and changes the
-  Demo app, scheme, project, tests, and preflight implementation. It therefore
-  does include `docs/DEVELOPMENT_WORKFLOW.md`; PR #31 does not import or edit
-  that section.
+The active shared-file ownership snapshot, verified against open Pull Requests
+on 2026-08-23:
 
-PR #26 and PR #30 both insert their owned section immediately before the
-baseline's Review and CI section. If any of these PRs merges first, every
-remaining PR that touches this file must rebase or reapply its owned change,
-inspect the complete cumulative file diff, and rerun exact-head CI before
-merge. A conflict-free merge alone does not prove that all owned sections were
-preserved.
+- PR #49 (Issue #47, source-package hardening, branch
+  `codex/47-source-package-hardening-main-yzy1020`) owns
+  `docs/SOURCE_PACKAGE_POLICY.md`, `docs/TEST_STRATEGY.md`,
+  `tools/build-source-package.py`, `tools/test-source-package.py`, and
+  `tools/verify-source-package.py`. Any other work needing those files
+  integrates serially after PR #49. Its predecessor PR #48 was closed
+  unmerged on 2026-08-23 and no longer holds any file ownership.
+- The Issue #45 finals-baseline documentation set is disjoint from that list:
+  `docs/FINALS_PRODUCT_PLAN.md`, `docs/PROJECT_STATUS.md`,
+  `docs/DEVELOPMENT_WORKFLOW.md`, `docs/adr/0002-xcode-27-native-mcp-toolchain.md`,
+  `docs/26-agent-chat-experience-uplift-plan-20260823.md`, and
+  `docs/27-catpaw-parallel-collaboration-prompt-20260823.md`.
+
+Historical record from 2026-08-22 (all three Pull Requests merged):
+
+- PR #31 replaced only two fulfilled history-normalization prerequisites in the
+  pre-existing branch and merge guidance.
+- PR #30 added the Active work coordination protocol and its label vocabulary;
+  it also changed `.github/pull_request_template.md`.
+- PR #26 added the Controlled Demo build workflow in this file and changed the
+  Demo app, scheme, project, tests, and preflight implementation.
+
+Whenever multiple Pull Requests touch this file, each remaining Pull Request
+must rebase or reapply its owned change, inspect the complete cumulative file
+diff, and rerun exact-head CI before merge. A conflict-free merge alone does
+not prove that all owned sections were preserved.
 
 ## Definition Of Done
 

@@ -24,6 +24,7 @@ IOS_TEST_DESTINATION="${VERIFY_NATIVE_IOS_TEST_DESTINATION:-platform=iOS Simulat
 
 CURRENT_STEP="startup"
 CHECKS_ONLY="${VERIFY_NATIVE_CHECKS_ONLY:-0}"
+TEST_SUITE="${VERIFY_NATIVE_TEST_SUITE:-all}"
 VERIFICATION_ROOT=""
 
 usage() {
@@ -39,6 +40,10 @@ Options:
 Environment:
   VERIFY_NATIVE_CHECKS_ONLY=1
              Run non-build checks only (the same behavior as --quick).
+  VERIFY_NATIVE_TEST_SUITE=<suite>
+             Run only a specific test suite. Valid values: swift-core, ios-unit,
+             ios-ui, builds, all. Default is all. This allows parallel test
+             execution in CI.
   VERIFY_NATIVE_DIFF_BASE=<full-commit-sha>
              Also check the complete committed tree difference from this exact
              40-character commit through HEAD. CI sets this to the Pull Request
@@ -515,16 +520,42 @@ main() {
 
     prepare_verification_root
 
-    run_step "Swift Core tests" run_swift_core_tests
-    run_step "iOS hosted unit tests" run_ios_unit_tests
-    run_step "iOS unit-test artifact assertions" verify_ios_unit_test_artifacts
-    run_step "iOS UI tests" run_ios_ui_tests
-    run_step "Main App unsigned Release" run_xcode_build "$MAIN_APP_TARGET" Release main-app-release
-    run_step "Main App Release artifact assertions" verify_main_app_release_artifacts
-    run_step "Watch Simulator Debug" run_xcode_build "$WATCH_APP_TARGET" Debug watch-simulator-debug "$WATCH_SIMULATOR_SDK"
-    run_step "watchOS device SDK Release" run_xcode_build "$WATCH_APP_TARGET" Release watch-device-release "$WATCH_DEVICE_SDK"
-
-    printf '\n[PASS] Route A native verification completed.\n'
+    case "$TEST_SUITE" in
+        swift-core)
+            run_step "Swift Core tests" run_swift_core_tests
+            printf '\n[PASS] Swift Core test suite completed.\n'
+            ;;
+        ios-unit)
+            run_step "iOS hosted unit tests" run_ios_unit_tests
+            run_step "iOS unit-test artifact assertions" verify_ios_unit_test_artifacts
+            printf '\n[PASS] iOS unit test suite completed.\n'
+            ;;
+        ios-ui)
+            run_step "iOS UI tests" run_ios_ui_tests
+            printf '\n[PASS] iOS UI test suite completed.\n'
+            ;;
+        builds)
+            run_step "Main App unsigned Release" run_xcode_build "$MAIN_APP_TARGET" Release main-app-release
+            run_step "Main App Release artifact assertions" verify_main_app_release_artifacts
+            run_step "Watch Simulator Debug" run_xcode_build "$WATCH_APP_TARGET" Debug watch-simulator-debug "$WATCH_SIMULATOR_SDK"
+            run_step "watchOS device SDK Release" run_xcode_build "$WATCH_APP_TARGET" Release watch-device-release "$WATCH_DEVICE_SDK"
+            printf '\n[PASS] Build suite completed.\n'
+            ;;
+        all)
+            run_step "Swift Core tests" run_swift_core_tests
+            run_step "iOS hosted unit tests" run_ios_unit_tests
+            run_step "iOS unit-test artifact assertions" verify_ios_unit_test_artifacts
+            run_step "iOS UI tests" run_ios_ui_tests
+            run_step "Main App unsigned Release" run_xcode_build "$MAIN_APP_TARGET" Release main-app-release
+            run_step "Main App Release artifact assertions" verify_main_app_release_artifacts
+            run_step "Watch Simulator Debug" run_xcode_build "$WATCH_APP_TARGET" Debug watch-simulator-debug "$WATCH_SIMULATOR_SDK"
+            run_step "watchOS device SDK Release" run_xcode_build "$WATCH_APP_TARGET" Release watch-device-release "$WATCH_DEVICE_SDK"
+            printf '\n[PASS] Route A native verification completed.\n'
+            ;;
+        *)
+            fail "Unknown test suite: $TEST_SUITE (valid: swift-core, ios-unit, ios-ui, builds, all)"
+            ;;
+    esac
 }
 
 main "$@"
