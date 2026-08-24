@@ -182,7 +182,6 @@ struct AddMedicationView: View {
                         TextField("药品名称", text: displayNameBinding)
                             .textInputAutocapitalization(.words)
                             .multilineTextAlignment(.leading)
-                            .accessibilityIdentifier(AppAccessibilityID.medicationEditDisplayName)
                         if option.id == .manual {
                             Button {
                                 startCameraFlow(.nameScan)
@@ -218,8 +217,7 @@ struct AddMedicationView: View {
                         title: "规格",
                         placeholder: "例如 200 mg 或 10 ml",
                         presets: commonStrengthPresets,
-                        text: $strength,
-                        accessibilityIdentifier: AppAccessibilityID.medicationEditStrength
+                        text: $strength
                     )
                     MedicationFormAndUnitRow(
                         title: "形态/单位",
@@ -319,7 +317,6 @@ struct AddMedicationView: View {
                         showingSaveConfirmation = true
                     }
                     .disabled(!canSave || isSaveFlowActive)
-                    .accessibilityIdentifier(AppAccessibilityID.medicationEditSave)
                 }
             }
             .onAppear {

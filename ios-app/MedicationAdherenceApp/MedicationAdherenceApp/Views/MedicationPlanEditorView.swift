@@ -305,7 +305,6 @@ struct MedicationPresetTextField: View {
     let title: String
     let placeholder: String
     let presets: [String]
-    let accessibilityIdentifier: String
     @Binding var text: String
 
     var body: some View {
@@ -319,7 +318,6 @@ struct MedicationPresetTextField: View {
                 TextField(placeholder, text: $text)
                     .textInputAutocapitalization(.never)
                     .multilineTextAlignment(.leading)
-                    .accessibilityIdentifier(accessibilityIdentifier)
 
                 Menu {
                     Button("清空") {

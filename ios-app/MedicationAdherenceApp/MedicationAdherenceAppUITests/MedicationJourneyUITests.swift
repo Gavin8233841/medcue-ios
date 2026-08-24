@@ -48,17 +48,17 @@ final class MedicationJourneyUITests: XCTestCase {
         XCTAssertTrue(manualAddButton.waitForExistence(timeout: 5))
         manualAddButton.tap()
 
-        let displayNameField = app.textFields[AccessibilityID.medicationEditDisplayName]
+        let displayNameField = app.textFields["药品名称"]
         XCTAssertTrue(displayNameField.waitForExistence(timeout: 5))
         displayNameField.tap()
         displayNameField.typeText(medicationName)
 
-        let strengthField = app.textFields[AccessibilityID.medicationEditStrength]
+        let strengthField = app.textFields["例如 200 mg 或 10 ml"]
         XCTAssertTrue(strengthField.waitForExistence(timeout: 5))
         strengthField.tap()
         strengthField.typeText("100mg")
 
-        let saveMedicationButton = app.buttons[AccessibilityID.medicationEditSave]
+        let saveMedicationButton = app.buttons["保存"]
         XCTAssertTrue(saveMedicationButton.waitForExistence(timeout: 5))
         saveMedicationButton.tap()
         let confirmMedicationButton = app.buttons["已核对，保存"]
