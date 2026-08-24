@@ -60,7 +60,7 @@ struct AIConsentRevocationCommand {
             createdAt: revocationTime,
             providerName: "",
             modelName: "",
-            requestKind: "",
+            requestKind: .chat,
             sharedScopesSummary: "已撤销"
         )
         modelContext.insert(auditMessage)
