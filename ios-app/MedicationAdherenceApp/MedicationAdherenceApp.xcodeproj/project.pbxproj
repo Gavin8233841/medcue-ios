@@ -7,8 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		30770726832E4FF9A6A7117E /* VisitSummaryPDFLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE949A0B3A2D49FD98FC7F91 /* VisitSummaryPDFLifecycle.swift */; };
+		18F1330514DB412D8163FE04 /* VisitSummaryPDFLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB25FBE59F2547A1A00BBEEB /* VisitSummaryPDFLifecycleTests.swift */; };
 		4999EF233F823324EF93114D /* VisitSummaryTextBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A516827FA75A253312E60344 /* VisitSummaryTextBuilder.swift */; };
 		0A7C94B0AB629D2DACC001B3 /* VisitSummaryPDFExportViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4135C281C31F1960CC9D7DB9 /* VisitSummaryPDFExportViews.swift */; };
+				BE949A0B3A2D49FD98FC7F91 /* VisitSummaryPDFLifecycle.swift */,
 		1BF8B51DD10B9709D2E3A96F /* RecordsDoseDetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9803CE7524B0FCD6C1E6B54 /* RecordsDoseDetailViews.swift */; };
 		A665D0E9E23EB68DCEA75136 /* RecordsDoseCalendarViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D40890D46BEC61633BC1D5B /* RecordsDoseCalendarViews.swift */; };
 		51C19DA6F9D15FF14A3D0218 /* TodayDoseRowViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7ED73A39295EB4D498D7A95 /* TodayDoseRowViews.swift */; };
@@ -221,6 +224,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		BE949A0B3A2D49FD98FC7F91 /* VisitSummaryPDFLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitSummaryPDFLifecycle.swift; sourceTree = "<group>"; };
+		FB25FBE59F2547A1A00BBEEB /* VisitSummaryPDFLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitSummaryPDFLifecycleTests.swift; sourceTree = "<group>"; };
 		081D397587D84E33974AF67A /* RiskDisplayProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiskDisplayProjection.swift; sourceTree = "<group>"; };
 		5D9D55DE5B394B95AFE4FD9C /* MedicationTrendProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationTrendProjection.swift; sourceTree = "<group>"; };
 		669FEBD05E3D4895AE4322E4 /* TodaySystemSurfaceSynchronizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodaySystemSurfaceSynchronizer.swift; sourceTree = "<group>"; };
@@ -1054,6 +1059,7 @@
 				A10000000000000000000034 /* HelpCenterView.swift in Sources */,
 				4999EF233F823324EF93114D /* VisitSummaryTextBuilder.swift in Sources */,
 				0A7C94B0AB629D2DACC001B3 /* VisitSummaryPDFExportViews.swift in Sources */,
+				30770726832E4FF9A6A7117E /* VisitSummaryPDFLifecycle.swift in Sources */,
 				1BF8B51DD10B9709D2E3A96F /* RecordsDoseDetailViews.swift in Sources */,
 				A665D0E9E23EB68DCEA75136 /* RecordsDoseCalendarViews.swift in Sources */,
 				51C19DA6F9D15FF14A3D0218 /* TodayDoseRowViews.swift in Sources */,
