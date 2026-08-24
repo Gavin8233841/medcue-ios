@@ -891,7 +891,7 @@ private enum ElderDoseActionProminence {
         case .secondary:
             return .title3.bold()
         case .tertiary:
-            return .headline.weight(.semibold)
+            return .title3.weight(.semibold)
         }
     }
 
