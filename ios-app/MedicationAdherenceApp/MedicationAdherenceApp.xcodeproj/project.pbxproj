@@ -109,6 +109,7 @@
 		A10000000000000000000080 /* PersistenceIntegrityAuditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000081 /* PersistenceIntegrityAuditor.swift */; };
 		A10000000000000000000081 /* PersistenceIntegrityStartupCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000082 /* PersistenceIntegrityStartupCheck.swift */; };
 		A10000000000000000000082 /* AIConversationPersistenceCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000083 /* AIConversationPersistenceCommand.swift */; };
+		A10000000000000000000083 /* AIConsentRevocationCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000084 /* AIConsentRevocationCommand.swift */; };
 		A89A5ADB300B7E8600BD46AA /* MedicationAdherenceModelContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A89A5ADA300B7E8500BD46AA /* MedicationAdherenceModelContainer.swift */; };
 		B10000000000000000000001 /* MedicationReminderActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* MedicationReminderActivityAttributes.swift */; };
 		B10000000000000000000002 /* MedicationReminderActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* MedicationReminderActivityAttributes.swift */; };
@@ -325,6 +326,7 @@
 		A20000000000000000000081 /* PersistenceIntegrityAuditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceIntegrityAuditor.swift; sourceTree = "<group>"; };
 		A20000000000000000000082 /* PersistenceIntegrityStartupCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceIntegrityStartupCheck.swift; sourceTree = "<group>"; };
 		A20000000000000000000083 /* AIConversationPersistenceCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIConversationPersistenceCommand.swift; sourceTree = "<group>"; };
+		A20000000000000000000084 /* AIConsentRevocationCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIConsentRevocationCommand.swift; sourceTree = "<group>"; };
 		A5B8A2CB1BE944F3B08B3BBF /* AIConversationSendPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AIConversationSendPlanner.swift; sourceTree = "<group>"; };
 		A89A5AD1300B790100BD46AA /* MedicationAdherenceAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MedicationAdherenceAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A89A5ADA300B7E8500BD46AA /* MedicationAdherenceModelContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationAdherenceModelContainer.swift; sourceTree = "<group>"; };
@@ -506,6 +508,7 @@
 				A20000000000000000000081 /* PersistenceIntegrityAuditor.swift */,
 				A20000000000000000000082 /* PersistenceIntegrityStartupCheck.swift */,
 				A20000000000000000000083 /* AIConversationPersistenceCommand.swift */,
+				A20000000000000000000084 /* AIConsentRevocationCommand.swift */,
 				713DEAB87AD143C596E17ABD /* MedicalAIContextBuilder.swift */,
 				8B61ED275CD14F2D940CD09C /* AIConversationMaintenancePolicy.swift */,
 				081D397587D84E33974AF67A /* RiskDisplayProjection.swift */,
@@ -1045,6 +1048,7 @@
 				A10000000000000000000080 /* PersistenceIntegrityAuditor.swift in Sources */,
 				A10000000000000000000081 /* PersistenceIntegrityStartupCheck.swift in Sources */,
 				A10000000000000000000082 /* AIConversationPersistenceCommand.swift in Sources */,
+				A10000000000000000000083 /* AIConsentRevocationCommand.swift in Sources */,
 				B13FC73230974F328E851EE6 /* MedicalAIContextBuilder.swift in Sources */,
 				2220917C9C064C2AA774060E /* AIConversationMaintenancePolicy.swift in Sources */,
 				37C4A5D9E2FA4E6B95EBA8ED /* RiskDisplayProjection.swift in Sources */,
