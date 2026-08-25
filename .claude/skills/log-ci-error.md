@@ -63,7 +63,7 @@ Files outside the approved source-package allowlist cause CI to fail.
 
 **Why:** The `.claude/plans/` directory is not in ALLOWED_PREFIXES in `tools/build-source-package.py`.
 
-**How to apply:** 
+**How to apply:**
 1. Only commit files in allowed paths: .github/, docs/, ios-app/, swift-core/, tools/, etc.
 2. Check ALLOWED_PREFIXES before adding new directories
 3. Use `git diff --name-only` to preview files before committing
