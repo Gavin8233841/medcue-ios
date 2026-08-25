@@ -21,6 +21,7 @@ struct MedicationsView: View {
     @State private var listSnapshot = MedicationListSnapshot.empty
     @State private var lastSnapshotRefreshToken = ""
     @State private var lastSnapshotRefreshAt = Date(timeIntervalSinceReferenceDate: 0)
+    @State private var searchText = ""
 
     init() {
         let window = MedicationTaskObservationWindow.medicationOverview()
@@ -61,6 +62,20 @@ struct MedicationsView: View {
         riskCards.filter(\.isActive)
     }
 
+    private var searchQuery: [String] {
+        SearchTextNormalizer.tokenize(searchText)
+    }
+
+    private func filteredMedications(for status: StoredMedicationLifecycleStatus) -> [StoredMedication] {
+        let visibleMedications = listSnapshot.visibleMedications(for: status)
+        guard !searchQuery.isEmpty else {
+            return visibleMedications
+        }
+        return visibleMedications.filter { medication in
+            MedicationSearchIndex(medication: medication).matches(query: searchQuery)
+        }
+    }
+
     var body: some View {
         let snapshot = listSnapshot
         let activeRiskCards = activeRiskCards
@@ -87,15 +102,19 @@ struct MedicationsView: View {
             }
 
             Section(selectedLifecycleStatus.displayName) {
-                let visibleMedications = snapshot.visibleMedications(for: selectedLifecycleStatus)
+                let visibleMedications = filteredMedications(for: selectedLifecycleStatus)
                 let firstMedication = visibleMedications.first
                 let nextTask = firstMedication.flatMap { snapshot.nextTask(for: $0) }
                 if snapshot.isPlaceholder && !medications.isEmpty {
                     Label("正在整理药品", systemImage: "hourglass")
                         .foregroundStyle(.secondary)
                 } else if visibleMedications.isEmpty {
-                    Text("还没有添加药品。")
-                        .foregroundStyle(.secondary)
+                    if !searchQuery.isEmpty {
+                        ContentUnavailableView.search(text: searchText)
+                    } else {
+                        Text("还没有添加药品。")
+                            .foregroundStyle(.secondary)
+                    }
                 } else {
                     Button {
                         withAnimation(.snappy(duration: 0.24, extraBounce: 0.01)) {
@@ -150,6 +169,7 @@ struct MedicationsView: View {
             Color.clear.frame(height: 96)
         }
         .navigationTitle("药品")
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索药品")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
