@@ -11,6 +11,7 @@ struct RisksView: View {
     @State private var riskSnapshot = RiskDisplaySnapshot.empty
     @State private var lastSnapshotRefreshToken = ""
     @State private var lastSnapshotRefreshAt = Date(timeIntervalSinceReferenceDate: 0)
+    @State private var searchText = ""
 
     private var isActiveTab: Bool {
         activeAppTab == nil || activeAppTab == .medications
@@ -28,14 +29,45 @@ struct RisksView: View {
         isActiveTab || riskSnapshot.isPlaceholder
     }
 
+    private var searchQuery: [String] {
+        SearchTextNormalizer.tokenize(searchText)
+    }
+
+    private func filteredSections(_ sections: [MedicationRiskSection]) -> [MedicationRiskSection] {
+        guard !searchQuery.isEmpty else {
+            return sections
+        }
+        return sections.compactMap { section in
+            let filteredCards = section.cards.filter { card in
+                let medicationName = riskSnapshot.medicationName(for: card.medicationID) ?? ""
+                return RiskSearchIndex(card: card, medicationName: medicationName).matches(query: searchQuery)
+            }
+            guard !filteredCards.isEmpty else {
+                return nil
+            }
+            return MedicationRiskSection(
+                medicationID: section.medicationID,
+                medicationName: section.medicationName,
+                cards: filteredCards
+            )
+        }
+    }
+
     var body: some View {
         let snapshot = riskSnapshot
         List {
             Section("按药品查看") {
+                let filteredActive = filteredSections(snapshot.medicationRiskSections)
                 if snapshot.medicationRiskSections.isEmpty {
                     RiskEmptyStateView(hasMedications: !medications.isEmpty)
+                } else if filteredActive.isEmpty {
+                    if !searchQuery.isEmpty {
+                        ContentUnavailableView.search(text: searchText)
+                    } else {
+                        RiskEmptyStateView(hasMedications: !medications.isEmpty)
+                    }
                 } else {
-                    ForEach(snapshot.medicationRiskSections) { section in
+                    ForEach(filteredActive) { section in
                         MedicationRiskDisclosureRow(section: section)
                     }
                 }
@@ -60,9 +92,10 @@ struct RisksView: View {
                 }
             }
 
-            if !snapshot.archivedMedicationRiskSections.isEmpty {
+            let filteredArchived = filteredSections(snapshot.archivedMedicationRiskSections)
+            if !filteredArchived.isEmpty {
                 Section("已复核归档") {
-                    ForEach(snapshot.archivedMedicationRiskSections) { section in
+                    ForEach(filteredArchived) { section in
                         MedicationRiskDisclosureRow(section: section)
                     }
                 }
@@ -74,6 +107,7 @@ struct RisksView: View {
             }
         }
         .navigationTitle("风险复核")
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索风险")
         .toolbar(.hidden, for: .tabBar)
         .onAppear {
             restoreRiskSnapshotFromCacheIfAvailable()
