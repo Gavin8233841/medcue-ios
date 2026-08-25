@@ -20,10 +20,10 @@
 struct SearchTextNormalizer {
     // 规范化单个字符串：去除前后空白、统一大小写、全角转半角
     static func normalize(_ text: String) -> String
-    
+
     // 分词：将查询字符串按空格分割为非空词
     static func tokenize(_ query: String) -> [String]
-    
+
     // 匹配判断：检查所有查询词是否都命中目标文本
     static func matches(query: [String], in text: String) -> Bool
 }
@@ -44,7 +44,7 @@ struct SearchTextNormalizer {
 struct MedicationSearchIndex {
     let medication: StoredMedication
     let searchableText: String  // 预先规范化的可搜索文本
-    
+
     init(medication: StoredMedication) {
         // 拼接：显示名称、通用名、规格、剂型、药品类别、备注
         let fields = [
@@ -60,7 +60,7 @@ struct MedicationSearchIndex {
             fields.joined(separator: " ")
         )
     }
-    
+
     func matches(query: [String]) -> Bool {
         SearchTextNormalizer.matches(query: query, in: searchableText)
     }
@@ -75,7 +75,7 @@ struct MedicationSearchIndex {
 struct RiskSearchIndex {
     let card: StoredRiskCard
     let searchableText: String  // 预先规范化的可搜索文本
-    
+
     init(card: StoredRiskCard, medicationName: String) {
         // 拼接：药品名、警示标题、警示正文、风险分类、严重程度、来源标题、来源片段
         let fields = [
@@ -92,7 +92,7 @@ struct RiskSearchIndex {
             fields.joined(separator: " ")
         )
     }
-    
+
     func matches(query: [String]) -> Bool {
         SearchTextNormalizer.matches(query: query, in: searchableText)
     }
@@ -147,7 +147,7 @@ private var filteredSnapshot: RiskDisplaySnapshot {
     guard !tokens.isEmpty else {
         return riskSnapshot
     }
-    
+
     // 构建索引并过滤
     let activeIndexes = riskSnapshot.medicationRiskSections.flatMap { section in
         section.cards.map { card in
@@ -165,10 +165,10 @@ private var filteredSnapshot: RiskDisplaySnapshot {
             )
         }
     }
-    
+
     let filteredActiveCards = activeIndexes.filter { $0.matches(query: tokens) }.map(\.card)
     let filteredArchivedCards = archivedIndexes.filter { $0.matches(query: tokens) }.map(\.card)
-    
+
     // 重建 snapshot（保持分组结构）
     return RiskDisplaySnapshot(
         filteredActiveCards: filteredActiveCards,
