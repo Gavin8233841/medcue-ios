@@ -921,12 +921,7 @@ struct AIAssistantView: View {
     }
 
     private func revokeConsent() {
-        guard let consent = storedConsent else {
-            return
-        }
-        _ = AIConversationPersistenceCommand(modelContext: modelContext).revokeConsent(
-            consent,
-            revokedAt: Date()
-        )
+        let command = AIConsentRevocationCommand(modelContext: modelContext)
+        _ = command.execute()
     }
 }

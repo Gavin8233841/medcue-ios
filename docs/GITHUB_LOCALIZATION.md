@@ -57,10 +57,11 @@
 1. 在仓库分支中更新 README、中文文档入口、Issue Form、Pull Request 模板和本约定。
 2. 通过 Pull Request 评审模板字段、标签目标名和医疗/隐私术语。
 3. 本轮已合并后逐个更新标签名称和描述，并在每一步读回；标签颜色与 Issue/PR 关联保持不变。
-4. 仅翻译无指派且不含敏感内容的开放 Issue #18、#19；协作者负责的 #5、#35、#20–#23 不改标题、正文、指派人或状态，含敏感部署凭据记录的 #16 不改正文。
-5. 只为需要协作的关闭 Issue 增加中文摘要，不覆盖英文历史正文。
-6. 仓库简介已更新并回读；Topics 因未确认可接受的精确词条，保持不变。
-7. 运行旧标签搜索、模板标签存在性、Issue 数量、标签分布、链接和敏感信息检查。
+4. 开放 Issue 翻译已于 2026-08-23 完成：#18、#19 先行翻译；经 2026-08-23 只读核验和独立评审后，其余未指派开放 Issue #2、#4、#6–#15、#17、#28 也已逐项改为中文优先并完整保留英文原文，每项写入后立即读回比对一致。协作者负责的 #5、#35、#20–#23、#45–#47 不改标题、正文、指派人或状态，含敏感部署凭据记录的 #16 不改正文。
+5. 只为需要协作的关闭 Issue 增加中文摘要，不覆盖英文历史正文；关闭 Issue 的英文历史正文经核验均未被覆盖。
+6. 仓库简介已更新并回读；Topics 因未确认可接受的精确词条，保持为空，待持有者明确词条后再更新。
+7. `docs/PROJECT_STATUS.md` 当前状态叙述中的旧标签名引用已按迁移表更新为中文目标名；本文件迁移表保留旧标签名属有意的映射记录。
+8. 运行旧标签搜索、模板标签存在性、Issue 数量、标签分布、链接和敏感信息检查。
 
 任何远端写入出现超时或返回不确定时，先只读查询目标对象；没有确认前不得重试或执行反向操作。
 
@@ -68,4 +69,4 @@
 
 This document defines a Chinese-first, English-preserved GitHub collaboration surface. Human-facing labels may be renamed to Chinese, while workflow-stable values such as `P0`, `P1`, `P2`, `state:in-progress`, and `execution:windows-capable` remain unchanged. Code identifiers, paths, URLs, protocol values, persisted fields, cross-process identifiers, and user/source content remain byte-for-byte or semantically stable.
 
-The remote human-facing label migration is complete: labels were renamed one by one, colors and associations were read back, and stable workflow values remain English. Issue translation remains selective: #18 and #19 were translated while collaborator-owned and sensitive Issues were preserved. This does not claim complete bilingual support for the app or its companion bundles.
+The remote human-facing label migration is complete: labels were renamed one by one, colors and associations were read back, and stable workflow values remain English. Open-Issue translation is now complete for every unassigned, non-sensitive Issue: each was rewritten Chinese-first with the full English original preserved and read back after every write. Collaborator-owned Issues (#5, #35, #20–#23, #45–#47) and the credential-containing #16 remain untouched, and closed Issues keep their historical English text. Repository Topics stay empty until the owner approves an exact term list. This does not claim complete bilingual support for the app or its companion bundles.
