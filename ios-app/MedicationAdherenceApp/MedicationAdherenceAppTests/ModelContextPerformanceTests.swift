@@ -1,5 +1,8 @@
-import Testing
+import CoreFoundation
+import Foundation
+import MedicationAdherenceCore
 import SwiftData
+import Testing
 @testable import MedicationAdherenceApp
 
 @MainActor
@@ -7,62 +10,65 @@ struct ModelContextPerformanceTests {
     private let modelContainer: ModelContainer
 
     init() throws {
-        let schema = Schema([
-            StoredMedication.self,
-            StoredMedicationPlan.self,
-            StoredDoseTask.self,
-            StoredDoseActionLog.self,
-            StoredMedicationDoseChange.self,
-            StoredMedicationInventoryRecord.self,
-            StoredMedicationRiskDetection.self,
-            StoredDrugLabelSection.self
-        ])
-        let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        modelContainer = try ModelContainer(for: schema, configurations: config)
+        modelContainer = try MedicationAdherenceModelContainer.make(isStoredInMemoryOnly: true)
+    }
+
+    private func makeMedication(index: Int = 0) -> StoredMedication {
+        StoredMedication(
+            displayName: "Test medication \(index)",
+            genericName: "Generic medication \(index)",
+            kind: .overTheCounter,
+            form: "tablet",
+            strength: "500 mg",
+            inputSource: .manual
+        )
+    }
+
+    private func makePlan(for medication: StoredMedication) -> StoredMedicationPlan {
+        StoredMedicationPlan(
+            medicationID: medication.id,
+            doseValue: 1,
+            doseUnit: "tablet",
+            timingSummary: "Daily 08:00",
+            timeZonePolicy: .localClock,
+            sourceNote: "Performance test",
+            courseStartAt: Date(),
+            reminderTimesRaw: "08:00"
+        )
     }
 
     @Test("Fetch single medication should complete within performance threshold")
     func fetchSingleMedication() throws {
         let context = modelContainer.mainContext
-        let medication = StoredMedication(
-            brandName: "测试药品",
-            genericName: nil,
-            formulation: "片剂"
-        )
+        let medication = makeMedication()
         context.insert(medication)
         try context.save()
 
         let startTime = CFAbsoluteTimeGetCurrent()
         let result = try ModelContextPerformanceMetrics.measureFetch(operation: "fetch-single-medication") {
+            let medicationID = medication.id
             let descriptor = FetchDescriptor<StoredMedication>(
-                predicate: #Predicate { $0.id == medication.id }
+                predicate: #Predicate { $0.id == medicationID }
             )
             return try context.fetch(descriptor).first
         }
         let duration = CFAbsoluteTimeGetCurrent() - startTime
 
-        #expect(result != nil)
+        #expect(result?.id == medication.id)
         #expect(duration < 0.100, "Fetch single medication should complete within 100ms")
     }
 
     @Test("Fetch multiple medications should complete within performance threshold")
     func fetchMultipleMedications() throws {
         let context = modelContainer.mainContext
-
-        for i in 0..<20 {
-            let medication = StoredMedication(
-                brandName: "测试药品\(i)",
-                genericName: nil,
-                formulation: "片剂"
-            )
-            context.insert(medication)
+        for index in 0..<20 {
+            context.insert(makeMedication(index: index))
         }
         try context.save()
 
         let startTime = CFAbsoluteTimeGetCurrent()
         let results = try ModelContextPerformanceMetrics.measureFetch(operation: "fetch-all-medications") {
-            let descriptor = FetchDescriptor<StoredMedication>()
-            return try context.fetch(descriptor)
+            try context.fetch(FetchDescriptor<StoredMedication>())
         }
         let duration = CFAbsoluteTimeGetCurrent() - startTime
 
@@ -73,12 +79,7 @@ struct ModelContextPerformanceTests {
     @Test("Save single medication should complete within performance threshold")
     func saveSingleMedication() throws {
         let context = modelContainer.mainContext
-        let medication = StoredMedication(
-            brandName: "测试药品",
-            genericName: nil,
-            formulation: "片剂"
-        )
-        context.insert(medication)
+        context.insert(makeMedication())
 
         let startTime = CFAbsoluteTimeGetCurrent()
         try ModelContextPerformanceMetrics.measureSave(operation: "save-single-medication") {
@@ -92,28 +93,9 @@ struct ModelContextPerformanceTests {
     @Test("Save medication with plan should complete within performance threshold")
     func saveMedicationWithPlan() throws {
         let context = modelContainer.mainContext
-        let medication = StoredMedication(
-            brandName: "测试药品",
-            genericName: nil,
-            formulation: "片剂"
-        )
+        let medication = makeMedication()
         context.insert(medication)
-
-        let plan = StoredMedicationPlan(
-            medicationID: medication.id,
-            doseValue: 1.0,
-            doseUnit: "片",
-            timingSummary: "每日 08:00",
-            timeZonePolicy: .localClock,
-            sourceNote: "测试计划",
-            requiresUserConfirmation: true,
-            courseStartAt: Date(),
-            courseEndAt: nil,
-            reminderTimesRaw: "08:00",
-            reminderDelivery: .notification,
-            escalatesToAlarmWhenUnhandled: false
-        )
-        context.insert(plan)
+        context.insert(makePlan(for: medication))
 
         let startTime = CFAbsoluteTimeGetCurrent()
         try ModelContextPerformanceMetrics.measureSave(operation: "save-medication-with-plan") {
@@ -127,39 +109,18 @@ struct ModelContextPerformanceTests {
     @Test("Fetch tasks by plan ID should complete within performance threshold")
     func fetchTasksByPlanID() throws {
         let context = modelContainer.mainContext
-        let medication = StoredMedication(
-            brandName: "测试药品",
-            genericName: nil,
-            formulation: "片剂"
-        )
+        let medication = makeMedication()
+        let plan = makePlan(for: medication)
         context.insert(medication)
-
-        let plan = StoredMedicationPlan(
-            medicationID: medication.id,
-            doseValue: 1.0,
-            doseUnit: "片",
-            timingSummary: "每日 08:00",
-            timeZonePolicy: .localClock,
-            sourceNote: "测试计划",
-            requiresUserConfirmation: true,
-            courseStartAt: Date(),
-            courseEndAt: nil,
-            reminderTimesRaw: "08:00",
-            reminderDelivery: .notification,
-            escalatesToAlarmWhenUnhandled: false
-        )
         context.insert(plan)
-
-        for i in 0..<10 {
-            let task = StoredDoseTask(
+        for index in 0..<10 {
+            context.insert(StoredDoseTask(
                 medicationID: medication.id,
                 planID: plan.id,
-                dueAt: Date().addingTimeInterval(Double(i) * 3600),
-                doseValue: 1.0,
-                doseUnit: "片",
-                status: .pending
-            )
-            context.insert(task)
+                dueAt: Date().addingTimeInterval(Double(index) * 3600),
+                doseValue: 1,
+                doseUnit: "tablet"
+            ))
         }
         try context.save()
 
@@ -177,65 +138,44 @@ struct ModelContextPerformanceTests {
         #expect(duration < 0.100, "Fetch 10 tasks by plan ID should complete within 100ms")
     }
 
-    @Test("Delete medication cascade should complete within performance threshold")
-    func deleteMedicationCascade() throws {
+    @Test("Delete medication should complete within performance threshold")
+    func deleteMedication() throws {
         let context = modelContainer.mainContext
-        let medication = StoredMedication(
-            brandName: "测试药品",
-            genericName: nil,
-            formulation: "片剂"
-        )
+        let medication = makeMedication()
         context.insert(medication)
-
-        let plan = StoredMedicationPlan(
-            medicationID: medication.id,
-            doseValue: 1.0,
-            doseUnit: "片",
-            timingSummary: "每日 08:00",
-            timeZonePolicy: .localClock,
-            sourceNote: "测试计划",
-            requiresUserConfirmation: true,
-            courseStartAt: Date(),
-            courseEndAt: nil,
-            reminderTimesRaw: "08:00",
-            reminderDelivery: .notification,
-            escalatesToAlarmWhenUnhandled: false
-        )
-        context.insert(plan)
         try context.save()
 
         let startTime = CFAbsoluteTimeGetCurrent()
-        try ModelContextPerformanceMetrics.measureDelete(operation: "delete-medication-cascade") {
+        try ModelContextPerformanceMetrics.measureDelete(operation: "delete-medication") {
             context.delete(medication)
             try context.save()
         }
         let duration = CFAbsoluteTimeGetCurrent() - startTime
 
-        #expect(duration < 0.150, "Delete medication with cascade should complete within 150ms")
+        #expect(try context.fetch(FetchDescriptor<StoredMedication>()).isEmpty)
+        #expect(duration < 0.150, "Delete medication should complete within 150ms")
     }
 
     @Test("Complex query with predicates should complete within performance threshold")
     func complexQueryWithPredicates() throws {
         let context = modelContainer.mainContext
-
-        for i in 0..<30 {
-            let medication = StoredMedication(
-                brandName: "测试药品\(i)",
-                genericName: i % 2 == 0 ? "通用名\(i)" : nil,
-                formulation: i % 3 == 0 ? "片剂" : "胶囊"
-            )
-            if i % 5 == 0 {
-                medication.lifecycleStatusRaw = "archived"
+        for index in 0..<30 {
+            let medication = makeMedication(index: index)
+            medication.form = index.isMultiple(of: 3) ? "tablet" : "capsule"
+            if index.isMultiple(of: 5) {
+                medication.lifecycleStatusRaw = StoredMedicationLifecycleStatus.archived.rawValue
             }
             context.insert(medication)
         }
         try context.save()
 
+        let archivedStatus = StoredMedicationLifecycleStatus.archived.rawValue
         let startTime = CFAbsoluteTimeGetCurrent()
         let results = try ModelContextPerformanceMetrics.measureFetch(operation: "complex-query-with-predicates") {
             let descriptor = FetchDescriptor<StoredMedication>(
-                predicate: #Predicate { medication in
-                    medication.lifecycleStatusRaw != "archived" && medication.formulation == "片剂"
+                predicate: #Predicate {
+                    $0.lifecycleStatusRaw != archivedStatus &&
+                    $0.form == "tablet"
                 }
             )
             return try context.fetch(descriptor)
@@ -249,24 +189,19 @@ struct ModelContextPerformanceTests {
     @Test("Batch insert should complete within performance threshold")
     func batchInsert() throws {
         let context = modelContainer.mainContext
-
         let startTime = CFAbsoluteTimeGetCurrent()
         try ModelContextPerformanceMetrics.measureOperation(
             name: "modelcontext.batch-insert",
             operation: "insert-50-medications"
         ) {
-            for i in 0..<50 {
-                let medication = StoredMedication(
-                    brandName: "测试药品\(i)",
-                    genericName: nil,
-                    formulation: "片剂"
-                )
-                context.insert(medication)
+            for index in 0..<50 {
+                context.insert(makeMedication(index: index))
             }
             try context.save()
         }
         let duration = CFAbsoluteTimeGetCurrent() - startTime
 
+        #expect(try context.fetch(FetchDescriptor<StoredMedication>()).count == 50)
         #expect(duration < 0.200, "Batch insert 50 medications should complete within 200ms")
     }
 }

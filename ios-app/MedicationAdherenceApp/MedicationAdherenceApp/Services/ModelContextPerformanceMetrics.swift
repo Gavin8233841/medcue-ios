@@ -84,13 +84,13 @@ struct ModelContextPerformanceMetrics {
         operation: String,
         execute: () throws -> T
     ) rethrows -> T {
-        let interval = signposter.beginInterval(name, id: signposter.makeSignpostID())
-        signposter.emitEvent("\(name).start", "operation=\(operation)")
+        let interval = signposter.beginInterval("modelcontext.operation", id: signposter.makeSignpostID())
+        signposter.emitEvent("operation.start", "name=\(name) operation=\(operation)")
         let startTime = CFAbsoluteTimeGetCurrent()
 
         defer {
             let duration = CFAbsoluteTimeGetCurrent() - startTime
-            signposter.endInterval(name, interval, "operation=\(operation) duration=\(String(format: "%.3f", duration * 1000))ms")
+            signposter.endInterval("modelcontext.operation", interval, "name=\(name) operation=\(operation) duration=\(String(format: "%.3f", duration * 1000))ms")
 
             if duration > 0.100 {
                 logger.warning("ModelContext operation exceeded 100ms: name=\(name, privacy: .public) operation=\(operation, privacy: .public) duration=\(String(format: "%.3f", duration * 1000), privacy: .public)ms")
