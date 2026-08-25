@@ -76,7 +76,9 @@ struct MedicationProfileCommand {
         medication.notes = update.notes
 
         do {
-            try saveOperation(modelContext)
+            try ModelContextPerformanceMetrics.measureSave(operation: "profile-update-medication") {
+                try saveOperation(modelContext)
+            }
             return .committed(medicationID: medication.id)
         } catch {
             snapshot.restore()
@@ -100,7 +102,9 @@ struct MedicationProfileCommand {
         let previousPhotoData = medication.photoData
         medication.photoData = update.photoData
         do {
-            try saveOperation(modelContext)
+            try ModelContextPerformanceMetrics.measureSave(operation: "profile-update-photo") {
+                try saveOperation(modelContext)
+            }
             return .committed(medicationID: medication.id)
         } catch {
             medication.photoData = previousPhotoData
@@ -111,13 +115,15 @@ struct MedicationProfileCommand {
     }
 
     private func fetchMedication(id: UUID) throws -> StoredMedication? {
-        var descriptor = FetchDescriptor<StoredMedication>(
-            predicate: #Predicate<StoredMedication> { medication in
-                medication.id == id
-            }
-        )
-        descriptor.fetchLimit = 1
-        return try modelContext.fetch(descriptor).first
+        try ModelContextPerformanceMetrics.measureFetch(operation: "profile-fetch-medication-by-id") {
+            var descriptor = FetchDescriptor<StoredMedication>(
+                predicate: #Predicate<StoredMedication> { medication in
+                    medication.id == id
+                }
+            )
+            descriptor.fetchLimit = 1
+            return try modelContext.fetch(descriptor).first
+        }
     }
 }
 

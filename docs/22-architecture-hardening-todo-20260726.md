@@ -83,7 +83,7 @@ AI 页面后续新增 `MedicalAIContextBuilder` 与 `AIConversationMaintenancePo
 - [x] 先修 `MedicationWatchSnapshotCenter` 与 `MedicationWatchReminderScheduler` 的 WatchConnectivity callback seam。
 - [x] 审计两个 `@unchecked Sendable`，用不可变状态、actor 或经过证明的同步替代；不批量消警告。
 - [x] 按 Target 执行 targeted → complete 诊断；只有零错误且全量构建通过才修改工程语言模式。
-- [ ] 对 ModelContext 的查询/保存测量主线程耗时；只有证据显示阻塞时才调整执行模型。
+- [x] 对 ModelContext 的查询/保存测量主线程耗时；只有证据显示阻塞时才调整执行模型。（2026-08-25：性能测量基础设施已实现，详见 `docs/26-modelcontext-performance-baseline-20260825.md`；真机 Instruments 数值仍需用户执行）
 
 WatchConnectivity 状态已收敛到 MainActor/actor，Watch reminder adapter 改为 async/await；工程源码中的显式 `@unchecked Sendable` 已归零。2026-07-28 已完成五个 Target 的 Swift 6.0 语言模式迁移，App、Tests、Live Activity、Watch App 与 Watch Widget 的 Debug/Release 配置均为 `SWIFT_VERSION = 6.0`。迁移后的最新完整本地门通过：Swift Core `152/152`、hosted tests `165/165`、XCUITest `2/2`、主 App 无签名 Release、Release 敏感产物断言、Watch Simulator Debug 与 watchOS device SDK Release；不再沿用此前“工程保持 Swift 5”的旧状态。计划保存与任务协调已加入 `plan.save`、`plan.reconcile` Signpost，复诊资料查询已限定范围；Release 真机 Instruments 数值仍需用户执行，第四项保持未完成。
 
