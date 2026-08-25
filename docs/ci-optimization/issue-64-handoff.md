@@ -12,7 +12,7 @@
 
 ### 仓库信息
 - **GitHub 仓库**: https://github.com/Gavin8233841/medcue-ios
-- **本地路径**: `D:\桌面\medcue\medcue-ios`
+- **本地路径**: `<PROJECT_ROOT>`
 - **项目类型**: iOS 应用（Swift + Xcode）
 - **项目规模**:
   - 214 个 Swift 文件（163 iOS app + 51 Swift Core）
