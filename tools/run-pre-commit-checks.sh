@@ -55,6 +55,7 @@ patterns_file=''
 diff_file=''
 added_file=''
 files_file=''
+unmerged_file=''
 cleanup() {
     [[ -z "$policy_file" ]] || rm -f "$policy_file"
     [[ -z "$source_policy_file" ]] || rm -f "$source_policy_file"
@@ -63,6 +64,7 @@ cleanup() {
     [[ -z "$diff_file" ]] || rm -f "$diff_file"
     [[ -z "$added_file" ]] || rm -f "$added_file"
     [[ -z "$files_file" ]] || rm -f "$files_file"
+    [[ -z "$unmerged_file" ]] || rm -f "$unmerged_file"
 }
 trap cleanup EXIT
 
@@ -73,6 +75,14 @@ patterns_file="$(mktemp -t medcue-precommit-patterns.XXXXXX)"
 diff_file="$(mktemp -t medcue-precommit-diff.XXXXXX)"
 added_file="$(mktemp -t medcue-precommit-added.XXXXXX)"
 files_file="$(mktemp -t medcue-precommit-files.XXXXXX)"
+unmerged_file="$(mktemp -t medcue-precommit-unmerged.XXXXXX)"
+
+if ! git ls-files --unmerged -z -- >"$unmerged_file"; then
+    fail "cannot inspect the staged index for unmerged entries"
+fi
+if [[ -s "$unmerged_file" ]]; then
+    fail "staged index contains unmerged entries; resolve conflicts before running staged checks"
+fi
 
 git show ":$CONFIG_RELATIVE" >"$policy_file" ||
     fail "staged configuration is missing: $CONFIG_RELATIVE"

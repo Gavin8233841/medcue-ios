@@ -48,7 +48,7 @@ run_fixture_boundary_tests() {
     local temp_root fixture fixture_physical fixture_index output hook_path backup_count
     local absolute_hooks absolute_hook_path linked_fixture shared_custom_hooks textconv_script textconv_marker fake_local_path
     local symlink_hooks symlink_target absolute_symlink_hooks absolute_symlink_target fake_bin
-    local external_hooks_parent external_hooks_link
+    local external_hooks_parent external_hooks_link conflict_sha
     temp_root="${TMPDIR:-/tmp}"
     fixture="$(mktemp -d "$temp_root/medcue-precommit-fixture.XXXXXX")"
     fixture_physical="$(cd "$fixture" && pwd -P)"
@@ -227,6 +227,13 @@ PY
         fi
         printf '[PASS] fixture acceptance: %s\n' "$label"
     }
+
+    fixture_reset_index
+    conflict_sha="$(git -C "$fixture" rev-parse HEAD:tools/fixture-textconv.txt)"
+    printf '100644 %s 1\ttools/fixture-textconv.txt\n100644 %s 2\ttools/fixture-textconv.txt\n' \
+        "$conflict_sha" "$conflict_sha" |
+        GIT_INDEX_FILE="$fixture_index" git -C "$fixture" update-index --index-info
+    fixture_expect_failure 'unmerged index entries fail closed' 'contains unmerged entries'
 
     fake_local_path="$(printf '/%s/fake-local-path' Users)"
     fixture_reset_index
