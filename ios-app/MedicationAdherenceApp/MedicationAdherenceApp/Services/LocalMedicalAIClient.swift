@@ -60,13 +60,16 @@ struct LocalMedicalAIClient: MedicalAIClient {
                     try Task.checkCancellation()
                     try await emit(.generationStarted)
                     try await emit(.modelLoading)
-                    let stream = await runtime.generateResponseStream(
+                    let generation = await runtime.generateResponseStream(
                         prompt: prompt,
                         modelURL: modelURL,
                         maxTokens: MedicalAIExecutionPolicy.default.streamingResponseTokenLimit
                     )
+                    defer {
+                        generation.cancel()
+                    }
                     try await emit(.prefillStarted)
-                    for try await delta in stream {
+                    for try await delta in generation.stream {
                         try Task.checkCancellation()
                         for event in parser.consume(delta) {
                             try await emit(event)
