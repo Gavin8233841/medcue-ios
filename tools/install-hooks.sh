@@ -49,6 +49,11 @@ case "$HOOKS_PATH" in
     *) HOOK_DIR="$ROOT_DIR/$HOOKS_PATH" ;;
 esac
 HOOK_PATH="$HOOK_DIR/pre-commit"
+temporary_hook=''
+cleanup_temporary_hook() {
+    [[ -z "$temporary_hook" ]] || rm -f "$temporary_hook"
+}
+trap cleanup_temporary_hook EXIT
 
 reject_symlink_components() {
     local path="$1"
@@ -161,7 +166,6 @@ if [[ -e "$HOOK_PATH" && ! -f "$HOOK_PATH" ]]; then
 fi
 
 if managed_hook_matches; then
-    chmod +x "$HOOK_PATH"
     printf 'pre-commit hook already installed: %s\n' "$HOOK_PATH"
     exit 0
 fi
@@ -178,8 +182,19 @@ if [[ -e "$HOOK_PATH" ]]; then
     printf 'backed up existing hook: %s\n' "$backup_path"
 fi
 
-render_managed_hook >"$HOOK_PATH"
-chmod +x "$HOOK_PATH"
+if ! temporary_hook="$(mktemp "$HOOK_DIR/.pre-commit.XXXXXX")"; then
+    fail "cannot create a temporary managed hook in: $HOOK_DIR"
+fi
+if ! render_managed_hook >"$temporary_hook"; then
+    fail "cannot render the managed hook"
+fi
+if ! chmod +x "$temporary_hook"; then
+    fail "cannot mark the managed hook executable"
+fi
+if ! mv -f "$temporary_hook" "$HOOK_PATH"; then
+    fail "cannot atomically install the managed hook: $HOOK_PATH"
+fi
+temporary_hook=''
 
 (cd "$ROOT_DIR" && "$HOOK_PATH")
 printf 'pre-commit hook installed: %s\n' "$HOOK_PATH"

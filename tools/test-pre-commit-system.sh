@@ -48,7 +48,7 @@ run_fixture_boundary_tests() {
     local temp_root fixture fixture_physical fixture_index output hook_path backup_count
     local absolute_hooks absolute_hook_path linked_fixture shared_custom_hooks textconv_script textconv_marker fake_local_path
     local symlink_hooks symlink_target absolute_symlink_hooks absolute_symlink_target fake_bin
-    local external_hooks_parent external_hooks_link conflict_sha
+    local external_hooks_parent external_hooks_link conflict_sha hardlink_hooks hardlink_target
     temp_root="${TMPDIR:-/tmp}"
     fixture="$(mktemp -d "$temp_root/medcue-precommit-fixture.XXXXXX")"
     fixture_physical="$(cd "$fixture" && pwd -P)"
@@ -476,6 +476,23 @@ PY
         fail 'exact managed fixture hook did not pass --check'
     fi
     printf '[PASS] installer resolves and verifies a relative hooks path outside the repository\n'
+
+    hardlink_hooks="$fixture/.hardlink-hooks"
+    hardlink_target="$fixture/hardlink-target.txt"
+    mkdir -p "$hardlink_hooks"
+    printf '%s\n' 'DO NOT OVERWRITE' >"$hardlink_target"
+    ln "$hardlink_target" "$hardlink_hooks/pre-commit"
+    git -C "$fixture" config core.hooksPath .hardlink-hooks
+    if ! output="$(cd /tmp && "$fixture/tools/install-hooks.sh" 2>&1)"; then
+        printf '%s\n' "$output" >&2
+        fail 'installer failed while replacing a hard-linked hook'
+    fi
+    [[ "$(<"$hardlink_target")" == 'DO NOT OVERWRITE' ]] ||
+        fail 'atomic hook installation modified a hard-linked target'
+    [[ -f "$hardlink_hooks/pre-commit" && -x "$hardlink_hooks/pre-commit" ]] ||
+        fail 'atomic hook installation did not create an executable managed hook'
+    printf '[PASS] installer preserves hard-linked hook targets\n'
+    git -C "$fixture" config core.hooksPath .fixture-hooks
 
     fixture_reset_index
     printf '%s\n' 'unsafe staged path' >"$fixture/unsafe.txt"

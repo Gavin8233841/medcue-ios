@@ -18,7 +18,9 @@ After installation, a normal `git commit` runs
 The installer honors Git's configured relative or absolute `core.hooksPath`.
 An empty path or a path that resolves to the repository root is rejected so a
 disabled configuration cannot cause a root-level `pre-commit` file to be
-created. `tools/install-hooks.sh --check` is read-only and can be run from any
+created. Existing hooks are backed up and replaced through a same-directory
+temporary file and atomic rename, so a hard-linked target is not truncated.
+`tools/install-hooks.sh --check` is read-only and can be run from any
 current working directory. A linked worktree using any path inside the common
 `.git` directory is also rejected; configure a worktree-specific
 `core.hooksPath` outside that directory to avoid changing hooks for sibling
