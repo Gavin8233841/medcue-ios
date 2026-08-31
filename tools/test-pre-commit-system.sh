@@ -277,6 +277,11 @@ PY
     fixture_expect_failure 'binary attribute bypasses path scan' 'absolute local path in added staged content'
 
     fixture_reset_index
+    printf 'prefix\0%s\n' "$fake_local_path" >"$fixture/tools/fixture-binary.txt"
+    fixture_stage tools/fixture-binary.txt
+    fixture_expect_failure 'NUL binary content does not hide an absolute path' 'absolute local path in added staged content'
+
+    fixture_reset_index
     printf '%s\n' '{' >"$fixture/tools/fixture-invalid.json"
     fixture_stage tools/fixture-invalid.json
     fixture_expect_failure 'default JSON syntax policy' 'JSON syntax: tools/fixture-invalid.json'

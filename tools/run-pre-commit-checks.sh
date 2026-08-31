@@ -287,12 +287,36 @@ else
     failures=$((failures + 1))
 fi
 
-git diff --cached --unified=0 --no-color --text --no-ext-diff --no-textconv -- >"$diff_file"
-awk '
-    /^diff --git / { in_hunk = 0; next }
-    /^@@ / { in_hunk = 1; next }
-    in_hunk && /^\+/ { print substr($0, 2) }
-' "$diff_file" >"$added_file"
+if ! git diff --cached --unified=0 --no-color --text --no-ext-diff --no-textconv -- >"$diff_file"; then
+    fail "staged diff scan failed"
+fi
+if ! "$PYTHON_BIN" - "$diff_file" "$added_file" <<'PY'
+import sys
+
+diff_path, added_path = sys.argv[1:3]
+try:
+    saw_diff = False
+    in_hunk = False
+    with open(diff_path, "rb") as source, open(added_path, "wb") as added:
+        for line in source:
+            if line.startswith(b"diff --git "):
+                saw_diff = True
+                in_hunk = False
+                continue
+            if line.startswith(b"@@ "):
+                if not saw_diff:
+                    raise ValueError("hunk appears before a diff header")
+                in_hunk = True
+                continue
+            if in_hunk and line.startswith(b"+"):
+                added.write(line[1:])
+except (OSError, ValueError) as exc:
+    print(f"staged diff scan failed: {exc}", file=sys.stderr)
+    raise SystemExit(2)
+PY
+then
+    fail "staged diff scan failed"
+fi
 if "$PYTHON_BIN" - "$patterns_file" "$added_file" <<'PY'
 import re
 import sys
