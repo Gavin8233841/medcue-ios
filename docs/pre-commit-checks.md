@@ -22,8 +22,11 @@ created. `tools/install-hooks.sh --check` is read-only and can be run from any
 current working directory. A linked worktree using any path inside the common
 `.git` directory is also rejected; configure a worktree-specific
 `core.hooksPath` outside that directory to avoid changing hooks for sibling
-worktrees. Existing symbolic-link components in the configured hooks path are
-rejected before the installer creates or verifies a hook.
+worktrees. Symbolic-link components in the configured hooks path are rejected
+unless their physical target is a strict ancestor of the repository or common
+Git directory (which tolerates operating-system aliases such as macOS `/var`).
+A target at either boundary or below it is rejected before the installer
+creates or verifies a hook.
 
 ## Checks
 

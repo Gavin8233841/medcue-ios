@@ -48,6 +48,7 @@ run_fixture_boundary_tests() {
     local temp_root fixture fixture_physical fixture_index output hook_path backup_count
     local absolute_hooks absolute_hook_path linked_fixture shared_custom_hooks textconv_script textconv_marker fake_local_path
     local symlink_hooks symlink_target absolute_symlink_hooks absolute_symlink_target fake_bin
+    local external_hooks_parent external_hooks_link
     temp_root="${TMPDIR:-/tmp}"
     fixture="$(mktemp -d "$temp_root/medcue-precommit-fixture.XXXXXX")"
     fixture_physical="$(cd "$fixture" && pwd -P)"
@@ -105,6 +106,24 @@ run_fixture_boundary_tests() {
     [[ ! -e "$shared_custom_hooks" ]] || fail 'linked-worktree custom shared path installer created a directory'
     git -C "$fixture" config --unset-all core.hooksPath || true
     printf '[PASS] installer rejects custom paths inside the shared Git directory\n'
+
+    external_hooks_parent="$(mktemp -d "$temp_root/medcue-precommit-external-hooks.XXXXXX")"
+    external_hooks_link="$external_hooks_parent/link-to-common-git"
+    ln -s "$fixture_physical/.git" "$external_hooks_link"
+    git -C "$fixture" config core.hooksPath "$external_hooks_link"
+    if output="$(cd /tmp && "$fixture/tools/install-hooks.sh" --check 2>&1)"; then
+        fail 'external symlink to the common Git directory unexpectedly passed installer --check'
+    fi
+    if ! printf '%s\n' "$output" | grep -Fq -- 'symbolic-link component'; then
+        printf '%s\n' "$output" >&2
+        fail 'external common-Git symlink rejection was not explicit'
+    fi
+    if output="$(cd /tmp && "$fixture/tools/install-hooks.sh" 2>&1)"; then
+        fail 'external symlink to the common Git directory unexpectedly installed'
+    fi
+    [[ ! -e "$fixture_physical/.git/pre-commit" ]] || fail 'external common-Git symlink installer wrote a shared hook'
+    git -C "$fixture" config --unset-all core.hooksPath || true
+    printf '[PASS] installer rejects an external symlink to the common Git directory\n'
 
     fixture_reset_index() {
         GIT_INDEX_FILE="$fixture_index" git -C "$fixture" read-tree HEAD

@@ -82,8 +82,7 @@ reject_symlink_components() {
             if ! resolved="$(cd "$current" 2>/dev/null && pwd -P)"; then
                 fail "Git hooks path contains an unresolvable symbolic-link component: $current"
             fi
-            if [[ "$ROOT_DIR" != "$resolved" && "$ROOT_DIR" != "$resolved"/* &&
-                "$COMMON_GIT_DIR" != "$resolved" && "$COMMON_GIT_DIR" != "$resolved"/* ]]; then
+            if [[ "$ROOT_DIR" != "$resolved"/* && "$COMMON_GIT_DIR" != "$resolved"/* ]]; then
                 fail "Git hooks path contains a symbolic-link component: $current"
             fi
             physical_current="$resolved"
