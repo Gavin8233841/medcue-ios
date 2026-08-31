@@ -9,7 +9,24 @@ protocol LocalMedicalGenerating: Sendable {
         prompt: String,
         modelURL: URL,
         maxTokens: Int
-    ) async -> AsyncThrowingStream<String, Error>
+    ) async -> LocalMedicalGenerationStream
+}
+
+struct LocalMedicalGenerationStream: Sendable {
+    let stream: AsyncThrowingStream<String, Error>
+    private let cancelAction: @Sendable () -> Void
+
+    init(
+        stream: AsyncThrowingStream<String, Error>,
+        cancelAction: @escaping @Sendable () -> Void
+    ) {
+        self.stream = stream
+        self.cancelAction = cancelAction
+    }
+
+    func cancel() {
+        cancelAction()
+    }
 }
 
 actor LocalMedicalModelRuntime: LocalMedicalGenerating {
@@ -54,39 +71,42 @@ actor LocalMedicalModelRuntime: LocalMedicalGenerating {
         #endif
     }
 
-    func generateResponseStream(prompt: String, modelURL: URL, maxTokens: Int) -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { continuation in
-            let worker = Task {
-                do {
-                    try Task.checkCancellation()
-                    #if canImport(llama)
-                    let context = try LlamaCppContext(modelURL: modelURL)
-                    let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !trimmedPrompt.isEmpty else {
-                        throw LocalMedicalAIError.emptyResponse
+    func generateResponseStream(prompt: String, modelURL: URL, maxTokens: Int) -> LocalMedicalGenerationStream {
+        let (stream, continuation) = AsyncThrowingStream<String, Error>.makeStream()
+        let worker = Task {
+            do {
+                try Task.checkCancellation()
+                #if canImport(llama)
+                let context = try LlamaCppContext(modelURL: modelURL)
+                let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmedPrompt.isEmpty else {
+                    throw LocalMedicalAIError.emptyResponse
+                }
+                _ = try context.generate(prompt: trimmedPrompt, maxTokens: maxTokens) { delta in
+                    guard !delta.isEmpty, !Task.isCancelled else {
+                        return
                     }
-                    _ = try context.generate(prompt: trimmedPrompt, maxTokens: maxTokens) { delta in
-                        guard !delta.isEmpty, !Task.isCancelled else {
-                            return
-                        }
-                        continuation.yield(delta)
-                    }
-                    try Task.checkCancellation()
-                    continuation.finish()
-                    #else
-                    throw LocalMedicalAIError.runtimeUnavailable
-                    #endif
-                } catch {
-                    if Task.isCancelled {
-                        continuation.finish(throwing: CancellationError())
-                    } else {
-                        continuation.finish(throwing: error)
-                    }
+                    continuation.yield(delta)
+                }
+                try Task.checkCancellation()
+                continuation.finish()
+                #else
+                throw LocalMedicalAIError.runtimeUnavailable
+                #endif
+            } catch {
+                if Task.isCancelled {
+                    continuation.finish(throwing: CancellationError())
+                } else {
+                    continuation.finish(throwing: error)
                 }
             }
-            continuation.onTermination = { @Sendable _ in
-                worker.cancel()
-            }
+        }
+        continuation.onTermination = { @Sendable _ in
+            worker.cancel()
+        }
+        return LocalMedicalGenerationStream(stream: stream) {
+            worker.cancel()
+            continuation.finish(throwing: CancellationError())
         }
     }
 }
