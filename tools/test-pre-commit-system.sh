@@ -41,7 +41,368 @@ else
     printf '%s\n' 'warning: node is unavailable; JavaScript/JSON smoke checks skipped'
 fi
 
-git -C "$ROOT_DIR" diff --cached --check
+git -C "$ROOT_DIR" diff --cached --check --no-ext-diff --no-textconv
 "$CHECKER"
+
+run_fixture_boundary_tests() {
+    local temp_root fixture fixture_index output hook_path backup_count
+    local absolute_hooks absolute_hook_path linked_fixture shared_custom_hooks textconv_script textconv_marker fake_local_path
+    temp_root="${TMPDIR:-/tmp}"
+    fixture="$(mktemp -d "$temp_root/medcue-precommit-fixture.XXXXXX")"
+    fixture_index="$fixture/isolated-index"
+
+    mkdir -p "$fixture/tools"
+    cp -p "$CONFIG_FILE" "$fixture/tools/pre-commit-checks.json"
+    cp -p "$ROOT_DIR/tools/build-source-package.py" "$fixture/tools/build-source-package.py"
+    cp -p "$CHECKER" "$fixture/tools/run-pre-commit-checks.sh"
+    cp -p "$INSTALLER" "$fixture/tools/install-hooks.sh"
+    printf '%s\n' 'safe baseline content' >"$fixture/tools/fixture-textconv.txt"
+
+    git -C "$fixture" init -q
+    git -C "$fixture" config user.name 'MedCue fixture'
+    git -C "$fixture" config user.email 'fixture@example.invalid'
+    git -C "$fixture" add -- \
+        tools/pre-commit-checks.json \
+        tools/build-source-package.py \
+        tools/run-pre-commit-checks.sh \
+        tools/install-hooks.sh \
+        tools/fixture-textconv.txt
+    git -C "$fixture" -c core.hooksPath=/dev/null commit --no-verify -qm baseline
+    GIT_INDEX_FILE="$fixture_index" git -C "$fixture" read-tree HEAD
+
+    linked_fixture="$fixture-linked"
+    git -C "$fixture" worktree add --detach -q "$linked_fixture" HEAD
+    [[ ! -e "$fixture/.git/hooks/pre-commit" ]] || fail 'fixture shared hook unexpectedly exists before linked-worktree check'
+    if output="$(cd /tmp && "$linked_fixture/tools/install-hooks.sh" --check 2>&1)"; then
+        fail 'linked-worktree shared hook unexpectedly passed installer --check'
+    fi
+    if ! printf '%s\n' "$output" | grep -Fq -- 'inside the shared Git directory'; then
+        printf '%s\n' "$output" >&2
+        fail 'linked-worktree shared hook rejection was not explicit'
+    fi
+    if output="$(cd /tmp && "$linked_fixture/tools/install-hooks.sh" 2>&1)"; then
+        fail 'linked-worktree shared hook unexpectedly installed'
+    fi
+    [[ ! -e "$fixture/.git/hooks/pre-commit" ]] || fail 'linked-worktree installer created a shared hook'
+    printf '[PASS] installer rejects the common hooks directory for linked worktrees\n'
+
+    shared_custom_hooks="$fixture/.git/custom-hooks"
+    git -C "$linked_fixture" config core.hooksPath "$shared_custom_hooks"
+    [[ ! -e "$shared_custom_hooks" ]] || fail 'fixture shared custom hooks directory unexpectedly exists before check'
+    if output="$(cd /tmp && "$linked_fixture/tools/install-hooks.sh" 2>&1)"; then
+        fail 'linked-worktree custom shared hook path unexpectedly installed'
+    fi
+    if ! printf '%s\n' "$output" | grep -Fq -- 'inside the shared Git directory'; then
+        printf '%s\n' "$output" >&2
+        fail 'linked-worktree custom shared path rejection was not explicit'
+    fi
+    [[ ! -e "$shared_custom_hooks" ]] || fail 'linked-worktree custom shared path installer created a directory'
+    git -C "$fixture" config --unset-all core.hooksPath || true
+    printf '[PASS] installer rejects custom paths inside the shared Git directory\n'
+
+    fixture_reset_index() {
+        GIT_INDEX_FILE="$fixture_index" git -C "$fixture" read-tree HEAD
+    }
+
+    fixture_stage() {
+        GIT_INDEX_FILE="$fixture_index" git -C "$fixture" add -- "$@"
+    }
+
+    fixture_restore_policy_and_builder() {
+        cp -p "$CONFIG_FILE" "$fixture/tools/pre-commit-checks.json"
+        cp -p "$ROOT_DIR/tools/build-source-package.py" "$fixture/tools/build-source-package.py"
+    }
+
+    fixture_check() {
+        (
+            cd "$fixture"
+            GIT_INDEX_FILE="$fixture_index" "$fixture/tools/run-pre-commit-checks.sh"
+        )
+    }
+
+    fixture_policy_variant() {
+        local variant="$1"
+        python3 - "$fixture/tools/pre-commit-checks.json" "$variant" <<'PY'
+import json
+import sys
+
+path, variant = sys.argv[1:3]
+with open(path, encoding="utf-8") as handle:
+    data = json.load(handle)
+policy = data["policy"]
+if variant == "disable-json":
+    policy["syntaxExtensions"] = [".js"]
+elif variant == "empty-syntax":
+    policy["syntaxExtensions"] = []
+elif variant == "nul-prefix":
+    policy["sourcePackageAllowlist"]["prefixes"].append("\x00/")
+elif variant == "extra-prefix":
+    policy["sourcePackageAllowlist"]["prefixes"].append("outside/")
+elif variant == "bad-pattern-type":
+    policy["absolutePathPatterns"] = [{}]
+elif variant == "empty-prefix":
+    policy["sourcePackageAllowlist"]["prefixes"].append("")
+else:
+    raise SystemExit(f"unknown fixture policy variant: {variant}")
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(data, handle, indent=2)
+    handle.write("\n")
+PY
+    }
+
+    fixture_builder_drift() {
+        python3 - "$fixture/tools/build-source-package.py" <<'PY'
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    source = handle.read()
+needle = '    "ATTRIBUTION.md",\n'
+if needle not in source:
+    raise SystemExit("fixture builder anchor is missing")
+source = source.replace(needle, needle + '    "fixture-drift.txt",\n', 1)
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(source)
+PY
+    }
+
+    fixture_builder_empty_prefix() {
+        python3 - "$fixture/tools/build-source-package.py" <<'PY'
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    source = handle.read()
+needle = "ALLOWED_PREFIXES = (\n"
+if needle not in source:
+    raise SystemExit("fixture prefix anchor is missing")
+source = source.replace(needle, needle + '    "",\n', 1)
+with open(path, "w", encoding="utf-8") as handle:
+    handle.write(source)
+PY
+    }
+
+    fixture_expect_failure() {
+        local label="$1" expected="$2"
+        if output="$(fixture_check 2>&1)"; then
+            fail "fixture unexpectedly passed: $label"
+        fi
+        if ! printf '%s\n' "$output" | grep -Fq -- "$expected"; then
+            printf '%s\n' "$output" >&2
+            fail "fixture failure did not contain '$expected': $label"
+        fi
+        printf '[PASS] fixture rejection: %s\n' "$label"
+    }
+
+    fixture_expect_success() {
+        local label="$1"
+        if ! output="$(fixture_check 2>&1)"; then
+            printf '%s\n' "$output" >&2
+            fail "fixture unexpectedly failed: $label"
+        fi
+        printf '[PASS] fixture acceptance: %s\n' "$label"
+    }
+
+    fake_local_path="$(printf '/%s/fake-local-path' Users)"
+    fixture_reset_index
+    printf '%s\n' "+$fake_local_path" >"$fixture/tools/fixture-plus.txt"
+    fixture_stage tools/fixture-plus.txt
+    fixture_expect_failure 'leading-plus absolute path' 'absolute local path in added staged content'
+
+    textconv_script="$fixture/tools/fixture-textconv.sh"
+    textconv_marker="$fixture/textconv-invoked"
+    printf '%s\n' '#!/bin/sh' "touch '$textconv_marker'" 'printf sanitized-textconv-output' >"$textconv_script"
+    chmod +x "$textconv_script"
+    printf '%s\n' '*.txt diff=fixture-hide' >"$fixture/.git/info/attributes"
+    git -C "$fixture" config diff.fixture-hide.textconv "$textconv_script"
+    fixture_reset_index
+    printf '%s\n' "$fake_local_path" >"$fixture/tools/fixture-textconv.txt"
+    fixture_stage tools/fixture-textconv.txt
+    fixture_expect_failure 'staged blob bypasses local textconv' 'absolute local path in added staged content'
+    [[ ! -e "$textconv_marker" ]] || fail 'textconv driver was invoked while checking the staged blob'
+
+    fixture_reset_index
+    printf '%s\n' '{' >"$fixture/tools/fixture-invalid.json"
+    fixture_stage tools/fixture-invalid.json
+    fixture_expect_failure 'default JSON syntax policy' 'JSON syntax: tools/fixture-invalid.json'
+
+    fixture_reset_index
+    fixture_policy_variant disable-json
+    fixture_stage tools/fixture-invalid.json
+    fixture_expect_failure 'unstaged syntax policy is ignored' 'JSON syntax: tools/fixture-invalid.json'
+    fixture_stage tools/pre-commit-checks.json
+    fixture_expect_success 'staged syntax policy disables JSON parsing'
+
+    fixture_reset_index
+    fixture_restore_policy_and_builder
+    fixture_policy_variant empty-syntax
+    fixture_stage tools/pre-commit-checks.json
+    fixture_expect_failure 'empty staged syntax extension list' 'syntaxExtensions must be a non-empty list without duplicates'
+
+    fixture_reset_index
+    fixture_restore_policy_and_builder
+    fixture_policy_variant extra-prefix
+    fixture_stage tools/pre-commit-checks.json
+    fixture_expect_failure 'staged policy/source builder drift' 'source-package prefix policy drift'
+
+    fixture_reset_index
+    fixture_policy_variant bad-pattern-type
+    fixture_stage tools/pre-commit-checks.json
+    fixture_expect_failure 'invalid staged policy value type' 'absolutePathPatterns must be a non-empty list'
+
+    fixture_reset_index
+    fixture_restore_policy_and_builder
+    fixture_policy_variant empty-prefix
+    fixture_stage tools/pre-commit-checks.json
+    fixture_expect_failure 'empty staged policy prefix' 'contains an empty or absolute path'
+
+    fixture_reset_index
+    fixture_restore_policy_and_builder
+    fixture_policy_variant nul-prefix
+    fixture_stage tools/pre-commit-checks.json
+    fixture_expect_failure 'NUL staged policy prefix' 'contains a non-string or control character'
+
+    fixture_reset_index
+    fixture_restore_policy_and_builder
+    fixture_builder_empty_prefix
+    fixture_stage tools/build-source-package.py
+    fixture_expect_failure 'empty staged builder prefix' 'contains an empty or absolute path'
+
+    fixture_reset_index
+    fixture_restore_policy_and_builder
+    fixture_builder_drift
+    fixture_stage tools/build-source-package.py
+    fixture_expect_failure 'staged source builder/policy drift' 'source-package root-file policy drift'
+
+    fixture_reset_index
+    git -C "$fixture" config core.hooksPath .fixture-hooks
+    [[ ! -e "$fixture/.fixture-hooks" ]] || fail "fixture hooks directory unexpectedly exists before read-only check"
+    if output="$(cd /tmp && "$fixture/tools/install-hooks.sh" --check 2>&1)"; then
+        fail 'read-only installer check unexpectedly passed before installation'
+    fi
+    [[ ! -e "$fixture/.fixture-hooks" ]] || fail 'read-only installer check created the hooks directory'
+    printf '[PASS] installer --check is read-only for a relative hooks path\n'
+
+    git -C "$fixture" config core.hooksPath 'foo/..'
+    [[ ! -e "$fixture/pre-commit" ]] || fail 'fixture root pre-commit unexpectedly exists before normalized-root check'
+    if output="$(cd /tmp && "$fixture/tools/install-hooks.sh" --check 2>&1)"; then
+        fail 'normalized-root hooks path unexpectedly passed installer --check'
+    fi
+    if ! printf '%s\n' "$output" | grep -Fq -- 'disabled or resolves to the repository root'; then
+        printf '%s\n' "$output" >&2
+        fail 'normalized-root hooks path rejection was not explicit'
+    fi
+    if output="$(cd /tmp && "$fixture/tools/install-hooks.sh" 2>&1)"; then
+        fail 'normalized-root hooks path unexpectedly installed a repository-root hook'
+    fi
+    [[ ! -e "$fixture/pre-commit" ]] || fail 'normalized-root hooks path installation created a repository-root hook'
+    printf '[PASS] installer rejects a normalized path resolving to the repository root\n'
+
+    ln -s "$fixture" "$fixture/link-root"
+    git -C "$fixture" config core.hooksPath link-root
+    if output="$(cd /tmp && "$fixture/tools/install-hooks.sh" --check 2>&1)"; then
+        fail 'symlinked-root hooks path unexpectedly passed installer --check'
+    fi
+    if ! printf '%s\n' "$output" | grep -Fq -- 'disabled or resolves to the repository root'; then
+        printf '%s\n' "$output" >&2
+        fail 'symlinked-root hooks path rejection was not explicit'
+    fi
+    [[ ! -e "$fixture/pre-commit" ]] || fail 'symlinked-root hooks path check created a repository-root hook'
+    printf '[PASS] installer rejects a symlinked path resolving to the repository root\n'
+
+    absolute_hooks="$fixture/.absolute-hooks"
+    git -C "$fixture" config core.hooksPath "$absolute_hooks"
+    [[ ! -e "$absolute_hooks" ]] || fail 'absolute fixture hooks directory unexpectedly exists before installation'
+    if ! output="$(cd /tmp && "$fixture/tools/install-hooks.sh" 2>&1)"; then
+        printf '%s\n' "$output" >&2
+        fail 'installer failed for an absolute hooks path from outside the repository'
+    fi
+    absolute_hook_path="$absolute_hooks/pre-commit"
+    [[ -f "$absolute_hook_path" && -x "$absolute_hook_path" ]] || fail "absolute fixture hook is missing or not executable: $absolute_hook_path"
+    if ! output="$(cd /tmp && "$fixture/tools/install-hooks.sh" --check 2>&1)"; then
+        printf '%s\n' "$output" >&2
+        fail 'absolute fixture hook did not pass --check'
+    fi
+    printf '[PASS] installer resolves and verifies an absolute hooks path outside the repository\n'
+
+    git -C "$fixture" config core.hooksPath .symlink-hooks
+    mkdir -p "$fixture/.symlink-hooks"
+    ln -s "$fixture/tools/run-pre-commit-checks.sh" "$fixture/.symlink-hooks/pre-commit"
+    if output="$(cd /tmp && "$fixture/tools/install-hooks.sh" --check 2>&1)"; then
+        fail 'symbolic-link hook unexpectedly passed installer --check'
+    fi
+    if ! printf '%s\n' "$output" | grep -Fq -- 'exact managed MedCue hook'; then
+        printf '%s\n' "$output" >&2
+        fail 'symbolic-link hook rejection did not use the exact-content diagnostic'
+    fi
+    if output="$(cd /tmp && "$fixture/tools/install-hooks.sh" 2>&1)"; then
+        fail 'installer unexpectedly replaced a symbolic-link hook'
+    fi
+    if ! printf '%s\n' "$output" | grep -Fq -- 'symbolic-link hook'; then
+        printf '%s\n' "$output" >&2
+        fail 'symbolic-link hook install rejection was not explicit'
+    fi
+    printf '[PASS] installer rejects symbolic-link hooks\n'
+
+    git -C "$fixture" config core.hooksPath .nonregular-hooks
+    mkdir -p "$fixture/.nonregular-hooks/pre-commit"
+    if output="$(cd /tmp && "$fixture/tools/install-hooks.sh" 2>&1)"; then
+        fail 'installer unexpectedly replaced a non-regular hook path'
+    fi
+    if ! printf '%s\n' "$output" | grep -Fq -- 'non-regular hook'; then
+        printf '%s\n' "$output" >&2
+        fail 'non-regular hook install rejection was not explicit'
+    fi
+    printf '[PASS] installer rejects non-regular hooks\n'
+
+    git -C "$fixture" config core.hooksPath ''
+    [[ ! -e "$fixture/pre-commit" ]] || fail 'fixture root pre-commit unexpectedly exists before disabled-path check'
+    if output="$(cd /tmp && "$fixture/tools/install-hooks.sh" --check 2>&1)"; then
+        fail 'disabled hooks path unexpectedly passed installer --check'
+    fi
+    if ! printf '%s\n' "$output" | grep -Fq -- 'disabled or cannot be resolved'; then
+        printf '%s\n' "$output" >&2
+        fail 'disabled hooks path rejection did not explain the safe failure'
+    fi
+    [[ ! -e "$fixture/pre-commit" ]] || fail 'disabled hooks path check created a repository-root hook'
+    if output="$(cd /tmp && "$fixture/tools/install-hooks.sh" 2>&1)"; then
+        fail 'disabled hooks path unexpectedly installed a repository-root hook'
+    fi
+    [[ ! -e "$fixture/pre-commit" ]] || fail 'disabled hooks path installation created a repository-root hook'
+    printf '[PASS] installer fails closed for a disabled/root hooks path\n'
+
+    git -C "$fixture" config core.hooksPath .fixture-hooks
+    if ! output="$(cd /tmp && "$fixture/tools/install-hooks.sh" 2>&1)"; then
+        printf '%s\n' "$output" >&2
+        fail 'installer failed from outside the repository root'
+    fi
+    hook_path="$fixture/.fixture-hooks/pre-commit"
+    [[ -f "$hook_path" && -x "$hook_path" ]] || fail "installed fixture hook is missing or not executable: $hook_path"
+    if ! output="$(cd /tmp && "$fixture/tools/install-hooks.sh" --check 2>&1)"; then
+        printf '%s\n' "$output" >&2
+        fail 'exact managed fixture hook did not pass --check'
+    fi
+    printf '[PASS] installer resolves and verifies a relative hooks path outside the repository\n'
+
+    printf '%s\n' '# medcue-pre-commit-managed' >"$hook_path"
+    chmod +x "$hook_path"
+    if output="$(cd /tmp && "$fixture/tools/install-hooks.sh" --check 2>&1)"; then
+        fail 'marker-only hook spoof unexpectedly passed installer --check'
+    fi
+    if ! printf '%s\n' "$output" | grep -Fq -- 'exact managed MedCue hook'; then
+        fail 'marker-only hook rejection did not identify exact managed content'
+    fi
+    if ! output="$(cd /tmp && "$fixture/tools/install-hooks.sh" 2>&1)"; then
+        printf '%s\n' "$output" >&2
+        fail 'installer did not repair marker-only hook spoof'
+    fi
+    backup_count="$(find "$fixture/.fixture-hooks" -maxdepth 1 -type f -name 'pre-commit.backup.*' | wc -l | tr -d ' ')"
+    [[ "$backup_count" -ge 1 ]] || fail 'installer did not preserve the replaced hook backup'
+    printf '[PASS] installer rejects and repairs a marker-only hook spoof\n'
+
+    printf 'pre-commit fixture retained for inspection: %s\n' "$fixture"
+}
+
+run_fixture_boundary_tests
 
 printf '%s\n' 'pre-commit system checks passed'

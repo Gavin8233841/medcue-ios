@@ -15,8 +15,19 @@ bash tools/test-pre-commit-system.sh
 After installation, a normal `git commit` runs
 `tools/run-pre-commit-checks.sh` automatically.
 
+The installer honors Git's configured relative or absolute `core.hooksPath`.
+An empty path or a path that resolves to the repository root is rejected so a
+disabled configuration cannot cause a root-level `pre-commit` file to be
+created. `tools/install-hooks.sh --check` is read-only and can be run from any
+current working directory. A linked worktree using any path inside the common
+`.git` directory is also rejected; configure a worktree-specific
+`core.hooksPath` outside that directory to avoid changing hooks for sibling
+worktrees.
+
 ## Checks
 
+- The checker disables external diff and text-conversion drivers while reading
+  the index, so local Git configuration cannot replace staged blob content.
 - `git diff --cached --check` blocks trailing whitespace and malformed staged
   patches.
 - Added staged lines are checked for common local-machine path roots and
@@ -27,10 +38,17 @@ After installation, a normal `git commit` runs
   allowlist. The checked-in policy is cross-checked against the exact
   `tools/build-source-package.py` source-package policy, so drift fails the
   local check instead of silently changing the release boundary.
-- Staged `.js`, `.mjs`, `.cjs`, and `.json` files are parsed with Node.js.
+- `syntaxExtensions` must keep at least one supported extension enabled
+  (`.js`, `.mjs`, `.cjs`, or `.json`); staged files are parsed with Node.js
+  only when their exact extension is enabled by that list.
 
 The checker only reads the index. It never runs a repository-wide formatter or
 bulk `sed` rewrite, so unrelated user changes remain untouched.
+
+The hook invokes the checked-out checker script, while policy, source-package
+allowlist, staged paths, and staged file contents are read from the Git index.
+The local hook is a fast-fail convenience guard, not trusted release evidence;
+the reviewed GitHub workflow and native verification remain authoritative.
 
 ## What this does not decide
 
