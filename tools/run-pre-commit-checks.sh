@@ -283,14 +283,50 @@ awk '
     /^@@ / { in_hunk = 1; next }
     in_hunk && /^\+/ { print substr($0, 2) }
 ' "$diff_file" >"$added_file"
-absolute_path_lines="$(grep -E -f "$patterns_file" "$added_file" || true)"
-if [[ -n "$absolute_path_lines" ]]; then
-    printf '%s\n' '[FAIL] absolute local path in added staged content' >&2
-    printf '%s\n' "$absolute_path_lines" >&2
-    printf '%s\n' 'Replace local machine paths with <PROJECT_ROOT> or another sanitized placeholder.' >&2
-    failures=$((failures + 1))
-else
+if "$PYTHON_BIN" - "$patterns_file" "$added_file" <<'PY'
+import re
+import sys
+
+patterns_path, added_path = sys.argv[1:3]
+try:
+    with open(patterns_path, "rb") as handle:
+        patterns = [
+            re.compile(line.rstrip(b"\n"))
+            for line in handle
+            if line.rstrip(b"\n")
+        ]
+    matched = False
+    with open(added_path, "rb") as handle:
+        for line in handle:
+            if not any(pattern.search(line) for pattern in patterns):
+                continue
+            if not matched:
+                sys.stderr.buffer.write(
+                    b"[FAIL] absolute local path in added staged content\n"
+                )
+                matched = True
+            sys.stderr.buffer.write(line)
+            if not line.endswith(b"\n"):
+                sys.stderr.buffer.write(b"\n")
+    if matched:
+        sys.stderr.write(
+            "Replace local machine paths with <PROJECT_ROOT> or another "
+            "sanitized placeholder.\n"
+        )
+        raise SystemExit(1)
+except (OSError, re.error) as exc:
+    print(f"absolute path scan failed: {exc}", file=sys.stderr)
+    raise SystemExit(2)
+PY
+then
     printf '%s\n' '[PASS] absolute local path check'
+else
+    scan_status=$?
+    if [[ "$scan_status" == 1 ]]; then
+        failures=$((failures + 1))
+    else
+        fail "absolute path scan failed (status $scan_status)"
+    fi
 fi
 
 git diff --cached --name-only --diff-filter=ACMRT -z -- >"$files_file"

@@ -47,7 +47,7 @@ git -C "$ROOT_DIR" diff --cached --check --text --no-ext-diff --no-textconv
 run_fixture_boundary_tests() {
     local temp_root fixture fixture_physical fixture_index output hook_path backup_count
     local absolute_hooks absolute_hook_path linked_fixture shared_custom_hooks textconv_script textconv_marker fake_local_path
-    local symlink_hooks symlink_target absolute_symlink_hooks absolute_symlink_target
+    local symlink_hooks symlink_target absolute_symlink_hooks absolute_symlink_target fake_bin
     temp_root="${TMPDIR:-/tmp}"
     fixture="$(mktemp -d "$temp_root/medcue-precommit-fixture.XXXXXX")"
     fixture_physical="$(cd "$fixture" && pwd -P)"
@@ -214,6 +214,24 @@ PY
     printf '%s\n' "+$fake_local_path" >"$fixture/tools/fixture-plus.txt"
     fixture_stage tools/fixture-plus.txt
     fixture_expect_failure 'leading-plus absolute path' 'absolute local path in added staged content'
+
+    fake_bin="$fixture/fake-bin"
+    mkdir -p "$fake_bin"
+    printf '%s\n' '#!/bin/sh' 'exit 0' >"$fake_bin/grep"
+    chmod +x "$fake_bin/grep"
+    fixture_reset_index
+    printf '%s\n' "$fake_local_path" >"$fixture/tools/fixture-fake-grep.txt"
+    fixture_stage tools/fixture-fake-grep.txt
+    if ! output="$(PATH="$fake_bin:$PATH" fixture_check 2>&1)"; then
+        if ! printf '%s\n' "$output" | grep -Fq -- 'absolute local path in added staged content'; then
+            printf '%s\n' "$output" >&2
+            fail 'absolute path scan did not reject a path when grep was shadowed'
+        fi
+    else
+        printf '%s\n' "$output" >&2
+        fail 'absolute path scan passed when grep was shadowed'
+    fi
+    printf '[PASS] absolute path scan does not trust a shadowed grep\n'
 
     textconv_script="$fixture/tools/fixture-textconv.sh"
     textconv_marker="$fixture/textconv-invoked"
