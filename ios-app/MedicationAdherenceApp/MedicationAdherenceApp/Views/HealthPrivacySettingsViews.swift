@@ -298,6 +298,7 @@ private func healthMetricTint(_ kind: HealthSignalKind) -> Color {
 struct MedicalAIPrivacyView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \StoredAIConsent.grantedAt, order: .reverse) private var consents: [StoredAIConsent]
+    @State private var revocationErrorMessage: String?
 
     private var activeConsent: StoredAIConsent? {
         consents.first { $0.id == "medical-ai-consent" && $0.isActive }
@@ -340,11 +341,31 @@ struct MedicalAIPrivacyView: View {
         }
         .navigationTitle("医疗智能体")
         .toolbar(.hidden, for: .tabBar)
+        .alert("撤销失败", isPresented: .constant(revocationErrorMessage != nil)) {
+            Button("好") {
+                revocationErrorMessage = nil
+            }
+        } message: {
+            if let errorMessage = revocationErrorMessage {
+                Text(errorMessage)
+            }
+        }
     }
 
     private func revokeAIConsent() {
-        activeConsent?.revokedAt = Date()
-        _ = AppPersistenceCommitter.save(modelContext, operation: "settings-data-reset")
+        let command = AIConsentRevocationCommand(modelContext: modelContext)
+        let outcome = command.execute()
+
+        switch outcome {
+        case .revoked:
+            break
+        case .alreadyRevoked:
+            break
+        case .saveFailed:
+            revocationErrorMessage = "撤销未能保存，授权仍然有效。请重试。"
+        case .consentNotFound:
+            revocationErrorMessage = "未找到有效授权。"
+        }
     }
 }
 

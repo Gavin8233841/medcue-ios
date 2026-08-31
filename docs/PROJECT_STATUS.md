@@ -1,9 +1,9 @@
 # MedCue Project Status
 
-Last audited: 2026-08-22
+Last audited: 2026-08-23
 Authoritative branch: `main`
-Post-migration audit baseline: `280e5b3f8425f155d5e20a71841f4169a63bc59d`
-Audit-baseline CI: [Native Verification run 32171788727](https://github.com/Gavin8233841/medcue-ios/actions/runs/32171788727)
+Audit baseline: `d6aa4af85f225028fc3f912391328e1f745d0b34`
+Audit-baseline CI: [Native Verification run 32640833807](https://github.com/Gavin8233841/medcue-ios/actions/runs/32640833807)
 
 This is the single current engineering-status document. GitHub Issues hold the
 active backlog, Pull Requests hold implementation and review evidence, and
@@ -23,9 +23,9 @@ resolved by `main`; every evidence claim below remains scoped to its named SHA.
 - The canonical history-normalization prerequisite in [Issue #1](https://github.com/Gavin8233841/medcue-ios/issues/1)
   is complete. The sanitized lineage and the current tree are preserved by the
   published archive and audit/preparation refs listed below.
-- The audit-baseline tree contains 334 tracked files and 215 tracked Swift
-  files. Its Swift sources contain 53,899 non-empty lines (`Length -gt 0`) and
-  58,952 full physical lines.
+- The audit-baseline tree contains 347 tracked files and 216 tracked Swift
+  files. Its Swift sources contain 53,941 non-empty lines (`Length -gt 0`) and
+  59,000 full physical lines.
 - The project contains six Xcode targets: the iOS app, Live Activity extension,
   Watch app, Watch widget, hosted unit tests, and UI tests.
 - The project uses Swift 6.0 language mode with iOS 17.0 and watchOS 10.0
@@ -33,14 +33,15 @@ resolved by `main`; every evidence claim below remains scoped to its named SHA.
 
 ## Exact-Revision Evidence
 
-Run `32171788727` completed successfully on `main` at
-`280e5b3f8425f155d5e20a71841f4169a63bc59d` on 2026-08-18. Its recorded test
-evidence is:
+Run `32640833807` completed successfully on `main` at
+`d6aa4af85f225028fc3f912391328e1f745d0b34` on 2026-08-23 through the full
+Native Verification lane (every main push uses the full Route A gate). Its
+recorded test evidence is:
 
 - Swift Core: `152/152`
-- Hosted iOS: `166/166`
+- Hosted iOS: `168/168`
 - XCUITest smoke: `2/2`
-- Token Broker: `17/17`
+- Token Broker: `28/28`
 
 This is exact-revision CI evidence for the audit baseline; it does not transfer
 to a later `main` HEAD. It also does not certify physical-device behavior,
@@ -53,7 +54,7 @@ The following PowerShell command reads the named Git tree directly, so later
 working-tree or `main` changes do not alter the result:
 
 ```powershell
-$Revision = '280e5b3f8425f155d5e20a71841f4169a63bc59d'
+$Revision = 'd6aa4af85f225028fc3f912391328e1f745d0b34'
 $TrackedFiles = @(git ls-tree -r --name-only $Revision)
 $SwiftFiles = @($TrackedFiles | Where-Object { $_.EndsWith('.swift') })
 $NonEmpty = 0
@@ -74,7 +75,7 @@ foreach ($Path in $SwiftFiles) {
 }
 ```
 
-Expected values are `334`, `215`, `53899`, and `58952`, respectively.
+Expected values are `347`, `216`, `53941`, and `59000`, respectively.
 
 ## History And Privacy Boundary
 
@@ -101,15 +102,21 @@ backup, or hosting-provider retention copy has been removed.
 
 The repository uses the Issue -> branch -> Pull Request -> CI workflow. Open
 work remains in the GitHub backlog; normalization is no longer a delivery
-blocker. At this audit, Draft PR #30 owned the new active-work coordination
-protocol and label vocabulary, while Draft PR #26 owned the Controlled Demo
-workflow plus its product/build changes. Both PRs included disjoint additions
-to `docs/DEVELOPMENT_WORKFLOW.md`; this governance change replaces only the two
-fulfilled history-normalization prerequisites that already existed in the
-baseline file. The shared-file ownership and cumulative-diff rule are recorded
-in that workflow document.
+blocker. The 2026-08-22 Draft PR trio (#26 Controlled Demo, #30 coordination
+protocol, #31 post-migration truth) has merged, followed by risk-tiered Native
+Verification lanes (Issue #39 / PR #40), a trusted CODEOWNERS root for
+`.github/` and `tools/` (#42), log-privacy sanitization (#43, closing Issue
+#23), and the reproducible exact-commit source package (#44). At this audit,
+open PR #49 (Issue #47, source-package hardening, branch
+`codex/47-source-package-hardening-main-yzy1020`) owns
+`docs/SOURCE_PACKAGE_POLICY.md`, `docs/TEST_STRATEGY.md`,
+`tools/build-source-package.py`, `tools/test-source-package.py`, and
+`tools/verify-source-package.py`; other work must integrate serially behind it
+on those files. (Its predecessor PR #48 was closed unmerged on 2026-08-23 and
+is superseded by PR #49.) The shared-file ownership and cumulative-diff rule
+are recorded in `docs/DEVELOPMENT_WORKFLOW.md`.
 
-The open Issues carrying `blocked` are exactly:
+The open Issues carrying `已阻塞` are exactly:
 
 - #10, AI request lifecycle behind a tested conversation session
 - #11, bounded AI observation and on-demand conversation history
@@ -118,12 +125,14 @@ The open Issues carrying `blocked` are exactly:
 - #19, Today dose lifecycle ownership
 - #21, complete English product surfaces
 - #22, bilingual Medication Assistant safeguards
-- #23, health-content retention and logging boundaries; its current dependency
-  is open Issue #3, not completed Issue #1
 
-Issue #1 is closed without `needs-product-decision`. Closed Issue #24 is a
-milestone-free `duplicate` without `blocked`. Open Issue #25 carries the
-evidence-backed `feature` type and has no invented priority or milestone.
+Issue #23 (health-content retention and logging boundaries) is closed by PR
+#43. Issue #1 is closed without `需要产品决策`. Closed Issue #24 is a
+milestone-free `重复` without `已阻塞`. Issue #25 carries the evidence-backed
+`功能` type and has no invented priority or milestone. Active leases
+(`state:in-progress`) at this audit: #33 (Chinese-first GitHub surface), #45
+(finals baseline documentation), #46 (elder-mode M1 prototype), and #47
+(source-package hardening).
 
 ## Engineering Shape And Remaining Risk
 
@@ -139,6 +148,10 @@ evidence-backed `feature` type and has no invented priority or milestone.
 - These are product, medical, privacy, security, platform, and performance
   follow-ups. This governance change does not alter runtime behavior or claim
   that those risks are resolved.
+- The finals product direction, local-first boundary, elder-mode M1 gates, and
+  the Xcode 27 native MCP toolchain decision are recorded in
+  `docs/FINALS_PRODUCT_PLAN.md` and
+  `docs/adr/0002-xcode-27-native-mcp-toolchain.md`.
 
 ## Documentation And Local Artifact Boundary
 

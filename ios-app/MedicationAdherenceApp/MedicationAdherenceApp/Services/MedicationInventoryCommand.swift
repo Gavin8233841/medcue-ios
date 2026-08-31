@@ -43,11 +43,13 @@ struct MedicationInventoryCommand {
 
         let stocks: [StoredMedicationStock]
         do {
-            stocks = try modelContext.fetch(
-                FetchDescriptor<StoredMedicationStock>(
-                    sortBy: [SortDescriptor(\.lastUpdated, order: .reverse)]
+            stocks = try ModelContextPerformanceMetrics.measureFetch(operation: "inventory-fetch-all-stocks") {
+                try modelContext.fetch(
+                    FetchDescriptor<StoredMedicationStock>(
+                        sortBy: [SortDescriptor(\.lastUpdated, order: .reverse)]
+                    )
                 )
-            )
+            }
         } catch {
             return .rejected(.readFailed)
         }
@@ -77,7 +79,9 @@ struct MedicationInventoryCommand {
         stock.lastUpdated = update.updatedAt
 
         do {
-            try saveOperation(modelContext)
+            try ModelContextPerformanceMetrics.measureSave(operation: "inventory-upsert-stock") {
+                try saveOperation(modelContext)
+            }
             return .committed(stockID: stock.id, created: created)
         } catch {
             if let existingSnapshot {

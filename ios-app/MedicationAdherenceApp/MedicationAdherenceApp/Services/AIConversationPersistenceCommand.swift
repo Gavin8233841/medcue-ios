@@ -115,25 +115,26 @@ struct AIConversationPersistenceCommand {
         }
     }
 
+    @available(*, deprecated, message: "Use AIConsentRevocationCommand instead")
     func revokeConsent(
         _ consent: StoredAIConsent,
         revokedAt: Date
     ) -> AIConversationPersistenceOutcome {
-        let snapshot = AIConsentSnapshot(consent)
-        consent.revokedAt = revokedAt
-        modelContext.insert(StoredAIChatMessage(
-            role: .system,
-            text: "医疗智能体数据共享授权已撤销。",
-            sharedScopesSummary: "已撤销"
-        ))
+        let command = AIConsentRevocationCommand(
+            modelContext: modelContext,
+            saveOperation: saveOperation,
+            now: { revokedAt }
+        )
+        let outcome = command.execute()
 
-        do {
-            try saveOperation(modelContext)
+        switch outcome {
+        case .revoked:
             return .consentRevoked
-        } catch {
-            snapshot.restore()
-            modelContext.rollback()
-            AppPersistenceCommitter.reportFailure(operation: "ai-revoke-consent")
+        case .alreadyRevoked:
+            return .consentRevoked
+        case .saveFailed:
+            return .saveFailed
+        case .consentNotFound:
             return .saveFailed
         }
     }
