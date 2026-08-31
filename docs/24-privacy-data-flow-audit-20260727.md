@@ -11,6 +11,7 @@
 | AI 对话 | 用户接受提示、选择共享范围并主动发送 | 用户消息、最终 assistant/system 消息写入 SwiftData；最终响应只在安全 Guard 和提交成功后显示；中断请求会被标记为未完成 | 无跨设备自动同步 | 在线模式默认经 HTTPS Token Broker 转发至受控上游；客户端只发送已授权 prompt 和 request ID，不持有供应商主密钥；Broker 的进程内幂等缓存会暂存完整 prompt 与 answer，当前过期清理依赖同 key 再次读取且没有容量上限 | Broker 已完成非医疗请求与真机 Beta 联调；缓存主动过期、容量边界及无内容日志由 [Issue #23](https://github.com/Gavin8233841/medcue-ios/issues/23) 跟踪；商业生产身份控制另行增强 |
 | 本地模型 | 用户主动下载并选择离线智能体 | GGUF 保存到 Application Support，先校验大小和 SHA-256；prompt、生成、质量修复和 Guard 均在设备内完成 | Background Assets/URLSession 负责下载传输 | 模型文件从固定下载地址获取；推理内容不上传 | GGUF 被 Git、Release 断言和最终打包规则排除 |
 | 偏好与运行状态 | App 功能使用过程中写入 | UserDefaults 保存授权完成状态、UI 偏好、失败提示和 Watch 快照；SwiftData 保存业务记录 | App Group 中的 Watch 快照可供 Watch/Widget 读取 | 不因 UserDefaults 本身产生云端上传 | `PrivacyInfo.xcprivacy` 声明 UserDefaults required-reason API |
+| 复诊摘要 PDF 临时文件 | 用户主动生成复诊沟通 PDF | PDF 临时文件存储于 `FileManager.temporaryDirectory/medcue-visit-summaries/`，使用 `NSFileProtectionComplete` 保护，设备锁定时不可读；文件名为不透明 UUID，不泄漏用户信息或时间戳 | 用户通过系统 ShareLink/QLPreviewController 预览或分享；分享目标由用户选择，框架由系统提供 | 分享行为由用户主动触发；PDF 内容包含用户授权范围内的药品、服药记录、健康信号等复诊资料 | 临时文件在以下时机清理：(1) 启动时清理超过 1 小时的过期文件，(2) 生成新 PDF 前清理旧文件，(3) 用户取消生成时清理已发布但被取消的工件，(4) 预览关闭后清理，(5) 用户离开复诊摘要页面时清理当前 PDF；文件保护、清理策略和不透明文件名由 [Issue #15](https://github.com/Gavin8233841/medcue-ios/issues/15) 实现并通过测试验证 |
 
 ## 三类声明必须分开
 

@@ -21,6 +21,9 @@ struct VisitSummaryView: View {
     @State private var pdfGenerationTask: Task<Void, Never>?
     @State private var generationGate = VisitSummaryGenerationGate()
     @State private var isGeneratingPDF = false
+    @State private var shareCompletionTracking = Set<URL>()
+
+    private let pdfLifecycle = VisitSummaryPDFLifecycle.production()
 
     private var normalizedRange: (start: Date, end: Date) {
         VisitSummaryDateRange.normalized(startDate: rangeStartDate, endDate: rangeEndDate)
@@ -146,6 +149,8 @@ struct VisitSummaryView: View {
         }
         .task {
             await healthKitService.refreshRecentTrendSamples()
+            // Sweep expired PDF files at startup
+            pdfLifecycle.sweepExpiredFiles()
         }
         .task(id: rangeLoadID) {
             await loadStoredData(startDate: normalizedRange.start, endDate: normalizedRange.end)
@@ -155,7 +160,10 @@ struct VisitSummaryView: View {
             await refreshSnapshot(for: sourceRevision)
         }
         .sheet(item: $previewPDFItem) { item in
-            PDFPreviewSheet(url: item.url)
+            PDFPreviewSheet(url: item.url) {
+                // Preview dismissed - ownership returned, safe to remove
+                pdfLifecycle.remove(item.url)
+            }
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -167,6 +175,10 @@ struct VisitSummaryView: View {
         }
         .onDisappear {
             cancelPDFGeneration()
+            // Remove the current PDF file when leaving the screen
+            if let pdfURL {
+                pdfLifecycle.remove(pdfURL)
+            }
         }
     }
 
@@ -175,6 +187,16 @@ struct VisitSummaryView: View {
             exportMessage = "复诊资料仍在整理，请稍后重试。"
             return
         }
+
+        // Sweep expired files before generating a new one
+        pdfLifecycle.sweepExpiredFiles()
+
+        // Remove the previous PDF if it exists
+        if let oldPDFURL = pdfURL {
+            pdfLifecycle.remove(oldPDFURL)
+            pdfURL = nil
+        }
+
         cancelPDFGeneration()
         let payload = VisitSummaryExportPayload(
             medications: snapshot.medications,
@@ -189,17 +211,19 @@ struct VisitSummaryView: View {
             exportSignature: snapshot.exportSignature
         )
         let requestID = generationGate.begin()
-        let targetURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("复诊资料-\(Int(Date().timeIntervalSince1970)).pdf")
         isGeneratingPDF = true
         exportMessage = ""
         pdfGenerationTask = Task {
             do {
                 let completedURL = try await VisitSummaryPDFExporter.export(
                     payload: payload,
-                    targetURL: targetURL
+                    lifecycle: pdfLifecycle
                 )
-                guard !Task.isCancelled, generationGate.accepts(requestID) else { return }
+                guard !Task.isCancelled, generationGate.accepts(requestID) else {
+                    // Task was cancelled or superseded; remove the artifact
+                    pdfLifecycle.remove(completedURL)
+                    return
+                }
                 pdfURL = completedURL
                 generatedPDFSignature = payload.exportSignature
                 isGeneratingPDF = false
@@ -269,6 +293,9 @@ struct VisitSummaryView: View {
 
     private func resetGeneratedPDFState() {
         cancelPDFGeneration()
+        if let oldPDFURL = pdfURL {
+            pdfLifecycle.remove(oldPDFURL)
+        }
         pdfURL = nil
         generatedPDFSignature = ""
         previewPDFItem = nil
@@ -477,7 +504,7 @@ struct VisitSummaryExportPanel: View {
                     }
                     .buttonStyle(.plain)
 
-                    ShareLink(item: pdfURL) {
+                    ShareLink(item: pdfURL, preview: SharePreview("复诊沟通 PDF", image: Image(systemName: "doc.text"))) {
                         VisitSummaryExportActionLabel(title: "分享", systemImage: "square.and.arrow.up", tint: .teal)
                     }
                 }
