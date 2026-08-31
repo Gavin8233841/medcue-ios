@@ -27,7 +27,8 @@ worktrees.
 ## Checks
 
 - The checker disables external diff and text-conversion drivers while reading
-  the index, so local Git configuration cannot replace staged blob content.
+  the index and forces text output for its added-line scan, so local Git
+  configuration cannot replace staged blob content or hide it as binary.
 - `git diff --cached --check` blocks trailing whitespace and malformed staged
   patches.
 - Added staged lines are checked for common local-machine path roots and
@@ -45,10 +46,11 @@ worktrees.
 The checker only reads the index. It never runs a repository-wide formatter or
 bulk `sed` rewrite, so unrelated user changes remain untouched.
 
-The hook invokes the checked-out checker script, while policy, source-package
-allowlist, staged paths, and staged file contents are read from the Git index.
-The local hook is a fast-fail convenience guard, not trusted release evidence;
-the reviewed GitHub workflow and native verification remain authoritative.
+The installed hook executes the staged checker blob from the Git index. The
+checker then reads policy, source-package allowlist, staged paths, and staged
+file contents from that same index. The local hook is a fast-fail convenience
+guard, not trusted release evidence; the reviewed GitHub workflow and native
+verification remain authoritative.
 
 ## What this does not decide
 

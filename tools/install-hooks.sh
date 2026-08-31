@@ -51,7 +51,8 @@ render_managed_hook() {
     printf '%s\n' "$MARKER"
     printf '%s\n' 'set -Eeuo pipefail'
     printf '%s\n' 'ROOT_DIR="$(git rev-parse --show-toplevel)"'
-    printf '%s\n' 'exec "$ROOT_DIR/tools/run-pre-commit-checks.sh"'
+    printf '%s\n' 'cd "$ROOT_DIR"'
+    printf '%s\n' "git show ':tools/run-pre-commit-checks.sh' | bash -s --"
 }
 
 managed_hook_matches() {

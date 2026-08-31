@@ -3,7 +3,6 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG_RELATIVE="tools/pre-commit-checks.json"
 SOURCE_PACKAGE_RELATIVE="tools/build-source-package.py"
 
@@ -37,6 +36,10 @@ command -v git >/dev/null 2>&1 || fail "git is required"
 command -v awk >/dev/null 2>&1 || fail "awk is required"
 command -v cmp >/dev/null 2>&1 || fail "cmp is required"
 
+if ! ROOT_DIR="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+    fail "cannot resolve the repository root"
+fi
+ROOT_DIR="$(cd "$ROOT_DIR" && pwd -P)"
 cd "$ROOT_DIR"
 
 PYTHON_BIN="$(command -v python3 || command -v python || true)"
@@ -266,7 +269,7 @@ failures=0
 
 printf '%s\n' 'MedCue staged pre-commit checks'
 
-if git diff --cached --check --no-ext-diff --no-textconv; then
+if git diff --cached --check --text --no-ext-diff --no-textconv; then
     printf '%s\n' '[PASS] staged whitespace check'
 else
     printf '%s\n' '[FAIL] staged whitespace check' >&2
@@ -274,7 +277,7 @@ else
     failures=$((failures + 1))
 fi
 
-git diff --cached --unified=0 --no-color --no-ext-diff --no-textconv -- >"$diff_file"
+git diff --cached --unified=0 --no-color --text --no-ext-diff --no-textconv -- >"$diff_file"
 awk '
     /^diff --git / { in_hunk = 0; next }
     /^@@ / { in_hunk = 1; next }

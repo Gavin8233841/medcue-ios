@@ -41,7 +41,7 @@ else
     printf '%s\n' 'warning: node is unavailable; JavaScript/JSON smoke checks skipped'
 fi
 
-git -C "$ROOT_DIR" diff --cached --check --no-ext-diff --no-textconv
+git -C "$ROOT_DIR" diff --cached --check --text --no-ext-diff --no-textconv
 "$CHECKER"
 
 run_fixture_boundary_tests() {
@@ -57,6 +57,8 @@ run_fixture_boundary_tests() {
     cp -p "$CHECKER" "$fixture/tools/run-pre-commit-checks.sh"
     cp -p "$INSTALLER" "$fixture/tools/install-hooks.sh"
     printf '%s\n' 'safe baseline content' >"$fixture/tools/fixture-textconv.txt"
+    printf '%s\n' 'safe binary baseline content' >"$fixture/tools/fixture-binary.txt"
+    printf '%s\n' 'fixture-binary.txt binary' >"$fixture/tools/.gitattributes"
 
     git -C "$fixture" init -q
     git -C "$fixture" config user.name 'MedCue fixture'
@@ -66,7 +68,9 @@ run_fixture_boundary_tests() {
         tools/build-source-package.py \
         tools/run-pre-commit-checks.sh \
         tools/install-hooks.sh \
-        tools/fixture-textconv.txt
+        tools/fixture-textconv.txt \
+        tools/fixture-binary.txt \
+        tools/.gitattributes
     git -C "$fixture" -c core.hooksPath=/dev/null commit --no-verify -qm baseline
     GIT_INDEX_FILE="$fixture_index" git -C "$fixture" read-tree HEAD
 
@@ -220,6 +224,11 @@ PY
     fixture_stage tools/fixture-textconv.txt
     fixture_expect_failure 'staged blob bypasses local textconv' 'absolute local path in added staged content'
     [[ ! -e "$textconv_marker" ]] || fail 'textconv driver was invoked while checking the staged blob'
+
+    fixture_reset_index
+    printf '%s\n' "$fake_local_path" >"$fixture/tools/fixture-binary.txt"
+    fixture_stage tools/fixture-binary.txt
+    fixture_expect_failure 'binary attribute bypasses path scan' 'absolute local path in added staged content'
 
     fixture_reset_index
     printf '%s\n' '{' >"$fixture/tools/fixture-invalid.json"
@@ -383,6 +392,20 @@ PY
         fail 'exact managed fixture hook did not pass --check'
     fi
     printf '[PASS] installer resolves and verifies a relative hooks path outside the repository\n'
+
+    fixture_reset_index
+    printf '%s\n' 'unsafe staged path' >"$fixture/unsafe.txt"
+    fixture_stage unsafe.txt
+    printf '%s\n' '#!/bin/sh' 'exit 0' >"$fixture/tools/run-pre-commit-checks.sh"
+    if output="$(cd "$fixture" && GIT_INDEX_FILE="$fixture_index" "$hook_path" 2>&1)"; then
+        fail 'managed hook executed the unchecked working-tree checker'
+    fi
+    if ! printf '%s\n' "$output" | grep -Fq -- 'outside the source-package allowlist'; then
+        printf '%s\n' "$output" >&2
+        fail 'managed hook did not execute the staged checker'
+    fi
+    cp -p "$CHECKER" "$fixture/tools/run-pre-commit-checks.sh"
+    printf '[PASS] managed hook executes the staged checker blob\n'
 
     printf '%s\n' '# medcue-pre-commit-managed' >"$hook_path"
     chmod +x "$hook_path"
