@@ -45,10 +45,12 @@ git -C "$ROOT_DIR" diff --cached --check --text --no-ext-diff --no-textconv
 "$CHECKER"
 
 run_fixture_boundary_tests() {
-    local temp_root fixture fixture_index output hook_path backup_count
+    local temp_root fixture fixture_physical fixture_index output hook_path backup_count
     local absolute_hooks absolute_hook_path linked_fixture shared_custom_hooks textconv_script textconv_marker fake_local_path
+    local symlink_hooks symlink_target absolute_symlink_hooks absolute_symlink_target
     temp_root="${TMPDIR:-/tmp}"
     fixture="$(mktemp -d "$temp_root/medcue-precommit-fixture.XXXXXX")"
+    fixture_physical="$(cd "$fixture" && pwd -P)"
     fixture_index="$fixture/isolated-index"
 
     mkdir -p "$fixture/tools"
@@ -90,7 +92,7 @@ run_fixture_boundary_tests() {
     [[ ! -e "$fixture/.git/hooks/pre-commit" ]] || fail 'linked-worktree installer created a shared hook'
     printf '[PASS] installer rejects the common hooks directory for linked worktrees\n'
 
-    shared_custom_hooks="$fixture/.git/custom-hooks"
+    shared_custom_hooks="$fixture_physical/.git/custom-hooks"
     git -C "$linked_fixture" config core.hooksPath "$shared_custom_hooks"
     [[ ! -e "$shared_custom_hooks" ]] || fail 'fixture shared custom hooks directory unexpectedly exists before check'
     if output="$(cd /tmp && "$linked_fixture/tools/install-hooks.sh" 2>&1)"; then
@@ -333,6 +335,39 @@ PY
         fail 'absolute fixture hook did not pass --check'
     fi
     printf '[PASS] installer resolves and verifies an absolute hooks path outside the repository\n'
+
+    symlink_target="$fixture_physical/.symlink-hook-target"
+    symlink_hooks="$fixture_physical/.symlink-hook-path"
+    mkdir -p "$symlink_target"
+    ln -s "$symlink_target" "$symlink_hooks"
+    git -C "$fixture" config core.hooksPath .symlink-hook-path
+    if output="$(cd /tmp && "$fixture/tools/install-hooks.sh" --check 2>&1)"; then
+        fail 'relative symlink hooks path unexpectedly passed installer --check'
+    fi
+    if ! printf '%s\n' "$output" | grep -Fq -- 'symbolic-link component'; then
+        printf '%s\n' "$output" >&2
+        fail 'relative symlink hooks path rejection was not explicit'
+    fi
+    if output="$(cd /tmp && "$fixture/tools/install-hooks.sh" 2>&1)"; then
+        fail 'relative symlink hooks path unexpectedly installed'
+    fi
+    [[ ! -e "$symlink_target/pre-commit" ]] || fail 'relative symlink hooks path wrote into its target'
+    printf '[PASS] installer rejects a relative symlink hooks directory\n'
+
+    absolute_symlink_target="$fixture_physical/.absolute-symlink-hook-target"
+    absolute_symlink_hooks="$fixture_physical/.absolute-symlink-hook-path"
+    mkdir -p "$absolute_symlink_target"
+    ln -s "$absolute_symlink_target" "$absolute_symlink_hooks"
+    git -C "$fixture" config core.hooksPath "$absolute_symlink_hooks"
+    if output="$(cd /tmp && "$fixture/tools/install-hooks.sh" --check 2>&1)"; then
+        fail 'absolute symlink hooks path unexpectedly passed installer --check'
+    fi
+    if ! printf '%s\n' "$output" | grep -Fq -- 'symbolic-link component'; then
+        printf '%s\n' "$output" >&2
+        fail 'absolute symlink hooks path rejection was not explicit'
+    fi
+    [[ ! -e "$absolute_symlink_target/pre-commit" ]] || fail 'absolute symlink hooks path wrote into its target'
+    printf '[PASS] installer rejects an absolute symlink hooks directory\n'
 
     git -C "$fixture" config core.hooksPath .symlink-hooks
     mkdir -p "$fixture/.symlink-hooks"

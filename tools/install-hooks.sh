@@ -25,6 +25,14 @@ fail() {
 if ! HOOKS_PATH="$(git -C "$ROOT_DIR" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)"; then
     fail "Git hooks path is disabled or cannot be resolved for $ROOT_DIR"
 fi
+CONFIGURED_HOOKS_PATH=''
+if CONFIGURED_HOOKS_PATH="$(git -C "$ROOT_DIR" config --get core.hooksPath 2>/dev/null)"; then
+    case "$CONFIGURED_HOOKS_PATH" in
+        *$'\n'*|*$'\r'*)
+            fail "Git hooks path contains a control character: $CONFIGURED_HOOKS_PATH"
+            ;;
+    esac
+fi
 if ! REPO_GIT_DIR="$(git -C "$ROOT_DIR" rev-parse --path-format=absolute --git-dir 2>/dev/null)" ||
     ! COMMON_GIT_DIR="$(git -C "$ROOT_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; then
     fail "cannot resolve Git worktree directories for $ROOT_DIR"
@@ -41,6 +49,60 @@ case "$HOOKS_PATH" in
     *) HOOK_DIR="$ROOT_DIR/$HOOKS_PATH" ;;
 esac
 HOOK_PATH="$HOOK_DIR/pre-commit"
+
+reject_symlink_components() {
+    local path="$1"
+    local remainder component current physical_current resolved
+
+    [[ "$path" == /* ]] || return 0
+    remainder="${path#/}"
+    current="/"
+    physical_current="/"
+    while [[ -n "$remainder" ]]; do
+        case "$remainder" in
+            */*)
+                component="${remainder%%/*}"
+                remainder="${remainder#*/}"
+                ;;
+            *)
+                component="$remainder"
+                remainder=''
+                ;;
+        esac
+        [[ -n "$component" ]] || continue
+        if [[ "$current" == "/" ]]; then
+            current="/$component"
+        else
+            current="$current/$component"
+        fi
+        if [[ -L "$current" ]]; then
+            if [[ "$physical_current" == "$ROOT_DIR" || "$physical_current" == "$ROOT_DIR"/* ]]; then
+                fail "Git hooks path contains a symbolic-link component: $current"
+            fi
+            if ! resolved="$(cd "$current" 2>/dev/null && pwd -P)"; then
+                fail "Git hooks path contains an unresolvable symbolic-link component: $current"
+            fi
+            if [[ "$ROOT_DIR" != "$resolved" && "$ROOT_DIR" != "$resolved"/* &&
+                "$COMMON_GIT_DIR" != "$resolved" && "$COMMON_GIT_DIR" != "$resolved"/* ]]; then
+                fail "Git hooks path contains a symbolic-link component: $current"
+            fi
+            physical_current="$resolved"
+        elif [[ -d "$current" ]]; then
+            physical_current="$(cd "$current" && pwd -P)"
+        else
+            physical_current="$physical_current/$component"
+        fi
+    done
+}
+
+if [[ -n "$CONFIGURED_HOOKS_PATH" ]]; then
+    case "$CONFIGURED_HOOKS_PATH" in
+        /*) CONFIGURED_HOOKS_DIR="$CONFIGURED_HOOKS_PATH" ;;
+        *) CONFIGURED_HOOKS_DIR="$ROOT_DIR/$CONFIGURED_HOOKS_PATH" ;;
+    esac
+    reject_symlink_components "$CONFIGURED_HOOKS_DIR"
+fi
+reject_symlink_components "$HOOK_DIR"
 
 if [[ "$REPO_GIT_DIR" != "$COMMON_GIT_DIR" && ( "$HOOKS_PATH" == "$COMMON_GIT_DIR" || "$HOOKS_PATH" == "$COMMON_GIT_DIR"/* ) ]]; then
     fail "refusing a hooks path inside the shared Git directory for a linked worktree: $HOOKS_PATH; configure a worktree-specific core.hooksPath"
@@ -89,6 +151,7 @@ if [[ "$check_only" == 1 ]]; then
 fi
 
 mkdir -p "$HOOK_DIR"
+reject_symlink_components "$HOOK_DIR"
 
 if [[ -L "$HOOK_PATH" ]]; then
     fail "refusing to replace a symbolic-link hook: $HOOK_PATH"
