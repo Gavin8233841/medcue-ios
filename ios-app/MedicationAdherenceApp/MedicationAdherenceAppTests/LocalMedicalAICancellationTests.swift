@@ -85,6 +85,61 @@ struct LocalMedicalAICancellationTests {
     }
 
     @Test
+    func cancellationSuppressesLateNonCancellationError() async {
+        let runtime = CancellationFakeRuntime(plans: [
+            StreamPlan(
+                deltas: ["<answer>今天", "可以核对", "提醒并", "及时记录", "处理情况。</answer>"],
+                gap: .milliseconds(40),
+                failure: .runtimeUnavailable,
+                ignoreCancellation: true
+            )
+        ])
+        let client = LocalMedicalAIClient(
+            modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"),
+            runtime: runtime
+        )
+        let collector = EventCollector()
+        let consumer = consume(client: client, into: collector)
+        #expect(await waitUntil { await collector.answerDeltaCount >= 1 })
+        consumer.cancel()
+        await consumer.value
+        try? await Task.sleep(for: .milliseconds(300))
+
+        #expect(await collector.failureCount == 0)
+        #expect(await collector.completionCount == 0)
+        #expect(await runtime.terminationCount == 1)
+    }
+
+    @Test
+    func cancellationBetweenParserEventsStopsTheRemainingEvents() async {
+        let runtime = CancellationFakeRuntime(plans: [
+            StreamPlan(
+                initialDelay: .milliseconds(100),
+                deltas: ["<think>先核对记录。</think><answer>今天按提醒核对。</answer>"]
+            )
+        ])
+        let client = LocalMedicalAIClient(
+            modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"),
+            runtime: runtime
+        )
+        let collector = EventCollector()
+        let handle = ConsumerHandle()
+        let consumer = consume(client: client, into: collector) { event in
+            if case .thinkingStarted = event {
+                await handle.cancel()
+            }
+        }
+        await handle.install(consumer)
+        #expect(await waitUntil { await collector.thinkingStartedCount == 1 })
+        await consumer.value
+
+        #expect(await collector.answerDeltaCount == 0)
+        #expect(await collector.completionCount == 0)
+        #expect(await collector.failureCount == 0)
+        #expect(await runtime.terminationCount == 1)
+    }
+
+    @Test
     func runtimeStreamCleanupRunsExactlyOncePerRequest() async {
         let runtime = CancellationFakeRuntime(plans: [
             StreamPlan(
@@ -184,13 +239,15 @@ struct LocalMedicalAICancellationTests {
 
     private func consume(
         client: LocalMedicalAIClient,
-        into collector: EventCollector
+        into collector: EventCollector,
+        afterEvent: (@Sendable (LocalLLMGenerationEvent) async -> Void)? = nil
     ) -> Task<Void, Never> {
         Task {
             let stream = client.streamResponse(to: Self.request())
             do {
                 for try await event in stream {
                     await collector.record(event)
+                    await afterEvent?(event)
                 }
             } catch {
                 await collector.recordError(error)
@@ -325,6 +382,15 @@ private actor EventCollector {
         }.count
     }
 
+    var thinkingStartedCount: Int {
+        events.filter { event in
+            if case .thinkingStarted = event {
+                return true
+            }
+            return false
+        }.count
+    }
+
     var failureCount: Int {
         events.filter { event in
             if case .generationFailed = event {
@@ -345,5 +411,17 @@ private actor EventCollector {
             }
             return nil
         }
+    }
+}
+
+private actor ConsumerHandle {
+    private var task: Task<Void, Never>?
+
+    func install(_ task: Task<Void, Never>) {
+        self.task = task
+    }
+
+    func cancel() {
+        task?.cancel()
     }
 }
