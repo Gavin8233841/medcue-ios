@@ -29,19 +29,27 @@ actor LocalMedicalModelRuntime: LocalMedicalGenerating {
 
     func generateResponse(prompt: String, modelURL: URL, maxTokens: Int) async throws -> String {
         #if canImport(llama)
-        try Task.checkCancellation()
-        let context = try LlamaCppContext(modelURL: modelURL)
-        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPrompt.isEmpty else {
-            throw LocalMedicalAIError.emptyResponse
+        do {
+            try Task.checkCancellation()
+            let context = try LlamaCppContext(modelURL: modelURL)
+            let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedPrompt.isEmpty else {
+                throw LocalMedicalAIError.emptyResponse
+            }
+            let response = try context.generate(prompt: trimmedPrompt, maxTokens: maxTokens)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !response.isEmpty else {
+                throw LocalMedicalAIError.emptyResponse
+            }
+            return response
+        } catch {
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+            throw error
         }
-        let response = try context.generate(prompt: trimmedPrompt, maxTokens: maxTokens)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !response.isEmpty else {
-            throw LocalMedicalAIError.emptyResponse
-        }
-        return response
         #else
+        try Task.checkCancellation()
         throw LocalMedicalAIError.runtimeUnavailable
         #endif
     }
@@ -69,7 +77,11 @@ actor LocalMedicalModelRuntime: LocalMedicalGenerating {
                     throw LocalMedicalAIError.runtimeUnavailable
                     #endif
                 } catch {
-                    continuation.finish(throwing: error)
+                    if Task.isCancelled {
+                        continuation.finish(throwing: CancellationError())
+                    } else {
+                        continuation.finish(throwing: error)
+                    }
                 }
             }
             continuation.onTermination = { @Sendable _ in
@@ -187,7 +199,9 @@ private final class LlamaCppContext {
             try Task.checkCancellation()
         }
 
+        try Task.checkCancellation()
         output += flushPendingUTF8Bytes()
+        try Task.checkCancellation()
         return output
     }
 

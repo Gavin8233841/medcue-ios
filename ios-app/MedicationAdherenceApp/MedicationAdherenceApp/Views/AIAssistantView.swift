@@ -562,6 +562,7 @@ struct AIAssistantView: View {
             localStreamingResponse = nil
             archiveOlderVisibleConversationIfNeeded()
         } catch is CancellationError {
+            guard activeAIRequestID == executionID else { return }
             localStreamingResponse = nil
             return
         } catch {
