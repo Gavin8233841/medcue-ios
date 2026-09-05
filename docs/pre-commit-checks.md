@@ -15,7 +15,10 @@ bash tools/test-pre-commit-system.sh
 After installation, a normal `git commit` runs
 `tools/run-pre-commit-checks.sh` automatically.
 
-The installer honors Git's configured relative or absolute `core.hooksPath`.
+The installer honors a repository-local or worktree-local Git
+`core.hooksPath`, whether relative or absolute. Global, system, command, and
+unknown-scope values are rejected before any hook path is created or modified;
+this prevents one checkout from replacing a hook shared by other repositories.
 An empty path or a path that resolves to the repository root is rejected so a
 disabled configuration cannot cause a root-level `pre-commit` file to be
 created. Existing hooks are backed up and replaced through a same-directory
@@ -40,7 +43,9 @@ creates or verifies a hook.
 - Added staged lines are checked for common local-machine path roots and
   Windows drive paths. Use `<PROJECT_ROOT>` or another sanitized placeholder
   in committed examples. The tracked configuration stores symbolic rule IDs so
-  the policy itself does not contain a machine path.
+  the policy itself does not contain a machine path. Failure diagnostics report
+  only a safely escaped staged path, line number, and rule ID; staged line
+  contents, whitespace output, and Node.js parser context are suppressed.
 - Staged paths must remain inside the repository's checked-in source-package
   allowlist. The checked-in policy is cross-checked against the exact
   `tools/build-source-package.py` source-package policy, so drift fails the
@@ -50,7 +55,9 @@ creates or verifies a hook.
   only when their exact extension is enabled by that list.
 
 The checker only reads the index. It never runs a repository-wide formatter or
-bulk `sed` rewrite, so unrelated user changes remain untouched.
+bulk `sed` rewrite, so unrelated user changes remain untouched. Its small
+diagnostic files are retained under one clearly reported temporary directory
+for inspection rather than removed by a cleanup sweep.
 
 The installed hook executes the staged checker blob from the Git index. The
 checker then reads policy, source-package allowlist, staged paths, and staged

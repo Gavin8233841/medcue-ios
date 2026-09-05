@@ -48,45 +48,28 @@ if ! "$PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3,
     fail "Python 3.8 or newer is required to read the checked-in allowlist configuration"
 fi
 
-policy_file=''
-source_policy_file=''
-records_file=''
-patterns_file=''
-diff_file=''
-added_file=''
-files_file=''
-unmerged_file=''
-cleanup() {
-    [[ -z "$policy_file" ]] || rm -f "$policy_file"
-    [[ -z "$source_policy_file" ]] || rm -f "$source_policy_file"
-    [[ -z "$records_file" ]] || rm -f "$records_file"
-    [[ -z "$patterns_file" ]] || rm -f "$patterns_file"
-    [[ -z "$diff_file" ]] || rm -f "$diff_file"
-    [[ -z "$added_file" ]] || rm -f "$added_file"
-    [[ -z "$files_file" ]] || rm -f "$files_file"
-    [[ -z "$unmerged_file" ]] || rm -f "$unmerged_file"
+temporary_root="$(mktemp -d "${TMPDIR:-/tmp}/medcue-precommit.XXXXXX")"
+report_temporary_files() {
+    LC_ALL=C printf 'pre-commit diagnostic files retained for inspection: %q\n' "$temporary_root"
 }
-trap cleanup EXIT
+trap report_temporary_files EXIT
+policy_file="$temporary_root/policy"
+source_policy_file="$temporary_root/source-policy"
+records_file="$temporary_root/records"
+patterns_file="$temporary_root/patterns"
+files_file="$temporary_root/paths"
+unmerged_file="$temporary_root/unmerged"
 
-policy_file="$(mktemp -t medcue-precommit-policy.XXXXXX)"
-source_policy_file="$(mktemp -t medcue-precommit-source-policy.XXXXXX)"
-records_file="$(mktemp -t medcue-precommit-records.XXXXXX)"
-patterns_file="$(mktemp -t medcue-precommit-patterns.XXXXXX)"
-diff_file="$(mktemp -t medcue-precommit-diff.XXXXXX)"
-added_file="$(mktemp -t medcue-precommit-added.XXXXXX)"
-files_file="$(mktemp -t medcue-precommit-files.XXXXXX)"
-unmerged_file="$(mktemp -t medcue-precommit-unmerged.XXXXXX)"
-
-if ! git ls-files --unmerged -z -- >"$unmerged_file"; then
+if ! git ls-files --unmerged -z -- >"$unmerged_file" 2>/dev/null; then
     fail "cannot inspect the staged index for unmerged entries"
 fi
 if [[ -s "$unmerged_file" ]]; then
     fail "staged index contains unmerged entries; resolve conflicts before running staged checks"
 fi
 
-git show ":$CONFIG_RELATIVE" >"$policy_file" ||
+git show ":$CONFIG_RELATIVE" >"$policy_file" 2>/dev/null ||
     fail "staged configuration is missing: $CONFIG_RELATIVE"
-git show ":$SOURCE_PACKAGE_RELATIVE" >"$source_policy_file" ||
+git show ":$SOURCE_PACKAGE_RELATIVE" >"$source_policy_file" 2>/dev/null ||
     fail "staged source-package builder is missing: $SOURCE_PACKAGE_RELATIVE"
 
 "$PYTHON_BIN" - "$policy_file" "$source_policy_file" >"$records_file" <<'PY'
@@ -101,8 +84,8 @@ try:
         data = json.load(handle)
     with open(source_package_path, encoding="utf-8") as handle:
         source_package_text = handle.read()
-except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-    raise SystemExit(f"cannot read staged policy sources: {exc}")
+except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+    raise SystemExit("cannot read staged policy sources; check their encoding and JSON syntax")
 
 if not isinstance(data, dict) or data.get("schemaVersion") != 1:
     raise SystemExit("unsupported or missing pre-commit policy schemaVersion")
@@ -126,8 +109,8 @@ for pattern_id in pattern_ids:
     try:
         pattern = patterns[pattern_id]
     except KeyError as exc:
-        raise SystemExit(f"unknown absolute path pattern id: {pattern_id}") from exc
-    print(f"absolute\t{pattern}")
+        raise SystemExit("unknown absolute path pattern id") from exc
+    print(f"absolute\t{pattern_id}\t{pattern}")
 
 syntax_parsers = {
     ".js": "javascript",
@@ -145,9 +128,9 @@ if (
     raise SystemExit("syntaxExtensions must be a non-empty list without duplicates")
 for extension in syntax_extensions:
     if not isinstance(extension, str) or not re.fullmatch(r"\.[A-Za-z0-9]+", extension):
-        raise SystemExit(f"invalid syntax extension: {extension!r}")
+        raise SystemExit("invalid syntax extension")
     if extension not in syntax_parsers:
-        raise SystemExit(f"unsupported syntax extension: {extension}")
+        raise SystemExit("unsupported syntax extension")
     print(f"syntax\t{extension}")
 
 def assignment_value(module, name):
@@ -168,13 +151,13 @@ def assignment_value(module, name):
         raise SystemExit(f"expected exactly one literal {name} assignment in build-source-package.py")
     try:
         return ast.literal_eval(matches[0])
-    except (TypeError, ValueError, SyntaxError) as exc:
-        raise SystemExit(f"{name} must be a literal collection in build-source-package.py: {exc}")
+    except (TypeError, ValueError, SyntaxError):
+        raise SystemExit(f"{name} must be a literal collection in build-source-package.py")
 
 try:
     source_module = ast.parse(source_package_text, filename=source_package_path)
-except (SyntaxError, ValueError) as exc:
-    raise SystemExit(f"staged source-package builder is not valid Python: {exc}")
+except (SyntaxError, ValueError):
+    raise SystemExit("staged source-package builder is not valid Python")
 builder_roots = assignment_value(source_module, "ROOT_FILES")
 builder_prefixes = assignment_value(source_module, "ALLOWED_PREFIXES")
 allowlist = policy.get("sourcePackageAllowlist")
@@ -201,30 +184,22 @@ builder_prefixes = collection("ALLOWED_PREFIXES", builder_prefixes, (set, list, 
 def validate_relative_paths(name, values, require_trailing_slash):
     for item in values:
         if not item or item.startswith("/") or "\\" in item or ":" in item:
-            raise SystemExit(f"{name} contains an empty or absolute path: {item!r}")
+            raise SystemExit(f"{name} contains an empty or absolute path")
         components = item[:-1].split("/") if require_trailing_slash and item.endswith("/") else item.split("/")
         if require_trailing_slash:
             if not item.endswith("/") or not components:
-                raise SystemExit(f"{name} entries must end with '/': {item!r}")
+                raise SystemExit(f"{name} entries must end with '/'")
         if any(component in {"", ".", ".."} for component in components):
-            raise SystemExit(f"{name} contains an unsafe relative path: {item!r}")
+            raise SystemExit(f"{name} contains an unsafe relative path")
 
 validate_relative_paths("rootFiles", config_roots, False)
 validate_relative_paths("prefixes", config_prefixes, True)
 validate_relative_paths("ROOT_FILES", builder_roots, False)
 validate_relative_paths("ALLOWED_PREFIXES", builder_prefixes, True)
 if set(config_roots) != set(builder_roots):
-    raise SystemExit(
-        "source-package root-file policy drift: "
-        f"config-only={sorted(set(config_roots) - set(builder_roots))}, "
-        f"builder-only={sorted(set(builder_roots) - set(config_roots))}"
-    )
+    raise SystemExit("source-package root-file policy drift; align the two staged policies")
 if set(config_prefixes) != set(builder_prefixes):
-    raise SystemExit(
-        "source-package prefix policy drift: "
-        f"config-only={sorted(set(config_prefixes) - set(builder_prefixes))}, "
-        f"builder-only={sorted(set(builder_prefixes) - set(config_prefixes))}"
-    )
+    raise SystemExit("source-package prefix policy drift; align the two staged policies")
 for path in config_roots:
     print(f"root\t{path}")
 for prefix in config_prefixes:
@@ -279,77 +254,92 @@ failures=0
 
 printf '%s\n' 'MedCue staged pre-commit checks'
 
-if git diff --cached --check --text --no-ext-diff --no-textconv; then
+whitespace_failed=0
+if git diff --cached --check --text --no-ext-diff --no-textconv >/dev/null 2>&1; then
     printf '%s\n' '[PASS] staged whitespace check'
 else
     printf '%s\n' '[FAIL] staged whitespace check' >&2
-    printf '%s\n' 'Fix the reported lines before committing; no files were rewritten automatically.' >&2
+    printf '%s\n' 'Rule staged-whitespace: fix whitespace errors in the index; source context is not printed.' >&2
+    whitespace_failed=1
     failures=$((failures + 1))
 fi
 
-if ! git diff --cached --unified=0 --no-color --text --no-ext-diff --no-textconv -- >"$diff_file"; then
-    fail "staged diff scan failed"
+# Only post-image paths need allowlist and content checks. Treat renames as a
+# deletion and an addition so Git's rename threshold cannot change coverage.
+if ! git diff --cached --name-only --diff-filter=ACMRT --no-renames -z -- >"$files_file" 2>/dev/null; then
+    fail "cannot enumerate staged paths"
 fi
-if ! "$PYTHON_BIN" - "$diff_file" "$added_file" <<'PY'
-import sys
-
-diff_path, added_path = sys.argv[1:3]
-try:
-    saw_diff = False
-    in_hunk = False
-    with open(diff_path, "rb") as source, open(added_path, "wb") as added:
-        for line in source:
-            if line.startswith(b"diff --git "):
-                saw_diff = True
-                in_hunk = False
-                continue
-            if line.startswith(b"@@ "):
-                if not saw_diff:
-                    raise ValueError("hunk appears before a diff header")
-                in_hunk = True
-                continue
-            if in_hunk and line.startswith(b"+"):
-                added.write(line[1:])
-except (OSError, ValueError) as exc:
-    print(f"staged diff scan failed: {exc}", file=sys.stderr)
-    raise SystemExit(2)
-PY
-then
-    fail "staged diff scan failed"
-fi
-if "$PYTHON_BIN" - "$patterns_file" "$added_file" <<'PY'
+if "$PYTHON_BIN" - "$patterns_file" "$files_file" "$whitespace_failed" <<'PY'
+import json
+import os
 import re
+import subprocess
 import sys
 
-patterns_path, added_path = sys.argv[1:3]
+patterns_path, files_path = sys.argv[1:3]
+whitespace_failed = sys.argv[3] == "1"
 try:
     with open(patterns_path, "rb") as handle:
-        patterns = [
-            re.compile(line.rstrip(b"\n"))
-            for line in handle
-            if line.rstrip(b"\n")
-        ]
+        patterns = []
+        for record in handle:
+            rule_id, pattern = record.rstrip(b"\n").split(b"\t", 1)
+            patterns.append((rule_id.decode("ascii"), re.compile(pattern)))
+    with open(files_path, "rb") as handle:
+        paths = [path for path in handle.read().split(b"\0") if path]
+    hunk_header = re.compile(rb"^@@ -[0-9]+(?:,[0-9]+)? \+([0-9]+)(?:,[0-9]+)? @@")
     matched = False
-    with open(added_path, "rb") as handle:
-        for line in handle:
-            if not any(pattern.search(line) for pattern in patterns):
+    for path in paths:
+        # Read one literal path at a time, keeping its bytes separate from the
+        # patch headers. Neither unusual names nor staged text reach diagnostics.
+        result = subprocess.run(
+            ["git", "--literal-pathspecs", "diff", "--cached", "--unified=0",
+             "--no-color", "--text", "--no-ext-diff", "--no-textconv",
+             "--no-renames", "--", os.fsdecode(path)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+        )
+        if result.returncode:
+            raise ValueError("diff failed")
+        safe_path = json.dumps(os.fsdecode(path), ensure_ascii=True)
+        if whitespace_failed:
+            whitespace = subprocess.run(
+                ["git", "--literal-pathspecs", "diff", "--cached", "--check",
+                 "--text", "--no-ext-diff", "--no-textconv", "--", os.fsdecode(path)],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+            )
+            if whitespace.returncode:
+                print(f"[FAIL] path={safe_path} rule=staged-whitespace", file=sys.stderr)
+        new_line = None
+        for line in result.stdout.split(b"\n"):
+            if line.startswith(b"diff --git "):
+                new_line = None
                 continue
-            if not matched:
-                sys.stderr.buffer.write(
-                    b"[FAIL] absolute local path in added staged content\n"
-                )
-                matched = True
-            sys.stderr.buffer.write(line)
-            if not line.endswith(b"\n"):
-                sys.stderr.buffer.write(b"\n")
+            if line.startswith(b"@@ "):
+                header = hunk_header.match(line)
+                if header is None:
+                    raise ValueError("invalid hunk header")
+                new_line = int(header.group(1))
+                continue
+            if new_line is None:
+                continue
+            if line.startswith(b"+"):
+                for rule_id, pattern in patterns:
+                    if pattern.search(line[1:]):
+                        matched = True
+                        print(
+                            "[FAIL] absolute local path in added staged content: "
+                            f"path={safe_path} line={new_line} rule={rule_id}",
+                            file=sys.stderr,
+                        )
+            if line.startswith((b"+", b" ")):
+                new_line += 1
     if matched:
         sys.stderr.write(
             "Replace local machine paths with <PROJECT_ROOT> or another "
             "sanitized placeholder.\n"
         )
         raise SystemExit(1)
-except (OSError, re.error) as exc:
-    print(f"absolute path scan failed: {exc}", file=sys.stderr)
+except (OSError, ValueError, re.error):
+    print("absolute path scan failed; staged source context is not printed", file=sys.stderr)
     raise SystemExit(2)
 PY
 then
@@ -362,8 +352,6 @@ else
         fail "absolute path scan failed (status $scan_status)"
     fi
 fi
-
-git diff --cached --name-only --diff-filter=ACMRT -z -- >"$files_file"
 
 path_allowed() {
     local path="$1"
@@ -379,11 +367,17 @@ path_allowed() {
     return 1
 }
 
+quote_path() {
+    # C-locale shell escaping covers control bytes, invalid UTF-8 and bidi text.
+    LC_ALL=C printf '%q' "$1"
+}
+
 while IFS= read -r -d '' path; do
+    display_path="$(quote_path "$path")"
     if path_allowed "$path"; then
-        printf '[PASS] allowlisted staged path: %s\n' "$path"
+        printf '[PASS] allowlisted staged path: %s\n' "$display_path"
     else
-        printf '[FAIL] staged path is outside the source-package allowlist: %s\n' "$path" >&2
+        printf '[FAIL] staged path is outside the source-package allowlist: %s\n' "$display_path" >&2
         failures=$((failures + 1))
     fi
 done <"$files_file"
@@ -405,28 +399,29 @@ fi
 if [[ "$node_required" == 1 ]] && command -v node >/dev/null 2>&1; then
     while IFS= read -r -d '' path; do
         syntax_enabled_for_path "$path" || continue
+        display_path="$(quote_path "$path")"
         case "$path" in
             *.json)
-                if git show ":$path" | node -e 'let input=""; process.stdin.setEncoding("utf8"); process.stdin.on("data", chunk => { input += chunk; }); process.stdin.on("end", () => JSON.parse(input));' 2>&1; then
-                    printf '[PASS] JSON syntax: %s\n' "$path"
+                if git show ":$path" 2>/dev/null | node -e 'let input=""; process.stdin.setEncoding("utf8"); process.stdin.on("data", chunk => { input += chunk; }); process.stdin.on("end", () => JSON.parse(input));' >/dev/null 2>&1; then
+                    printf '[PASS] JSON syntax: %s\n' "$display_path"
                 else
-                    printf '[FAIL] JSON syntax: %s\n' "$path" >&2
+                    printf '[FAIL] JSON syntax: %s (rule json-syntax; source context suppressed)\n' "$display_path" >&2
                     failures=$((failures + 1))
                 fi
                 ;;
             *.mjs)
-                if git show ":$path" | node --check --input-type=module - 2>&1; then
-                    printf '[PASS] JavaScript syntax: %s\n' "$path"
+                if git show ":$path" 2>/dev/null | node --check --input-type=module - >/dev/null 2>&1; then
+                    printf '[PASS] JavaScript syntax: %s\n' "$display_path"
                 else
-                    printf '[FAIL] JavaScript syntax: %s\n' "$path" >&2
+                    printf '[FAIL] JavaScript syntax: %s (rule javascript-syntax; source context suppressed)\n' "$display_path" >&2
                     failures=$((failures + 1))
                 fi
                 ;;
             *.js|*.cjs)
-                if git show ":$path" | node --check - 2>&1; then
-                    printf '[PASS] JavaScript syntax: %s\n' "$path"
+                if git show ":$path" 2>/dev/null | node --check - >/dev/null 2>&1; then
+                    printf '[PASS] JavaScript syntax: %s\n' "$display_path"
                 else
-                    printf '[FAIL] JavaScript syntax: %s\n' "$path" >&2
+                    printf '[FAIL] JavaScript syntax: %s (rule javascript-syntax; source context suppressed)\n' "$display_path" >&2
                     failures=$((failures + 1))
                 fi
                 ;;

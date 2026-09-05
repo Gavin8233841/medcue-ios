@@ -22,16 +22,33 @@ fail() {
     exit 2
 }
 
-if ! HOOKS_PATH="$(git -C "$ROOT_DIR" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)"; then
-    fail "Git hooks path is disabled or cannot be resolved for $ROOT_DIR"
-fi
 CONFIGURED_HOOKS_PATH=''
-if CONFIGURED_HOOKS_PATH="$(git -C "$ROOT_DIR" config --get core.hooksPath 2>/dev/null)"; then
+# Keep the NUL-delimited scope/origin/value fields separate, including empty
+# values. A command failure must not be mistaken for an unset hooks path.
+hooks_config_fields=()
+while IFS= read -r -d '' field; do
+    hooks_config_fields[${#hooks_config_fields[@]}]="$field"
+done < <(
+    config_status=0
+    git -C "$ROOT_DIR" config --null --show-scope --show-origin --get core.hooksPath 2>/dev/null || config_status=$?
+    printf '%s\0' "$config_status"
+)
+if [[ ${#hooks_config_fields[@]} -eq 4 && "${hooks_config_fields[3]}" == 0 ]]; then
+    case "${hooks_config_fields[0]}" in
+        local|worktree) ;;
+        *) fail 'refusing core.hooksPath from global, system, command, or unknown scope; configure a repository-local or worktree-specific path explicitly' ;;
+    esac
+    CONFIGURED_HOOKS_PATH="${hooks_config_fields[2]}"
     case "$CONFIGURED_HOOKS_PATH" in
-        *$'\n'*|*$'\r'*)
-            fail "Git hooks path contains a control character: $CONFIGURED_HOOKS_PATH"
+        *[[:cntrl:]]*)
+            fail 'Git hooks path contains a control character'
             ;;
     esac
+elif [[ ${#hooks_config_fields[@]} -ne 1 || "${hooks_config_fields[0]}" != 1 ]]; then
+    fail 'cannot verify the effective Git hooks path configuration scope'
+fi
+if ! HOOKS_PATH="$(git -C "$ROOT_DIR" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)"; then
+    fail "Git hooks path is disabled or cannot be resolved for $ROOT_DIR"
 fi
 if ! REPO_GIT_DIR="$(git -C "$ROOT_DIR" rev-parse --path-format=absolute --git-dir 2>/dev/null)" ||
     ! COMMON_GIT_DIR="$(git -C "$ROOT_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; then
@@ -42,18 +59,18 @@ case "$HOOKS_PATH" in
     ''|.|./|"$ROOT_DIR")
         fail "Git hooks path is disabled or resolves to the repository root: $HOOKS_PATH"
         ;;
-    *$'\n'*|*$'\r'*)
-        fail "Git hooks path contains a control character: $HOOKS_PATH"
+    *[[:cntrl:]]*)
+        fail 'Git hooks path contains a control character'
         ;;
     /*) HOOK_DIR="$HOOKS_PATH" ;;
     *) HOOK_DIR="$ROOT_DIR/$HOOKS_PATH" ;;
 esac
 HOOK_PATH="$HOOK_DIR/pre-commit"
 temporary_hook=''
-cleanup_temporary_hook() {
-    [[ -z "$temporary_hook" ]] || rm -f "$temporary_hook"
+report_temporary_hook() {
+    [[ -z "$temporary_hook" ]] || printf 'temporary hook retained for inspection: %q\n' "$temporary_hook" >&2
 }
-trap cleanup_temporary_hook EXIT
+trap report_temporary_hook EXIT
 
 reject_symlink_components() {
     local path="$1"

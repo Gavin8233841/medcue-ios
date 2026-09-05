@@ -44,17 +44,30 @@ fi
 git -C "$ROOT_DIR" diff --cached --check --text --no-ext-diff --no-textconv
 "$CHECKER"
 
-run_fixture_boundary_tests() {
+run_fixture_boundary_tests() (
+    # Do not allow the fixture to inherit any user Git configuration or hooks.
+    export GIT_CONFIG_SYSTEM=/dev/null
+    export GIT_CONFIG_GLOBAL=/dev/null
+    export GIT_CONFIG_NOSYSTEM=1
+    unset GIT_CONFIG_PARAMETERS GIT_CONFIG GIT_DIR GIT_COMMON_DIR GIT_WORK_TREE GIT_INDEX_FILE
+    unset GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_TEMPLATE_DIR GIT_CONFIG_COUNT
+    for injected_key in GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0 GIT_CONFIG_KEY_1 GIT_CONFIG_VALUE_1 GIT_CONFIG_KEY_2 GIT_CONFIG_VALUE_2 GIT_CONFIG_KEY_3 GIT_CONFIG_VALUE_3 GIT_CONFIG_KEY_4 GIT_CONFIG_VALUE_4 GIT_CONFIG_KEY_5 GIT_CONFIG_VALUE_5 GIT_CONFIG_KEY_6 GIT_CONFIG_VALUE_6 GIT_CONFIG_KEY_7 GIT_CONFIG_VALUE_7 GIT_CONFIG_KEY_8 GIT_CONFIG_VALUE_8 GIT_CONFIG_KEY_9 GIT_CONFIG_VALUE_9; do
+        unset "$injected_key"
+    done
     local temp_root fixture fixture_physical fixture_index output hook_path backup_count
     local absolute_hooks absolute_hook_path linked_fixture shared_custom_hooks textconv_script textconv_marker fake_local_path
     local symlink_hooks symlink_target absolute_symlink_hooks absolute_symlink_target fake_bin
     local external_hooks_parent external_hooks_link conflict_sha hardlink_hooks hardlink_target
+    local synthetic_marker fixture_output ambient_global ambient_system scope_hooks type_blob
     temp_root="${TMPDIR:-/tmp}"
     fixture="$(mktemp -d "$temp_root/medcue-precommit-fixture.XXXXXX")"
     fixture_physical="$(cd "$fixture" && pwd -P)"
     fixture_index="$fixture/isolated-index"
+    synthetic_marker='SYNTHETIC_STAGED_CONTENT_SENTINEL'
+    fixture_output="$fixture/last-check-output"
 
     mkdir -p "$fixture/tools"
+    mkdir -p "$fixture/empty-template"
     cp -p "$CONFIG_FILE" "$fixture/tools/pre-commit-checks.json"
     cp -p "$ROOT_DIR/tools/build-source-package.py" "$fixture/tools/build-source-package.py"
     cp -p "$CHECKER" "$fixture/tools/run-pre-commit-checks.sh"
@@ -62,8 +75,11 @@ run_fixture_boundary_tests() {
     printf '%s\n' 'safe baseline content' >"$fixture/tools/fixture-textconv.txt"
     printf '%s\n' 'safe binary baseline content' >"$fixture/tools/fixture-binary.txt"
     printf '%s\n' 'fixture-binary.txt binary' >"$fixture/tools/.gitattributes"
+    printf '%s\n' 'regular type baseline' >"$fixture/tools/fixture-type-regular.txt"
+    ln -s fixture-type-regular.txt "$fixture/tools/fixture-type-link.txt"
 
-    git -C "$fixture" init -q
+    git -C "$fixture" init --template="$fixture/empty-template" -q
+    mkdir -p "$fixture/.git/info"
     git -C "$fixture" config user.name 'MedCue fixture'
     git -C "$fixture" config user.email 'fixture@example.invalid'
     git -C "$fixture" add -- \
@@ -73,7 +89,9 @@ run_fixture_boundary_tests() {
         tools/install-hooks.sh \
         tools/fixture-textconv.txt \
         tools/fixture-binary.txt \
-        tools/.gitattributes
+        tools/.gitattributes \
+        tools/fixture-type-regular.txt \
+        tools/fixture-type-link.txt
     git -C "$fixture" -c core.hooksPath=/dev/null commit --no-verify -qm baseline
     GIT_INDEX_FILE="$fixture_index" git -C "$fixture" read-tree HEAD
 
@@ -209,9 +227,21 @@ PY
 
     fixture_expect_failure() {
         local label="$1" expected="$2"
-        if output="$(fixture_check 2>&1)"; then
+        if fixture_check >"$fixture_output" 2>&1; then
             fail "fixture unexpectedly passed: $label"
         fi
+        python3 - "$fixture_output" "$synthetic_marker" <<'PY'
+import pathlib
+import sys
+
+output_path, marker = sys.argv[1:]
+data = pathlib.Path(output_path).read_bytes()
+if marker.encode("ascii") in data:
+    raise SystemExit("fixture diagnostic leaked staged sentinel")
+if any((byte < 0x20 and byte not in (0x09, 0x0A)) or byte == 0x7F for byte in data):
+    raise SystemExit("fixture diagnostic contained an unsafe control byte")
+PY
+        output="$(<"$fixture_output")"
         if ! printf '%s\n' "$output" | grep -Fq -- "$expected"; then
             printf '%s\n' "$output" >&2
             fail "fixture failure did not contain '$expected': $label"
@@ -221,12 +251,43 @@ PY
 
     fixture_expect_success() {
         local label="$1"
-        if ! output="$(fixture_check 2>&1)"; then
+        if ! fixture_check >"$fixture_output" 2>&1; then
+            output="$(<"$fixture_output")"
             printf '%s\n' "$output" >&2
             fail "fixture unexpectedly failed: $label"
         fi
+        output="$(<"$fixture_output")"
         printf '[PASS] fixture acceptance: %s\n' "$label"
     }
+
+    scope_expect_rejection() {
+        local label="$1"
+        shift
+        if output="$(env "$@" "$fixture/tools/install-hooks.sh" --check 2>&1)"; then
+            fail "non-local hooks scope unexpectedly passed installer --check: $label"
+        fi
+        if ! printf '%s\n' "$output" | grep -Fq -- 'refusing core.hooksPath from global, system, command, or unknown scope'; then
+            printf '%s\n' "$output" >&2
+            fail "non-local hooks scope rejection was not explicit: $label"
+        fi
+        if ! cmp -s "$scope_hooks/pre-commit" "$scope_hooks/pre-commit.expected"; then
+            fail "non-local hooks scope changed the shared hook: $label"
+        fi
+        printf '[PASS] installer rejects %s core.hooksPath scope\n' "$label"
+    }
+
+    scope_hooks="$fixture/.scope-shared-hooks"
+    mkdir -p "$scope_hooks"
+    printf '%s\n' 'SYNTHETIC_SHARED_HOOK_SENTINEL' >"$scope_hooks/pre-commit"
+    cp -p "$scope_hooks/pre-commit" "$scope_hooks/pre-commit.expected"
+    ambient_global="$fixture/ambient-global.config"
+    git -C "$fixture" config --file "$ambient_global" core.hooksPath "$scope_hooks"
+    scope_expect_rejection global GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_GLOBAL="$ambient_global" GIT_CONFIG_NOSYSTEM=1
+    ambient_system="$fixture/ambient-system.config"
+    git -C "$fixture" config --file "$ambient_system" core.hooksPath "$scope_hooks"
+    scope_expect_rejection system GIT_CONFIG_SYSTEM="$ambient_system" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=0
+    scope_expect_rejection command GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0="$scope_hooks"
+    git -C "$fixture" config --unset-all core.hooksPath || true
 
     fixture_reset_index
     conflict_sha="$(git -C "$fixture" rev-parse HEAD:tools/fixture-textconv.txt)"
@@ -237,7 +298,7 @@ PY
 
     fake_local_path="$(printf '/%s/fake-local-path' Users)"
     fixture_reset_index
-    printf '%s\n' "+$fake_local_path" >"$fixture/tools/fixture-plus.txt"
+    printf '%s %s\n' "+$fake_local_path" "$synthetic_marker" >"$fixture/tools/fixture-plus.txt"
     fixture_stage tools/fixture-plus.txt
     fixture_expect_failure 'leading-plus absolute path' 'absolute local path in added staged content'
 
@@ -246,9 +307,21 @@ PY
     printf '%s\n' '#!/bin/sh' 'exit 0' >"$fake_bin/grep"
     chmod +x "$fake_bin/grep"
     fixture_reset_index
-    printf '%s\n' "$fake_local_path" >"$fixture/tools/fixture-fake-grep.txt"
+    printf '%s %s\n' "$fake_local_path" "$synthetic_marker" >"$fixture/tools/fixture-fake-grep.txt"
     fixture_stage tools/fixture-fake-grep.txt
-    if ! output="$(PATH="$fake_bin:$PATH" fixture_check 2>&1)"; then
+    if ! PATH="$fake_bin:$PATH" fixture_check >"$fixture_output" 2>&1; then
+        python3 - "$fixture_output" "$synthetic_marker" <<'PY'
+import pathlib
+import sys
+
+output_path, marker = sys.argv[1:]
+data = pathlib.Path(output_path).read_bytes()
+if marker.encode("ascii") in data:
+    raise SystemExit("fixture diagnostic leaked staged sentinel")
+if any((byte < 0x20 and byte not in (0x09, 0x0A)) or byte == 0x7F for byte in data):
+    raise SystemExit("fixture diagnostic contained an unsafe control byte")
+PY
+        output="$(<"$fixture_output")"
         if ! printf '%s\n' "$output" | grep -Fq -- 'absolute local path in added staged content'; then
             printf '%s\n' "$output" >&2
             fail 'absolute path scan did not reject a path when grep was shadowed'
@@ -266,25 +339,51 @@ PY
     printf '%s\n' '*.txt diff=fixture-hide' >"$fixture/.git/info/attributes"
     git -C "$fixture" config diff.fixture-hide.textconv "$textconv_script"
     fixture_reset_index
-    printf '%s\n' "$fake_local_path" >"$fixture/tools/fixture-textconv.txt"
+    printf '%s %s\n' "$fake_local_path" "$synthetic_marker" >"$fixture/tools/fixture-textconv.txt"
     fixture_stage tools/fixture-textconv.txt
     fixture_expect_failure 'staged blob bypasses local textconv' 'absolute local path in added staged content'
     [[ ! -e "$textconv_marker" ]] || fail 'textconv driver was invoked while checking the staged blob'
 
     fixture_reset_index
-    printf '%s\n' "$fake_local_path" >"$fixture/tools/fixture-binary.txt"
+    printf '%s %s\n' "$fake_local_path" "$synthetic_marker" >"$fixture/tools/fixture-binary.txt"
     fixture_stage tools/fixture-binary.txt
     fixture_expect_failure 'binary attribute bypasses path scan' 'absolute local path in added staged content'
 
     fixture_reset_index
-    printf 'prefix\0%s\n' "$fake_local_path" >"$fixture/tools/fixture-binary.txt"
+    printf 'prefix\0%s %s\n' "$fake_local_path" "$synthetic_marker" >"$fixture/tools/fixture-binary.txt"
     fixture_stage tools/fixture-binary.txt
     fixture_expect_failure 'NUL binary content does not hide an absolute path' 'absolute local path in added staged content'
+
+    fixture_reset_index
+    printf 'prefix\033%s %s\n' "$fake_local_path" "$synthetic_marker" >"$fixture/tools/fixture-binary.txt"
+    fixture_stage tools/fixture-binary.txt
+    fixture_expect_failure 'ESC content is not echoed by a failing diagnostic' 'absolute local path in added staged content'
 
     fixture_reset_index
     printf '%s\n' '{' >"$fixture/tools/fixture-invalid.json"
     fixture_stage tools/fixture-invalid.json
     fixture_expect_failure 'default JSON syntax policy' 'JSON syntax: tools/fixture-invalid.json'
+
+    fixture_reset_index
+    printf 'const broken = ; // %s\n' "$synthetic_marker" >"$fixture/tools/fixture-invalid.js"
+    fixture_stage tools/fixture-invalid.js
+    fixture_expect_failure 'JavaScript syntax diagnostic is redacted' 'JavaScript syntax: tools/fixture-invalid.js'
+
+    fixture_reset_index
+    printf 'trailing %s \n' "$synthetic_marker" >"$fixture/tools/fixture-whitespace.txt"
+    fixture_stage tools/fixture-whitespace.txt
+    fixture_expect_failure 'whitespace diagnostic is redacted' 'Rule staged-whitespace'
+
+    fixture_reset_index
+    type_blob="$(git -C "$fixture" hash-object -w "$fixture/tools/fixture-type-regular.txt")"
+    printf '120000 %s 0\ttools/fixture-type-regular.txt\n' "$type_blob" |
+        GIT_INDEX_FILE="$fixture_index" git -C "$fixture" update-index --index-info
+    fixture_expect_success 'regular-to-symlink staged type change'
+
+    fixture_reset_index
+    printf '100644 %s 0\ttools/fixture-type-link.txt\n' "$type_blob" |
+        GIT_INDEX_FILE="$fixture_index" git -C "$fixture" update-index --index-info
+    fixture_expect_success 'symlink-to-regular staged type change'
 
     fixture_reset_index
     fixture_policy_variant disable-json
@@ -525,7 +624,7 @@ PY
     printf '[PASS] installer rejects and repairs a marker-only hook spoof\n'
 
     printf 'pre-commit fixture retained for inspection: %s\n' "$fixture"
-}
+)
 
 run_fixture_boundary_tests
 
