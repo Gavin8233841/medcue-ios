@@ -44,28 +44,41 @@ struct LocalMedicalAIClient: MedicalAIClient {
     func streamResponse(to request: MedicalAIRequest) -> AsyncThrowingStream<LocalLLMGenerationEvent, Error> {
         AsyncThrowingStream { continuation in
             let worker = Task {
+                func emit(_ event: LocalLLMGenerationEvent) async throws {
+                    try Task.checkCancellation()
+                    if case .terminated = continuation.yield(event) {
+                        throw CancellationError()
+                    }
+                    await Task.yield()
+                    try Task.checkCancellation()
+                }
+
                 do {
                     let answerPlan = responsePolicy.localAnswerPlan(for: request)
                     let prompt = responsePolicy.buildLocalPrompt(for: request, answerPlan: answerPlan)
                     var parser = LocalLLMStreamParser()
                     try Task.checkCancellation()
-                    continuation.yield(.generationStarted)
-                    continuation.yield(.modelLoading)
-                    let stream = await runtime.generateResponseStream(
+                    try await emit(.generationStarted)
+                    try await emit(.modelLoading)
+                    let generation = await runtime.generateResponseStream(
                         prompt: prompt,
                         modelURL: modelURL,
                         maxTokens: MedicalAIExecutionPolicy.default.streamingResponseTokenLimit
                     )
-                    continuation.yield(.prefillStarted)
-                    for try await delta in stream {
+                    defer {
+                        generation.cancel()
+                    }
+                    try await emit(.prefillStarted)
+                    for try await delta in generation.stream {
                         try Task.checkCancellation()
                         for event in parser.consume(delta) {
-                            continuation.yield(event)
+                            try await emit(event)
                         }
                     }
+                    try Task.checkCancellation()
                     let completed = parser.finish()
                     for event in completed.events {
-                        continuation.yield(event)
+                        try await emit(event)
                     }
                     let resolved = try await resolveGeneratedResponse(
                         completed.answer,
@@ -75,14 +88,22 @@ struct LocalMedicalAIClient: MedicalAIClient {
                         repairMaxTokens: MedicalAIExecutionPolicy.default.repairTokenLimit
                     )
                     try Task.checkCancellation()
-                    continuation.yield(.generationCompleted(
+                    try await emit(.generationCompleted(
                         answer: resolved.answer,
                         thinking: resolved.thinking
                     ))
                     continuation.finish()
                 } catch {
-                    continuation.yield(.generationFailed(error.localizedDescription))
-                    continuation.finish(throwing: error)
+                    guard !Task.isCancelled, !(error is CancellationError) else {
+                        continuation.finish(throwing: CancellationError())
+                        return
+                    }
+                    do {
+                        try await emit(.generationFailed(error.localizedDescription))
+                        continuation.finish(throwing: error)
+                    } catch {
+                        continuation.finish(throwing: CancellationError())
+                    }
                 }
             }
             continuation.onTermination = { @Sendable _ in

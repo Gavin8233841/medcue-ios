@@ -106,9 +106,9 @@ private actor StubLocalMedicalRuntime: LocalMedicalGenerating {
         prompt: String,
         modelURL: URL,
         maxTokens: Int
-    ) async -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { continuation in
-            continuation.finish()
-        }
+    ) async -> LocalMedicalGenerationStream {
+        let (stream, continuation) = AsyncThrowingStream<String, Error>.makeStream()
+        continuation.finish()
+        return LocalMedicalGenerationStream(stream: stream) {}
     }
 }
