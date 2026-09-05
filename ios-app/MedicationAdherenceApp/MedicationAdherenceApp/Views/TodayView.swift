@@ -138,6 +138,7 @@ struct TodayView: View {
                 snapshot: snapshot.elderSnapshot(medications: medications, now: now),
                 pendingDoseConfirmation: pendingDoseConfirmation,
                 pendingDoseFeedback: doseInteraction.pendingDoseFeedback,
+                inFlightDoseKeys: doseInteraction.inFlightDoseKeys,
                 dosePersistenceErrorMessage: $dosePersistenceErrorMessage,
                 helpOpeningErrorMessage: $elderHelpOpeningErrorMessage,
                 helpMissingMessage: $elderHelpMissingMessage,
@@ -162,77 +163,80 @@ struct TodayView: View {
                     cleanup: cleanupTodayScreen
                 )
             )
+            .environment(\.medcueReduceMotionEnabled, reduceMotionEnabled)
         } else {
             TodayScreen(
-            snapshot: snapshot,
-            notificationUnavailableMessage: reminderNotificationUnavailableMessage,
-            completionRateFeedback: completionRateFeedback,
-            completionRateDisplayedSnapshot: completionRateDisplayedSnapshot,
-            isCompletionRateFeedbackVisible: isCompletionRateFeedbackVisible,
-            shouldShowCompletionCelebration: !isCompletionCelebrationDeferred
-                && completionRateFeedback == nil,
-            prefersReducedMotion: reduceMotionEnabled,
-            isOpenTimelineTemporarilyCollapsed: doseInteraction.isOpenTimelineTemporarilyCollapsed,
-            isHandledTimelineTemporarilyCollapsed: doseInteraction.isHandledTimelineTemporarilyCollapsed,
-            pendingDoseConfirmation: pendingDoseConfirmation,
-            pendingDoseFeedback: doseInteraction.pendingDoseFeedback,
-            handledDropTargetPulse: doseInteraction.handledDropTargetPulse,
-            pendingHandledArrivalCount: doseInteraction.pendingHandledArrivalCount,
-            closingOpenDoseKeys: doseInteraction.closingOpenDoseKeys,
-            reopeningHandledDoseKeys: doseInteraction.reopeningHandledDoseKeys,
-            recentlyReopenedDoseKeys: doseInteraction.recentlyReopenedDoseKeys,
-            doseMigrationSnapshot: doseInteraction.doseMigrationSnapshot,
-            weatherHints: weatherMedicationService.hints,
-            weatherStatusText: weatherMedicationService.statusText,
-            isWeatherLoading: weatherMedicationService.isLoading,
-            shouldShowWeatherAuthorization: weatherMedicationService.shouldShowAuthorizationButton,
-            doseUndoBanner: doseUndoBanner,
-            weatherMedicationSignature: weatherMedicationSignature,
-            showingHandledTasks: $showingHandledTasks,
-            taskPendingArchive: $taskPendingArchive,
-            showingArchiveConfirmation: $showingArchiveConfirmation,
-            showingHelpCenter: $showingHelpCenter,
-            pendingPermissionGate: $pendingPermissionGate,
-            dosePersistenceErrorMessage: $dosePersistenceErrorMessage,
-            actions: TodayScreenActions(
-                medication: medication,
-                logicalDoseKey: logicalDoseKey,
-                completionVerb: todayCompletionVerb,
-                statusText: { task in
-                    todayDoseStatusText(
-                        for: task,
-                        medication: medication(for: task),
-                        delayDurationText: delayDurationText
-                    )
-                },
-                markTaken: requestMarkTaken,
-                delay: requestDelay,
-                skip: { task in
-                    performWithDoseFeedback(task, action: .skip) {
-                        mark(task, mutation: .skip, reason: "用户忽略")
-                    }
-                },
-                confirm: confirmPendingDoseConfirmation,
-                cancelConfirmation: clearPendingDoseConfirmation,
-                undoOrReopen: undoOrReopen,
-                archive: archive,
-                unarchive: unarchive,
-                rollbackUndo: rollbackDoseUndo,
-                switchToElderMode: {
-                    appExperienceModeRaw = AppExperienceMode.elder.rawValue
-                },
-                requestWeatherRefresh: { requestAuthorization in
-                    await weatherMedicationService.refresh(
-                        medications: medications,
-                        requestAuthorization: requestAuthorization
-                    )
-                },
-                initialLoad: initialTodayLoad,
-                timerTick: refreshTodayTimer,
-                becameActive: todayBecameActive,
-                cleanup: cleanupTodayScreen
+                snapshot: snapshot,
+                notificationUnavailableMessage: reminderNotificationUnavailableMessage,
+                completionRateFeedback: completionRateFeedback,
+                completionRateDisplayedSnapshot: completionRateDisplayedSnapshot,
+                isCompletionRateFeedbackVisible: isCompletionRateFeedbackVisible,
+                shouldShowCompletionCelebration: !isCompletionCelebrationDeferred
+                    && completionRateFeedback == nil,
+                prefersReducedMotion: reduceMotionEnabled,
+                isOpenTimelineTemporarilyCollapsed: doseInteraction.isOpenTimelineTemporarilyCollapsed,
+                isHandledTimelineTemporarilyCollapsed: doseInteraction.isHandledTimelineTemporarilyCollapsed,
+                pendingDoseConfirmation: pendingDoseConfirmation,
+                pendingDoseFeedback: doseInteraction.pendingDoseFeedback,
+                inFlightDoseKeys: doseInteraction.inFlightDoseKeys,
+                handledDropTargetPulse: doseInteraction.handledDropTargetPulse,
+                pendingHandledArrivalCount: doseInteraction.pendingHandledArrivalCount,
+                closingOpenDoseKeys: doseInteraction.closingOpenDoseKeys,
+                reopeningHandledDoseKeys: doseInteraction.reopeningHandledDoseKeys,
+                recentlyReopenedDoseKeys: doseInteraction.recentlyReopenedDoseKeys,
+                doseMigrationSnapshot: doseInteraction.doseMigrationSnapshot,
+                weatherHints: weatherMedicationService.hints,
+                weatherStatusText: weatherMedicationService.statusText,
+                isWeatherLoading: weatherMedicationService.isLoading,
+                shouldShowWeatherAuthorization: weatherMedicationService.shouldShowAuthorizationButton,
+                doseUndoBanner: doseUndoBanner,
+                weatherMedicationSignature: weatherMedicationSignature,
+                showingHandledTasks: $showingHandledTasks,
+                taskPendingArchive: $taskPendingArchive,
+                showingArchiveConfirmation: $showingArchiveConfirmation,
+                showingHelpCenter: $showingHelpCenter,
+                pendingPermissionGate: $pendingPermissionGate,
+                dosePersistenceErrorMessage: $dosePersistenceErrorMessage,
+                actions: TodayScreenActions(
+                    medication: medication,
+                    logicalDoseKey: logicalDoseKey,
+                    completionVerb: todayCompletionVerb,
+                    statusText: { task in
+                        todayDoseStatusText(
+                            for: task,
+                            medication: medication(for: task),
+                            delayDurationText: delayDurationText
+                        )
+                    },
+                    markTaken: requestMarkTaken,
+                    delay: requestDelay,
+                    skip: { task in
+                        performWithDoseFeedback(task, action: .skip) {
+                            mark(task, mutation: .skip, reason: "用户忽略")
+                        }
+                    },
+                    confirm: confirmPendingDoseConfirmation,
+                    cancelConfirmation: clearPendingDoseConfirmation,
+                    undoOrReopen: undoOrReopen,
+                    archive: archive,
+                    unarchive: unarchive,
+                    rollbackUndo: rollbackDoseUndo,
+                    switchToElderMode: {
+                        appExperienceModeRaw = AppExperienceMode.elder.rawValue
+                    },
+                    requestWeatherRefresh: { requestAuthorization in
+                        await weatherMedicationService.refresh(
+                            medications: medications,
+                            requestAuthorization: requestAuthorization
+                        )
+                    },
+                    initialLoad: initialTodayLoad,
+                    timerTick: refreshTodayTimer,
+                    becameActive: todayBecameActive,
+                    cleanup: cleanupTodayScreen
+                )
             )
-        )
+            .environment(\.medcueReduceMotionEnabled, reduceMotionEnabled)
         }
     }
 
@@ -313,6 +317,7 @@ struct TodayView: View {
         elderDoseSuccessMessage = nil
         elderHelpConfirmationPhone = nil
         elderHelpMissingMessage = nil
+        doseInteraction.inFlightDoseKeys.removeAll()
         isCompletionRateFeedbackVisible = false
         isCompletionCelebrationDeferred = false
         doseUndoBannerTask?.cancel()
@@ -350,8 +355,14 @@ struct TodayView: View {
 
     @discardableResult
     private func mark(_ task: StoredDoseTask, mutation: DoseActionMutation, reason: String) -> Bool {
+        guard isOpenStatus(task.status) else {
+            return false
+        }
         let occurredAt = Date()
-        let group = logicalDoseGroup(for: task)
+        let group = logicalDoseGroup(for: task).filter { isOpenStatus($0.status) }
+        guard !group.isEmpty else {
+            return false
+        }
         let projection = currentDoseProjection
         let previousCompletionSnapshot = projection.completionRateSnapshot
         let nextCompletionSnapshot = projection.completionRateSnapshot(
@@ -387,8 +398,14 @@ struct TodayView: View {
 
     @discardableResult
     private func delay(_ task: StoredDoseTask, fromPlannedTime: Bool = false) -> Bool {
+        guard isOpenStatus(task.status) else {
+            return false
+        }
         let occurredAt = Date()
-        let group = logicalDoseGroup(for: task)
+        let group = logicalDoseGroup(for: task).filter { isOpenStatus($0.status) }
+        guard !group.isEmpty else {
+            return false
+        }
         let primaryReason = fromPlannedTime ? "用户确认按原计划时间顺延 \(delayDurationText)提醒" : "用户选择按原计划时间顺延 \(delayDurationText)提醒"
         let transitions = DoseActionTransitionPlanner().makeTransitions(
             mutation: .delay,
@@ -419,6 +436,9 @@ struct TodayView: View {
     }
 
     private func requestMarkTaken(_ task: StoredDoseTask) {
+        guard isOpenStatus(task.status) else {
+            return
+        }
         guard reminderPolicy.requiresEarlyTakenConfirmation(plannedDueAt: task.dueAt, now: Date()) else {
             performMarkTaken(task, reason: "")
             return
@@ -433,6 +453,9 @@ struct TodayView: View {
     }
 
     private func requestDelay(_ task: StoredDoseTask) {
+        guard isOpenStatus(task.status) else {
+            return
+        }
         guard DoseDelayPolicy.requiresPlannedTimeDelayConfirmation(plannedDueAt: task.dueAt, now: Date()) else {
             performDelay(task, fromPlannedTime: false)
             return
@@ -447,8 +470,13 @@ struct TodayView: View {
     }
 
     private func showPendingDoseConfirmation(for task: StoredDoseTask, kind: PendingDoseConfirmation.Kind) {
-        withAnimation(.snappy(duration: 0.20, extraBounce: 0.02)) {
+        let updates = {
             pendingDoseConfirmation = PendingDoseConfirmation(doseKey: logicalDoseKey(for: task), kind: kind)
+        }
+        if reduceMotionEnabled {
+            commitWithoutListMutationAnimation(updates)
+        } else {
+            withAnimation(.snappy(duration: 0.20, extraBounce: 0.02), updates)
         }
     }
 
@@ -456,6 +484,11 @@ struct TodayView: View {
         guard pendingDoseConfirmation?.doseKey == logicalDoseKey(for: task),
               let kind = pendingDoseConfirmation?.kind
         else {
+            return
+        }
+        guard isOpenStatus(task.status) else {
+            clearPendingDoseConfirmation(for: task)
+            announceUpdatedDoseStatus(for: task)
             return
         }
         clearPendingDoseConfirmation(for: task)
@@ -471,9 +504,28 @@ struct TodayView: View {
         guard pendingDoseConfirmation?.doseKey == logicalDoseKey(for: task) else {
             return
         }
-        withAnimation(.easeInOut(duration: 0.16)) {
+        let updates = {
             pendingDoseConfirmation = nil
         }
+        if reduceMotionEnabled {
+            commitWithoutListMutationAnimation(updates)
+        } else {
+            withAnimation(.easeInOut(duration: 0.16), updates)
+        }
+    }
+
+    private func announceUpdatedDoseStatus(for task: StoredDoseTask) {
+        let medication = medication(for: task)
+        let medicationName = medication.map(userFacingMedicationName(for:)) ?? "用药"
+        let status = todayDoseStatusText(
+            for: task,
+            medication: medication,
+            delayDurationText: delayDurationText
+        )
+        UIAccessibility.post(
+            notification: .announcement,
+            argument: medicationName + "，" + status
+        )
     }
 
     private func reminderDeliveryMethod(for task: StoredDoseTask) -> StoredReminderDeliveryMethod {
@@ -482,15 +534,26 @@ struct TodayView: View {
 
     private func performWithDoseFeedback(_ task: StoredDoseTask, action: PendingDoseFeedback.Action, commit: @escaping () -> Bool) {
         let doseKey = logicalDoseKey(for: task)
+        guard isOpenStatus(task.status), doseInteraction.beginDoseAction(for: doseKey) else {
+            return
+        }
+        defer {
+            doseInteraction.finishDoseAction(for: doseKey)
+        }
         let migrationSnapshot = action.movesToHandledSection ? doseMigrationSnapshot(for: task, action: action) : nil
         resetDoseTransitionState(animated: false)
         // Keep a previous success from masking a later save failure; a new success is shown only after commit.
         if presentation == .elder {
             elderDoseSuccessMessage = nil
         }
-        if !reduceMotionEnabled {
+        let pendingFeedback = PendingDoseFeedback(doseKey: doseKey, action: action)
+        if reduceMotionEnabled {
+            commitWithoutListMutationAnimation {
+                doseInteraction.pendingDoseFeedback = pendingFeedback
+            }
+        } else {
             withAnimation(.easeInOut(duration: 0.16)) {
-                doseInteraction.pendingDoseFeedback = PendingDoseFeedback(doseKey: doseKey, action: action)
+                doseInteraction.pendingDoseFeedback = pendingFeedback
             }
         }
 
@@ -506,6 +569,9 @@ struct TodayView: View {
 
         doseInteraction.cancelScheduledTransitions()
         guard !reduceMotionEnabled else {
+            commitWithoutListMutationAnimation {
+                doseInteraction.pendingDoseFeedback = nil
+            }
             return
         }
 
@@ -687,8 +753,14 @@ struct TodayView: View {
             medicationName: medicationName,
             rollbackToken: rollbackToken
         )
-        withAnimation(.snappy(duration: 0.18, extraBounce: 0.01)) {
-            doseUndoBanner = banner
+        if reduceMotionEnabled {
+            commitWithoutListMutationAnimation {
+                doseUndoBanner = banner
+            }
+        } else {
+            withAnimation(.snappy(duration: 0.18, extraBounce: 0.01)) {
+                doseUndoBanner = banner
+            }
         }
         doseUndoBannerTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 30_000_000_000)
@@ -720,12 +792,17 @@ struct TodayView: View {
         let restoredTasks = tasks.filter { restoredTaskIDs.contains($0.id) }
         let nextCompletionSnapshot = currentCompletionRateSnapshot
         presentCompletionRateFeedbackIfNeeded(from: previousCompletionSnapshot, to: nextCompletionSnapshot)
-        withAnimation(.easeOut(duration: 0.18)) {
+        let clearReopenState = {
             for task in restoredTasks {
                 let doseKey = logicalDoseKey(for: task)
                 _ = doseInteraction.recentlyReopenedDoseKeys.remove(doseKey)
                 _ = doseInteraction.reopeningHandledDoseKeys.remove(doseKey)
             }
+        }
+        if reduceMotionEnabled {
+            commitWithoutListMutationAnimation(clearReopenState)
+        } else {
+            withAnimation(.easeOut(duration: 0.18), clearReopenState)
         }
         performDeferredSystemSurfaceSync {
             await systemSurfaceSynchronizer.synchronize(
@@ -739,8 +816,14 @@ struct TodayView: View {
     private func dismissDoseUndoBanner() {
         doseUndoBannerTask?.cancel()
         doseUndoBannerTask = nil
-        withAnimation(.easeInOut(duration: 0.20)) {
-            doseUndoBanner = nil
+        if reduceMotionEnabled {
+            commitWithoutListMutationAnimation {
+                doseUndoBanner = nil
+            }
+        } else {
+            withAnimation(.easeInOut(duration: 0.20)) {
+                doseUndoBanner = nil
+            }
         }
     }
 

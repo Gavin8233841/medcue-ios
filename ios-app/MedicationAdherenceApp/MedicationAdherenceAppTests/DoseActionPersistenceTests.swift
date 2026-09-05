@@ -168,6 +168,50 @@ struct DoseActionPersistenceTests {
         #expect(persistedTask.reason == "原始状态")
         #expect(try verificationContext.fetch(FetchDescriptor<StoredDoseActionLog>()).isEmpty)
     }
+
+    @Test @MainActor
+    func closedTaskCommitIsRejectedBeforeWritingAnything() throws {
+        let container = try MedicationAdherenceModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        context.autosaveEnabled = false
+        let dueAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let task = StoredDoseTask(
+            medicationID: UUID(),
+            dueAt: dueAt,
+            doseValue: 1,
+            doseUnit: "片",
+            status: .taken,
+            recordedAt: dueAt
+        )
+        context.insert(task)
+        try context.save()
+
+        let transition = DoseActionTransition(
+            task: task,
+            action: .markTaken,
+            newStatus: .taken,
+            newDueAt: dueAt,
+            newRecordedAt: dueAt.addingTimeInterval(60),
+            newReason: "重复动作",
+            occurredAt: dueAt.addingTimeInterval(60),
+            undoExpiresAt: dueAt.addingTimeInterval(660)
+        )
+
+        do {
+            try DoseActionPersistence().commit([transition], in: context)
+            Issue.record("Expected a closed task action to be rejected")
+        } catch let error as DoseActionPersistenceError {
+            #expect(error == .taskClosed)
+            #expect(error.userMessage == "这项用药已更新，请重新查看。")
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        #expect(task.status == .taken)
+        #expect(task.recordedAt == dueAt)
+        #expect(try context.fetch(FetchDescriptor<StoredDoseActionLog>()).isEmpty)
+        #expect(!context.hasChanges)
+    }
 }
 
 private enum SyntheticDoseSaveError: Error {

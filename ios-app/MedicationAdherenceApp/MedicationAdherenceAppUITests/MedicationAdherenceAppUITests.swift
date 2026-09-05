@@ -5,6 +5,9 @@ final class MedicationAdherenceAppUITests: XCTestCase {
     private let regularContentSizeArguments = [
         "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"
     ]
+    private let accessibilityXXXLContentSizeArguments = [
+        "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"
+    ]
     private let stableLaunchArgumentsWithoutExperienceMode = [
         "-AppPersistenceCommitter.failureMessage", "",
         "-DoseActionPersistence.failureMessage", ""
@@ -57,7 +60,9 @@ final class MedicationAdherenceAppUITests: XCTestCase {
             "-hasCompletedFirstLaunchSetup", "YES",
             "--seed-demo-data"
         ]
+        installSystemPermissionHandler(for: app)
         app.launch()
+        app.tap()
 
         let switchToComplete = app.buttons["elder.switch-to-complete"]
         XCTAssertTrue(switchToComplete.waitForExistence(timeout: 10))
@@ -108,7 +113,9 @@ final class MedicationAdherenceAppUITests: XCTestCase {
             "-hasCompletedFirstLaunchSetup", "YES",
             "--seed-demo-data"
         ]
+        installSystemPermissionHandler(for: app)
         app.launch()
+        app.tap()
         app.swipeUp()
 
         let completionButton = app.buttons["elder.action.taken"]
@@ -138,13 +145,15 @@ final class MedicationAdherenceAppUITests: XCTestCase {
     func testElderAccessibilityXXXLLayoutRemainsScrollable() {
         continueAfterFailure = false
         let app = XCUIApplication()
-        // The simulator's system content-size setting is the source of truth for this layout run.
-        app.launchArguments = stableLaunchArgumentsWithoutExperienceMode + [
+        // Pin the launch override so this test always exercises Accessibility XXXL.
+        app.launchArguments = stableLaunchArgumentsWithoutExperienceMode + accessibilityXXXLContentSizeArguments + [
             "-appExperienceMode", "elder",
             "-hasCompletedFirstLaunchSetup", "YES",
             "--seed-demo-data"
         ]
+        installSystemPermissionHandler(for: app)
         app.launch()
+        app.tap()
 
         let currentTask = app.otherElements["elder.current-task"]
         XCTAssertTrue(currentTask.waitForExistence(timeout: 10))
@@ -171,7 +180,9 @@ final class MedicationAdherenceAppUITests: XCTestCase {
             "-hasCompletedFirstLaunchSetup", "YES",
             "--seed-demo-data"
         ]
+        installSystemPermissionHandler(for: app)
         app.launch()
+        app.tap()
         app.swipeUp()
 
         let delayButton = app.buttons["elder.action.delay"]
@@ -200,6 +211,20 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    private func installSystemPermissionHandler(for app: XCUIApplication) {
+        addUIInterruptionMonitor(withDescription: "system permission") { alert in
+            if alert.buttons["不允许"].exists {
+                alert.buttons["不允许"].tap()
+                return true
+            }
+            if alert.buttons["允许"].exists {
+                alert.buttons["允许"].tap()
+                return true
+            }
+            return false
+        }
     }
 
     private func dismissAssistantGatesIfPresented(in app: XCUIApplication) {

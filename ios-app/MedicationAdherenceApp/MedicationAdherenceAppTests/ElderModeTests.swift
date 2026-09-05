@@ -17,14 +17,39 @@ struct ElderModeTests {
         #expect(ElderDoseActionProminence.tertiary.contentWidth(availableWidth: 328) == 328 * 0.80)
     }
 
+    @Test @MainActor
+    func doseActionStateRejectsDuplicateInFlightActions() {
+        let state = TodayDoseInteractionState()
+
+        #expect(state.beginDoseAction(for: "dose-1"))
+        #expect(!state.beginDoseAction(for: "dose-1"))
+        #expect(state.inFlightDoseKeys == ["dose-1"])
+
+        state.finishDoseAction(for: "dose-1")
+
+        #expect(state.inFlightDoseKeys.isEmpty)
+        #expect(state.beginDoseAction(for: "dose-1"))
+    }
+
     @Test
     func elderTaskLayoutUsesAnIdentityBandAndAccessibleReflow() {
-        #expect(ElderTaskLayoutMetrics.regularPhotoWidth == 250)
+        #expect(ElderTaskLayoutMetrics.regularPhotoWidth == 180)
+        #expect(ElderTaskLayoutMetrics.regularPhotoMinimumWidth == 176)
         #expect(ElderTaskLayoutMetrics.accessibilityPhotoWidth == 300)
         #expect(ElderTaskLayoutMetrics.photoContainerAspectRatio == 0.76)
         #expect(ElderTaskLayoutMetrics.regularPhotoWidth / ElderTaskLayoutMetrics.photoContainerAspectRatio > 230)
         #expect(ElderTaskLayoutMetrics.accessibilityPhotoWidth / ElderTaskLayoutMetrics.photoContainerAspectRatio > 390)
-        #expect(ElderTaskLayoutMetrics.regularIdentitySpacing >= 12)
+        #expect(ElderTaskLayoutMetrics.regularPhotoWidth(for: 402) >= 176)
+        #expect(ElderTaskLayoutMetrics.regularPhotoWidth(for: 402) <= 180)
+        #expect(ElderTaskLayoutMetrics.regularPhotoWidth(for: 320) == 176)
+        #expect(!ElderTaskLayoutMetrics.shouldStackRegularIdentity(for: 402))
+        #expect(ElderTaskLayoutMetrics.shouldStackRegularIdentity(for: 375))
+        #expect(ElderTaskLayoutMetrics.stackedPhotoWidth(for: 375) == 280)
+        #expect(ElderTaskLayoutMetrics.stackedPhotoWidth(for: 320) == 252)
+        #expect(ElderTaskLayoutMetrics.accessibilityPhotoWidth(for: 402) == 300)
+        #expect(ElderTaskLayoutMetrics.accessibilityPhotoWidth(for: 320) == 248)
+        #expect(ElderTaskLayoutMetrics.regularIdentitySpacing == 12)
+        #expect(ElderTaskLayoutMetrics.regularDetailsSpacing == 12)
         #expect(ElderTaskLayoutMetrics.actionSpacing >= 12)
     }
 

@@ -1,6 +1,5 @@
 import AuthenticationServices
 import MedicationAdherenceCore
-import OSLog
 import QuickLook
 import Security
 import SwiftData
@@ -61,6 +60,7 @@ struct ElderHelpPhoneNumber: Equatable {
 enum ElderHelpContactError: Error, Equatable {
     case invalidPhoneNumber
     case secureStorageUnavailable
+    case storedPhoneNumberInvalid
 
     var userMessage: String {
         switch self {
@@ -68,6 +68,8 @@ enum ElderHelpContactError: Error, Equatable {
             "请输入包含数字的电话号码；可以使用开头的 +、空格、短横线和括号。"
         case .secureStorageUnavailable:
             "帮助号码暂时无法在本机安全存取，请稍后重试。"
+        case .storedPhoneNumberInvalid:
+            "已保存的帮助号码无效，请重新输入。"
         }
     }
 }
@@ -101,7 +103,11 @@ struct KeychainElderHelpContactStore: ElderHelpContactStoring {
         else {
             throw ElderHelpContactError.secureStorageUnavailable
         }
-        return try ElderHelpPhoneNumber(validating: storedValue)
+        do {
+            return try ElderHelpPhoneNumber(validating: storedValue)
+        } catch {
+            throw ElderHelpContactError.storedPhoneNumberInvalid
+        }
     }
 
     func save(_ phoneNumber: ElderHelpPhoneNumber) throws {
@@ -591,9 +597,9 @@ struct SettingsView: View {
                     .textContentType(.telephoneNumber)
                     .keyboardType(.phonePad)
                     .focused($isElderHelpPhoneFocused)
-                    .accessibilityHint("号码只安全保存在本机，不读取通讯录，也不会上传")
+                    .accessibilityHint("请输入帮助电话号码")
 
-                Button("安全保存帮助号码") {
+                Button("保存帮助号码") {
                     saveElderHelpContact()
                 }
                 .disabled(elderHelpPhoneInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -723,7 +729,7 @@ struct SettingsView: View {
             let phoneNumber = try ElderHelpPhoneNumber(validating: elderHelpPhoneInput)
             try elderHelpContactStore.save(phoneNumber)
             elderHelpPhoneInput = phoneNumber.storageValue
-            elderHelpContactStatus = "帮助号码已安全保存在本机。"
+            elderHelpContactStatus = "帮助号码已保存。"
         } catch let error as ElderHelpContactError {
             elderHelpContactErrorMessage = error.userMessage
         } catch {

@@ -216,6 +216,7 @@ struct CompletionRateFeedback: Identifiable, Equatable {
 }
 
 struct CompletionRateFeedbackPanel: View {
+    @Environment(\.medcueReduceMotionEnabled) private var reduceMotionEnabled
     let feedback: CompletionRateFeedback
     let displayedSnapshot: CompletionRateSnapshot
     let isVisible: Bool
@@ -262,18 +263,20 @@ struct CompletionRateFeedbackPanel: View {
                 .stroke(feedback.tint.opacity(0.22), lineWidth: 1)
         }
         .overlay(alignment: .leading) {
-            GeometryReader { proxy in
-                LinearGradient(
-                    colors: [.clear, feedback.tint.opacity(0.20), .white.opacity(0.22), .clear],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-                .frame(width: 72)
-                .offset(x: sweepOffset * (proxy.size.width + 72) - 72)
-                .blendMode(.plusLighter)
-                .allowsHitTesting(false)
+            if !reduceMotionEnabled {
+                GeometryReader { proxy in
+                    LinearGradient(
+                        colors: [.clear, feedback.tint.opacity(0.20), .white.opacity(0.22), .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(width: 72)
+                    .offset(x: sweepOffset * (proxy.size.width + 72) - 72)
+                    .blendMode(.plusLighter)
+                    .allowsHitTesting(false)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .shadow(color: feedback.tint.opacity(0.14), radius: 16, x: 0, y: 8)
         .offset(y: isVisible ? 0 : -20)
@@ -290,6 +293,10 @@ struct CompletionRateFeedbackPanel: View {
 
     private func runSweep() {
         sweepOffset = -1
+        guard !reduceMotionEnabled else {
+            sweepOffset = 1
+            return
+        }
         withAnimation(.easeOut(duration: 0.42)) {
             sweepOffset = 1
         }

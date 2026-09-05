@@ -35,11 +35,14 @@ enum AppPersistenceCommitter {
 
 enum DoseActionPersistenceError: Error, Equatable {
     case saveFailed
+    case taskClosed
 
     var userMessage: String {
         switch self {
         case .saveFailed:
             "用药记录未能保存，请重试。"
+        case .taskClosed:
+            "这项用药已更新，请重新查看。"
         }
     }
 }
@@ -154,6 +157,11 @@ struct DoseActionPersistence {
     ) throws -> [StoredDoseActionLog] {
         guard !transitions.isEmpty else {
             return []
+        }
+        guard transitions.allSatisfy({
+            $0.task.status == .pending || $0.task.status == .delayed
+        }) else {
+            throw DoseActionPersistenceError.taskClosed
         }
 
         let snapshots = transitions.map(DoseTaskStateSnapshot.init)

@@ -38,6 +38,7 @@ struct TodayScreen: View {
     let isHandledTimelineTemporarilyCollapsed: Bool
     let pendingDoseConfirmation: PendingDoseConfirmation?
     let pendingDoseFeedback: PendingDoseFeedback?
+    let inFlightDoseKeys: Set<String>
     let handledDropTargetPulse: Bool
     let pendingHandledArrivalCount: Int
     let closingOpenDoseKeys: Set<String>
@@ -121,6 +122,12 @@ struct TodayScreen: View {
                 }
                 .zIndex(5)
                 .allowsHitTesting(true)
+            }
+        }
+        .transaction { transaction in
+            if prefersReducedMotion {
+                transaction.animation = nil
+                transaction.disablesAnimations = true
             }
         }
         .navigationTitle("今日")
@@ -209,7 +216,7 @@ struct TodayScreen: View {
                     )
                     .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
                     .animation(
-                        .snappy(duration: 0.28, extraBounce: 0.03),
+                        prefersReducedMotion ? nil : .snappy(duration: 0.28, extraBounce: 0.03),
                         value: snapshot.completionRateSnapshot
                     )
                 }
@@ -307,11 +314,11 @@ struct TodayScreen: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
                 .animation(
-                    .smooth(duration: 0.38, extraBounce: 0.04),
+                    prefersReducedMotion ? nil : .smooth(duration: 0.38, extraBounce: 0.04),
                     value: isCompletionRateFeedbackVisible
                 )
                 .animation(
-                    .smooth(duration: 0.34, extraBounce: 0.03),
+                    prefersReducedMotion ? nil : .smooth(duration: 0.34, extraBounce: 0.03),
                     value: completionRateFeedback.id
                 )
             }
@@ -320,7 +327,7 @@ struct TodayScreen: View {
         .accessibilityHidden(true)
         .allowsHitTesting(false)
         .animation(
-            .smooth(duration: 0.38, extraBounce: 0.03),
+            prefersReducedMotion ? nil : .smooth(duration: 0.38, extraBounce: 0.03),
             value: completionRateFeedbackSlotHeight
         )
     }
@@ -397,6 +404,7 @@ struct TodayScreen: View {
                             || task.status == .delayed
                             || closingOpenDoseKeys.contains(doseKey)
                             || pendingDoseFeedback?.doseKey == doseKey,
+                        isActionInFlight: inFlightDoseKeys.contains(doseKey),
                         feedbackAction: pendingDoseFeedback?.doseKey == doseKey
                             ? pendingDoseFeedback?.action
                             : nil,
@@ -415,17 +423,17 @@ struct TodayScreen: View {
             }
         }
         .animation(
-            .smooth(duration: 0.30, extraBounce: 0.02),
+            prefersReducedMotion ? nil : .smooth(duration: 0.30, extraBounce: 0.02),
             value: snapshot.visibleOpenTimelineTasks.map(\.id)
         )
-        .animation(.easeInOut(duration: 0.16), value: pendingDoseFeedback)
+        .animation(prefersReducedMotion ? nil : .easeInOut(duration: 0.16), value: pendingDoseFeedback)
         .animation(
-            .snappy(duration: 0.24, extraBounce: 0.01),
+            prefersReducedMotion ? nil : .snappy(duration: 0.24, extraBounce: 0.01),
             value: isOpenTimelineTemporarilyCollapsed
         )
-        .animation(.easeInOut(duration: 0.18), value: closingOpenDoseKeys)
+        .animation(prefersReducedMotion ? nil : .easeInOut(duration: 0.18), value: closingOpenDoseKeys)
         .animation(
-            .snappy(duration: 0.24, extraBounce: 0.02),
+            prefersReducedMotion ? nil : .snappy(duration: 0.24, extraBounce: 0.02),
             value: recentlyReopenedDoseKeys
         )
         .accessibilityIdentifier(AppAccessibilityID.todayOpenTimeline)
@@ -436,9 +444,7 @@ struct TodayScreen: View {
             let isExpanded = handledDisclosureBinding.wrappedValue
             let value = "\(snapshot.displayedHandledCount) 条，\(snapshot.handledSummaryText)，\(isExpanded ? "已展开" : "已折叠")"
             Button {
-                withAnimation(.snappy(duration: 0.24, extraBounce: 0.01)) {
-                    showingHandledTasks.toggle()
-                }
+                toggleHandledTasks()
             } label: {
                 HStack(spacing: 8) {
                     HandledDoseSummaryRow(
@@ -490,17 +496,17 @@ struct TodayScreen: View {
             }
         }
         .animation(
-            isDoseListReparenting
+            prefersReducedMotion || isDoseListReparenting
                 ? nil
                 : .snappy(duration: 0.22, extraBounce: 0.01),
             value: snapshot.handledTodayTasks.map(\.id)
         )
         .animation(
-            .snappy(duration: 0.22, extraBounce: 0.01),
+            prefersReducedMotion ? nil : .snappy(duration: 0.22, extraBounce: 0.01),
             value: isHandledTimelineTemporarilyCollapsed
         )
-        .animation(.easeInOut(duration: 0.18), value: reopeningHandledDoseKeys)
-        .animation(.easeInOut(duration: 0.2), value: handledDropTargetPulse)
+        .animation(prefersReducedMotion ? nil : .easeInOut(duration: 0.18), value: reopeningHandledDoseKeys)
+        .animation(prefersReducedMotion ? nil : .easeInOut(duration: 0.2), value: handledDropTargetPulse)
         .accessibilityIdentifier(AppAccessibilityID.todayHandledTimeline)
     }
 
@@ -625,6 +631,20 @@ struct TodayScreen: View {
         }
         UIApplication.shared.open(url)
     }
+
+    private func toggleHandledTasks() {
+        if prefersReducedMotion {
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                showingHandledTasks.toggle()
+            }
+        } else {
+            withAnimation(.snappy(duration: 0.24, extraBounce: 0.01)) {
+                showingHandledTasks.toggle()
+            }
+        }
+    }
 }
 
 func todayDoseStatusText(
@@ -665,13 +685,15 @@ struct ElderTodayScreenActions {
 struct ElderTodayScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.medcueReduceMotionEnabled) private var reduceMotionEnabled
     @AccessibilityFocusState private var accessibilityFocus: ElderAccessibilityFocus?
-    @ScaledMetric(relativeTo: .largeTitle) private var elderTitlePointSize: CGFloat = 52
+    @ScaledMetric(relativeTo: .largeTitle) private var elderTitlePointSize: CGFloat = 46
     @ScaledMetric(relativeTo: .title2) private var elderDosePointSize: CGFloat = 26
     @ScaledMetric(relativeTo: .title3) private var elderMetaPointSize: CGFloat = 22
     let snapshot: ElderTodayRenderSnapshot
     let pendingDoseConfirmation: PendingDoseConfirmation?
     let pendingDoseFeedback: PendingDoseFeedback?
+    let inFlightDoseKeys: Set<String>
     @Binding var dosePersistenceErrorMessage: String?
     @Binding var helpOpeningErrorMessage: String?
     @Binding var helpMissingMessage: String?
@@ -688,9 +710,14 @@ struct ElderTodayScreen: View {
     }
 
     private var medicationPhotoWidth: CGFloat {
-        isAccessibilityLayout
-            ? ElderTaskLayoutMetrics.accessibilityPhotoWidth
-            : ElderTaskLayoutMetrics.regularPhotoWidth
+        let screenWidth = UIScreen.main.bounds.width
+        if isAccessibilityLayout {
+            return ElderTaskLayoutMetrics.accessibilityPhotoWidth(for: screenWidth)
+        }
+        if ElderTaskLayoutMetrics.shouldStackRegularIdentity(for: screenWidth) {
+            return ElderTaskLayoutMetrics.stackedPhotoWidth(for: screenWidth)
+        }
+        return ElderTaskLayoutMetrics.regularPhotoWidth(for: screenWidth)
     }
 
     private var helpConfirmationPresented: Binding<Bool> {
@@ -758,12 +785,16 @@ struct ElderTodayScreen: View {
             .padding(.bottom, 28)
         }
         .background(Color(.systemGroupedBackground))
-        // Keep elder task controls operable at the largest system sizes; VoiceOver labels remain full length.
-        .dynamicTypeSize(...DynamicTypeSize.accessibility3)
         .safeAreaInset(edge: .top, spacing: 0) {
             Color(.systemGroupedBackground)
                 .frame(height: 8)
                 .accessibilityHidden(true)
+        }
+        .transaction { transaction in
+            if reduceMotionEnabled {
+                transaction.animation = nil
+                transaction.disablesAnimations = true
+            }
         }
         .navigationTitle("用药提醒")
         .navigationBarTitleDisplayMode(.inline)
@@ -935,7 +966,10 @@ struct ElderTodayScreen: View {
                         action: actions.requestHelp
                     )
                 }
-                .disabled(pendingDoseFeedback?.doseKey == actions.logicalDoseKey(task))
+                .disabled(
+                    pendingDoseFeedback?.doseKey == actions.logicalDoseKey(task)
+                        || inFlightDoseKeys.contains(actions.logicalDoseKey(task))
+                )
             }
         }
         .padding(isAccessibilityLayout ? ElderTaskLayoutMetrics.accessibilityCardPadding : ElderTaskLayoutMetrics.regularCardPadding)
@@ -951,29 +985,33 @@ struct ElderTodayScreen: View {
 
     @ViewBuilder
     private func taskIdentity(_ task: StoredDoseTask) -> some View {
-        if isAccessibilityLayout {
+        if isAccessibilityLayout || ElderTaskLayoutMetrics.shouldStackRegularIdentity(for: UIScreen.main.bounds.width) {
             VStack(alignment: .center, spacing: ElderTaskLayoutMetrics.accessibilityIdentitySpacing) {
-                medicationPhoto
+                medicationPhoto(size: medicationPhotoWidth)
                 taskDetails(task, centered: true)
                 taskSchedule(task, centered: true)
             }
             .frame(maxWidth: .infinity)
         } else {
-            VStack(alignment: .center, spacing: ElderTaskLayoutMetrics.regularIdentitySpacing) {
-                medicationPhoto
-                taskDetails(task, centered: true)
-                taskSchedule(task, centered: true)
+            // Regular sizes use a horizontal recognition stage so the photo and medication facts share one reading band.
+            HStack(alignment: .center, spacing: ElderTaskLayoutMetrics.regularIdentitySpacing) {
+                medicationPhoto(size: medicationPhotoWidth)
+                VStack(alignment: .leading, spacing: ElderTaskLayoutMetrics.regularDetailsSpacing) {
+                    taskDetails(task, centered: false)
+                    taskSchedule(task, centered: false)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private var medicationPhoto: some View {
+    private func medicationPhoto(size: CGFloat) -> some View {
         MedicationPhotoView(
             photoData: snapshot.currentMedication?.photoData,
             symbolName: snapshot.currentMedication?.photoSymbolName ?? "pills.fill",
             tint: snapshot.currentMedication.map(medicationColor(for:)) ?? .blue,
-            size: medicationPhotoWidth,
+            size: size,
             containerAspectRatio: ElderTaskLayoutMetrics.photoContainerAspectRatio,
             usesPhotoAspectRatio: true,
             contentMode: .fill,
@@ -983,7 +1021,7 @@ struct ElderTodayScreen: View {
                 return "\(name)，\($0.photoData == nil ? "药品图示" : "药盒照片")"
             } ?? "药品图示"
         )
-        .frame(width: medicationPhotoWidth)
+        .frame(width: size)
     }
 
     private func taskDetails(_ task: StoredDoseTask, centered: Bool) -> some View {
@@ -1032,16 +1070,39 @@ struct ElderTodayScreen: View {
 }
 
 enum ElderTaskLayoutMetrics {
-    // The identity band gives the photo and medication facts one centered reading path before the actions.
-    static let regularPhotoWidth: CGFloat = 250
+    // The regular recognition stage reserves roughly 54% of the card content width for a legible real photo.
+    static let regularPhotoWidth: CGFloat = 180
+    static let regularPhotoMinimumWidth: CGFloat = 176
+    static let regularStackBreakpoint: CGFloat = 390
+    static let stackedPhotoWidth: CGFloat = 280
     static let accessibilityPhotoWidth: CGFloat = 300
     // DemoAdvil is 960x1258; this fallback keeps portrait packaging from being narrowed by an overly wide frame.
     static let photoContainerAspectRatio: CGFloat = 0.76
     static let regularCardPadding: CGFloat = 18
     static let accessibilityCardPadding: CGFloat = 20
-    static let regularIdentitySpacing: CGFloat = 18
+    static let regularIdentitySpacing: CGFloat = 12
+    static let regularDetailsSpacing: CGFloat = 12
     static let accessibilityIdentitySpacing: CGFloat = 16
     static let actionSpacing: CGFloat = 12
+
+    static func regularPhotoWidth(for screenWidth: CGFloat) -> CGFloat {
+        let contentWidth = max(0, screenWidth - (2 * 16) - (2 * regularCardPadding))
+        return min(max(contentWidth * 0.54, regularPhotoMinimumWidth), min(regularPhotoWidth, contentWidth))
+    }
+
+    static func shouldStackRegularIdentity(for screenWidth: CGFloat) -> Bool {
+        screenWidth < regularStackBreakpoint
+    }
+
+    static func stackedPhotoWidth(for screenWidth: CGFloat) -> CGFloat {
+        let contentWidth = max(0, screenWidth - (2 * 16) - (2 * regularCardPadding))
+        return min(stackedPhotoWidth, contentWidth)
+    }
+
+    static func accessibilityPhotoWidth(for screenWidth: CGFloat) -> CGFloat {
+        let contentWidth = max(0, screenWidth - (2 * 16) - (2 * accessibilityCardPadding))
+        return min(accessibilityPhotoWidth, contentWidth)
+    }
 }
 
 private enum ElderAccessibilityFocus: Hashable {

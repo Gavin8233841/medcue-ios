@@ -202,6 +202,10 @@ private struct SetAppTabTopGradientProgressKey: EnvironmentKey {
     static let defaultValue: @MainActor @Sendable (AppTab, CGFloat) -> Void = { _, _ in }
 }
 
+private struct MedCueReduceMotionEnabledKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 extension EnvironmentValues {
     var openMedicationAIQuestion: @MainActor @Sendable (String) -> Void {
         get { self[OpenMedicationAIQuestionKey.self] }
@@ -231,6 +235,11 @@ extension EnvironmentValues {
     var setAppTabTopGradientProgress: @MainActor @Sendable (AppTab, CGFloat) -> Void {
         get { self[SetAppTabTopGradientProgressKey.self] }
         set { self[SetAppTabTopGradientProgressKey.self] = newValue }
+    }
+
+    var medcueReduceMotionEnabled: Bool {
+        get { self[MedCueReduceMotionEnabledKey.self] }
+        set { self[MedCueReduceMotionEnabledKey.self] = newValue }
     }
 }
 
@@ -422,6 +431,8 @@ struct MedicationSymbolView: View {
 }
 
 struct MedicationPhotoView: View {
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(\.medcueReduceMotionEnabled) private var medcueReduceMotionEnabled
     let photoData: Data?
     let symbolName: String
     let tint: Color
@@ -513,14 +524,23 @@ struct MedicationPhotoView: View {
         guard !Task.isCancelled else {
             return
         }
-        withAnimation(.easeOut(duration: 0.16)) {
+        let updates = {
             decodedImage = image
             decodedImageKey = image == nil ? nil : photoKey
+        }
+        if accessibilityReduceMotion || medcueReduceMotionEnabled {
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction, updates)
+        } else {
+            withAnimation(.easeOut(duration: 0.16), updates)
         }
     }
 }
 
 struct MedicationHeroPhotoView: View {
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(\.medcueReduceMotionEnabled) private var medcueReduceMotionEnabled
     let photoData: Data?
     let symbolName: String
     let tint: Color
@@ -672,9 +692,16 @@ struct MedicationHeroPhotoView: View {
         guard !Task.isCancelled else {
             return
         }
-        withAnimation(.easeOut(duration: 0.18)) {
+        let updates = {
             decodedImage = image
             decodedImageKey = image == nil ? nil : photoKey
+        }
+        if accessibilityReduceMotion || medcueReduceMotionEnabled {
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction, updates)
+        } else {
+            withAnimation(.easeOut(duration: 0.18), updates)
         }
     }
 }
