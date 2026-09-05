@@ -495,6 +495,19 @@ struct AIAssistantView: View {
     }
 
     @MainActor
+    static func beginLocalStreamingResponse(
+        executionID: UUID,
+        activeRequestID: UUID?,
+        response: inout LocalStreamingAIResponse?
+    ) -> Bool {
+        // A cancelled task can first reach the main actor after a retry has
+        // started. Validate ownership before touching its shared UI state.
+        guard !Task.isCancelled, activeRequestID == executionID else { return false }
+        response = LocalStreamingAIResponse()
+        return true
+    }
+
+    @MainActor
     private func sendLocalModelRequest(
         request: MedicalAIRequest,
         sharedScopesSummary: String,
@@ -505,8 +518,13 @@ struct AIAssistantView: View {
             finishAIRequestIfCurrent(executionID)
         }
 
+        guard Self.beginLocalStreamingResponse(
+            executionID: executionID,
+            activeRequestID: activeAIRequestID,
+            response: &localStreamingResponse
+        ) else { return }
+
         do {
-            localStreamingResponse = LocalStreamingAIResponse()
             let client = LocalMedicalAIClient(modelURL: modelURL)
             var finalAnswer = ""
             var finalThinking = ""

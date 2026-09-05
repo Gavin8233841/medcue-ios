@@ -6,9 +6,91 @@ import Testing
 /// Issue #6: cancellation of a local AI request must propagate through the
 /// client stream into the runtime worker, must never surface as a generation
 /// failure, and must leave room for an immediate retry. These tests drive the
-/// client through a scripted `LocalMedicalGenerating` seam; no real GGUF model
-/// or llama binary is involved.
+/// client through a scripted `LocalMedicalGenerating` seam and the view's
+/// first-write operation against shared UI state; no real GGUF model or llama
+/// binary is involved.
 struct LocalMedicalAICancellationTests {
+    @Test(arguments: [false, true]) @MainActor
+    func delayedLocalTaskCannotResetRetryStreamingUI(cancelStaleTask: Bool) async throws {
+        let startGate = StreamReturnGate()
+        let staleExecutionID = UUID()
+        let retryExecutionID = UUID()
+        var activeRequestID: UUID? = staleExecutionID
+        var response: LocalStreamingAIResponse?
+        let staleTask = Task { @MainActor in
+            await startGate.wait()
+            return AIAssistantView.beginLocalStreamingResponse(
+                executionID: staleExecutionID,
+                activeRequestID: activeRequestID,
+                response: &response
+            )
+        }
+        if cancelStaleTask {
+            staleTask.cancel()
+        }
+
+        activeRequestID = retryExecutionID
+        let retryTask = Task { @MainActor in
+            let started = AIAssistantView.beginLocalStreamingResponse(
+                executionID: retryExecutionID,
+                activeRequestID: activeRequestID,
+                response: &response
+            )
+            response?.statusText = "retry-status"
+            response?.answerText = "retry-answer"
+            response?.thinkingText = "retry-thinking"
+            response?.isThinkingExpanded = false
+            return started
+        }
+        #expect(await retryTask.value)
+        let retryResponse = response
+
+        // Both tasks use the view's real first-write operation on one shared
+        // UI response, with the old operation forced to run after the retry.
+        await startGate.open()
+        #expect(await staleTask.value == false)
+        let confirmedRetryResponse = try #require(retryResponse)
+        #expect(activeRequestID == retryExecutionID)
+        #expect(response?.startedAt == confirmedRetryResponse.startedAt)
+        #expect(response?.statusText == "retry-status")
+        #expect(response?.answerText == "retry-answer")
+        #expect(response?.thinkingText == "retry-thinking")
+        #expect(response?.isThinkingExpanded == false)
+    }
+
+    @Test @MainActor
+    func cancelledLocalTaskCannotCreateStreamingUIWhileStillCurrent() async {
+        let startGate = StreamReturnGate()
+        let executionID = UUID()
+        var response: LocalStreamingAIResponse?
+        let task = Task { @MainActor in
+            await startGate.wait()
+            return AIAssistantView.beginLocalStreamingResponse(
+                executionID: executionID,
+                activeRequestID: executionID,
+                response: &response
+            )
+        }
+        task.cancel()
+        await startGate.open()
+
+        #expect(await task.value == false)
+        #expect(response == nil)
+    }
+
+    @Test @MainActor
+    func localTaskCannotCreateStreamingUIAfterRequestWasCleared() {
+        var response: LocalStreamingAIResponse?
+        let started = AIAssistantView.beginLocalStreamingResponse(
+            executionID: UUID(),
+            activeRequestID: nil,
+            response: &response
+        )
+
+        #expect(!started)
+        #expect(response == nil)
+    }
+
     @Test
     func cancellationAfterRuntimeStreamCreationBeforeConsumptionTerminatesRuntime() async {
         let returnGate = StreamReturnGate()
