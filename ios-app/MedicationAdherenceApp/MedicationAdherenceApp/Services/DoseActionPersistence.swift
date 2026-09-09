@@ -35,11 +35,14 @@ enum AppPersistenceCommitter {
 
 enum DoseActionPersistenceError: Error, Equatable {
     case saveFailed
+    case taskClosed
 
     var userMessage: String {
         switch self {
         case .saveFailed:
             "用药记录未能保存，请重试。"
+        case .taskClosed:
+            "这项用药已更新，请重新查看。"
         }
     }
 }
@@ -116,15 +119,17 @@ struct DoseActionTransitionPlanner {
         occurredAt: Date,
         primaryReason: String,
         mergedReason: String,
+        delayedDueAt: Date? = nil,
         primaryActionLogID: UUID = UUID()
     ) -> [DoseActionTransition] {
-        let delayedDueAt = DoseDelayPolicy.delayedDueAtFromPlannedTime(primaryTask.dueAt)
+        let resolvedDelayedDueAt = delayedDueAt
+            ?? DoseDelayPolicy.delayedDueAtFromPlannedTime(primaryTask.dueAt)
         return taskGroup.map { task in
             DoseActionTransition(
                 task: task,
                 action: mutation.actionKind,
                 newStatus: mutation.newStatus,
-                newDueAt: mutation == .delay ? delayedDueAt : task.dueAt,
+                newDueAt: mutation == .delay ? resolvedDelayedDueAt : task.dueAt,
                 newRecordedAt: occurredAt,
                 newReason: task.id == primaryTask.id ? primaryReason : mergedReason,
                 occurredAt: occurredAt,
@@ -154,6 +159,11 @@ struct DoseActionPersistence {
     ) throws -> [StoredDoseActionLog] {
         guard !transitions.isEmpty else {
             return []
+        }
+        guard transitions.allSatisfy({
+            $0.task.status == .pending || $0.task.status == .delayed
+        }) else {
+            throw DoseActionPersistenceError.taskClosed
         }
 
         let snapshots = transitions.map(DoseTaskStateSnapshot.init)

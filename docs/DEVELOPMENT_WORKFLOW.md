@@ -127,6 +127,28 @@ in the Issue or a linked specification:
 Scale all three layers to the change. A small bug or obvious correction may keep
 them as a few Issue bullets and does not require separate documents.
 
+#### User-interface copy and accessibility adaptation
+
+- An elder or accessibility mode is a simplified task flow, not a uniformly
+  enlarged copy of the complete interface. Keep semantic Dynamic Type support,
+  reflow content at accessibility sizes, and remove nonessential hierarchy
+  before adding more scale or more cards.
+- User-visible copy communicates only the current task, user data, action,
+  state, consequence, or a necessary recovery step. Do not expose design intent,
+  implementation defaults, safety invariants, test assertions, or defensive
+  programming explanations in the product interface.
+- Text such as `现在只需处理一件事`, `无操作会保持未确认，不会自动记成忽略。`,
+  and `这里不会推断为全部已服用` belongs in requirements or tests when needed,
+  never in the interface. Preserve genuinely necessary medication, consent,
+  error, and irreversible-action information at the point of decision.
+- A user photo or other recognition aid supplements, but never replaces, a
+  readable name and accessible text. Missing media falls back to a neutral
+  visual without explanatory placeholder copy.
+- Review the final string inventory and the same screen state at both the
+  default and an accessibility content size. Do not compare screenshots from
+  different device data, navigation states, or builds as if they were one
+  responsive-layout result.
+
 ### 4. Branch and implementation
 
 With the authoritative `main` established:

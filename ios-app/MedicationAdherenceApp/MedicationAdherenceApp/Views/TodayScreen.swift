@@ -17,6 +17,7 @@ struct TodayScreenActions {
     let archive: (StoredDoseTask) -> Void
     let unarchive: (StoredDoseTask) -> Void
     let rollbackUndo: (DoseUndoBanner) -> Void
+    let switchToElderMode: () -> Void
     let requestWeatherRefresh: (Bool) async -> Bool
     let initialLoad: () async -> Void
     let timerTick: () -> Void
@@ -37,6 +38,7 @@ struct TodayScreen: View {
     let isHandledTimelineTemporarilyCollapsed: Bool
     let pendingDoseConfirmation: PendingDoseConfirmation?
     let pendingDoseFeedback: PendingDoseFeedback?
+    let inFlightDoseKeys: Set<String>
     let handledDropTargetPulse: Bool
     let pendingHandledArrivalCount: Int
     let closingOpenDoseKeys: Set<String>
@@ -120,6 +122,12 @@ struct TodayScreen: View {
                 }
                 .zIndex(5)
                 .allowsHitTesting(true)
+            }
+        }
+        .transaction { transaction in
+            if prefersReducedMotion {
+                transaction.animation = nil
+                transaction.disablesAnimations = true
             }
         }
         .navigationTitle("今日")
@@ -208,11 +216,12 @@ struct TodayScreen: View {
                     )
                     .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
                     .animation(
-                        .snappy(duration: 0.28, extraBounce: 0.03),
+                        prefersReducedMotion ? nil : .snappy(duration: 0.28, extraBounce: 0.03),
                         value: snapshot.completionRateSnapshot
                     )
                 }
 
+                elderModeEntryCard
                 notificationUnavailableBanner
                 openTimelineSection
 
@@ -240,6 +249,48 @@ struct TodayScreen: View {
         .background(Color(.systemGroupedBackground))
     }
 
+    private var elderModeEntryCard: some View {
+        Button(action: actions.switchToElderMode) {
+            HStack(spacing: 14) {
+                Image(systemName: "checklist")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.blue)
+                    .frame(width: 42, height: 42)
+                    .background(
+                        Color.blue.opacity(0.12),
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    )
+
+                Text("适老模式")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .medicationGlassSurface(
+                cornerRadius: 20,
+                tint: .blue,
+                fallbackMaterial: .thinMaterial,
+                isInteractive: true
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(Color.blue.opacity(0.16), lineWidth: 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("适老模式")
+        .accessibilityIdentifier(AppAccessibilityID.todayElderModeEntry)
+    }
+
     private var completionRateFeedbackSlot: some View {
         ZStack(alignment: .top) {
             if let completionRateFeedback,
@@ -263,11 +314,11 @@ struct TodayScreen: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
                 .animation(
-                    .smooth(duration: 0.38, extraBounce: 0.04),
+                    prefersReducedMotion ? nil : .smooth(duration: 0.38, extraBounce: 0.04),
                     value: isCompletionRateFeedbackVisible
                 )
                 .animation(
-                    .smooth(duration: 0.34, extraBounce: 0.03),
+                    prefersReducedMotion ? nil : .smooth(duration: 0.34, extraBounce: 0.03),
                     value: completionRateFeedback.id
                 )
             }
@@ -276,7 +327,7 @@ struct TodayScreen: View {
         .accessibilityHidden(true)
         .allowsHitTesting(false)
         .animation(
-            .smooth(duration: 0.38, extraBounce: 0.03),
+            prefersReducedMotion ? nil : .smooth(duration: 0.38, extraBounce: 0.03),
             value: completionRateFeedbackSlotHeight
         )
     }
@@ -353,6 +404,7 @@ struct TodayScreen: View {
                             || task.status == .delayed
                             || closingOpenDoseKeys.contains(doseKey)
                             || pendingDoseFeedback?.doseKey == doseKey,
+                        isActionInFlight: inFlightDoseKeys.contains(doseKey),
                         feedbackAction: pendingDoseFeedback?.doseKey == doseKey
                             ? pendingDoseFeedback?.action
                             : nil,
@@ -371,17 +423,17 @@ struct TodayScreen: View {
             }
         }
         .animation(
-            .smooth(duration: 0.30, extraBounce: 0.02),
+            prefersReducedMotion ? nil : .smooth(duration: 0.30, extraBounce: 0.02),
             value: snapshot.visibleOpenTimelineTasks.map(\.id)
         )
-        .animation(.easeInOut(duration: 0.16), value: pendingDoseFeedback)
+        .animation(prefersReducedMotion ? nil : .easeInOut(duration: 0.16), value: pendingDoseFeedback)
         .animation(
-            .snappy(duration: 0.24, extraBounce: 0.01),
+            prefersReducedMotion ? nil : .snappy(duration: 0.24, extraBounce: 0.01),
             value: isOpenTimelineTemporarilyCollapsed
         )
-        .animation(.easeInOut(duration: 0.18), value: closingOpenDoseKeys)
+        .animation(prefersReducedMotion ? nil : .easeInOut(duration: 0.18), value: closingOpenDoseKeys)
         .animation(
-            .snappy(duration: 0.24, extraBounce: 0.02),
+            prefersReducedMotion ? nil : .snappy(duration: 0.24, extraBounce: 0.02),
             value: recentlyReopenedDoseKeys
         )
         .accessibilityIdentifier(AppAccessibilityID.todayOpenTimeline)
@@ -392,9 +444,7 @@ struct TodayScreen: View {
             let isExpanded = handledDisclosureBinding.wrappedValue
             let value = "\(snapshot.displayedHandledCount) 条，\(snapshot.handledSummaryText)，\(isExpanded ? "已展开" : "已折叠")"
             Button {
-                withAnimation(.snappy(duration: 0.24, extraBounce: 0.01)) {
-                    showingHandledTasks.toggle()
-                }
+                toggleHandledTasks()
             } label: {
                 HStack(spacing: 8) {
                     HandledDoseSummaryRow(
@@ -446,17 +496,17 @@ struct TodayScreen: View {
             }
         }
         .animation(
-            isDoseListReparenting
+            prefersReducedMotion || isDoseListReparenting
                 ? nil
                 : .snappy(duration: 0.22, extraBounce: 0.01),
             value: snapshot.handledTodayTasks.map(\.id)
         )
         .animation(
-            .snappy(duration: 0.22, extraBounce: 0.01),
+            prefersReducedMotion ? nil : .snappy(duration: 0.22, extraBounce: 0.01),
             value: isHandledTimelineTemporarilyCollapsed
         )
-        .animation(.easeInOut(duration: 0.18), value: reopeningHandledDoseKeys)
-        .animation(.easeInOut(duration: 0.2), value: handledDropTargetPulse)
+        .animation(prefersReducedMotion ? nil : .easeInOut(duration: 0.18), value: reopeningHandledDoseKeys)
+        .animation(prefersReducedMotion ? nil : .easeInOut(duration: 0.2), value: handledDropTargetPulse)
         .accessibilityIdentifier(AppAccessibilityID.todayHandledTimeline)
     }
 
@@ -581,6 +631,20 @@ struct TodayScreen: View {
         }
         UIApplication.shared.open(url)
     }
+
+    private func toggleHandledTasks() {
+        if prefersReducedMotion {
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                showingHandledTasks.toggle()
+            }
+        } else {
+            withAnimation(.snappy(duration: 0.24, extraBounce: 0.01)) {
+                showingHandledTasks.toggle()
+            }
+        }
+    }
 }
 
 func todayDoseStatusText(
@@ -597,6 +661,682 @@ func todayDoseStatusText(
         task.status.displayName
     case .delayed:
         "\(delayDurationText)后"
+    }
+}
+
+struct ElderTodayScreenActions {
+    let logicalDoseKey: (StoredDoseTask) -> String
+    let completionVerb: (StoredMedication?) -> String
+    let markTaken: (StoredDoseTask) -> Void
+    let delay: (StoredDoseTask) -> Void
+    let confirm: (StoredDoseTask) -> Void
+    let cancelConfirmation: (StoredDoseTask) -> Void
+    let requestHelp: () -> Void
+    let confirmHelp: () -> Void
+    let cancelHelp: () -> Void
+    let openSettings: () -> Void
+    let openNotificationSettings: () -> Void
+    let switchToCompleteMode: () -> Void
+    let initialLoad: () async -> Void
+    let timerTick: () -> Void
+    let becameActive: () -> Void
+    let cleanup: () -> Void
+}
+
+struct ElderTodayScreen: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.medcueReduceMotionEnabled) private var reduceMotionEnabled
+    @AccessibilityFocusState private var accessibilityFocus: ElderAccessibilityFocus?
+    @ScaledMetric(relativeTo: .largeTitle) private var elderTitlePointSize: CGFloat = 46
+    @ScaledMetric(relativeTo: .title2) private var elderDosePointSize: CGFloat = 26
+    @ScaledMetric(relativeTo: .title3) private var elderMetaPointSize: CGFloat = 22
+    let snapshot: ElderTodayRenderSnapshot
+    let pendingDoseConfirmation: PendingDoseConfirmation?
+    let pendingDoseFeedback: PendingDoseFeedback?
+    let inFlightDoseKeys: Set<String>
+    @Binding var dosePersistenceErrorMessage: String?
+    @Binding var helpOpeningErrorMessage: String?
+    @Binding var helpMissingMessage: String?
+    @Binding var helpConfirmationPhone: ElderHelpPhoneNumber?
+    @Binding var successFeedback: String?
+    let notificationUnavailableMessage: String
+    let loadErrorMessage: String?
+    let isLoading: Bool
+    let actions: ElderTodayScreenActions
+    private let currentTaskRefreshTimer = Timer
+        .publish(every: 1, on: .main, in: .common)
+        .autoconnect()
+
+    private var isAccessibilityLayout: Bool {
+        dynamicTypeSize.isAccessibilitySize
+    }
+
+    private func medicationPhotoWidth(for availableWidth: CGFloat) -> CGFloat {
+        if isAccessibilityLayout {
+            return ElderTaskLayoutMetrics.accessibilityPhotoWidth(for: availableWidth)
+        }
+        return ElderTaskLayoutMetrics.regularPhotoWidth(for: availableWidth)
+    }
+
+    private var helpConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { helpConfirmationPhone != nil },
+            set: { isPresented in
+                if !isPresented {
+                    actions.cancelHelp()
+                }
+            }
+        )
+    }
+
+    private var helpMissingPresented: Binding<Bool> {
+        Binding(
+            get: { helpMissingMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    helpMissingMessage = nil
+                }
+            }
+        )
+    }
+
+    private var activeConfirmation: PendingDoseConfirmation.Kind? {
+        guard let task = snapshot.currentTask,
+              pendingDoseConfirmation?.doseKey == actions.logicalDoseKey(task)
+        else {
+            return nil
+        }
+        return pendingDoseConfirmation?.kind
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let successFeedback {
+                        ElderDoseSuccessFeedback(message: successFeedback)
+                            .transition(.opacity)
+                            .accessibilityFocused($accessibilityFocus, equals: .success)
+                    }
+
+                    reminderWarning
+
+                    if isLoading && snapshot.currentTask == nil {
+                        ProgressView()
+                            .controlSize(.large)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 96)
+                            .accessibilityLabel("正在加载用药任务")
+                    } else if loadErrorMessage != nil {
+                        loadErrorState
+                    } else if let task = snapshot.currentTask {
+                        currentTaskCard(task, availableWidth: geometry.size.width)
+                        if snapshot.remainingOpenTaskCount > 0 {
+                            Text("还有 \(snapshot.remainingOpenTaskCount) 项待处理")
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    } else {
+                        elderEmptyState
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 28)
+            }
+            .accessibilityIdentifier("elder.scroll")
+        }
+        .background(Color(.systemGroupedBackground))
+        .safeAreaInset(edge: .top, spacing: 0) {
+            Color(.systemGroupedBackground)
+                .frame(height: 8)
+                .accessibilityHidden(true)
+        }
+        .transaction { transaction in
+            if reduceMotionEnabled {
+                transaction.animation = nil
+                transaction.disablesAnimations = true
+            }
+        }
+        .navigationTitle("用药提醒")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(Color(.systemGroupedBackground), for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(colorScheme, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(action: actions.switchToCompleteMode) {
+                    if dynamicTypeSize.isAccessibilitySize {
+                        Image(systemName: "arrow.backward")
+                    } else {
+                        Text("完整模式")
+                    }
+                }
+                .accessibilityLabel("完整模式")
+                .accessibilityIdentifier(AppAccessibilityID.elderSwitchToComplete)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: actions.openSettings) {
+                    Label("同机设置", systemImage: "gearshape")
+                }
+                .accessibilityIdentifier(AppAccessibilityID.elderOpenSettings)
+            }
+        }
+        .task {
+            await actions.initialLoad()
+        }
+        .onReceive(currentTaskRefreshTimer) { _ in
+            actions.timerTick()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else {
+                return
+            }
+            actions.becameActive()
+        }
+        .alert(
+            "用药记录未保存",
+            isPresented: Binding(
+                get: { dosePersistenceErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        dosePersistenceErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("好", role: .cancel) {
+                dosePersistenceErrorMessage = nil
+            }
+        } message: {
+            Text(dosePersistenceErrorMessage ?? DoseActionPersistenceError.saveFailed.userMessage)
+        }
+        .alert(
+            "未能打开电话确认界面",
+            isPresented: Binding(
+                get: { helpOpeningErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        helpOpeningErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("好", role: .cancel) {
+                helpOpeningErrorMessage = nil
+            }
+            .accessibilityIdentifier("elder.help.error.dismiss")
+        } message: {
+            Text(helpOpeningErrorMessage ?? "请在同机设置中检查帮助号码后重试。")
+        }
+        .alert("还没有帮助号码", isPresented: helpMissingPresented) {
+            Button("去设置") {
+                helpMissingMessage = nil
+                actions.openSettings()
+            }
+            .accessibilityIdentifier("elder.help.missing.settings")
+            Button("取消", role: .cancel) {
+                helpMissingMessage = nil
+            }
+            .accessibilityIdentifier("elder.help.missing.cancel")
+        } message: {
+            Text(helpMissingMessage ?? "请先添加帮助号码。")
+        }
+        .alert(
+            "联系帮助？",
+            isPresented: helpConfirmationPresented
+        ) {
+            Button("拨打 \(helpConfirmationPhone?.storageValue ?? "")") {
+                actions.confirmHelp()
+            }
+            Button("取消", role: .cancel) {
+                actions.cancelHelp()
+            }
+            .accessibilityIdentifier("elder.help.cancel")
+        } message: {
+            Text("帮助号码：\(helpConfirmationPhone?.storageValue ?? "")")
+        }
+        .onChange(of: successFeedback) { _, message in
+            guard let message else { return }
+            UIAccessibility.post(notification: .announcement, argument: message)
+            DispatchQueue.main.async {
+                accessibilityFocus = .success
+            }
+        }
+        .onChange(of: pendingDoseConfirmation) { _, confirmation in
+            guard let confirmation else { return }
+            UIAccessibility.post(
+                notification: .announcement,
+                argument: confirmation.kind.elderTitle(completionVerb: actions.completionVerb(snapshot.currentMedication))
+            )
+            DispatchQueue.main.async {
+                accessibilityFocus = .confirmation
+            }
+        }
+        .onDisappear(perform: actions.cleanup)
+    }
+
+    private var loadErrorState: some View {
+        VStack(spacing: 20) {
+            Label("用药信息未能加载", systemImage: "exclamationmark.triangle.fill")
+                .font(.title2.bold())
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            ElderDoseActionButton(
+                title: "重试",
+                systemImage: "arrow.clockwise",
+                tone: .reminder,
+                prominence: .primary,
+                accessibilityIdentifier: "elder.load.retry",
+                action: { Task { await actions.initialLoad() } }
+            )
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 32)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var elderEmptyState: some View {
+        VStack(spacing: 14) {
+            Image(systemName: snapshot.emptyState?.systemImage ?? "checkmark.circle")
+                .font(.system(size: 44, weight: .semibold))
+                .foregroundStyle(.green)
+            Text(snapshot.emptyState?.title ?? "没有待处理用药")
+                .font(.title2.bold())
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 52)
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private var reminderWarning: some View {
+        let message = notificationUnavailableMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !message.isEmpty {
+            Button(action: actions.openNotificationSettings) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(
+                        message == "记录已保存，提醒未能开启。" ? message : "提醒暂不可用",
+                        systemImage: "bell.slash.fill"
+                    )
+                        .font(.title3.bold())
+                    Label("打开系统设置", systemImage: "gearshape")
+                        .font(.title3.bold())
+                }
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+                .padding(16)
+                .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("elder.reminder.settings")
+        }
+    }
+
+    private func currentTaskCard(_ task: StoredDoseTask, availableWidth: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            taskIdentity(task, availableWidth: availableWidth)
+
+            Divider()
+                .padding(.horizontal, 4)
+
+            if let confirmationKind = activeConfirmation {
+                ElderDoseConfirmationPanel(
+                    kind: confirmationKind,
+                    completionVerb: actions.completionVerb(snapshot.currentMedication),
+                    confirm: { actions.confirm(task) },
+                    cancel: { actions.cancelConfirmation(task) }
+                )
+                .accessibilityFocused($accessibilityFocus, equals: .confirmation)
+            } else {
+                VStack(spacing: ElderTaskLayoutMetrics.actionSpacing) {
+                    ElderDoseActionButton(
+                        title: actions.completionVerb(snapshot.currentMedication),
+                        systemImage: "checkmark.circle.fill",
+                        tone: .completion,
+                        prominence: .primary,
+                        accessibilityIdentifier: AppAccessibilityID.elderMarkTaken,
+                        action: { actions.markTaken(task) }
+                    )
+                    ElderDoseActionButton(
+                        title: "\(DoseDelayPolicy.delayMinutes) 分钟后提醒",
+                        systemImage: "clock.arrow.circlepath",
+                        tone: .reminder,
+                        prominence: .secondary,
+                        accessibilityIdentifier: AppAccessibilityID.elderDelay,
+                        action: { actions.delay(task) }
+                    )
+                    ElderDoseActionButton(
+                        title: "需要帮助",
+                        systemImage: "phone.fill",
+                        tone: .help,
+                        prominence: .tertiary,
+                        accessibilityIdentifier: AppAccessibilityID.elderRequestHelp,
+                        action: actions.requestHelp
+                    )
+                }
+                .disabled(
+                    pendingDoseFeedback?.doseKey == actions.logicalDoseKey(task)
+                        || inFlightDoseKeys.contains(actions.logicalDoseKey(task))
+                )
+            }
+        }
+        .padding(isAccessibilityLayout ? ElderTaskLayoutMetrics.accessibilityCardPadding : ElderTaskLayoutMetrics.regularCardPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.blue.opacity(0.16), lineWidth: 1)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(AppAccessibilityID.elderCurrentTask)
+    }
+
+    @ViewBuilder
+    private func taskIdentity(_ task: StoredDoseTask, availableWidth: CGFloat) -> some View {
+        let photoWidth = medicationPhotoWidth(for: availableWidth)
+        if isAccessibilityLayout {
+            VStack(alignment: .center, spacing: ElderTaskLayoutMetrics.accessibilityIdentitySpacing) {
+                medicationPhoto(size: photoWidth)
+                taskDetails(task, centered: true)
+                taskSchedule(task, centered: true)
+            }
+            .frame(maxWidth: .infinity)
+        } else {
+            // Share the recognition band even on short screens. Stacking a full-width
+            // portrait at regular text size pushes the primary action below the fold.
+            HStack(alignment: .center, spacing: ElderTaskLayoutMetrics.regularIdentitySpacing) {
+                medicationPhoto(size: photoWidth)
+                VStack(alignment: .leading, spacing: ElderTaskLayoutMetrics.regularDetailsSpacing) {
+                    taskDetails(task, centered: false)
+                    taskSchedule(task, centered: false)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func medicationPhoto(size: CGFloat) -> some View {
+        ElderMedicationPhotoView(
+            photoData: snapshot.currentMedication?.photoData,
+            medicationName: snapshot.currentMedication.map(userFacingMedicationName(for:)),
+            width: size
+        )
+        .id(snapshot.currentMedication?.id)
+    }
+
+    private func taskDetails(_ task: StoredDoseTask, centered: Bool) -> some View {
+        VStack(alignment: centered ? .center : .leading, spacing: 8) {
+            Text(snapshot.currentMedication.map(userFacingMedicationName(for:)) ?? "待核对药品")
+                .font(.system(size: elderTitlePointSize, weight: .bold))
+                .multilineTextAlignment(centered ? .center : .leading)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let currentStatus = snapshot.currentStatus {
+                Text(currentStatus == .pendingBeforeDue && actions.completionVerb(snapshot.currentMedication) == "已使用"
+                     ? "待使用" : currentStatus.displayName)
+                    .font(.system(size: elderMetaPointSize, weight: .semibold))
+                    .foregroundStyle(ElderDoseActionTone.reminder.foregroundColor(for: colorScheme))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(ElderDoseActionTone.reminder.foregroundColor(for: colorScheme).opacity(0.12), in: Capsule())
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+        }
+        .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func taskSchedule(_ task: StoredDoseTask, centered: Bool) -> some View {
+        VStack(alignment: centered ? .center : .leading, spacing: 6) {
+            doseText(task)
+            timeText(task)
+        }
+        .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func doseText(_ task: StoredDoseTask) -> some View {
+        Text("每次 \(task.doseValue.formatted()) \(localizedMedicationUnit(task.doseUnit))")
+            .font(.system(size: elderDosePointSize, weight: .semibold))
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func timeText(_ task: StoredDoseTask) -> some View {
+        Label(AppFormatters.time.string(from: task.dueAt), systemImage: "clock")
+            .font(.system(size: elderDosePointSize, weight: .regular))
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+enum ElderTaskLayoutMetrics {
+    // The regular recognition stage reserves roughly 54% of the card content width for a legible real photo.
+    static let regularPhotoWidth: CGFloat = 180
+    static let regularPhotoMinimumWidth: CGFloat = 176
+    static let accessibilityPhotoWidth: CGFloat = 300
+    // Keep user-supplied portrait packaging from being narrowed by an overly wide frame.
+    static let photoContainerAspectRatio: CGFloat = 0.76
+    static let regularCardPadding: CGFloat = 18
+    static let accessibilityCardPadding: CGFloat = 20
+    static let regularIdentitySpacing: CGFloat = 12
+    static let regularDetailsSpacing: CGFloat = 12
+    static let accessibilityIdentitySpacing: CGFloat = 16
+    static let actionSpacing: CGFloat = 12
+
+    static func regularPhotoWidth(for availableWidth: CGFloat) -> CGFloat {
+        let contentWidth = max(0, availableWidth - (2 * 16) - (2 * regularCardPadding))
+        return min(max(contentWidth * 0.54, regularPhotoMinimumWidth), min(regularPhotoWidth, contentWidth))
+    }
+
+    static func accessibilityPhotoWidth(for availableWidth: CGFloat) -> CGFloat {
+        let contentWidth = max(0, availableWidth - (2 * 16) - (2 * accessibilityCardPadding))
+        return min(accessibilityPhotoWidth, contentWidth)
+    }
+}
+
+private enum ElderAccessibilityFocus: Hashable {
+    case confirmation
+    case success
+}
+
+private struct ElderDoseSuccessFeedback: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let message: String
+
+    var body: some View {
+        Label(message, systemImage: "checkmark.circle.fill")
+            .font(.headline.weight(.semibold))
+            .foregroundStyle(ElderDoseActionTone.completion.foregroundColor(for: colorScheme))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(ElderDoseActionTone.completion.foregroundColor(for: colorScheme).opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("elder.feedback.success")
+    }
+}
+
+enum ElderDoseActionProminence: Equatable {
+    case primary
+    case secondary
+    case tertiary
+
+    var font: Font {
+        switch self {
+        case .primary:
+            return .title2.bold()
+        case .secondary:
+            return .title3.bold()
+        case .tertiary:
+            return .title3.weight(.semibold)
+        }
+    }
+
+    var minimumHeight: CGFloat {
+        switch self {
+        case .primary:
+            return 76
+        case .secondary:
+            return 68
+        case .tertiary:
+            return 60
+        }
+    }
+
+    var visibleWidthRatio: CGFloat {
+        switch self {
+        case .primary:
+            return 1
+        case .secondary:
+            return 0.92
+        case .tertiary:
+            return 0.80
+        }
+    }
+
+    func contentWidth(availableWidth: CGFloat) -> CGFloat {
+        max(0, availableWidth * visibleWidthRatio)
+    }
+}
+
+private struct ElderDoseActionButton: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.colorScheme) private var colorScheme
+
+    let title: String
+    let systemImage: String
+    let tone: ElderDoseActionTone
+    let prominence: ElderDoseActionProminence
+    let accessibilityIdentifier: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ElderDoseActionLabelLayout(
+                visibleWidthRatio: dynamicTypeSize.isAccessibilitySize ? 1 : prominence.visibleWidthRatio,
+                minimumHeight: prominence.minimumHeight
+            ) {
+                actionLabel
+                    .font(prominence.font)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 10)
+                    .padding(.vertical, 16)
+                    .frame(minHeight: prominence.minimumHeight)
+                    .foregroundStyle(prominence == .primary ? Color.white : tone.foregroundColor(for: colorScheme))
+                    .background(actionBackground)
+            }
+            .frame(maxWidth: .infinity, minHeight: prominence.minimumHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(CompactDoseActionButtonStyle())
+        .frame(maxWidth: .infinity, minHeight: prominence.minimumHeight)
+        .contentShape(Rectangle())
+        .accessibilityLabel(title)
+        .accessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    private var actionBackground: some View {
+        (prominence == .primary ? tone.solidColor : tone.foregroundColor(for: colorScheme).opacity(0.12))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var actionLabel: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .imageScale(.large)
+                    .accessibilityHidden(true)
+                Text(title)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } else {
+            Label(title, systemImage: systemImage)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+private struct ElderDoseActionLabelLayout: Layout {
+    let visibleWidthRatio: CGFloat
+    let minimumHeight: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let label = subviews.first else { return .zero }
+        let intrinsicWidth = label.sizeThatFits(.unspecified).width
+        let proposedWidth = proposal.width ?? intrinsicWidth
+        let availableWidth = proposedWidth.isFinite ? max(0, proposedWidth) : intrinsicWidth
+        let visibleWidth = availableWidth * visibleWidthRatio
+        let labelSize = label.sizeThatFits(ProposedViewSize(width: visibleWidth, height: nil))
+        // Text may wrap before Accessibility sizes too; its measured height defines the full-row hit region.
+        return CGSize(width: availableWidth, height: max(minimumHeight, labelSize.height))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let label = subviews.first else { return }
+        label.place(
+            at: CGPoint(x: bounds.midX, y: bounds.midY),
+            anchor: .center,
+            proposal: ProposedViewSize(width: bounds.width * visibleWidthRatio, height: bounds.height)
+        )
+    }
+}
+
+private struct ElderDoseConfirmationPanel: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let kind: PendingDoseConfirmation.Kind
+    let completionVerb: String
+    let confirm: () -> Void
+    let cancel: () -> Void
+
+    private var tone: ElderDoseActionTone {
+        kind == .earlyTaken ? .help : .reminder
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label(kind.elderTitle(completionVerb: completionVerb), systemImage: kind.iconName)
+                .font(.title2.bold())
+                .foregroundStyle(tone.foregroundColor(for: colorScheme))
+                .fixedSize(horizontal: false, vertical: true)
+            if kind == .plannedDelay {
+                Text("提醒时间按原计划延后 \(DoseDelayPolicy.delayMinutes) 分钟。")
+                    .font(.title3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ElderDoseActionButton(
+                title: kind.elderConfirmTitle(completionVerb: completionVerb),
+                systemImage: "checkmark",
+                tone: tone,
+                prominence: .primary,
+                accessibilityIdentifier: AppAccessibilityID.elderConfirmationConfirm,
+                action: confirm
+            )
+            ElderDoseActionButton(
+                title: "取消",
+                systemImage: "xmark",
+                tone: .neutral,
+                prominence: .secondary,
+                accessibilityIdentifier: AppAccessibilityID.elderConfirmationCancel,
+                action: cancel
+            )
+        }
+        .padding(16)
+        .background(tone.foregroundColor(for: colorScheme).opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .accessibilityElement(children: .contain)
     }
 }
 

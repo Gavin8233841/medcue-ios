@@ -3,7 +3,7 @@ import Foundation
 @MainActor
 struct TodaySystemSurfaceAdapter {
     var cancelReminder: @MainActor (UUID) -> Void
-    var scheduleReminder: @MainActor (StoredDoseTask, StoredMedication, StoredReminderDeliveryMethod) async -> Void
+    var scheduleReminder: @MainActor (StoredDoseTask, StoredMedication, StoredReminderDeliveryMethod) async -> MedicationReminderSchedulingResult
     var endLiveActivity: @MainActor (UUID) async -> Void
     var startLiveActivity: @MainActor (StoredDoseTask, StoredMedication?) async -> Void
 }
@@ -13,6 +13,11 @@ enum TodaySystemSurfaceSyncIntent {
     case delayed([StoredDoseTask], primaryTaskID: UUID)
     case reopened([StoredDoseTask], primaryTaskID: UUID)
     case rollback([StoredDoseTask], primaryTaskID: UUID)
+}
+
+enum TodaySystemSurfaceSyncResult: Equatable {
+    case completed
+    case reminder(MedicationReminderSchedulingResult)
 }
 
 @MainActor
@@ -60,20 +65,25 @@ struct TodaySystemSurfaceSynchronizer {
         )
     }
 
-    func synchronize(_ intent: TodaySystemSurfaceSyncIntent) async {
+    @discardableResult
+    func synchronize(_ intent: TodaySystemSurfaceSyncIntent) async -> TodaySystemSurfaceSyncResult {
         switch intent {
         case let .handled(tasks):
             for task in tasks {
                 adapter.cancelReminder(task.id)
                 await adapter.endLiveActivity(task.id)
             }
+            return .completed
         case let .delayed(tasks, primaryTaskID):
+            var result = MedicationReminderSchedulingResult.unavailable(
+                message: "提醒未安排，请重新查看这项用药。"
+            )
             for task in tasks {
                 await adapter.endLiveActivity(task.id)
                 if task.id == primaryTaskID,
                    isOpen(task),
                    let medication = medicationForTask(task) {
-                    await adapter.scheduleReminder(
+                    result = await adapter.scheduleReminder(
                         task,
                         medication,
                         deliveryMethodForTask(task)
@@ -82,39 +92,44 @@ struct TodaySystemSurfaceSynchronizer {
                     adapter.cancelReminder(task.id)
                 }
             }
+            return .reminder(result)
         case let .reopened(tasks, primaryTaskID):
+            var result = TodaySystemSurfaceSyncResult.completed
             for task in tasks {
                 if task.id == primaryTaskID,
                    task.dueAt > now(),
                    isOpen(task),
                    let medication = medicationForTask(task) {
-                    await adapter.scheduleReminder(
+                    result = .reminder(await adapter.scheduleReminder(
                         task,
                         medication,
                         deliveryMethodForTask(task)
-                    )
+                    ))
                 } else {
                     adapter.cancelReminder(task.id)
                 }
                 await adapter.endLiveActivity(task.id)
             }
+            return result
         case let .rollback(tasks, primaryTaskID):
+            var result = TodaySystemSurfaceSyncResult.completed
             for task in tasks {
                 if task.id == primaryTaskID,
                    task.dueAt > now(),
                    isOpen(task),
                    let medication = medicationForTask(task) {
-                    await adapter.scheduleReminder(
+                    result = .reminder(await adapter.scheduleReminder(
                         task,
                         medication,
                         deliveryMethodForTask(task)
-                    )
+                    ))
                     await adapter.startLiveActivity(task, medication)
                 } else {
                     adapter.cancelReminder(task.id)
                     await adapter.endLiveActivity(task.id)
                 }
             }
+            return result
         }
     }
 
