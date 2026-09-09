@@ -1,6 +1,6 @@
 import SwiftData
 import SwiftUI
-#if MEDCUE_DEMO && targetEnvironment(simulator)
+#if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
 import MedicationAdherenceCore
 import UIKit
 #endif
@@ -49,7 +49,7 @@ struct AppRootView: View {
 
     @ViewBuilder
     var body: some View {
-        #if MEDCUE_DEMO && targetEnvironment(simulator)
+        #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
         if let fixture = ElderUITestFixture.active, fixture.inspectsStore {
             ElderUITestStoreInspectionView(fixture: fixture)
         } else {
@@ -61,7 +61,7 @@ struct AppRootView: View {
     }
 
     private var isRunningElderUIFixture: Bool {
-        #if MEDCUE_DEMO && targetEnvironment(simulator)
+        #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
         ElderUITestFixture.active != nil
         #else
         false
@@ -246,7 +246,7 @@ struct AppRootView: View {
 
     @ViewBuilder
     private func todayContent(presentation: TodayPresentation) -> some View {
-        #if MEDCUE_DEMO && targetEnvironment(simulator)
+        #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
         if let fixture = ElderUITestFixture.active {
             TodayView(
                 presentation: presentation,
@@ -284,7 +284,7 @@ struct AppRootView: View {
 
     @ViewBuilder
     private var elderSettingsContent: some View {
-        #if MEDCUE_DEMO && targetEnvironment(simulator)
+        #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
         if let fixture = ElderUITestFixture.active {
             SettingsView(focusesElderHelpContact: true, elderHelpContactStore: fixture.helpContactStore)
         } else {
@@ -411,7 +411,7 @@ struct AppRootView: View {
 
 }
 
-#if MEDCUE_DEMO && targetEnvironment(simulator)
+#if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
 // These fixtures never compile into device or Release builds. Each UI test owns a
 // separate on-disk store, including when it restarts the app to verify durability.
 @MainActor

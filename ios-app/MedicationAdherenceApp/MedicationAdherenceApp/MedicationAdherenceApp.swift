@@ -17,7 +17,7 @@ struct MedicationAdherenceApp: App {
     init() {
         let isPersistentStoreAvailable: Bool
         do {
-            #if MEDCUE_DEMO && targetEnvironment(simulator)
+            #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
             let fixture = try ElderUITestFixture.loadIfRequested()
             ElderUITestFixture.active = fixture
             if let fixture {
@@ -30,7 +30,7 @@ struct MedicationAdherenceApp: App {
             #endif
             persistenceStartupFailure = nil
             isPersistentStoreAvailable = true
-            #if MEDCUE_DEMO && targetEnvironment(simulator)
+            #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
             if fixture == nil {
                 MedicationNotificationDelegate.shared.install(modelContainer: modelContainer)
             }
@@ -48,7 +48,7 @@ struct MedicationAdherenceApp: App {
         }
 
         let intentModelContainer = modelContainer
-        #if MEDCUE_DEMO && targetEnvironment(simulator)
+        #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
         let allowsExternalActions = ElderUITestFixture.active == nil
         #else
         let allowsExternalActions = true
@@ -76,7 +76,7 @@ struct MedicationAdherenceApp: App {
                     PersistenceRecoveryView()
                 } else {
                     AppRootView()
-                        #if MEDCUE_DEMO && targetEnvironment(simulator)
+                        #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
                         .defaultAppStorage(ElderUITestFixture.active?.preferences ?? .standard)
                         #endif
                         #if DEBUG

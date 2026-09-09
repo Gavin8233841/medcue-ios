@@ -535,7 +535,7 @@ struct SettingsView: View {
         elderHelpContactStore: (any ElderHelpContactStoring)? = nil
     ) {
         self.focusesElderHelpContact = focusesElderHelpContact
-        #if MEDCUE_DEMO && targetEnvironment(simulator)
+        #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
         // All settings entrances, including the complete-mode profile, share
         // the isolated fixture store while a UI test is active.
         self.elderHelpContactStore = elderHelpContactStore
