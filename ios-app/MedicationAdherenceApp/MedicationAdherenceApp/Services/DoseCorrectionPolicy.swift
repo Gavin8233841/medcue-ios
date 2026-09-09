@@ -113,7 +113,11 @@ struct LegacyAutoSkipRepairCommand {
             task.status = legacyLog.previousStatus
             task.dueAt = legacyLog.previousDueAt
             task.recordedAt = legacyLog.previousRecordedAt
-            task.reason = legacyLog.previousReason
+            task.reason = LegacyAutoSkipRecordMarker.restoredTaskReason(
+                previousReason: legacyLog.previousReason,
+                currentReason: task.reason,
+                logNote: legacyLog.note
+            )
             modelContext.insert(correctionLog)
             correctionLogs.append(correctionLog)
         }

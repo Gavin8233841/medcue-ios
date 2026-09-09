@@ -1,7 +1,6 @@
 import AuthenticationServices
 import MedicationAdherenceCore
 import QuickLook
-import Security
 import SwiftData
 import SwiftUI
 import UIKit
@@ -59,15 +58,15 @@ struct ElderHelpPhoneNumber: Equatable {
 
 enum ElderHelpContactError: Error, Equatable {
     case invalidPhoneNumber
-    case secureStorageUnavailable
+    case localStorageUnavailable
     case storedPhoneNumberInvalid
 
     var userMessage: String {
         switch self {
         case .invalidPhoneNumber:
             "请输入包含数字的电话号码；可以使用开头的 +、空格、短横线和括号。"
-        case .secureStorageUnavailable:
-            "帮助号码暂时无法在本机安全存取，请稍后重试。"
+        case .localStorageUnavailable:
+            "帮助号码暂时无法在本机存取，请稍后重试。"
         case .storedPhoneNumberInvalid:
             "已保存的帮助号码无效，请重新输入。"
         }
@@ -80,29 +79,16 @@ protocol ElderHelpContactStoring {
     func remove() throws
 }
 
-struct KeychainElderHelpContactStore: ElderHelpContactStoring {
-    private static let service = "com.gwyy.appcontest2026.medicationadherence.elder-help"
-    private static let account = "local-help-phone-number"
+struct UserDefaultsElderHelpContactStore: ElderHelpContactStoring {
+    static let storageKey = "elderHelpPhoneNumber"
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
 
     func load() throws -> ElderHelpPhoneNumber? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
-            kSecAttrAccount as String: Self.account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status == errSecItemNotFound {
-            return nil
-        }
-        guard status == errSecSuccess,
-              let data = item as? Data,
-              let storedValue = String(data: data, encoding: .utf8)
-        else {
-            throw ElderHelpContactError.secureStorageUnavailable
-        }
+        guard let storedValue = defaults.string(forKey: Self.storageKey) else { return nil }
         do {
             return try ElderHelpPhoneNumber(validating: storedValue)
         } catch {
@@ -111,41 +97,11 @@ struct KeychainElderHelpContactStore: ElderHelpContactStoring {
     }
 
     func save(_ phoneNumber: ElderHelpPhoneNumber) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
-            kSecAttrAccount as String: Self.account
-        ]
-        let valueData = Data(phoneNumber.storageValue.utf8)
-        let attributes: [String: Any] = [
-            kSecValueData as String: valueData,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        ]
-        let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-        if updateStatus == errSecSuccess {
-            return
-        }
-        guard updateStatus == errSecItemNotFound else {
-            throw ElderHelpContactError.secureStorageUnavailable
-        }
-        var addQuery = query
-        addQuery[kSecValueData as String] = valueData
-        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        guard SecItemAdd(addQuery as CFDictionary, nil) == errSecSuccess else {
-            throw ElderHelpContactError.secureStorageUnavailable
-        }
+        defaults.set(phoneNumber.storageValue, forKey: Self.storageKey)
     }
 
     func remove() throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
-            kSecAttrAccount as String: Self.account
-        ]
-        let status = SecItemDelete(query as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw ElderHelpContactError.secureStorageUnavailable
-        }
+        defaults.removeObject(forKey: Self.storageKey)
     }
 }
 
@@ -332,6 +288,7 @@ struct ProfileView: View {
                         trailingText: nil
                     )
                 }
+                .accessibilityIdentifier("profile.settings")
             }
 
             Section("隐私") {
@@ -575,10 +532,18 @@ struct SettingsView: View {
 
     init(
         focusesElderHelpContact: Bool = false,
-        elderHelpContactStore: any ElderHelpContactStoring = KeychainElderHelpContactStore()
+        elderHelpContactStore: (any ElderHelpContactStoring)? = nil
     ) {
         self.focusesElderHelpContact = focusesElderHelpContact
+        #if MEDCUE_DEMO && targetEnvironment(simulator)
+        // All settings entrances, including the complete-mode profile, share
+        // the isolated fixture store while a UI test is active.
         self.elderHelpContactStore = elderHelpContactStore
+            ?? ElderUITestFixture.active?.helpContactStore
+            ?? UserDefaultsElderHelpContactStore()
+        #else
+        self.elderHelpContactStore = elderHelpContactStore ?? UserDefaultsElderHelpContactStore()
+        #endif
     }
 
     var body: some View {
@@ -586,10 +551,6 @@ struct SettingsView: View {
             Section("使用模式") {
                 Toggle("使用适老模式", isOn: elderModeBinding)
                     .accessibilityHint("打开后首页只显示一个当前任务和三个大按钮")
-                Text("完整模式和适老模式共用同一批用药任务与记录，可随时切换。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Section("同机帮助") {
@@ -598,24 +559,27 @@ struct SettingsView: View {
                     .keyboardType(.phonePad)
                     .focused($isElderHelpPhoneFocused)
                     .accessibilityHint("请输入帮助电话号码")
+                    .accessibilityIdentifier("settings.elder-help.phone")
 
                 Button("保存帮助号码") {
                     saveElderHelpContact()
                 }
+                .accessibilityIdentifier("settings.elder-help.save")
                 .disabled(elderHelpPhoneInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
                 if !elderHelpPhoneInput.isEmpty {
                     Button("移除帮助号码", role: .destructive) {
                         removeElderHelpContact()
                     }
+                    .accessibilityIdentifier("settings.elder-help.remove")
                 }
 
-                Text(elderHelpContactStatus.isEmpty
-                    ? "可在这里修改帮助号码。"
-                    : elderHelpContactStatus)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if !elderHelpContactStatus.isEmpty {
+                    Text(elderHelpContactStatus)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Section("外观与交互") {
@@ -720,7 +684,7 @@ struct SettingsView: View {
         } catch let error as ElderHelpContactError {
             elderHelpContactErrorMessage = error.userMessage
         } catch {
-            elderHelpContactErrorMessage = ElderHelpContactError.secureStorageUnavailable.userMessage
+            elderHelpContactErrorMessage = ElderHelpContactError.localStorageUnavailable.userMessage
         }
     }
 
@@ -733,7 +697,7 @@ struct SettingsView: View {
         } catch let error as ElderHelpContactError {
             elderHelpContactErrorMessage = error.userMessage
         } catch {
-            elderHelpContactErrorMessage = ElderHelpContactError.secureStorageUnavailable.userMessage
+            elderHelpContactErrorMessage = ElderHelpContactError.localStorageUnavailable.userMessage
         }
     }
 
@@ -745,7 +709,7 @@ struct SettingsView: View {
         } catch let error as ElderHelpContactError {
             elderHelpContactErrorMessage = error.userMessage
         } catch {
-            elderHelpContactErrorMessage = ElderHelpContactError.secureStorageUnavailable.userMessage
+            elderHelpContactErrorMessage = ElderHelpContactError.localStorageUnavailable.userMessage
         }
     }
 

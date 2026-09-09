@@ -596,6 +596,7 @@ private final class TodaySystemSurfaceRecorder {
             },
             scheduleReminder: { [weak self] task, _, _ in
                 self?.events.append(.scheduleReminder(task.id))
+                return .scheduled
             },
             endLiveActivity: { [weak self] taskID in
                 self?.events.append(.endLiveActivity(taskID))

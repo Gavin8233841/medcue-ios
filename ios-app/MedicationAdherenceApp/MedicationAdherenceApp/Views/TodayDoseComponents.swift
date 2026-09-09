@@ -1,8 +1,144 @@
 import Combine
+import ImageIO
 import MedicationAdherenceCore
 import SwiftData
 import SwiftUI
 import UIKit
+
+struct ElderMedicationPhotoView: View {
+    @Environment(\.displayScale) private var displayScale
+    let photoData: Data?
+    let medicationName: String?
+    let width: CGFloat
+    @State private var decodedPhoto: DecodedPhoto?
+
+    private struct PhotoRequest: Equatable, Sendable {
+        let data: Data?
+        let maximumPixelSize: Int
+    }
+
+    private struct DecodedPhoto {
+        let request: PhotoRequest
+        let image: UIImage?
+    }
+
+    private var height: CGFloat {
+        width / ElderTaskLayoutMetrics.photoContainerAspectRatio
+    }
+
+    private var request: PhotoRequest {
+        PhotoRequest(
+            data: photoData,
+            maximumPixelSize: max(1, min(2048, Int((max(width, height) * displayScale).rounded(.up))))
+        )
+    }
+
+    private var currentImage: UIImage? {
+        guard decodedPhoto?.request == request else { return nil }
+        return decodedPhoto?.image
+    }
+
+    private var photoAccessibilityLabel: String {
+        let description: String
+        if currentImage != nil {
+            description = "药品实物照片"
+        } else if photoData == nil {
+            description = "未添加药品照片，药品图示"
+        } else if decodedPhoto?.request == request {
+            description = "药品照片无法加载，药品图示"
+        } else {
+            description = "药品照片加载中，药品图示"
+        }
+        return medicationName.map { "\($0)，\(description)" } ?? description
+    }
+
+    var body: some View {
+        ZStack {
+            Color(.tertiarySystemGroupedBackground)
+            if let image = currentImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(8)
+            } else {
+                Image(systemName: "pills.fill")
+                    .font(.system(size: 48, weight: .regular))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: width, height: height)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color(.separator), lineWidth: 1)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(photoAccessibilityLabel)
+        .accessibilityAddTraits(.isImage)
+        .accessibilityIdentifier("elder.medication.photo")
+        .task(id: request) {
+            await loadPhoto(request)
+        }
+    }
+
+    @MainActor
+    private func loadPhoto(_ request: PhotoRequest) async {
+        guard decodedPhoto?.request != request else { return }
+        guard let data = request.data else {
+            decodedPhoto = nil
+            return
+        }
+        let image = await Task.detached(priority: .utility) {
+            ElderMedicationPhotoDecoder.thumbnail(from: data, maximumPixelSize: request.maximumPixelSize)
+        }.value
+        guard !Task.isCancelled else { return }
+        decodedPhoto = DecodedPhoto(request: request, image: image.map(UIImage.init(cgImage:)))
+    }
+}
+
+enum ElderMedicationPhotoDecoder {
+    nonisolated static func thumbnail(from data: Data, maximumPixelSize: Int) -> CGImage? {
+        let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions) else {
+            return nil
+        }
+        let options = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, min(2048, maximumPixelSize))
+        ] as CFDictionary
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options)
+    }
+}
+
+enum ElderDoseActionTone {
+    case completion, reminder, help, neutral
+
+    // Solid fills provide at least 4.5:1 contrast with white in sRGB.
+    var solidColor: Color {
+        switch self {
+        case .completion: Self.color(0x237D42)
+        case .reminder: Self.color(0x2B6AC1)
+        case .help: Self.color(0xA65300)
+        case .neutral: Self.color(0x737373)
+        }
+    }
+
+    func foregroundColor(for scheme: ColorScheme) -> Color {
+        switch self {
+        case .completion: Self.color(scheme == .dark ? 0xA0DEB2 : 0x166534)
+        case .reminder: Self.color(scheme == .dark ? 0x8FC3FF : 0x164C96)
+        case .help: Self.color(scheme == .dark ? 0xFFCA83 : 0x964600)
+        case .neutral: Self.color(scheme == .dark ? 0xDEDEDE : 0x4A4A4A)
+        }
+    }
+
+    private static func color(_ hex: UInt32) -> Color {
+        Color(.sRGB, red: Double((hex >> 16) & 0xFF) / 255,
+              green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)
+    }
+}
 
 struct PendingDoseFeedback: Equatable {
     enum Action: Equatable {
@@ -73,6 +209,22 @@ struct PendingDoseConfirmation: Equatable {
                 return "确认已服用"
             case .plannedDelay:
                 return "确认稍后"
+            }
+        }
+
+        func elderTitle(completionVerb: String) -> String {
+            switch self {
+            case .earlyTaken:
+                completionVerb == "已使用" ? "确认提前使用？" : "确认提前服用？"
+            case .plannedDelay:
+                "按原计划延后提醒？"
+            }
+        }
+
+        func elderConfirmTitle(completionVerb: String) -> String {
+            switch self {
+            case .earlyTaken: "确认\(completionVerb)"
+            case .plannedDelay: "确认延后"
             }
         }
 

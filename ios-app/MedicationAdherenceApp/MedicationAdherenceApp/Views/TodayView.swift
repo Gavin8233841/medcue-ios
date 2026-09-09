@@ -9,6 +9,56 @@ enum TodayPresentation {
 }
 
 struct TodayView: View {
+    @State private var displayedNow: Date
+    private let presentation: TodayPresentation
+    private let openElderSettings: () -> Void
+    private let switchToCompleteMode: () -> Void
+    private let elderHelpContactStore: any ElderHelpContactStoring
+    private let elderHelpOpener: any ElderHelpOpening
+    private let now: () -> Date
+    private let dosePersistence: DoseActionPersistence
+    private let systemSurfaceAdapter: TodaySystemSurfaceAdapter?
+
+    init(
+        presentation: TodayPresentation = .complete,
+        openElderSettings: @escaping () -> Void = {},
+        switchToCompleteMode: @escaping () -> Void = {},
+        elderHelpContactStore: any ElderHelpContactStoring = UserDefaultsElderHelpContactStore(),
+        elderHelpOpener: any ElderHelpOpening = SystemElderHelpOpener(),
+        now: @escaping () -> Date = Date.init,
+        dosePersistence: DoseActionPersistence = DoseActionPersistence(),
+        systemSurfaceAdapter: TodaySystemSurfaceAdapter? = nil
+    ) {
+        self.presentation = presentation
+        self.openElderSettings = openElderSettings
+        self.switchToCompleteMode = switchToCompleteMode
+        self.elderHelpContactStore = elderHelpContactStore
+        self.elderHelpOpener = elderHelpOpener
+        self.now = now
+        self.dosePersistence = dosePersistence
+        self.systemSurfaceAdapter = systemSurfaceAdapter
+        _displayedNow = State(initialValue: now())
+    }
+
+    var body: some View {
+        // Re-evaluate the bounded query when the clock crosses a day boundary,
+        // without resetting the content view's confirmation or write state.
+        TodayContentView(
+            presentation: presentation,
+            openElderSettings: openElderSettings,
+            switchToCompleteMode: switchToCompleteMode,
+            elderHelpContactStore: elderHelpContactStore,
+            elderHelpOpener: elderHelpOpener,
+            now: now,
+            displayedNow: displayedNow,
+            refreshClock: { displayedNow = now() },
+            dosePersistence: dosePersistence,
+            systemSurfaceAdapter: systemSurfaceAdapter
+        )
+    }
+}
+
+private struct TodayContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Query private var tasks: [StoredDoseTask]
@@ -45,13 +95,24 @@ struct TodayView: View {
     @State private var elderHelpMissingMessage: String?
     @State private var elderHelpConfirmationPhone: ElderHelpPhoneNumber?
     @State private var elderDoseSuccessMessage: String?
+    @State private var elderReminderUnavailableMessage = ""
+    @State private var elderActionInProgress = false
+    @State private var elderReminderSyncInProgress = false
+    @State private var elderOperationID = UUID()
+    @State private var elderTapGuardTask: Task<Void, Never>?
     @State private var elderIsLoading = true
+    @State private var lastTimerSystemSurfaceRefreshAt: Date?
     @State private var doseProjectionStore = TodayDoseProjectionStore()
     private let presentation: TodayPresentation
     private let openElderSettings: () -> Void
     private let switchToCompleteMode: () -> Void
     private let elderHelpContactStore: any ElderHelpContactStoring
     private let elderHelpOpener: any ElderHelpOpening
+    private let now: () -> Date
+    private let displayedNow: Date
+    private let refreshClock: () -> Void
+    private let dosePersistence: DoseActionPersistence
+    private let systemSurfaceAdapter: TodaySystemSurfaceAdapter?
     private let reminderPolicy = DoseReminderPolicy.competitionDemo
 
     private var reduceMotionEnabled: Bool {
@@ -62,16 +123,26 @@ struct TodayView: View {
         presentation: TodayPresentation = .complete,
         openElderSettings: @escaping () -> Void = {},
         switchToCompleteMode: @escaping () -> Void = {},
-        elderHelpContactStore: any ElderHelpContactStoring = KeychainElderHelpContactStore(),
-        elderHelpOpener: any ElderHelpOpening = SystemElderHelpOpener()
+        elderHelpContactStore: any ElderHelpContactStoring = UserDefaultsElderHelpContactStore(),
+        elderHelpOpener: any ElderHelpOpening,
+        now: @escaping () -> Date,
+        displayedNow: Date,
+        refreshClock: @escaping () -> Void,
+        dosePersistence: DoseActionPersistence,
+        systemSurfaceAdapter: TodaySystemSurfaceAdapter?
     ) {
         self.presentation = presentation
         self.openElderSettings = openElderSettings
         self.switchToCompleteMode = switchToCompleteMode
         self.elderHelpContactStore = elderHelpContactStore
         self.elderHelpOpener = elderHelpOpener
+        self.now = now
+        self.displayedNow = displayedNow
+        self.refreshClock = refreshClock
+        self.dosePersistence = dosePersistence
+        self.systemSurfaceAdapter = systemSurfaceAdapter
         let calendar = Calendar.current
-        let todayStart = calendar.startOfDay(for: Date())
+        let todayStart = calendar.startOfDay(for: displayedNow)
         let queryStart = calendar.date(byAdding: .day, value: -1, to: todayStart) ?? todayStart.addingTimeInterval(-86_400)
         let queryEnd = calendar.date(byAdding: .day, value: 2, to: todayStart) ?? todayStart.addingTimeInterval(172_800)
         _tasks = Query(
@@ -87,11 +158,20 @@ struct TodayView: View {
     }
 
     private var systemSurfaceSynchronizer: TodaySystemSurfaceSynchronizer {
-        TodaySystemSurfaceSynchronizer(
+        if let systemSurfaceAdapter {
+            return TodaySystemSurfaceSynchronizer(
+                adapter: systemSurfaceAdapter,
+                medicationForTask: medication(for:),
+                deliveryMethodForTask: reminderDeliveryMethod(for:),
+                now: now
+            )
+        }
+        return TodaySystemSurfaceSynchronizer(
             notificationService: notificationService,
             liveActivityService: liveActivityService,
             medicationForTask: medication(for:),
-            deliveryMethodForTask: reminderDeliveryMethod(for:)
+            deliveryMethodForTask: reminderDeliveryMethod(for:),
+            now: now
         )
     }
 
@@ -105,7 +185,7 @@ struct TodayView: View {
     }
 
     private var currentDoseProjection: TodayRenderSnapshot {
-        doseProjectionStore.projection(for: doseProjectionInput(now: Date()))
+        doseProjectionStore.projection(for: doseProjectionInput(now: now()))
     }
 
     private var currentCompletionRateSnapshot: CompletionRateSnapshot {
@@ -129,7 +209,7 @@ struct TodayView: View {
     }
 
     var body: some View {
-        let now = Date()
+        let now = displayedNow
         let snapshot = doseProjectionStore.projection(
             for: doseProjectionInput(now: now)
         )
@@ -138,12 +218,21 @@ struct TodayView: View {
                 snapshot: snapshot.elderSnapshot(medications: medications, now: now),
                 pendingDoseConfirmation: pendingDoseConfirmation,
                 pendingDoseFeedback: doseInteraction.pendingDoseFeedback,
-                inFlightDoseKeys: doseInteraction.inFlightDoseKeys,
+                inFlightDoseKeys: (elderActionInProgress || elderReminderSyncInProgress)
+                    ? Set(snapshot.visibleOpenTimelineTasks.map(logicalDoseKey(for:)))
+                        .union(doseInteraction.inFlightDoseKeys)
+                    : doseInteraction.inFlightDoseKeys,
                 dosePersistenceErrorMessage: $dosePersistenceErrorMessage,
                 helpOpeningErrorMessage: $elderHelpOpeningErrorMessage,
                 helpMissingMessage: $elderHelpMissingMessage,
                 helpConfirmationPhone: $elderHelpConfirmationPhone,
                 successFeedback: $elderDoseSuccessMessage,
+                notificationUnavailableMessage: elderReminderUnavailableMessage.isEmpty
+                    ? (systemSurfaceAdapter == nil ? reminderNotificationUnavailableMessage : "")
+                    : elderReminderUnavailableMessage,
+                loadErrorMessage: _tasks.fetchError != nil
+                    || _medications.fetchError != nil || _plans.fetchError != nil
+                    ? "用药信息未能加载。" : nil,
                 isLoading: elderIsLoading,
                 actions: ElderTodayScreenActions(
                     logicalDoseKey: logicalDoseKey,
@@ -156,6 +245,7 @@ struct TodayView: View {
                     confirmHelp: confirmElderHelp,
                     cancelHelp: { elderHelpConfirmationPhone = nil },
                     openSettings: openElderSettings,
+                    openNotificationSettings: openNotificationSettings,
                     switchToCompleteMode: switchToCompleteMode,
                     initialLoad: initialTodayLoad,
                     timerTick: refreshTodayTimer,
@@ -225,7 +315,10 @@ struct TodayView: View {
                         appExperienceModeRaw = AppExperienceMode.elder.rawValue
                     },
                     requestWeatherRefresh: { requestAuthorization in
-                        await weatherMedicationService.refresh(
+                        // The isolated UI fixture must not query real location
+                        // or weather services while exercising the complete view.
+                        guard systemSurfaceAdapter == nil else { return false }
+                        return await weatherMedicationService.refresh(
                             medications: medications,
                             requestAuthorization: requestAuthorization
                         )
@@ -242,29 +335,46 @@ struct TodayView: View {
 
     @MainActor
     private func initialTodayLoad() async {
+        refreshClock()
         elderIsLoading = true
         defer {
             elderIsLoading = false
         }
         consumeExternalDosePersistenceFailure()
         runInitialTodayMaintenanceIfNeeded()
+        guard systemSurfaceAdapter == nil else { return }
         await notificationService.refreshAuthorizationStatus()
         await notificationService.refreshPendingReminderCount()
     }
 
     private func refreshTodayTimer() {
+        refreshClock()
+        let refreshTime = now()
+        if let previous = lastTimerSystemSurfaceRefreshAt {
+            let elapsed = refreshTime.timeIntervalSince(previous)
+            guard elapsed >= 60 || elapsed < 0 else { return }
+        }
+        lastTimerSystemSurfaceRefreshAt = refreshTime
         Task {
             await refreshLiveActivities()
         }
     }
 
     private func todayBecameActive() {
+        refreshClock()
+        lastTimerSystemSurfaceRefreshAt = now()
         consumeExternalDosePersistenceFailure()
         scheduleLiveActivityRefresh()
+        guard systemSurfaceAdapter == nil else { return }
         Task {
             await notificationService.refreshAuthorizationStatus()
             await notificationService.refreshPendingReminderCount()
         }
+    }
+
+    private func openNotificationSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
     }
 
     private func prepareElderHelp() {
@@ -281,7 +391,7 @@ struct TodayView: View {
         } catch let error as ElderHelpContactError {
             elderHelpOpeningErrorMessage = error.userMessage
         } catch {
-            elderHelpOpeningErrorMessage = ElderHelpContactError.secureStorageUnavailable.userMessage
+            elderHelpOpeningErrorMessage = ElderHelpContactError.localStorageUnavailable.userMessage
         }
     }
 
@@ -301,6 +411,11 @@ struct TodayView: View {
     }
 
     private func cleanupTodayScreen() {
+        elderTapGuardTask?.cancel()
+        elderTapGuardTask = nil
+        elderActionInProgress = false
+        elderReminderSyncInProgress = false
+        elderOperationID = UUID()
         cancelDoseTransitionTasks()
         resetDoseTransitionState(animated: false)
         pendingDoseConfirmation = nil
@@ -358,7 +473,7 @@ struct TodayView: View {
         guard isOpenStatus(task.status) else {
             return false
         }
-        let occurredAt = Date()
+        let occurredAt = now()
         let group = logicalDoseGroup(for: task).filter { isOpenStatus($0.status) }
         guard !group.isEmpty else {
             return false
@@ -380,7 +495,7 @@ struct TodayView: View {
         var didCommit = false
         updateDoseState {
             do {
-                try DoseActionPersistence().commit(transitions, in: modelContext)
+                try dosePersistence.commit(transitions, in: modelContext)
                 didCommit = true
             } catch {
                 dosePersistenceErrorMessage = (error as? DoseActionPersistenceError)?.userMessage
@@ -401,24 +516,29 @@ struct TodayView: View {
         guard isOpenStatus(task.status) else {
             return false
         }
-        let occurredAt = Date()
+        let occurredAt = now()
         let group = logicalDoseGroup(for: task).filter { isOpenStatus($0.status) }
         guard !group.isEmpty else {
             return false
         }
-        let primaryReason = fromPlannedTime ? "用户确认按原计划时间顺延 \(delayDurationText)提醒" : "用户选择按原计划时间顺延 \(delayDurationText)提醒"
+        let primaryReason = presentation == .elder
+            ? "用户选择 \(delayDurationText)后提醒"
+            : fromPlannedTime ? "用户确认按原计划时间顺延 \(delayDurationText)提醒" : "用户选择按原计划时间顺延 \(delayDurationText)提醒"
         let transitions = DoseActionTransitionPlanner().makeTransitions(
             mutation: .delay,
             taskGroup: group,
             primaryTask: task,
             occurredAt: occurredAt,
             primaryReason: primaryReason,
-            mergedReason: "同一剂量重复提醒已随本次稍后操作合并。"
+            mergedReason: "同一剂量重复提醒已随本次稍后操作合并。",
+            delayedDueAt: presentation == .elder
+                ? occurredAt.addingTimeInterval(TimeInterval(DoseDelayPolicy.delayMinutes * 60))
+                : nil
         )
         var didCommit = false
         updateDoseState {
             do {
-                try DoseActionPersistence().commit(transitions, in: modelContext)
+                try dosePersistence.commit(transitions, in: modelContext)
                 didCommit = true
             } catch {
                 dosePersistenceErrorMessage = (error as? DoseActionPersistenceError)?.userMessage
@@ -426,20 +546,37 @@ struct TodayView: View {
             }
         }
         guard didCommit else { return false }
-        performDeferredSystemSurfaceSync {
-            await systemSurfaceSynchronizer.synchronize(
+        let operationID = elderOperationID
+        if presentation == .elder {
+            elderReminderSyncInProgress = true
+        }
+        performDeferredSystemSurfaceSync(after: presentation == .elder ? 0 : 0.75) {
+            let result = await systemSurfaceSynchronizer.synchronize(
                 .delayed(group, primaryTaskID: task.id)
             )
+            if presentation == .elder, operationID == elderOperationID {
+                elderReminderSyncInProgress = false
+                switch result {
+                case .reminder(.scheduled):
+                    elderReminderUnavailableMessage = ""
+                    elderDoseSuccessMessage = "已设置 \(delayDurationText)后提醒"
+                case .reminder(.unavailable), .completed:
+                    elderDoseSuccessMessage = nil
+                    elderReminderUnavailableMessage = "记录已保存，提醒未能开启。"
+                    UIAccessibility.post(notification: .announcement, argument: elderReminderUnavailableMessage)
+                }
+            }
             scheduleLiveActivityRefresh(after: 0.35)
         }
         return true
     }
 
     private func requestMarkTaken(_ task: StoredDoseTask) {
-        guard isOpenStatus(task.status) else {
+        guard isOpenStatus(task.status),
+              presentation != .elder || (!elderActionInProgress && !elderReminderSyncInProgress) else {
             return
         }
-        guard reminderPolicy.requiresEarlyTakenConfirmation(plannedDueAt: task.dueAt, now: Date()) else {
+        guard reminderPolicy.requiresEarlyTakenConfirmation(plannedDueAt: task.dueAt, now: now()) else {
             performMarkTaken(task, reason: "")
             return
         }
@@ -453,10 +590,12 @@ struct TodayView: View {
     }
 
     private func requestDelay(_ task: StoredDoseTask) {
-        guard isOpenStatus(task.status) else {
+        guard isOpenStatus(task.status),
+              presentation != .elder || (!elderActionInProgress && !elderReminderSyncInProgress) else {
             return
         }
-        guard DoseDelayPolicy.requiresPlannedTimeDelayConfirmation(plannedDueAt: task.dueAt, now: Date()) else {
+        guard presentation != .elder,
+              DoseDelayPolicy.requiresPlannedTimeDelayConfirmation(plannedDueAt: task.dueAt, now: now()) else {
             performDelay(task, fromPlannedTime: false)
             return
         }
@@ -534,11 +673,31 @@ struct TodayView: View {
 
     private func performWithDoseFeedback(_ task: StoredDoseTask, action: PendingDoseFeedback.Action, commit: @escaping () -> Bool) {
         let doseKey = logicalDoseKey(for: task)
-        guard isOpenStatus(task.status), doseInteraction.beginDoseAction(for: doseKey) else {
+        guard presentation != .elder || (!elderActionInProgress && !elderReminderSyncInProgress),
+              isOpenStatus(task.status), doseInteraction.beginDoseAction(for: doseKey) else {
             return
         }
+        var didCommit = false
+        if presentation == .elder {
+            elderActionInProgress = true
+            elderOperationID = UUID()
+        }
         defer {
-            doseInteraction.finishDoseAction(for: doseKey)
+            if presentation == .elder, didCommit {
+                // A double tap must not spill onto the next medication. This guard
+                // is independent of animation and Reduce Motion preferences.
+                elderTapGuardTask?.cancel()
+                elderTapGuardTask = Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(750))
+                    guard !Task.isCancelled else { return }
+                    doseInteraction.finishDoseAction(for: doseKey)
+                    elderActionInProgress = false
+                    elderTapGuardTask = nil
+                }
+            } else {
+                doseInteraction.finishDoseAction(for: doseKey)
+                elderActionInProgress = false
+            }
         }
         let migrationSnapshot = action.movesToHandledSection ? doseMigrationSnapshot(for: task, action: action) : nil
         resetDoseTransitionState(animated: false)
@@ -557,7 +716,7 @@ struct TodayView: View {
             }
         }
 
-        let didCommit = commit()
+        didCommit = commit()
         guard didCommit else {
             resetDoseTransitionState(animated: false)
             return
@@ -636,7 +795,8 @@ struct TodayView: View {
         case .taken:
             message = "\(medicationName)\(todayCompletionVerb(for: medication(for: task)))"
         case .delay:
-            message = "已设置 \(DoseDelayPolicy.delayMinutes) 分钟后提醒"
+            // The separate post-commit scheduling result owns reminder feedback.
+            return
         case .skip:
             message = "\(medicationName)已跳过"
         }
@@ -719,7 +879,7 @@ struct TodayView: View {
             updateDoseState(animated: false) {
                 outcome = DoseReopenCommand(modelContext: modelContext).perform(
                     taskID: task.id,
-                    at: Date()
+                    at: now()
                 )
             }
             guard case let .committed(commit) = outcome else {
@@ -784,7 +944,7 @@ struct TodayView: View {
         updateDoseState(animated: false) {
             outcome = DoseReopenCommand(modelContext: modelContext).rollback(
                 banner.rollbackToken,
-                at: Date()
+                at: now()
             )
         }
         guard case let .committed(taskIDs) = outcome else { return }
@@ -860,7 +1020,7 @@ struct TodayView: View {
         var outcome: TodayArchiveVisibilityCommandOutcome?
         updateDoseState {
             outcome = TodayArchiveVisibilityCommand(modelContext: modelContext).perform(
-                .archive(taskID: task.id, occurredAt: Date())
+                .archive(taskID: task.id, occurredAt: now())
             )
         }
         guard case .committed = outcome else { return }
@@ -877,7 +1037,7 @@ struct TodayView: View {
         var outcome: TodayArchiveVisibilityCommandOutcome?
         updateDoseState {
             outcome = TodayArchiveVisibilityCommand(modelContext: modelContext).perform(
-                .restore(taskID: task.id, occurredAt: Date())
+                .restore(taskID: task.id, occurredAt: now())
             )
         }
         guard case .committed = outcome else { return }
@@ -1035,6 +1195,16 @@ struct TodayView: View {
     }
 
     private func refreshLiveActivities() async {
+        if let systemSurfaceAdapter {
+            for task in currentDoseProjection.eligibleTodayTasks {
+                if isOpenStatus(task.status) {
+                    await systemSurfaceAdapter.startLiveActivity(task, medication(for: task))
+                } else {
+                    await systemSurfaceAdapter.endLiveActivity(task.id)
+                }
+            }
+            return
+        }
         for task in currentDoseProjection.eligibleTodayTasks {
             if task.status == .pending || task.status == .delayed {
                 await liveActivityService.startIfNeeded(for: task, medication: medication(for: task))

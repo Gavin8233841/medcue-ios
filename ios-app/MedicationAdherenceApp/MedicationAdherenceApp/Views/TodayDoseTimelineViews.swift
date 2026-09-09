@@ -475,6 +475,7 @@ struct HandledDoseTaskRow: View {
 
 struct CompactDoseActionButton: View {
     @Environment(\.medcueReduceMotionEnabled) private var reduceMotionEnabled
+    @AppStorage("usesLargeTouchTargets") private var usesLargeTouchTargets = true
     let title: String
     let confirmationIconName: String
     let tint: Color
@@ -501,10 +502,12 @@ struct CompactDoseActionButton: View {
             .lineLimit(1)
             .minimumScaleFactor(0.9)
             .frame(maxWidth: .infinity)
-            .frame(height: 36)
+            .frame(minHeight: usesLargeTouchTargets ? 48 : 36)
             .foregroundStyle(isProminent ? TodayDoseActionPalette.primaryText : tint)
             .background(background, in: RoundedRectangle(cornerRadius: 8))
             .animation(reduceMotionEnabled ? nil : .easeInOut(duration: 0.16), value: isConfirming)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(CompactDoseActionButtonStyle())
         .disabled(isConfirming)

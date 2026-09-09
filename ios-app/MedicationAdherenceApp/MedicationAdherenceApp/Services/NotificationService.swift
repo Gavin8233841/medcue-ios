@@ -7,6 +7,34 @@ import AlarmKit
 import SwiftUI
 #endif
 
+enum MedicationReminderSchedulingResult: Equatable {
+    case scheduled
+    case unavailable(message: String)
+
+    var failureMessage: String? {
+        guard case let .unavailable(message) = self else { return nil }
+        return message
+    }
+}
+
+@MainActor
+struct MedicationNotificationRequestScheduler {
+    let authorizationFailureMessage: @MainActor () async -> String?
+    let addRequest: @MainActor (UNNotificationRequest) async throws -> Void
+
+    func schedule(_ request: UNNotificationRequest) async -> MedicationReminderSchedulingResult {
+        if let message = await authorizationFailureMessage() {
+            return .unavailable(message: message)
+        }
+        do {
+            try await addRequest(request)
+            return .scheduled
+        } catch {
+            return .unavailable(message: "提醒未安排，请稍后重试。")
+        }
+    }
+}
+
 @MainActor
 final class NotificationService: ObservableObject {
     static let reminderNotificationUnavailableMessageKey = "reminderNotificationUnavailableMessage"
@@ -69,31 +97,35 @@ final class NotificationService: ObservableObject {
         await refreshPendingReminderCount()
     }
 
+    @discardableResult
     func scheduleReminder(
         for task: StoredDoseTask,
         medication: StoredMedication,
         deliveryMethod: StoredReminderDeliveryMethod = .notification,
         escalatesToAlarmWhenUnhandled: Bool = true,
         refreshPendingCount: Bool = true
-    ) async {
+    ) async -> MedicationReminderSchedulingResult {
         guard medication.lifecycleStatus == .active else {
             cancelReminder(for: task.id)
             authorizationMessage = "药物已归档或中断，未安排提醒"
             if refreshPendingCount {
                 await refreshPendingReminderCount()
             }
-            return
+            return .unavailable(message: "药品已停用，提醒未安排。")
         }
         cancelReminder(for: task.id)
-        await scheduleNotificationReminder(for: task, medication: medication, refreshPendingCount: refreshPendingCount)
-        if deliveryMethod == .alarm {
-            _ = await scheduleAlarmReminder(for: task, medication: medication)
+        var result = await scheduleNotificationReminder(for: task, medication: medication, refreshPendingCount: refreshPendingCount)
+        if deliveryMethod == .alarm,
+           task.dueAt > Date(),
+           await scheduleAlarmReminder(for: task, medication: medication) {
+            result = .scheduled
         }
         if escalatesToAlarmWhenUnhandled {
             await scheduleEscalationAlarmIfNeeded(for: task, medication: medication)
         } else {
             cancelEscalationAlarmReminder(for: task.id)
         }
+        return result
     }
 
     func scheduleReminders(
@@ -222,16 +254,13 @@ final class NotificationService: ObservableObject {
         for task: StoredDoseTask,
         medication: StoredMedication,
         refreshPendingCount: Bool = true
-    ) async {
+    ) async -> MedicationReminderSchedulingResult {
         guard task.dueAt > Date() else {
             authorizationMessage = "提醒时间已过，未安排本地提醒"
             if refreshPendingCount {
                 await refreshPendingReminderCount()
             }
-            return
-        }
-        guard await ensureNotificationAuthorizationForScheduling() else {
-            return
+            return .unavailable(message: "提醒时间已过，请重新设置提醒。")
         }
 
         let payload = NotificationPayload(
@@ -258,17 +287,29 @@ final class NotificationService: ObservableObject {
         let identifier = notificationIdentifier(for: task.id)
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
-        do {
-            try await UNUserNotificationCenter.current().add(request)
+        let result = await MedicationNotificationRequestScheduler(
+            authorizationFailureMessage: {
+                guard await self.ensureNotificationAuthorizationForScheduling() else {
+                    return "提醒未安排，请在系统设置中允许通知。"
+                }
+                return nil
+            },
+            addRequest: { request in
+                try await UNUserNotificationCenter.current().add(request)
+            }
+        ).schedule(request)
+        switch result {
+        case .scheduled:
             authorizationMessage = "已安排下一次本地提醒"
             updateNotificationUnavailableMessage(nil)
             if refreshPendingCount {
                 await refreshPendingReminderCount()
             }
-        } catch {
+        case .unavailable:
             authorizationMessage = "本地提醒暂时无法安排，请稍后重试。"
-            updateNotificationUnavailableMessage("普通提醒不可用：本地通知暂时无法安排，请稍后重试。")
+            updateNotificationUnavailableMessage(result.failureMessage)
         }
+        return result
     }
 
     private func scheduleAlarmReminder(for task: StoredDoseTask, medication: StoredMedication) async -> Bool {

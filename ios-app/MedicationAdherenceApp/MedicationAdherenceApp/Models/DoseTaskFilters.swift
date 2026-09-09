@@ -14,6 +14,22 @@ enum LegacyAutoSkipRecordMarker {
     static func matchesCurrentTaskReason(_ reason: String, for logNote: String) -> Bool {
         reason == logNote || reason == [logNote, archiveMarker].joined(separator: "；")
     }
+
+    static func restoredTaskReason(
+        previousReason: String,
+        currentReason: String,
+        logNote: String
+    ) -> String {
+        // Repair the system settlement, not a later user visibility decision.
+        guard currentReason == [logNote, archiveMarker].joined(separator: "；"),
+              !previousReason.split(separator: "；").contains(Substring(archiveMarker))
+        else {
+            return previousReason
+        }
+        return [previousReason, archiveMarker]
+            .filter { !$0.isEmpty }
+            .joined(separator: "；")
+    }
 }
 
 extension StoredDoseTask {

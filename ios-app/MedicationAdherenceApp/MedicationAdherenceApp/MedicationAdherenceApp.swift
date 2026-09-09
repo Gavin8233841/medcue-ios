@@ -17,10 +17,26 @@ struct MedicationAdherenceApp: App {
     init() {
         let isPersistentStoreAvailable: Bool
         do {
+            #if MEDCUE_DEMO && targetEnvironment(simulator)
+            let fixture = try ElderUITestFixture.loadIfRequested()
+            ElderUITestFixture.active = fixture
+            if let fixture {
+                modelContainer = fixture.modelContainer
+            } else {
+                modelContainer = try MedicationAdherenceModelContainer.make()
+            }
+            #else
             modelContainer = try MedicationAdherenceModelContainer.make()
+            #endif
             persistenceStartupFailure = nil
             isPersistentStoreAvailable = true
+            #if MEDCUE_DEMO && targetEnvironment(simulator)
+            if fixture == nil {
+                MedicationNotificationDelegate.shared.install(modelContainer: modelContainer)
+            }
+            #else
             MedicationNotificationDelegate.shared.install(modelContainer: modelContainer)
+            #endif
         } catch {
             do {
                 modelContainer = try MedicationAdherenceModelContainer.make(isStoredInMemoryOnly: true)
@@ -32,9 +48,14 @@ struct MedicationAdherenceApp: App {
         }
 
         let intentModelContainer = modelContainer
+        #if MEDCUE_DEMO && targetEnvironment(simulator)
+        let allowsExternalActions = ElderUITestFixture.active == nil
+        #else
+        let allowsExternalActions = true
+        #endif
         AppDependencyManager.shared.add(
             dependency: MedicationReminderLiveActivityIntentExecutor { request, occurredAt in
-                guard isPersistentStoreAvailable else {
+                guard isPersistentStoreAvailable && allowsExternalActions else {
                     return .saveFailed
                 }
                 return await MedicationReminderLiveActivityActionService(
@@ -55,6 +76,9 @@ struct MedicationAdherenceApp: App {
                     PersistenceRecoveryView()
                 } else {
                     AppRootView()
+                        #if MEDCUE_DEMO && targetEnvironment(simulator)
+                        .defaultAppStorage(ElderUITestFixture.active?.preferences ?? .standard)
+                        #endif
                         #if DEBUG
                         .task {
                             await MedicalAISmokeTestRunner.runIfRequested()

@@ -1,6 +1,7 @@
 import Foundation
 import MedicationAdherenceCore
 import Testing
+import UIKit
 @testable import MedicationAdherenceApp
 
 @Suite(.serialized)
@@ -42,15 +43,70 @@ struct ElderModeTests {
         #expect(ElderTaskLayoutMetrics.regularPhotoWidth(for: 402) >= 176)
         #expect(ElderTaskLayoutMetrics.regularPhotoWidth(for: 402) <= 180)
         #expect(ElderTaskLayoutMetrics.regularPhotoWidth(for: 320) == 176)
-        #expect(!ElderTaskLayoutMetrics.shouldStackRegularIdentity(for: 402))
-        #expect(ElderTaskLayoutMetrics.shouldStackRegularIdentity(for: 375))
-        #expect(ElderTaskLayoutMetrics.stackedPhotoWidth(for: 375) == 280)
-        #expect(ElderTaskLayoutMetrics.stackedPhotoWidth(for: 320) == 252)
+        #expect(ElderTaskLayoutMetrics.regularPhotoWidth(for: 375) == 176)
+        // On a 375pt screen the image leaves space for the unscaled 46pt title
+        // to wrap alongside it instead of adding another full-height section.
+        let narrowContentWidth: CGFloat = 375 - 32 - 2 * ElderTaskLayoutMetrics.regularCardPadding
+        #expect(narrowContentWidth - ElderTaskLayoutMetrics.regularPhotoWidth(for: 375)
+                - ElderTaskLayoutMetrics.regularIdentitySpacing >= 2 * 46)
         #expect(ElderTaskLayoutMetrics.accessibilityPhotoWidth(for: 402) == 300)
         #expect(ElderTaskLayoutMetrics.accessibilityPhotoWidth(for: 320) == 248)
         #expect(ElderTaskLayoutMetrics.regularIdentitySpacing == 12)
         #expect(ElderTaskLayoutMetrics.regularDetailsSpacing == 12)
         #expect(ElderTaskLayoutMetrics.actionSpacing >= 12)
+    }
+
+    @Test
+    func elderPhotoWidthsStayInsideTheirActualContainer() {
+        let containerWidths: [CGFloat] = [0, 40, 72, 240, 320, 375, 390, 402, 768]
+        for width in containerWidths {
+            let regularContentWidth = max(0, width - 32 - 2 * ElderTaskLayoutMetrics.regularCardPadding)
+            let accessibilityContentWidth = max(0, width - 32 - 2 * ElderTaskLayoutMetrics.accessibilityCardPadding)
+            let regularPhotoWidth = ElderTaskLayoutMetrics.regularPhotoWidth(for: width)
+            let accessibilityPhotoWidth = ElderTaskLayoutMetrics.accessibilityPhotoWidth(for: width)
+
+            #expect(regularPhotoWidth >= 0 && regularPhotoWidth <= regularContentWidth)
+            #expect(accessibilityPhotoWidth >= 0 && accessibilityPhotoWidth <= accessibilityContentWidth)
+        }
+        #expect(ElderTaskLayoutMetrics.regularPhotoWidth(for: 0) == 0)
+        #expect(ElderTaskLayoutMetrics.accessibilityPhotoWidth(for: 0) == 0)
+    }
+
+    @Test
+    func elderPhotoDecoderRejectsEmptyAndInvalidImages() {
+        #expect(ElderMedicationPhotoDecoder.thumbnail(from: Data(), maximumPixelSize: 120) == nil)
+        #expect(ElderMedicationPhotoDecoder.thumbnail(from: Data("invalid image".utf8), maximumPixelSize: 120) == nil)
+    }
+
+    @Test @MainActor
+    func elderPhotoDecoderPreservesPortraitAndLandscapeProportions() throws {
+        for size in [CGSize(width: 480, height: 320), CGSize(width: 320, height: 480)] {
+            let image = try #require(ElderMedicationPhotoDecoder.thumbnail(
+                from: geometricImageData(size: size),
+                maximumPixelSize: 120
+            ))
+
+            #expect(max(image.width, image.height) == 120)
+            #expect(min(image.width, image.height) == 80)
+            #expect(CGFloat(image.width) / CGFloat(image.height) == size.width / size.height)
+        }
+    }
+
+    @Test @MainActor
+    func elderPhotoDecoderBoundsItsDecodedPixelDimensions() throws {
+        let data = geometricImageData(size: CGSize(width: 2200, height: 1100))
+        let boundedImage = try #require(ElderMedicationPhotoDecoder.thumbnail(
+            from: data,
+            maximumPixelSize: Int.max
+        ))
+        let smallestImage = try #require(ElderMedicationPhotoDecoder.thumbnail(
+            from: data,
+            maximumPixelSize: 0
+        ))
+
+        #expect(boundedImage.width == 2048)
+        #expect(boundedImage.height == 1024)
+        #expect(max(smallestImage.width, smallestImage.height) == 1)
     }
 
     @Test
@@ -80,6 +136,22 @@ struct ElderModeTests {
         #expect(throws: ElderHelpContactError.invalidPhoneNumber) {
             try ElderHelpPhoneNumber(validating: "138+0000")
         }
+    }
+
+    @Test
+    func helpContactUsesTheOwnerApprovedUserDefaultsKey() throws {
+        let suiteName = "medcue.elder-help-tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = UserDefaultsElderHelpContactStore(defaults: defaults)
+        let phoneNumber = try ElderHelpPhoneNumber(validating: "+86 (138) 0000-0000")
+
+        #expect(try store.load() == nil)
+        try store.save(phoneNumber)
+        #expect(defaults.string(forKey: UserDefaultsElderHelpContactStore.storageKey) == "+8613800000000")
+        #expect(try store.load() == phoneNumber)
+        try store.remove()
+        #expect(try store.load() == nil)
     }
 
     @Test @MainActor
@@ -234,6 +306,17 @@ struct ElderModeTests {
             for: TodayDoseProjectionInput(tasks: [skippedTask], medications: [medication], now: now, calendar: utcCalendar)
         )
         #expect(skipped.elderSnapshot(medications: [medication], now: now).emptyState == .noOpenTasks)
+    }
+
+    @MainActor
+    private func geometricImageData(size: CGSize) -> Data {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: size, format: format).pngData { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+        }
     }
 
     private var utcCalendar: Calendar {

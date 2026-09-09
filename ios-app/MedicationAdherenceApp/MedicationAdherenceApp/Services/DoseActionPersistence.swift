@@ -119,15 +119,17 @@ struct DoseActionTransitionPlanner {
         occurredAt: Date,
         primaryReason: String,
         mergedReason: String,
+        delayedDueAt: Date? = nil,
         primaryActionLogID: UUID = UUID()
     ) -> [DoseActionTransition] {
-        let delayedDueAt = DoseDelayPolicy.delayedDueAtFromPlannedTime(primaryTask.dueAt)
+        let resolvedDelayedDueAt = delayedDueAt
+            ?? DoseDelayPolicy.delayedDueAtFromPlannedTime(primaryTask.dueAt)
         return taskGroup.map { task in
             DoseActionTransition(
                 task: task,
                 action: mutation.actionKind,
                 newStatus: mutation.newStatus,
-                newDueAt: mutation == .delay ? delayedDueAt : task.dueAt,
+                newDueAt: mutation == .delay ? resolvedDelayedDueAt : task.dueAt,
                 newRecordedAt: occurredAt,
                 newReason: task.id == primaryTask.id ? primaryReason : mergedReason,
                 occurredAt: occurredAt,
