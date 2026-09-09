@@ -1125,7 +1125,7 @@ enum ElderTaskLayoutMetrics {
     static let regularPhotoWidth: CGFloat = 180
     static let regularPhotoMinimumWidth: CGFloat = 176
     static let accessibilityPhotoWidth: CGFloat = 300
-    // DemoAdvil is 960x1258; this fallback keeps portrait packaging from being narrowed by an overly wide frame.
+    // Keep user-supplied portrait packaging from being narrowed by an overly wide frame.
     static let photoContainerAspectRatio: CGFloat = 0.76
     static let regularCardPadding: CGFloat = 18
     static let accessibilityCardPadding: CGFloat = 20

@@ -1,9 +1,7 @@
 {
   "images" : [
     {
-      "filename" : "DemoTylenol.jpg",
-      "idiom" : "universal",
-      "scale" : "1x"
+      "idiom" : "universal"
     }
   ],
   "info" : {
