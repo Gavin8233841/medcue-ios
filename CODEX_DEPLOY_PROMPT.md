@@ -53,7 +53,7 @@ Fix with: git diff --cached --name-only | xargs sed -i 's/[ \t]*$//'
 系统会在每次 `git commit` 前自动检查：
 
 1. **行尾空格** - 使用 `git diff --check`
-2. **绝对路径** - 禁止 `C:\`, `D:\`, `/Users/`, `/home/`
+2. **绝对路径** - 禁止 Windows/Unix 系统绝对路径
 3. **文件路径白名单** - 只允许提交特定目录的文件
 4. **JavaScript 语法** - 自动检查 `.js` 文件
 5. **JSON 格式** - 自动检查 `.json` 文件
@@ -78,7 +78,7 @@ git commit -m "message"
 ```
 
 ### 问题2：发现绝对路径
-**手动修复**：将文件中的 `D:\桌面\...` 或 `/Users/...` 替换为 `<PROJECT_ROOT>`
+**手动修复**：将文件中的系统绝对路径替换为 `<PROJECT_ROOT>`
 
 ### 问题3：文件不在白名单
 **解决方法**：

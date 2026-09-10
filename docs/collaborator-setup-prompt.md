@@ -62,7 +62,7 @@ rm test-file.txt
 系统会自动检查以下问题（每次 commit 前）：
 
 1. **行尾空格** - CI 必检项
-2. **绝对路径** - 禁止 `C:\`, `D:\`, `/Users/`, `/home/` 等
+2. **绝对路径** - 禁止 Windows/Unix 系统绝对路径
 3. **文件路径白名单** - 只能提交允许目录的文件
 4. **JavaScript 语法** - 自动检查 `.js` 文件
 5. **JSON 格式** - 自动检查 `.json` 文件
@@ -101,7 +101,7 @@ git commit -m "your message"
 ### 场景2：发现绝对路径
 
 ```bash
-❌ Found absolute local paths (C:\, D:\, /Users/, /home/)
+❌ Found absolute local paths (system-specific paths)
 Replace with <PROJECT_ROOT> placeholder
 ```
 
@@ -110,7 +110,7 @@ Replace with <PROJECT_ROOT> placeholder
 
 例如：
 ```diff
-- cd D:\桌面\medcue\medcue-ios
+- cd /path/to/medcue-ios
 + cd <PROJECT_ROOT>
 ```
 

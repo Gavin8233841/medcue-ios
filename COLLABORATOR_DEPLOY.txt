@@ -1,0 +1,43 @@
+请帮我在本地部署 Pre-Commit 语法检查系统，避免 CI 因语法错误浪费时间。
+
+## 部署步骤
+
+```bash
+cd <你的项目根目录>
+git pull origin main
+bash tools/install-hooks.sh
+```
+
+## 验证安装
+
+```bash
+# 运行系统测试
+bash tools/test-pre-commit-system.sh
+
+# 测试 hook 是否工作（应该被拦截）
+echo "test content " > test.txt
+git add test.txt
+git commit -m "test"
+
+# 清理测试文件
+git reset HEAD test.txt
+rm test.txt
+```
+
+如果看到类似以下错误，说明安装成功：
+```
+❌ Found trailing whitespace
+Fix with: git diff --cached --name-only | xargs sed -i 's/[ \t]*$//'
+```
+
+## 系统说明
+
+安装后，每次 `git commit` 会自动检查（0.5秒）：
+- ✅ 行尾空格
+- ✅ 绝对路径（系统特定路径）
+- ✅ 文件路径白名单
+- ✅ JavaScript/JSON 语法
+
+如遇问题，查看完整文档：`docs/pre-commit-checks.md`
+
+完成后请回复确认。谢谢！
