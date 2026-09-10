@@ -87,7 +87,7 @@ echo ""
 # Check 2: Absolute Paths
 echo -e "${BLUE}[2/$CHECK_COUNT]${NC} Checking for absolute local paths..."
 if git diff --cached | grep -qE 'C:\\|D:\\|/Users/|/home/|/private/|/Volumes/'; then
-    echo -e "${RED}❌ Found absolute local paths (C:\\, D:\\, /Users/, /home/)${NC}"
+    echo -e "${RED}❌ Found absolute local paths (system-specific paths)${NC}"
     echo -e "${YELLOW}Replace with <PROJECT_ROOT> placeholder${NC}"
     git diff --cached | grep -E 'C:\\|D:\\|/Users/|/home/|/private/|/Volumes/' | head -5
     FAILED_CHECKS=$((FAILED_CHECKS + 1))

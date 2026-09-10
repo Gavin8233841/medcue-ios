@@ -19,7 +19,7 @@
       "severity": "error",
       "type": "grep",
       "pattern": "C:\\\\|D:\\\\|/Users/|/home/|/private/|/Volumes/",
-      "errorMessage": "Found absolute local paths (C:\\, D:\\, /Users/, /home/). Replace with <PROJECT_ROOT>",
+      "errorMessage": "Found absolute local paths (system-specific paths). Replace with <PROJECT_ROOT>",
       "platforms": ["windows", "darwin", "linux"],
       "exitOnFail": true
     },

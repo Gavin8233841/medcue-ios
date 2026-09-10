@@ -30,7 +30,7 @@ bash tools/run-pre-commit-checks.sh
 | 检查项 | 说明 | 修复方法 |
 |--------|------|----------|
 | Trailing Whitespace | 行尾空格 | `git diff --cached --name-only \| xargs sed -i 's/[ \\t]*$//'` |
-| Absolute Paths | 绝对路径（C:\\, D:\\, /Users/, /home/） | 替换为 `<PROJECT_ROOT>` |
+| Absolute Paths | 绝对路径（系统特定路径） | 替换为 `<PROJECT_ROOT>` |
 | Allowlist Paths | 文件必须在允许的目录 | 移到 `docs/` 或添加到 `.gitignore` |
 | JavaScript Syntax | JS 语法错误 | 修复语法错误 |
 | JSON Syntax | JSON 格式错误 | 修复 JSON 格式 |

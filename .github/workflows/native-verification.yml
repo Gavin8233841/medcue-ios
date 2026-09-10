@@ -162,7 +162,7 @@ jobs:
 
           echo "Checking for absolute local paths..."
           if git diff "$VERIFY_NATIVE_DIFF_BASE" "$VERIFY_NATIVE_EXPECTED_HEAD" | grep -E 'C:\\|D:\\|/Users/|/home/|/private/|/Volumes/'; then
-            echo "ERROR: Found absolute local paths (C:\\, D:\\, /Users/, /home/)" >&2
+            echo "ERROR: Found absolute local paths (system-specific paths)" >&2
             echo "Please replace with <PROJECT_ROOT> placeholder" >&2
             exit 2
           fi
