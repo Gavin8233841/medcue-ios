@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "description": "Pre-commit syntax and format checks configuration",
+  "checks": [
+    {
+      "id": "trailing-whitespace",
+      "name": "Trailing Whitespace",
+      "enabled": true,
+      "severity": "error",
+      "command": "git diff --cached --check",
+      "errorMessage": "Found trailing whitespace. Fix: git diff --cached --name-only | xargs sed -i 's/[ \\t]*$//'",
+      "platforms": ["windows", "darwin", "linux"],
+      "exitOnFail": true
+    },
+    {
+      "id": "absolute-paths",
+      "name": "Absolute Local Paths",
+      "enabled": true,
+      "severity": "error",
+      "type": "grep",
+      "pattern": "C:\\\\|D:\\\\|/Users/|/home/|/private/|/Volumes/",
+      "errorMessage": "Found absolute local paths (system-specific paths). Replace with <PROJECT_ROOT>",
+      "platforms": ["windows", "darwin", "linux"],
+      "exitOnFail": true
+    },
+    {
+      "id": "allowlist-paths",
+      "name": "Source Package Allowlist",
+      "enabled": true,
+      "severity": "error",
+      "type": "script",
+      "errorMessage": "File path not in allowlist. Work files should be in docs/ or .gitignore",
+      "platforms": ["windows", "darwin", "linux"],
+      "exitOnFail": true,
+      "allowedPrefixes": [
+        ".github/",
+        "checklists/",
+        "cloudfunctions/medcue-ai-broker/",
+        "coreai/",
+        "docs/",
+        "ios-app/",
+        "Packages/",
+        "swift-core/",
+        "templates/",
+        "tools/"
+      ],
+      "allowedRootFiles": [
+        ".gitignore",
+        "AGENTS.md",
+        "CONTEXT.md",
+        "design-qa.md",
+        "README.md",
+        "README.zh-CN.md",
+        "CHANGELOG.md",
+        "LICENSE",
+        "LICENSE.md",
+        "LICENSE.txt",
+        "NOTICE",
+        "NOTICE.md",
+        "NOTICE.txt",
+        "ATTRIBUTION.md",
+        "Package.swift",
+        "Package.resolved"
+      ]
+    },
+    {
+      "id": "javascript-syntax",
+      "name": "JavaScript Syntax",
+      "enabled": true,
+      "severity": "error",
+      "type": "file-type",
+      "filePattern": "\\.js$",
+      "command": "node --check",
+      "errorMessage": "JavaScript syntax error",
+      "platforms": ["windows", "darwin", "linux"],
+      "exitOnFail": false
+    },
+    {
+      "id": "json-syntax",
+      "name": "JSON Syntax",
+      "enabled": true,
+      "severity": "error",
+      "type": "file-type",
+      "filePattern": "\\.json$",
+      "command": "node -e \"JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8'))\"",
+      "errorMessage": "JSON syntax error",
+      "platforms": ["windows", "darwin", "linux"],
+      "exitOnFail": false
+    }
+  ]
+}

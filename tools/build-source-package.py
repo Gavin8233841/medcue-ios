@@ -53,6 +53,8 @@ ROOT_FILES = {
     "NOTICE.md",
     "NOTICE.txt",
     "ATTRIBUTION.md",
+    "CODEX_DEPLOY_PROMPT.md",
+    "COLLABORATOR_DEPLOY.txt",
 }
 ALLOWED_PREFIXES = (
     ".github/",
@@ -243,6 +245,15 @@ def approved_app_icon(path: str) -> bool:
     return path.casefold().endswith(".png") and path.startswith(APP_ICON_PREFIXES)
 
 
+def is_check_script(path: str) -> bool:
+    """Files that legitimately contain path patterns for checking."""
+    return path in (
+        ".github/workflows/native-verification.yml",
+        "tools/run-pre-commit-checks.sh",
+        "tools/pre-commit-checks.json",
+    )
+
+
 def validate_png(path: str, data: bytes) -> None:
     if not data.startswith(PNG_SIGNATURE):
         fail(f"approved AppIcon is not a PNG file: {path}")
@@ -331,7 +342,7 @@ def read_blobs(repo: Path, entries: list[dict[str, object]]) -> dict[str, bytes]
             fail(f"binary content is not an approved Asset Catalog icon: {path}")
         if approved_app_icon(path):
             validate_png(path, data)
-        if not approved_app_icon(path) and (
+        if not approved_app_icon(path) and not is_check_script(path) and (
             WINDOWS_LOCAL_PATH.search(data) or any(root in data for root in PRIVATE_POSIX_ROOTS)
         ):
             fail(f"absolute local path detected in tracked content: {path}")

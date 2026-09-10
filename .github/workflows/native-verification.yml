@@ -127,9 +127,108 @@ jobs:
             exit 2
           fi
 
+  quick-syntax:
+    name: Quick Syntax Gate ⚡
+    needs: classify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    env:
+      VERIFY_NATIVE_DIFF_BASE: ${{ needs.classify.outputs.diff_base }}
+      VERIFY_NATIVE_EXPECTED_HEAD: ${{ needs.classify.outputs.head }}
+    steps:
+      - name: Check out exact source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fast syntax checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_head="$(git rev-parse --verify HEAD)"
+          [[ "$actual_head" == "$VERIFY_NATIVE_EXPECTED_HEAD" ]] || {
+            echo "Checked-out HEAD does not match the classified event SHA" >&2
+            exit 2
+          }
+          if ! git cat-file -e "$VERIFY_NATIVE_DIFF_BASE^{commit}" 2>/dev/null; then
+            git fetch --no-tags --no-recurse-submodules --depth=1 origin "$VERIFY_NATIVE_DIFF_BASE"
+          fi
+          git cat-file -e "$VERIFY_NATIVE_DIFF_BASE^{commit}"
+
+          echo "Checking for trailing whitespace..."
+          git diff --check "$VERIFY_NATIVE_DIFF_BASE" "$VERIFY_NATIVE_EXPECTED_HEAD"
+
+          echo "Checking for absolute local paths..."
+          if git diff "$VERIFY_NATIVE_DIFF_BASE" "$VERIFY_NATIVE_EXPECTED_HEAD" -- . ':!.github/workflows/native-verification.yml' ':!tools/run-pre-commit-checks.sh' ':!tools/pre-commit-checks.json' | grep -E 'C:\\|D:\\|/Users/|/home/|/private/|/Volumes/'; then
+            echo "ERROR: Found absolute local paths (system-specific paths)" >&2
+            echo "Please replace with <PROJECT_ROOT> placeholder" >&2
+            exit 2
+          fi
+
+          echo "Checking file paths against allowlist..."
+          ALLOWED_PREFIXES=(
+            ".github/"
+            "checklists/"
+            "cloudfunctions/medcue-ai-broker/"
+            "coreai/"
+            "docs/"
+            "ios-app/"
+            "Packages/"
+            "swift-core/"
+            "templates/"
+            "tools/"
+          )
+          ALLOWED_ROOT_FILES=(
+            ".gitignore"
+            "AGENTS.md"
+            "CONTEXT.md"
+            "design-qa.md"
+            "README.md"
+            "README.zh-CN.md"
+            "CHANGELOG.md"
+            "LICENSE"
+            "LICENSE.md"
+            "LICENSE.txt"
+            "NOTICE"
+            "NOTICE.md"
+            "NOTICE.txt"
+            "ATTRIBUTION.md"
+            "Package.swift"
+            "Package.resolved"
+            "CODEX_DEPLOY_PROMPT.md"
+            "COLLABORATOR_DEPLOY.txt"
+          )
+
+          while IFS= read -r -d '' file; do
+            allowed=false
+            for root_file in "${ALLOWED_ROOT_FILES[@]}"; do
+              if [[ "$file" == "$root_file" ]]; then
+                allowed=true
+                break
+              fi
+            done
+            if [[ "$allowed" == false ]]; then
+              for prefix in "${ALLOWED_PREFIXES[@]}"; do
+                if [[ "$file" == "$prefix"* ]]; then
+                  allowed=true
+                  break
+                fi
+              done
+            fi
+            if [[ "$allowed" == false ]]; then
+              echo "ERROR: File not in allowlist: $file" >&2
+              echo "Work files should be in docs/ or added to .gitignore" >&2
+              exit 2
+            fi
+          done < <(git diff --name-only -z "$VERIFY_NATIVE_DIFF_BASE" "$VERIFY_NATIVE_EXPECTED_HEAD")
+
+          echo "✅ Quick syntax checks passed"
+
   docs:
     name: Docs/governance fast lane
-    needs: classify
+    needs: [classify, quick-syntax]
     if: ${{ needs.classify.result == 'success' && needs.classify.outputs.lane == 'docs' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -181,7 +280,7 @@ jobs:
 
   broker:
     name: Broker-only Node lane
-    needs: classify
+    needs: [classify, quick-syntax]
     if: ${{ needs.classify.result == 'success' && needs.classify.outputs.lane == 'broker' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -245,7 +344,7 @@ jobs:
 
   swift-core-only:
     name: Swift Core Only Lane
-    needs: classify
+    needs: [classify, quick-syntax]
     if: ${{ needs.classify.result == 'success' && needs.classify.outputs.lane == 'swift-core-only' }}
     runs-on: macos-26
     timeout-minutes: 15
@@ -314,7 +413,7 @@ jobs:
 
   watch-only:
     name: Watch App Only Lane
-    needs: classify
+    needs: [classify, quick-syntax]
     if: ${{ needs.classify.result == 'success' && needs.classify.outputs.lane == 'watch-only' }}
     runs-on: macos-26
     timeout-minutes: 20
@@ -392,7 +491,7 @@ jobs:
 
   full:
     name: Full Native Builds
-    needs: classify
+    needs: [classify, quick-syntax]
     if: ${{ always() && ((needs.classify.result == 'success' && needs.classify.outputs.lane == 'full') || needs.classify.result == 'failure') }}
     runs-on: macos-26
     timeout-minutes: 40
@@ -726,7 +825,7 @@ jobs:
   aggregate:
     name: Native Verification (required result)
     if: ${{ always() }}
-    needs: [classify, docs, broker, swift-core-only, watch-only, full, full-tests]
+    needs: [classify, quick-syntax, docs, broker, swift-core-only, watch-only, full, full-tests]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
