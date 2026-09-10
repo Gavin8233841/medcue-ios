@@ -197,6 +197,8 @@ jobs:
             "ATTRIBUTION.md"
             "Package.swift"
             "Package.resolved"
+            "CODEX_DEPLOY_PROMPT.md"
+            "COLLABORATOR_DEPLOY.txt"
           )
 
           while IFS= read -r -d '' file; do
