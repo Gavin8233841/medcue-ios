@@ -107,10 +107,10 @@ git commit -m "Add new pre-commit check: [check-name]"
 
 ### 更新 Memory
 
-已记录的 CI 错误类型保存在：
-- `C:\Users\Lenovo\.claude\projects\D-----medcue\memory\feedback_trailing_whitespace.md`
-- `C:\Users\Lenovo\.claude\projects\D-----medcue\memory\feedback_ci_absolute_paths.md`
-- `C:\Users\Lenovo\.claude\projects\D-----medcue\memory\feedback_ci_source_package.md`
+已记录的 CI 错误类型保存在项目 memory 目录：
+- `feedback_trailing_whitespace.md`
+- `feedback_ci_absolute_paths.md`
+- `feedback_ci_source_package.md`
 
 新增 CI 错误时，应：
 1. 在 memory 创建新文件记录错误原因
