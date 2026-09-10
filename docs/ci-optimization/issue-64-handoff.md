@@ -12,7 +12,7 @@
 
 ### 仓库信息
 - **GitHub 仓库**: https://github.com/Gavin8233841/medcue-ios
-- **本地路径**: `D:\桌面\medcue\medcue-ios`
+- **本地路径**: `<workspace-root>`
 - **项目类型**: iOS 应用（Swift + Xcode）
 - **项目规模**:
   - 214 个 Swift 文件（163 iOS app + 51 Swift Core）
@@ -356,7 +356,7 @@ key: ${{ runner.os }}-xcode-${{ steps.xcode-version.outputs.version }}-${{ hashF
 
 ### 本地测试缓存路径
 ```bash
-cd "D:\桌面\medcue\medcue-ios"
+cd "<workspace-root>"
 
 # 检查当前 verification root 设置
 grep -n "VERIFY_NATIVE_ROOT" tools/verify-native.sh
@@ -383,7 +383,7 @@ gh issue edit 64 --add-label "state:in-progress"
 
 ### 测试 classifier 脚本
 ```bash
-cd "D:\桌面\medcue\medcue-ios"
+cd "<workspace-root>"
 
 # 模拟 PR 变更分类
 bash tools/native-verification-classifier.sh \
@@ -424,7 +424,7 @@ bash tools/native-verification-classifier.sh \
 ### 开始前的准备
 1. 阅读本文档全文（约 15 分钟）
 2. 浏览 issue #64: https://github.com/Gavin8233841/medcue-ios/issues/64
-3. 检查本地仓库状态：`cd "D:\桌面\medcue\medcue-ios" && git status`
+3. 检查本地仓库状态：`cd "<workspace-root>" && git status`
 4. 查看最近 5 次 CI 运行记录，建立基线
 5. 确认 GitHub CLI 认证状态：`gh auth status`
 
