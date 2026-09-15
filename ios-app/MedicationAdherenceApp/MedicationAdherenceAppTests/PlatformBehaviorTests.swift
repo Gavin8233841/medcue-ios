@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UserNotifications
 @testable import MedicationAdherenceApp
 
 struct PlatformBehaviorTests {
@@ -40,7 +41,21 @@ struct PlatformBehaviorTests {
         )
 
         #expect(components.timeZone == calendar.timeZone)
-        #expect(calendar.date(from: components) == calendar.dateInterval(of: .minute, for: date)?.start)
+        #expect(calendar.date(from: components) == calendar.dateInterval(of: .second, for: date)?.start)
+    }
+
+    @Test
+    func notificationRequestTriggerRetainsSecondPrecision() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "Asia/Shanghai"))
+        let minuteStart = try #require(calendar.dateInterval(of: .minute, for: Date().addingTimeInterval(3_600))?.start)
+        let dueAt = minuteStart.addingTimeInterval(59)
+        let components = MedicationNotificationPolicy.default.triggerDateComponents(for: dueAt, calendar: calendar)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+        let request = UNNotificationRequest(identifier: "synthetic-second-precision", content: UNMutableNotificationContent(), trigger: trigger)
+
+        #expect(components.second == 59)
+        #expect(abs(try #require((request.trigger as? UNCalendarNotificationTrigger)?.nextTriggerDate()).timeIntervalSince(dueAt)) < 1)
     }
 
     @Test

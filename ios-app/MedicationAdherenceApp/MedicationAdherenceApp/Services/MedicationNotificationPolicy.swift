@@ -38,7 +38,7 @@ struct MedicationNotificationPolicy: Equatable, Sendable {
 
     func triggerDateComponents(for date: Date, calendar: Calendar) -> DateComponents {
         var components = calendar.dateComponents(
-            [.year, .month, .day, .hour, .minute],
+            [.year, .month, .day, .hour, .minute, .second],
             from: date
         )
         components.calendar = calendar

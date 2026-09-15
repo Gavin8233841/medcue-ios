@@ -8,6 +8,14 @@ import SwiftUI
 #endif
 
 @MainActor
+struct NotificationDoseActionEffects {
+    let scheduleReminder: @MainActor (StoredDoseTask, StoredMedication, StoredReminderDeliveryMethod) async -> Void
+    let cancelReminder: @MainActor (UUID) -> Void
+    let endLiveActivity: @MainActor (UUID) async -> Void
+    let startNextLiveActivity: @MainActor (ModelContext) async -> Void
+}
+
+@MainActor
 final class MedicationNotificationDelegate: NSObject, @preconcurrency UNUserNotificationCenterDelegate {
     static let shared = MedicationNotificationDelegate()
     nonisolated static let categoryIdentifier = "MEDICATION_DOSE_REMINDER"
@@ -87,16 +95,51 @@ final class MedicationNotificationDelegate: NSObject, @preconcurrency UNUserNoti
         }
 
         let context = ModelContext(modelContainer)
+        let effects = NotificationDoseActionEffects(
+            scheduleReminder: { task, medication, deliveryMethod in
+                await NotificationService().scheduleReminder(
+                    for: task,
+                    medication: medication,
+                    deliveryMethod: deliveryMethod
+                )
+            },
+            cancelReminder: { NotificationService().cancelReminder(for: $0) },
+            endLiveActivity: { await MedicationLiveActivityService().end(for: $0) },
+            startNextLiveActivity: { [self] in await startNextLiveActivityIfNeeded(in: $0) }
+        )
+        await handleNotificationAction(
+            response.actionIdentifier,
+            taskID: taskID,
+            in: context,
+            occurredAt: Date(),
+            effects: effects
+        )
+    }
+
+    @discardableResult
+    func handleNotificationAction(
+        _ actionIdentifier: String,
+        taskID: UUID,
+        in context: ModelContext,
+        occurredAt: Date,
+        effects: NotificationDoseActionEffects,
+        persistence: DoseActionPersistence = DoseActionPersistence()
+    ) async -> Bool {
+        guard actionIdentifier == Self.markTakenActionIdentifier
+            || actionIdentifier == Self.delayActionIdentifier
+            || actionIdentifier == Self.skipActionIdentifier else {
+            return false
+        }
         let tasks = (try? context.fetch(FetchDescriptor<StoredDoseTask>())) ?? []
         guard let task = tasks.first(where: { $0.id == taskID }) else {
-            return
+            return false
         }
         let taskGroup = DoseLogicalGroup.group(containing: task, in: tasks)
         let openTaskGroup = taskGroup.filter { $0.status == .pending || $0.status == .delayed }
         guard !openTaskGroup.isEmpty else {
-            NotificationService().cancelReminder(for: task.id)
-            await MedicationLiveActivityService().end(for: task.id)
-            return
+            effects.cancelReminder(task.id)
+            await effects.endLiveActivity(task.id)
+            return false
         }
         let medications = (try? context.fetch(FetchDescriptor<StoredMedication>())) ?? []
         let medication = medications.first { $0.id == task.medicationID }
@@ -104,70 +147,70 @@ final class MedicationNotificationDelegate: NSObject, @preconcurrency UNUserNoti
         let plan = plans.first { $0.id == task.planID }
         guard medication?.lifecycleStatus == .active else {
             for groupTask in openTaskGroup {
-                NotificationService().cancelReminder(for: groupTask.id)
-                await MedicationLiveActivityService().end(for: groupTask.id)
+                effects.cancelReminder(groupTask.id)
+                await effects.endLiveActivity(groupTask.id)
             }
-            return
+            return false
         }
 
-        switch response.actionIdentifier {
+        switch actionIdentifier {
         case Self.markTakenActionIdentifier:
             guard applyNotificationAction(
                 mutation: .markTaken,
                 to: openTaskGroup,
                 primaryTask: task,
-                recordedAt: Date(),
+                recordedAt: occurredAt,
                 reason: "通过通知标记已服用",
-                context: context
-            ) else { return }
+                context: context,
+                persistence: persistence
+            ) else { return false }
             for groupTask in openTaskGroup {
-                NotificationService().cancelReminder(for: groupTask.id)
-                await MedicationLiveActivityService().end(for: groupTask.id)
+                effects.cancelReminder(groupTask.id)
+                await effects.endLiveActivity(groupTask.id)
             }
         case Self.delayActionIdentifier:
-            let occurredAt = Date()
             guard applyNotificationAction(
                 mutation: .delay,
                 to: openTaskGroup,
                 primaryTask: task,
                 recordedAt: occurredAt,
-                reason: "通过通知选择按原计划时间顺延 \(DoseDelayPolicy.delayMinutes) 分钟提醒",
-                context: context
-            ) else { return }
+                reason: "通过通知选择 \(DoseDelayPolicy.delayMinutes) 分钟后提醒",
+                context: context,
+                persistence: persistence,
+                delayedDueAt: occurredAt.addingTimeInterval(TimeInterval(DoseDelayPolicy.delayMinutes * 60))
+            ) else { return false }
             if let medication {
                 for groupTask in openTaskGroup {
                     if groupTask.id == task.id {
-                        await NotificationService().scheduleReminder(
-                            for: groupTask,
-                            medication: medication,
-                            deliveryMethod: plan?.reminderDeliveryMethod ?? .notification
-                        )
+                        await effects.scheduleReminder(groupTask, medication, plan?.reminderDeliveryMethod ?? .notification)
                     } else {
-                        NotificationService().cancelReminder(for: groupTask.id)
+                        effects.cancelReminder(groupTask.id)
                     }
                 }
             }
             for groupTask in openTaskGroup {
-                await MedicationLiveActivityService().end(for: groupTask.id)
+                await effects.endLiveActivity(groupTask.id)
             }
         case Self.skipActionIdentifier:
             guard applyNotificationAction(
                 mutation: .skip,
                 to: openTaskGroup,
                 primaryTask: task,
-                recordedAt: Date(),
+                recordedAt: occurredAt,
                 reason: "通过通知忽略",
-                context: context
-            ) else { return }
+                context: context,
+                persistence: persistence
+            ) else { return false }
             for groupTask in openTaskGroup {
-                NotificationService().cancelReminder(for: groupTask.id)
-                await MedicationLiveActivityService().end(for: groupTask.id)
+                effects.cancelReminder(groupTask.id)
+                await effects.endLiveActivity(groupTask.id)
             }
         default:
-            break
+            return false
         }
 
-        await startNextLiveActivityIfNeeded(in: context)
+        await effects.startNextLiveActivity(context)
+        return true
     }
 
     @MainActor
@@ -177,7 +220,9 @@ final class MedicationNotificationDelegate: NSObject, @preconcurrency UNUserNoti
         primaryTask: StoredDoseTask,
         recordedAt: Date,
         reason: String,
-        context: ModelContext
+        context: ModelContext,
+        persistence: DoseActionPersistence,
+        delayedDueAt: Date? = nil
     ) -> Bool {
         let transitions = DoseActionTransitionPlanner().makeTransitions(
             mutation: mutation,
@@ -185,10 +230,11 @@ final class MedicationNotificationDelegate: NSObject, @preconcurrency UNUserNoti
             primaryTask: primaryTask,
             occurredAt: recordedAt,
             primaryReason: reason,
-            mergedReason: "同一剂量重复提醒已随本次通知操作合并。"
+            mergedReason: "同一剂量重复提醒已随本次通知操作合并。",
+            delayedDueAt: delayedDueAt
         )
         do {
-            try DoseActionPersistence().commit(transitions, in: context)
+            try persistence.commit(transitions, in: context)
             return true
         } catch {
             AppPersistenceCommitter.reportFailure(operation: "notification-dose-action")
