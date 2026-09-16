@@ -189,6 +189,32 @@ test("rejects malformed JSON", async () => {
   });
 });
 
+test("rejects non-object JSON payloads without calling the provider", async () => {
+  let providerCallCount = 0;
+  const handler = createBrokerHandler({
+    config: validConfig(),
+    fetchProvider: async () => {
+      providerCallCount += 1;
+      throw new Error("provider must not be called");
+    },
+  });
+
+  for (const payload of [null, [], "scalar", 42, true]) {
+    const response = await handler(
+      validRequest({ body: JSON.stringify(payload) }),
+    );
+
+    assert.equal(response.status, 422);
+    assert.deepEqual(JSON.parse(response.body), {
+      error: {
+        code: "invalid_request",
+        message: "Request body must be a JSON object.",
+      },
+    });
+  }
+  assert.equal(providerCallCount, 0);
+});
+
 test("requires a canonical UUID request_id", async () => {
   const handler = createBrokerHandler({
     config: {
