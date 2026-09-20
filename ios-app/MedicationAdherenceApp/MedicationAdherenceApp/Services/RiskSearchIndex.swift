@@ -23,7 +23,8 @@ struct RiskSearchIndex {
             card.sourceTitle,
             card.sourceExcerpt
         ]
-        .compactMap { $0.isEmpty ? nil : $0 }
+        .compactMap { $0 }
+        .filter { !$0.isEmpty }
 
         self.searchableText = SearchTextNormalizer.normalize(
             fields.joined(separator: " ")
