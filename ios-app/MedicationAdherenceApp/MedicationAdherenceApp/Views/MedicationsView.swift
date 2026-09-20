@@ -117,6 +117,9 @@ struct MedicationsView: View {
                     }
                 } else {
                     Button {
+                        guard searchQuery.isEmpty else {
+                            return
+                        }
                         withAnimation(.snappy(duration: 0.24, extraBounce: 0.01)) {
                             showingMedicationList.toggle()
                         }
@@ -128,7 +131,11 @@ struct MedicationsView: View {
                                 firstMedication: firstMedication,
                                 nextTask: nextTask
                             )
-                            Image(systemName: showingMedicationList ? "chevron.up" : "chevron.down")
+                            Image(
+                                systemName: showingMedicationList || !searchQuery.isEmpty
+                                    ? "chevron.up"
+                                    : "chevron.down"
+                            )
                                 .font(.footnote.weight(.bold))
                                 .foregroundStyle(.secondary)
                                 .accessibilityHidden(true)
@@ -145,7 +152,11 @@ struct MedicationsView: View {
                             nextTask: nextTask
                         )
                     )
-                    .accessibilityValue(showingMedicationList ? "已展开" : "已折叠")
+                    .accessibilityValue(
+                        !searchQuery.isEmpty
+                            ? "搜索结果已展开"
+                            : (showingMedicationList ? "已展开" : "已折叠")
+                    )
 
                     if showingMedicationList || !searchQuery.isEmpty {
                         ForEach(visibleMedications) { medication in
