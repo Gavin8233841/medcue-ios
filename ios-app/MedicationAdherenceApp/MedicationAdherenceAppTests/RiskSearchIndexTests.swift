@@ -1,234 +1,171 @@
-import Testing
+import Foundation
 import MedicationAdherenceCore
+import Testing
 @testable import MedicationAdherenceApp
 
 struct RiskSearchIndexTests {
-    @Test("搜索索引应该包含所有字段")
-    func searchIndex_includesAllFields() {
-        let card = StoredRiskCard(
-            medicationID: UUID(),
-            kind: .drugInteraction,
+    @Test("搜索索引包含风险的全部授权字段")
+    func searchIndexIncludesAllFields() {
+        let card = makeCard(
+            kind: .drugClassContext,
             severity: .high,
-            title: "药物相互作用",
+            title: "联合用药提示",
             message: "与阿司匹林同服可能增加出血风险",
-            requiresProfessionalReview: true
+            sourceTitle: "药品说明书",
+            sourceExcerpt: "禁忌：对阿司匹林过敏者"
         )
-        card.sourceTitle = "药品说明书"
-        card.sourceExcerpt = "禁忌：对阿司匹林过敏者"
 
-        let index = RiskSearchIndex(card: card, medicationName: "阿莫西林")
+        let index = RiskSearchIndex(
+            card: card,
+            medicationName: "阿莫西林",
+            medicationGenericName: "Amoxicillin"
+        )
 
         #expect(index.searchableText.contains("阿莫西林"))
-        #expect(index.searchableText.contains("药物相互作用"))
+        #expect(index.searchableText.contains("amoxicillin"))
+        #expect(index.searchableText.contains("联合用药提示"))
         #expect(index.searchableText.contains("阿司匹林"))
-        #expect(index.searchableText.contains("出血"))
+        #expect(index.searchableText.contains("药物相互作用"))
+        #expect(index.searchableText.contains("高"))
         #expect(index.searchableText.contains("药品说明书"))
         #expect(index.searchableText.contains("禁忌"))
     }
 
-    @Test("搜索索引应该匹配药品名称")
-    func searchIndex_matchesMedicationName() {
-        let card = StoredRiskCard(
-            medicationID: UUID(),
-            kind: .drugInteraction,
-            severity: .medium,
-            title: "注意事项",
-            message: "饭后服用",
-            requiresProfessionalReview: false
+    @Test("搜索索引匹配关联药品显示名和通用名")
+    func searchIndexMatchesMedicationNames() {
+        let index = RiskSearchIndex(
+            card: makeCard(),
+            medicationName: "阿莫西林胶囊",
+            medicationGenericName: "Amoxicillin"
         )
-        let index = RiskSearchIndex(card: card, medicationName: "阿莫西林胶囊")
 
         #expect(index.matches(query: ["阿莫"]))
-        #expect(index.matches(query: ["西林"]))
         #expect(index.matches(query: ["胶囊"]))
+        #expect(index.matches(query: ["AMOX"]))
     }
 
-    @Test("搜索索引应该匹配警示标题")
-    func searchIndex_matchesTitle() {
-        let card = StoredRiskCard(
-            medicationID: UUID(),
-            kind: .adverseEffect,
-            severity: .medium,
-            title: "常见不良反应",
-            message: "可能出现恶心、呕吐",
-            requiresProfessionalReview: false
+    @Test("搜索索引匹配警示标题和正文")
+    func searchIndexMatchesWarningContent() {
+        let index = RiskSearchIndex(
+            card: makeCard(
+                title: "常见不良反应",
+                message: "可能出现头晕、嗜睡，驾驶时需注意"
+            ),
+            medicationName: "测试药品"
         )
-        let index = RiskSearchIndex(card: card, medicationName: "药品A")
 
         #expect(index.matches(query: ["不良反应"]))
-        #expect(index.matches(query: ["常见"]))
+        #expect(index.matches(query: ["头晕", "驾驶"]))
+        #expect(!index.matches(query: ["出血"]))
     }
 
-    @Test("搜索索引应该匹配警示内容")
-    func searchIndex_matchesMessage() {
-        let card = StoredRiskCard(
-            medicationID: UUID(),
-            kind: .adverseEffect,
-            severity: .low,
-            title: "副作用",
-            message: "可能引起头晕、嗜睡，驾驶时需注意",
-            requiresProfessionalReview: false
+    @Test("搜索索引匹配来源标题和片段")
+    func searchIndexMatchesSource() {
+        let index = RiskSearchIndex(
+            card: makeCard(
+                sourceTitle: "国家药品监督管理局公告",
+                sourceExcerpt: "动物实验显示有致畸作用"
+            ),
+            medicationName: "测试药品"
         )
-        let index = RiskSearchIndex(card: card, medicationName: "药品B")
 
-        #expect(index.matches(query: ["头晕"]))
-        #expect(index.matches(query: ["嗜睡"]))
-        #expect(index.matches(query: ["驾驶"]))
+        #expect(index.matches(query: ["药品监督", "公告"]))
+        #expect(index.matches(query: ["动物实验", "致畸"]))
     }
 
-    @Test("搜索索引应该匹配来源标题")
-    func searchIndex_matchesSourceTitle() {
-        let card = StoredRiskCard(
-            medicationID: UUID(),
-            kind: .contraindication,
-            severity: .critical,
-            title: "禁忌症",
-            message: "孕妇禁用",
-            requiresProfessionalReview: true
+    @Test("搜索索引匹配风险分组显示名")
+    func searchIndexMatchesRiskGroup() {
+        let interaction = RiskSearchIndex(
+            card: makeCard(kind: .drugClassContext),
+            medicationName: "药品 A"
         )
-        card.sourceTitle = "国家药品监督管理局公告"
+        let lifestyle = RiskSearchIndex(
+            card: makeCard(kind: .foodReview),
+            medicationName: "药品 B"
+        )
 
-        let index = RiskSearchIndex(card: card, medicationName: "药品C")
-
-        #expect(index.matches(query: ["药监局"]))
-        #expect(index.matches(query: ["公告"]))
+        #expect(interaction.matches(query: ["药物相互作用"]))
+        #expect(lifestyle.matches(query: ["饮食", "生活方式"]))
     }
 
-    @Test("搜索索引应该匹配风险分类")
-    func searchIndex_matchesRiskKind() {
-        let card = StoredRiskCard(
-            medicationID: UUID(),
-            kind: .drugInteraction,
-            severity: .high,
-            title: "相互作用",
-            message: "与华法林同服",
-            requiresProfessionalReview: true
+    @Test("搜索索引匹配严重程度显示名")
+    func searchIndexMatchesSeverity() {
+        let index = RiskSearchIndex(
+            card: makeCard(severity: .critical),
+            medicationName: "测试药品"
         )
-        let index = RiskSearchIndex(card: card, medicationName: "药品D")
 
-        #expect(index.matches(query: ["药物相互作用"]))
-        #expect(index.matches(query: ["相互作用"]))
+        #expect(index.matches(query: ["紧急"]))
+        #expect(!index.matches(query: ["低"]))
     }
 
-    @Test("搜索索引应该匹配严重程度")
-    func searchIndex_matchesSeverity() {
-        let card = StoredRiskCard(
-            medicationID: UUID(),
-            kind: .adverseEffect,
-            severity: .critical,
-            title: "严重副作用",
-            message: "过敏性休克",
-            requiresProfessionalReview: true
+    @Test("多个搜索词要求全部命中")
+    func searchIndexRequiresAllTokens() {
+        let index = RiskSearchIndex(
+            card: makeCard(
+                kind: .drugClassContext,
+                title: "联合用药提示",
+                message: "与阿司匹林同服增加出血风险"
+            ),
+            medicationName: "阿莫西林"
         )
-        let index = RiskSearchIndex(card: card, medicationName: "药品E")
-
-        #expect(index.matches(query: ["危急"]))
-        #expect(index.matches(query: ["critical"]))
-    }
-
-    @Test("搜索索引应该要求多个词都匹配")
-    func searchIndex_multipleTokensAllMatch() {
-        let card = StoredRiskCard(
-            medicationID: UUID(),
-            kind: .drugInteraction,
-            severity: .high,
-            title: "药物相互作用",
-            message: "与阿司匹林同服增加出血风险",
-            requiresProfessionalReview: true
-        )
-        let index = RiskSearchIndex(card: card, medicationName: "阿莫西林")
 
         #expect(index.matches(query: ["阿莫", "阿司匹林"]))
         #expect(index.matches(query: ["相互作用", "出血"]))
         #expect(!index.matches(query: ["阿莫", "青霉素"]))
     }
 
-    @Test("空查询应该匹配所有风险")
-    func searchIndex_emptyQueryMatchesAll() {
-        let card = StoredRiskCard(
-            medicationID: UUID(),
-            kind: .adverseEffect,
-            severity: .low,
-            title: "轻微副作用",
-            message: "可能口干",
-            requiresProfessionalReview: false
-        )
-        let index = RiskSearchIndex(card: card, medicationName: "药品F")
+    @Test("空查询匹配所有风险")
+    func searchIndexEmptyQueryMatchesAll() {
+        let index = RiskSearchIndex(card: makeCard(), medicationName: "测试药品")
 
         #expect(index.matches(query: []))
+        #expect(index.matches(query: ["   "]))
     }
 
-    @Test("搜索索引应该处理空字段")
-    func searchIndex_handlesEmptyFields() {
-        let card = StoredRiskCard(
-            medicationID: UUID(),
-            kind: .adverseEffect,
-            severity: .medium,
-            title: "注意事项",
-            message: "饭后服用",
-            requiresProfessionalReview: false
-        )
-        card.sourceTitle = ""
-        card.sourceExcerpt = ""
+    @Test("空来源字段不会产生重复分隔符")
+    func searchIndexHandlesEmptyFields() {
+        let index = RiskSearchIndex(card: makeCard(), medicationName: "测试药品")
 
-        let index = RiskSearchIndex(card: card, medicationName: "药品G")
-
-        #expect(index.matches(query: ["注意"]))
+        #expect(index.matches(query: ["注意事项"]))
         #expect(!index.searchableText.contains("  "))
     }
 
-    @Test("搜索索引应该支持复杂查询")
-    func searchIndex_complexQuery() {
-        let card = StoredRiskCard(
-            medicationID: UUID(),
-            kind: .contraindication,
-            severity: .critical,
-            title: "孕妇及哺乳期妇女用药",
-            message: "孕妇禁用，可能导致胎儿畸形",
-            requiresProfessionalReview: true
+    @Test("搜索索引支持大小写和全半角规范化")
+    func searchIndexSupportsNormalizedQuery() {
+        let index = RiskSearchIndex(
+            card: makeCard(
+                title: "Side Effects",
+                message: "服用后2小时内可能 dizziness"
+            ),
+            medicationName: "Amoxicillin"
         )
-        card.sourceTitle = "药品说明书第7条"
-        card.sourceExcerpt = "动物实验显示有致畸作用"
 
-        let index = RiskSearchIndex(card: card, medicationName: "左氧氟沙星")
-
-        #expect(index.matches(query: ["左氧", "孕妇"]))
-        #expect(index.matches(query: ["禁用", "畸形"]))
-        #expect(index.matches(query: ["说明书", "致畸"]))
-        #expect(!index.matches(query: ["阿莫", "胶囊"]))
-    }
-
-    @Test("搜索索引应该不区分全角半角")
-    func searchIndex_fullwidthHalfwidthMatching() {
-        let card = StoredRiskCard(
-            medicationID: UUID(),
-            kind: .adverseEffect,
-            severity: .medium,
-            title: "注意事项",
-            message: "服用后2小时内避免驾驶",
-            requiresProfessionalReview: false
-        )
-        let index = RiskSearchIndex(card: card, medicationName: "药品H")
-
-        #expect(index.matches(query: ["２小时"]))
-        #expect(index.matches(query: ["２"]))
-    }
-
-    @Test("搜索索引应该支持英文不区分大小写")
-    func searchIndex_englishCaseInsensitive() {
-        let card = StoredRiskCard(
-            medicationID: UUID(),
-            kind: .adverseEffect,
-            severity: .low,
-            title: "Side Effects",
-            message: "May cause dizziness",
-            requiresProfessionalReview: false
-        )
-        let index = RiskSearchIndex(card: card, medicationName: "Amoxicillin")
-
-        #expect(index.matches(query: ["amox"]))
         #expect(index.matches(query: ["AMOX"]))
-        #expect(index.matches(query: ["dizz"]))
-        #expect(index.matches(query: ["SIDE"]))
+        #expect(index.matches(query: ["SIDE", "DIZZ"]))
+        #expect(index.matches(query: ["２小时"]))
+    }
+
+    private func makeCard(
+        kind: RiskAssessmentCardKind = .labelRisk,
+        severity: StoredRiskSeverity = .medium,
+        title: String = "注意事项",
+        message: String = "饭后服用",
+        sourceTitle: String = "",
+        sourceExcerpt: String = ""
+    ) -> StoredRiskCard {
+        StoredRiskCard(
+            id: UUID().uuidString,
+            medicationID: UUID(),
+            kindRaw: kind.rawValue,
+            severityRaw: severity.rawValue,
+            displayPriority: severity.badgePriority,
+            title: title,
+            message: message,
+            sourceTitle: sourceTitle,
+            sourceExcerpt: sourceExcerpt,
+            requiresProfessionalReview: severity.isActionable,
+            safetyNote: RiskAssessmentEngine.defaultSafetyNote
+        )
     }
 }

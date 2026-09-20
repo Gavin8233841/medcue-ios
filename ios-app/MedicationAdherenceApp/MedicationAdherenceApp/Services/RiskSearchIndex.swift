@@ -6,14 +6,19 @@ struct RiskSearchIndex {
     let card: StoredRiskCard
     let searchableText: String
 
-    init(card: StoredRiskCard, medicationName: String) {
+    init(
+        card: StoredRiskCard,
+        medicationName: String,
+        medicationGenericName: String = ""
+    ) {
         self.card = card
 
         let fields = [
             medicationName,
+            medicationGenericName,
             card.title,
             card.message,
-            card.kind.displayName,
+            RiskReviewGrouper().mappedGroup(for: card.coreRiskCard).title,
             card.severity.displayName,
             card.sourceTitle,
             card.sourceExcerpt

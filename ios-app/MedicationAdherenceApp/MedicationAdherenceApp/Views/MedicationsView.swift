@@ -147,7 +147,7 @@ struct MedicationsView: View {
                     )
                     .accessibilityValue(showingMedicationList ? "已展开" : "已折叠")
 
-                    if showingMedicationList {
+                    if showingMedicationList || !searchQuery.isEmpty {
                         ForEach(visibleMedications) { medication in
                             NavigationLink(value: MedicationDetailRoute(medicationID: medication.id)) {
                                 MedicationCardRow(
@@ -169,7 +169,11 @@ struct MedicationsView: View {
             Color.clear.frame(height: 96)
         }
         .navigationTitle("药品")
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索药品")
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "搜索药品名称、通用名或规格"
+        )
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {

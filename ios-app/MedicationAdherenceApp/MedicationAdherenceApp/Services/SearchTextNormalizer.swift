@@ -14,21 +14,27 @@ enum SearchTextNormalizer {
     /// 将查询字符串按空格分割为非空词
     static func tokenize(_ query: String) -> [String] {
         let normalized = normalize(query)
-        return normalized.split(separator: " ").map(String.init).filter { !$0.isEmpty }
+        return normalized.split(whereSeparator: { $0.isWhitespace }).map(String.init)
     }
 
     /// 检查所有查询词是否都能在目标文本中找到（子串匹配）
     static func matches(query: [String], in text: String) -> Bool {
-        guard !query.isEmpty else {
+        let normalizedQuery = query.flatMap(tokenize)
+        guard !normalizedQuery.isEmpty else {
             return true
         }
-        return query.allSatisfy { text.contains($0) }
+        let normalizedText = normalize(text)
+        return normalizedQuery.allSatisfy { normalizedText.contains($0) }
     }
 
     private static func convertFullwidthToHalfwidth(_ text: String) -> String {
         var result = ""
         for char in text {
             let scalar = char.unicodeScalars.first
+            if scalar?.value == 0x3000 {
+                result.append(" ")
+                continue
+            }
             if let scalar = scalar, (0xFF01...0xFF5E).contains(scalar.value) {
                 let halfwidthValue = scalar.value - 0xFEE0
                 if let halfwidthScalar = UnicodeScalar(halfwidthValue) {

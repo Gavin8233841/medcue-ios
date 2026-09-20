@@ -33,22 +33,39 @@ struct RisksView: View {
         SearchTextNormalizer.tokenize(searchText)
     }
 
+    private var medicationsByID: [UUID: StoredMedication] {
+        Dictionary(uniqueKeysWithValues: medications.map { ($0.id, $0) })
+    }
+
+    private func filteredCards(_ cards: [StoredRiskCard]) -> [StoredRiskCard] {
+        guard !searchQuery.isEmpty else {
+            return cards
+        }
+        let medicationLookup = medicationsByID
+        return cards.filter { card in
+            let medication = medicationLookup[card.medicationID]
+            return RiskSearchIndex(
+                card: card,
+                medicationName: riskSnapshot.medicationName(for: card),
+                medicationGenericName: medication?.genericName ?? ""
+            ).matches(query: searchQuery)
+        }
+    }
+
     private func filteredSections(_ sections: [MedicationRiskSection]) -> [MedicationRiskSection] {
         guard !searchQuery.isEmpty else {
             return sections
         }
         return sections.compactMap { section in
-            let filteredCards = section.cards.filter { card in
-                let medicationName = riskSnapshot.medicationName(for: card.medicationID) ?? ""
-                return RiskSearchIndex(card: card, medicationName: medicationName).matches(query: searchQuery)
-            }
-            guard !filteredCards.isEmpty else {
+            let matchingCards = filteredCards(section.cards)
+            guard !matchingCards.isEmpty else {
                 return nil
             }
             return MedicationRiskSection(
                 medicationID: section.medicationID,
                 medicationName: section.medicationName,
-                cards: filteredCards
+                visual: section.visual,
+                cards: matchingCards
             )
         }
     }
@@ -56,13 +73,17 @@ struct RisksView: View {
     var body: some View {
         let snapshot = riskSnapshot
         List {
+            let filteredActive = filteredSections(snapshot.medicationRiskSections)
+            let filteredArchived = filteredSections(snapshot.archivedMedicationRiskSections)
             Section("按药品查看") {
-                let filteredActive = filteredSections(snapshot.medicationRiskSections)
                 if snapshot.medicationRiskSections.isEmpty {
                     RiskEmptyStateView(hasMedications: !medications.isEmpty)
                 } else if filteredActive.isEmpty {
-                    if !searchQuery.isEmpty {
+                    if !searchQuery.isEmpty && filteredArchived.isEmpty {
                         ContentUnavailableView.search(text: searchText)
+                    } else if !searchQuery.isEmpty {
+                        Text("当前活动风险中没有匹配结果。")
+                            .foregroundStyle(.secondary)
                     } else {
                         RiskEmptyStateView(hasMedications: !medications.isEmpty)
                     }
@@ -75,7 +96,7 @@ struct RisksView: View {
 
             Section("分类总览") {
                 ForEach(RiskReviewGroup.allCases, id: \.rawValue) { group in
-                    let groupedCards = snapshot.cardsByGroup[group, default: []]
+                    let groupedCards = filteredCards(snapshot.cardsByGroup[group, default: []])
                     NavigationLink {
                         RiskGroupDetailView(
                             group: group,
@@ -92,7 +113,6 @@ struct RisksView: View {
                 }
             }
 
-            let filteredArchived = filteredSections(snapshot.archivedMedicationRiskSections)
             if !filteredArchived.isEmpty {
                 Section("已复核归档") {
                     ForEach(filteredArchived) { section in
@@ -107,7 +127,11 @@ struct RisksView: View {
             }
         }
         .navigationTitle("风险复核")
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "搜索风险")
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "搜索药品、警示或来源"
+        )
         .toolbar(.hidden, for: .tabBar)
         .onAppear {
             restoreRiskSnapshotFromCacheIfAvailable()

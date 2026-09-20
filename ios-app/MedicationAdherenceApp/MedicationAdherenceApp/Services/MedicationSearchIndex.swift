@@ -14,7 +14,7 @@ struct MedicationSearchIndex {
             medication.genericName,
             medication.strength,
             medication.form,
-            medication.kind.displayName,
+            medication.kindDisplayName,
             medication.notes
         ]
         .compactMap { $0.isEmpty ? nil : $0 }
