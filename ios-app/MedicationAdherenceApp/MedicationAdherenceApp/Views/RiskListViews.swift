@@ -175,15 +175,42 @@ enum RiskMedicationDisplayBuilder {
 
 struct MedicationRiskDisclosureRow: View {
     let section: MedicationRiskSection
-    @State private var isExpanded = false
-    @State private var isShowingArchivedCards = false
+    private let managedIsExpanded: Binding<Bool>?
+    private let managedIsShowingArchivedCards: Binding<Bool>?
+    private let onSelectCard: ((StoredRiskCard) -> Void)?
+    @State private var localIsExpanded = false
+    @State private var localIsShowingArchivedCards = false
     @State private var selectedCardID: String?
+
+    init(
+        section: MedicationRiskSection,
+        isExpanded: Binding<Bool>? = nil,
+        isShowingArchivedCards: Binding<Bool>? = nil,
+        onSelectCard: ((StoredRiskCard) -> Void)? = nil
+    ) {
+        self.section = section
+        self.managedIsExpanded = isExpanded
+        self.managedIsShowingArchivedCards = isShowingArchivedCards
+        self.onSelectCard = onSelectCard
+    }
+
+    private var isExpanded: Bool {
+        managedIsExpanded?.wrappedValue ?? localIsExpanded
+    }
+
+    private var isShowingArchivedCards: Bool {
+        managedIsShowingArchivedCards?.wrappedValue ?? localIsShowingArchivedCards
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Button {
                 withAnimation(.snappy(duration: 0.24, extraBounce: 0.01)) {
-                    isExpanded.toggle()
+                    if let managedIsExpanded {
+                        managedIsExpanded.wrappedValue.toggle()
+                    } else {
+                        localIsExpanded.toggle()
+                    }
                 }
             } label: {
                 MedicationRiskDisclosureHeader(section: section, isExpanded: isExpanded)
@@ -202,7 +229,7 @@ struct MedicationRiskDisclosureRow: View {
                             RiskCardSelectionButton(
                                 card: card,
                                 hint: "查看警示详情",
-                                select: { selectedCardID = card.id }
+                                select: { select(card) }
                             )
                         }
                     }
@@ -211,7 +238,11 @@ struct MedicationRiskDisclosureRow: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Button {
                                 withAnimation(.snappy(duration: 0.22, extraBounce: 0.01)) {
-                                    isShowingArchivedCards.toggle()
+                                    if let managedIsShowingArchivedCards {
+                                        managedIsShowingArchivedCards.wrappedValue.toggle()
+                                    } else {
+                                        localIsShowingArchivedCards.toggle()
+                                    }
                                 }
                             } label: {
                                 HStack(spacing: 8) {
@@ -236,7 +267,7 @@ struct MedicationRiskDisclosureRow: View {
                                     RiskCardSelectionButton(
                                         card: card,
                                         hint: "查看归档警示详情",
-                                        select: { selectedCardID = card.id }
+                                        select: { select(card) }
                                     )
                                 }
                             }
@@ -271,6 +302,14 @@ struct MedicationRiskDisclosureRow: View {
         section.cards.first { $0.id == selectedCardID }
     }
 
+    private func select(_ card: StoredRiskCard) {
+        if let onSelectCard {
+            onSelectCard(card)
+        } else {
+            selectedCardID = card.id
+        }
+    }
+
     private var selectedCardNavigationBinding: Binding<Bool> {
         Binding {
             selectedCardID != nil
@@ -295,6 +334,7 @@ struct RiskCardSelectionButton: View {
         .accessibilityLabel(accessibilityLabel)
         .accessibilityValue(accessibilityValue)
         .accessibilityHint(hint)
+        .accessibilityIdentifier("risk.card.\(card.id)")
         .accessibilityAddTraits(.isButton)
         .accessibilityAction {
             select()

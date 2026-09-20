@@ -21,17 +21,25 @@ struct SearchTextNormalizerTests {
         #expect(SearchTextNormalizer.normalize("５００ｍｇ") == "500mg")
     }
 
-    @Test("规范化应该去除可忽略的标点")
-    func normalize_removesIgnorablePunctuation() {
-        #expect(SearchTextNormalizer.normalize("阿莫西林,胶囊") == "阿莫西林胶囊")
-        #expect(SearchTextNormalizer.normalize("500mg。每日三次！") == "500mg每日三次")
-        #expect(SearchTextNormalizer.normalize("注意：饭后服用。") == "注意饭后服用")
+    @Test("规范化应该把可忽略标点视为词边界")
+    func normalize_replacesIgnorablePunctuationWithWordBoundaries() {
+        #expect(SearchTextNormalizer.normalize("阿莫西林,胶囊") == "阿莫西林 胶囊")
+        #expect(SearchTextNormalizer.normalize("500mg。每日三次！") == "500mg 每日三次")
+        #expect(SearchTextNormalizer.normalize("注意：饭后服用。") == "注意 饭后服用")
+        #expect(SearchTextNormalizer.normalize("tablet/capsule (oral)-daily") == "tablet capsule oral daily")
     }
 
     @Test("分词应该按空格分割")
     func tokenize_splitsOnWhitespace() {
         let tokens = SearchTextNormalizer.tokenize("阿莫西林 胶囊")
         #expect(tokens == ["阿莫西林", "胶囊"])
+    }
+
+    @Test("分词应该把中英文标点视为分隔符而不是粘连词")
+    func tokenize_splitsOnPunctuation() {
+        #expect(SearchTextNormalizer.tokenize("阿莫西林,胶囊") == ["阿莫西林", "胶囊"])
+        #expect(SearchTextNormalizer.tokenize("amoxicillin/tablet-dose") == ["amoxicillin", "tablet", "dose"])
+        #expect(SearchTextNormalizer.tokenize("（处方药）：500mg") == ["处方药", "500mg"])
     }
 
     @Test("分词应该过滤空词")
@@ -90,7 +98,7 @@ struct SearchTextNormalizerTests {
     func normalize_complexScenario() {
         let input = "  阿莫西林，Amoxicillin！５００ｍｇ。  "
         let result = SearchTextNormalizer.normalize(input)
-        #expect(result == "阿莫西林amoxicillin500mg")
+        #expect(result == "阿莫西林 amoxicillin 500mg")
     }
 
     @Test("端到端：规范化查询并匹配")
@@ -105,5 +113,22 @@ struct SearchTextNormalizerTests {
         let searchableText = SearchTextNormalizer.normalize("500mg")
         let query = SearchTextNormalizer.tokenize("５００")
         #expect(SearchTextNormalizer.matches(query: query, in: searchableText))
+    }
+
+    @Test("端到端：标点分隔的查询词可以跨字段匹配")
+    func endToEnd_punctuationSeparatedQueryMatchesAcrossFields() {
+        let searchableText = SearchTextNormalizer.normalize("阿莫西林 胶囊 500 mg")
+
+        #expect(SearchTextNormalizer.matches(query: ["阿莫西林,胶囊"], in: searchableText))
+        #expect(SearchTextNormalizer.matches(query: ["500/mg"], in: searchableText))
+    }
+
+    @Test("端到端：可忽略分隔符的存在与否不应造成漏搜")
+    func endToEnd_ignoresSeparatorPresenceDifferences() {
+        #expect(SearchTextNormalizer.matches(query: ["500mg"], in: "500 mg"))
+        #expect(SearchTextNormalizer.matches(query: ["500 mg"], in: "500mg"))
+        #expect(SearchTextNormalizer.matches(query: ["D3"], in: "Vitamin D-3"))
+        #expect(SearchTextNormalizer.matches(query: ["D-3"], in: "Vitamin D3"))
+        #expect(SearchTextNormalizer.matches(query: ["阿莫西林（胶囊）"], in: "阿莫西林 胶囊"))
     }
 }

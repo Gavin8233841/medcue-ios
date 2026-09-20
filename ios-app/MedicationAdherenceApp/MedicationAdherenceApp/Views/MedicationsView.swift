@@ -116,47 +116,51 @@ struct MedicationsView: View {
                             .foregroundStyle(.secondary)
                     }
                 } else {
-                    Button {
-                        guard searchQuery.isEmpty else {
-                            return
+                    if searchQuery.isEmpty {
+                        Button {
+                            withAnimation(.snappy(duration: 0.24, extraBounce: 0.01)) {
+                                showingMedicationList.toggle()
+                            }
+                        } label: {
+                            medicationLifecycleGroupHeader(
+                                status: selectedLifecycleStatus,
+                                count: visibleMedications.count,
+                                firstMedication: firstMedication,
+                                nextTask: nextTask,
+                                isExpanded: showingMedicationList
+                            )
                         }
-                        withAnimation(.snappy(duration: 0.24, extraBounce: 0.01)) {
-                            showingMedicationList.toggle()
-                        }
-                    } label: {
-                        HStack(spacing: 8) {
-                            MedicationLifecycleGroupSummaryRow(
+                        .buttonStyle(.plain)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(
+                            medicationLifecycleGroupAccessibilityLabel(
                                 status: selectedLifecycleStatus,
                                 count: visibleMedications.count,
                                 firstMedication: firstMedication,
                                 nextTask: nextTask
                             )
-                            Image(
-                                systemName: showingMedicationList || !searchQuery.isEmpty
-                                    ? "chevron.up"
-                                    : "chevron.down"
-                            )
-                                .font(.footnote.weight(.bold))
-                                .foregroundStyle(.secondary)
-                                .accessibilityHidden(true)
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(
-                        medicationLifecycleGroupAccessibilityLabel(
+                        )
+                        .accessibilityValue(showingMedicationList ? "已展开" : "已折叠")
+                    } else {
+                        medicationLifecycleGroupHeader(
                             status: selectedLifecycleStatus,
                             count: visibleMedications.count,
                             firstMedication: firstMedication,
-                            nextTask: nextTask
+                            nextTask: nextTask,
+                            isExpanded: true
                         )
-                    )
-                    .accessibilityValue(
-                        !searchQuery.isEmpty
-                            ? "搜索结果已展开"
-                            : (showingMedicationList ? "已展开" : "已折叠")
-                    )
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(
+                            medicationLifecycleGroupAccessibilityLabel(
+                                status: selectedLifecycleStatus,
+                                count: visibleMedications.count,
+                                firstMedication: firstMedication,
+                                nextTask: nextTask
+                            )
+                        )
+                        .accessibilityValue("搜索结果已展开")
+                        .accessibilityAddTraits(.isHeader)
+                    }
 
                     if showingMedicationList || !searchQuery.isEmpty {
                         ForEach(visibleMedications) { medication in
@@ -293,6 +297,28 @@ struct MedicationsView: View {
             }
         }
         return parts.joined(separator: "，")
+    }
+
+    private func medicationLifecycleGroupHeader(
+        status: StoredMedicationLifecycleStatus,
+        count: Int,
+        firstMedication: StoredMedication?,
+        nextTask: StoredDoseTask?,
+        isExpanded: Bool
+    ) -> some View {
+        HStack(spacing: 8) {
+            MedicationLifecycleGroupSummaryRow(
+                status: status,
+                count: count,
+                firstMedication: firstMedication,
+                nextTask: nextTask
+            )
+            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                .font(.footnote.weight(.bold))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+        }
+        .contentShape(Rectangle())
     }
 
     @MainActor

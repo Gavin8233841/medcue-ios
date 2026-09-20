@@ -2,13 +2,13 @@ import Foundation
 
 /// 搜索文本规范化工具，用于统一搜索查询和可搜索内容的格式
 enum SearchTextNormalizer {
-    /// 规范化单个字符串：去除前后空白、统一大小写、全角转半角、去除可忽略标点
+    /// 规范化单个字符串：统一大小写、全半角、可忽略标点和空白
     static func normalize(_ text: String) -> String {
-        var result = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var result = text
         result = result.lowercased()
         result = convertFullwidthToHalfwidth(result)
-        result = removeIgnorablePunctuation(result)
-        return result
+        result = replaceIgnorablePunctuationWithWhitespace(result)
+        return result.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
     }
 
     /// 将查询字符串按空格分割为非空词
@@ -24,7 +24,11 @@ enum SearchTextNormalizer {
             return true
         }
         let normalizedText = normalize(text)
-        return normalizedQuery.allSatisfy { normalizedText.contains($0) }
+        let compactText = removingSeparators(from: normalizedText)
+        return normalizedQuery.allSatisfy { token in
+            normalizedText.contains(token)
+                || compactText.contains(removingSeparators(from: token))
+        }
     }
 
     private static func convertFullwidthToHalfwidth(_ text: String) -> String {
@@ -47,8 +51,15 @@ enum SearchTextNormalizer {
         return result
     }
 
-    private static func removeIgnorablePunctuation(_ text: String) -> String {
-        let ignorable: Set<Character> = [".", ",", "、", "。", "，", "!", "！", "?", "？", ";", "；", ":", "："]
-        return text.filter { !ignorable.contains($0) }
+    private static func replaceIgnorablePunctuationWithWhitespace(_ text: String) -> String {
+        String(text.map { character in
+            character.unicodeScalars.allSatisfy(CharacterSet.punctuationCharacters.contains)
+                ? " "
+                : character
+        })
+    }
+
+    private static func removingSeparators(from text: String) -> String {
+        text.filter { !$0.isWhitespace }
     }
 }

@@ -12,6 +12,10 @@ struct RisksView: View {
     @State private var lastSnapshotRefreshToken = ""
     @State private var lastSnapshotRefreshAt = Date(timeIntervalSinceReferenceDate: 0)
     @State private var searchText = ""
+    @State private var expandedActiveMedicationIDs: Set<UUID> = []
+    @State private var expandedArchivedMedicationIDs: Set<UUID> = []
+    @State private var revealedArchivedCardMedicationIDs: Set<UUID> = []
+    @State private var selectedCardID: String?
 
     private var isActiveTab: Bool {
         activeAppTab == nil || activeAppTab == .medications
@@ -35,6 +39,10 @@ struct RisksView: View {
 
     private var medicationsByID: [UUID: StoredMedication] {
         Dictionary(uniqueKeysWithValues: medications.map { ($0.id, $0) })
+    }
+
+    private var selectedCard: StoredRiskCard? {
+        riskCards.first { $0.id == selectedCardID }
     }
 
     private func filteredCards(_ cards: [StoredRiskCard]) -> [StoredRiskCard] {
@@ -92,7 +100,11 @@ struct RisksView: View {
                     }
                 } else {
                     ForEach(filteredActive) { section in
-                        MedicationRiskDisclosureRow(section: section)
+                        MedicationRiskDisclosureRow(
+                            section: section,
+                            isExpanded: expansionBinding(for: section.medicationID, isArchived: false),
+                            onSelectCard: selectCard
+                        )
                     }
                 }
             }
@@ -121,7 +133,12 @@ struct RisksView: View {
             if !filteredArchived.isEmpty {
                 Section("已复核归档") {
                     ForEach(filteredArchived) { section in
-                        MedicationRiskDisclosureRow(section: section)
+                        MedicationRiskDisclosureRow(
+                            section: section,
+                            isExpanded: expansionBinding(for: section.medicationID, isArchived: true),
+                            isShowingArchivedCards: archivedCardsBinding(for: section.medicationID),
+                            onSelectCard: selectCard
+                        )
                     }
                 }
             }
@@ -137,6 +154,14 @@ struct RisksView: View {
             placement: .navigationBarDrawer(displayMode: .always),
             prompt: "搜索药品、警示或来源"
         )
+        .navigationDestination(isPresented: selectedCardNavigationBinding) {
+            if let selectedCard {
+                RiskCardDetailView(
+                    card: selectedCard,
+                    medicationName: riskSnapshot.medicationName(for: selectedCard)
+                )
+            }
+        }
         .toolbar(.hidden, for: .tabBar)
         .onAppear {
             restoreRiskSnapshotFromCacheIfAvailable()
@@ -191,5 +216,53 @@ struct RisksView: View {
         lastSnapshotRefreshToken = lookupToken
         lastSnapshotRefreshAt = Date()
         return true
+    }
+
+    private func expansionBinding(for medicationID: UUID, isArchived: Bool) -> Binding<Bool> {
+        Binding {
+            if isArchived {
+                expandedArchivedMedicationIDs.contains(medicationID)
+            } else {
+                expandedActiveMedicationIDs.contains(medicationID)
+            }
+        } set: { isExpanded in
+            if isArchived {
+                if isExpanded {
+                    expandedArchivedMedicationIDs.insert(medicationID)
+                } else {
+                    expandedArchivedMedicationIDs.remove(medicationID)
+                }
+            } else if isExpanded {
+                expandedActiveMedicationIDs.insert(medicationID)
+            } else {
+                expandedActiveMedicationIDs.remove(medicationID)
+            }
+        }
+    }
+
+    private func archivedCardsBinding(for medicationID: UUID) -> Binding<Bool> {
+        Binding {
+            revealedArchivedCardMedicationIDs.contains(medicationID)
+        } set: { isShowing in
+            if isShowing {
+                revealedArchivedCardMedicationIDs.insert(medicationID)
+            } else {
+                revealedArchivedCardMedicationIDs.remove(medicationID)
+            }
+        }
+    }
+
+    private func selectCard(_ card: StoredRiskCard) {
+        selectedCardID = card.id
+    }
+
+    private var selectedCardNavigationBinding: Binding<Bool> {
+        Binding {
+            selectedCardID != nil
+        } set: { isPresented in
+            if !isPresented {
+                selectedCardID = nil
+            }
+        }
     }
 }

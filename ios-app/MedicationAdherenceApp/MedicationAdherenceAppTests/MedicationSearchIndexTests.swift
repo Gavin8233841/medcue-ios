@@ -42,10 +42,11 @@ struct MedicationSearchIndexTests {
         let index = MedicationSearchIndex(medication: makeMedication(
             displayName: "测试药品",
             form: "胶囊",
-            strength: "500mg"
+            strength: "500 mg"
         ))
 
         #expect(index.matches(query: ["500"]))
+        #expect(index.matches(query: ["500mg"]))
         #expect(index.matches(query: ["５００ｍｇ"]))
         #expect(index.matches(query: ["胶囊"]))
         #expect(!index.matches(query: ["片剂"]))
