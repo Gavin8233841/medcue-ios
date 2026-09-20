@@ -75,15 +75,18 @@ struct RisksView: View {
         List {
             let filteredActive = filteredSections(snapshot.medicationRiskSections)
             let filteredArchived = filteredSections(snapshot.archivedMedicationRiskSections)
+            let visibleGroups = RiskReviewGroup.allCases.filter { group in
+                searchQuery.isEmpty || !filteredCards(snapshot.cardsByGroup[group, default: []]).isEmpty
+            }
             Section("按药品查看") {
-                if snapshot.medicationRiskSections.isEmpty {
-                    RiskEmptyStateView(hasMedications: !medications.isEmpty)
-                } else if filteredActive.isEmpty {
-                    if !searchQuery.isEmpty && filteredArchived.isEmpty {
-                        ContentUnavailableView.search(text: searchText)
-                    } else if !searchQuery.isEmpty {
-                        Text("当前活动风险中没有匹配结果。")
-                            .foregroundStyle(.secondary)
+                if filteredActive.isEmpty {
+                    if !searchQuery.isEmpty {
+                        if filteredArchived.isEmpty {
+                            ContentUnavailableView.search(text: searchText)
+                        } else {
+                            Text("当前活动风险中没有匹配结果。")
+                                .foregroundStyle(.secondary)
+                        }
                     } else {
                         RiskEmptyStateView(hasMedications: !medications.isEmpty)
                     }
@@ -94,21 +97,23 @@ struct RisksView: View {
                 }
             }
 
-            Section("分类总览") {
-                ForEach(RiskReviewGroup.allCases, id: \.rawValue) { group in
-                    let groupedCards = filteredCards(snapshot.cardsByGroup[group, default: []])
-                    NavigationLink {
-                        RiskGroupDetailView(
-                            group: group,
-                            cards: groupedCards,
-                            medicationName: snapshot.medicationName(for:)
-                        )
-                    } label: {
-                        RiskGroupSummaryCard(
-                            group: group,
-                            count: groupedCards.count,
-                            priorityCount: groupedCards.filter(\.requiresProfessionalReview).count
-                        )
+            if !visibleGroups.isEmpty {
+                Section("分类总览") {
+                    ForEach(visibleGroups, id: \.rawValue) { group in
+                        let groupedCards = filteredCards(snapshot.cardsByGroup[group, default: []])
+                        NavigationLink {
+                            RiskGroupDetailView(
+                                group: group,
+                                cards: groupedCards,
+                                medicationName: snapshot.medicationName(for:)
+                            )
+                        } label: {
+                            RiskGroupSummaryCard(
+                                group: group,
+                                count: groupedCards.count,
+                                priorityCount: groupedCards.filter(\.requiresProfessionalReview).count
+                            )
+                        }
                     }
                 }
             }
