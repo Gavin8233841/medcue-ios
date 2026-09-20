@@ -102,6 +102,9 @@ struct MedicationCreationCommand {
         ).reconcilePlan(
             plan,
             medication: medication,
+            planTasks: [],
+            actionLogs: [],
+            doseChanges: [],
             in: modelContext
         )
 
