@@ -16,7 +16,7 @@ Current verified source checkpoint: `baeabcade7b040301f7b8ac13e9a3a89bb1008e7`
 - 35 Issues remain open, all assigned to a milestone. Of these, 13 carry the
   technical-debt label and 8 the defect label. These are tracker categories,
   not an estimate of 35 independent defects or a completion percentage.
-- 10 implementation PRs remain open (excluding this status-document update).
+- 11 implementation PRs remain open (excluding this status-document update).
   Superseded #63 and #79 were closed without deleting their
   branches; #90 is the single delivery candidate for #61.
 - Exact-head required CI succeeded for #78 (`6e7633e`), #87 (`5d3f154`),
@@ -26,8 +26,16 @@ Current verified source checkpoint: `baeabcade7b040301f7b8ac13e9a3a89bb1008e7`
 - #17 remains open: merged evidence documentation is not physical-device
   acceptance. #33 remains open for its explicit Topics decision. #20's local
   work does not establish merged migration acceptance.
-- Reminder shared files have one writer: finish #81's exact-revision review
-  and validation handoff, then #89, then #82. Broker #83 is a separate line.
+- #83 now has [PR #92](https://github.com/Gavin8233841/medcue-ios/pull/92)
+  at `cf761441589964dcd8d93d281fe61833f3fb5944`: strict Node tests 38/38,
+  fresh-context security review with no Blocker/Required findings, and
+  [exact-head Broker CI](https://github.com/Gavin8233841/medcue-ios/actions/runs/35692799471)
+  passed. It remains unmerged; no provider deployment is claimed.
+- #81's final `8a9ca69` cumulative fresh-context data-safety review completed
+  with no Blocker/Required findings. Its remote full CI is green, but no local
+  full-gate completion log bound to this final HEAD was found. Reminder shared
+  files have one writer: hand off this stable checkpoint to #89, then #82.
+  Broker #83 is a separate line.
   Existing contributor ownership of #47/#61/#62/#16 is preserved.
 
 This snapshot is a source/integration status, not release, device, VoiceOver,
