@@ -283,6 +283,9 @@ struct PlanEditorView: View {
         case .rejected:
             permissionStatusMessage = "疗程与提醒未能保存，请检查填写内容后重试。"
             isSaveFlowActive = false
+        case .scheduleFailed:
+            permissionStatusMessage = "提醒时间暂时无法计算，疗程与提醒未保存。请稍后重试。"
+            isSaveFlowActive = false
         case .saveFailed:
             permissionStatusMessage = AppPersistenceCommitter.failureUserMessage
             isSaveFlowActive = false

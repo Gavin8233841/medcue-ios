@@ -249,6 +249,59 @@ struct MedicationPlanCommandTests {
         #expect(try fixture.context.fetch(FetchDescriptor<StoredMedicationPlan>()).isEmpty)
         #expect(!fixture.context.hasChanges)
     }
+
+    @Test @MainActor
+    func scheduleFailurePreservesExistingPlanTasksAndUnsavedMedicationEdit() throws {
+        let fixture = try MedicationPlanFixture()
+        let (plan, task) = try fixture.insertExistingPlan()
+        fixture.medication.notes = "用户尚未保存的备注"
+        let originalDoseValue = plan.doseValue
+        let originalReminderTimes = plan.reminderTimesRaw
+        let originalTaskDueAt = task.dueAt
+        var saveCallCount = 0
+        let reminderTime = fixture.calendar.date(
+            bySettingHour: 20,
+            minute: 15,
+            second: 0,
+            of: fixture.courseStart
+        )!
+
+        let outcome = MedicationPlanCommand(
+            modelContext: fixture.context,
+            calendar: fixture.calendar,
+            referenceDate: fixture.courseStart,
+            saveOperation: { _ in saveCallCount += 1 },
+            scheduleDoses: { _, _, _ in throw SyntheticPlanScheduleError.unavailable }
+        ).update(
+            MedicationPlanUpdate(
+                medicationID: fixture.medication.id,
+                planID: plan.id,
+                doseValue: 2,
+                doseUnit: "粒",
+                doseEffectiveFrom: fixture.courseStart,
+                doseChangeNote: "测试",
+                courseStartAt: fixture.courseStart,
+                courseEndAt: fixture.courseEnd,
+                reminderTimes: [reminderTime],
+                reminderDeliveryMethod: .alarm,
+                escalatesToAlarmWhenUnhandled: false,
+                sourceNote: "新备注"
+            )
+        )
+
+        guard case .scheduleFailed = outcome else {
+            Issue.record("Expected schedule failure")
+            return
+        }
+        #expect(saveCallCount == 0)
+        #expect(fixture.medication.notes == "用户尚未保存的备注")
+        #expect(fixture.context.hasChanges)
+        #expect(plan.doseValue == originalDoseValue)
+        #expect(plan.reminderTimesRaw == originalReminderTimes)
+        #expect(task.dueAt == originalTaskDueAt)
+        #expect(try fixture.context.fetch(FetchDescriptor<StoredMedicationDoseChange>()).isEmpty)
+        #expect(try fixture.context.fetch(FetchDescriptor<StoredDoseTask>()).map(\.id) == [task.id])
+    }
 }
 
 @MainActor
@@ -313,5 +366,9 @@ private struct MedicationPlanFixture {
 }
 
 private enum SyntheticPlanSaveError: Error {
+    case unavailable
+}
+
+private enum SyntheticPlanScheduleError: Error {
     case unavailable
 }

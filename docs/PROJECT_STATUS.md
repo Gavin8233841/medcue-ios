@@ -181,3 +181,27 @@ scanning or review of intentionally added fixtures.
    where Windows cannot provide them.
 4. Do not describe the competition/Beta scope as App Store, clinical, or
    commercial-production ready without the corresponding evidence.
+
+## Issue #89 Candidate: Schedule Failure Boundary (2026-09-22)
+
+The `codex/89-schedule-failure` candidate is stacked on Issue #81's reviewed
+checkpoint `8a9ca69f27b1948cbddf1e247bdd35c7a2f3f5d0`; it is not evidence that
+the native parent chain has merged into main.
+
+Global reconciliation prepares every applicable schedule before mutating any
+task. Creation, plan editing and medication reactivation also prepare schedules
+before inserting or updating models. A schedule failure is explicit, does not
+save or apply system reminder effects, and does not roll back unrelated
+unsaved edits. Startup retry and command failure messages expose this outcome.
+Existing plan identity/time-zone policy and the legacy 21:00 fallback for
+unparseable reminder times are preserved; genuinely ended courses still have
+legitimate empty schedules.
+
+The candidate's source passed 23 focused hosted tests across four suites on a
+dedicated clean Simulator, including multi-plan failure, command failure,
+unsaved-edit preservation and retry without duplicate tasks. Validation used
+the existing CI-compatible `MEDCUE_DISABLE_LOCAL_LLAMA=1` configuration and
+synthetic in-memory records; it does not validate local-model inference or
+physical-device notification delivery. Exact final-commit full-gate, CI and
+independent-review evidence belongs in the linked Issue/PR. #82 still owns
+cross-await scheduling convergence and the global request budget.

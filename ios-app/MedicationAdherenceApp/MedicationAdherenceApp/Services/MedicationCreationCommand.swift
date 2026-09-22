@@ -37,6 +37,7 @@ enum MedicationCreationCommandOutcome {
         reminderBatch: MedicationReminderScheduleBatch
     )
     case rejected(MedicationCreationRejection)
+    case scheduleFailed
     case saveFailed
 }
 
@@ -47,15 +48,20 @@ struct MedicationCreationCommand {
     private let modelContext: ModelContext
     private let calendar: Calendar
     private let saveOperation: SaveOperation
+    private let scheduleDoses: MedicationReminderTaskCoordinator.ScheduleDoses
 
     init(
         modelContext: ModelContext,
         calendar: Calendar = .current,
-        saveOperation: @escaping SaveOperation = { try $0.save() }
+        saveOperation: @escaping SaveOperation = { try $0.save() },
+        scheduleDoses: @escaping MedicationReminderTaskCoordinator.ScheduleDoses = {
+            try ReminderScheduleEngine().scheduledDoses(for: $0, calendar: $1, timeZone: $2)
+        }
     ) {
         self.modelContext = modelContext
         self.calendar = calendar
         self.saveOperation = saveOperation
+        self.scheduleDoses = scheduleDoses
     }
 
     func create(_ input: MedicationCreationInput) -> MedicationCreationCommandOutcome {
@@ -76,8 +82,6 @@ struct MedicationCreationCommand {
             notes: input.notes,
             createdAt: input.createdAt
         )
-        modelContext.insert(medication)
-
         let plan = StoredMedicationPlan(
             medicationID: medication.id,
             doseValue: input.doseValue,
@@ -95,18 +99,26 @@ struct MedicationCreationCommand {
             escalatesToAlarmWhenUnhandled: input.escalatesToAlarmWhenUnhandled,
             createdAt: input.createdAt
         )
-        modelContext.insert(plan)
-        let reminderBatch = MedicationReminderTaskCoordinator(
+        let coordinator = MedicationReminderTaskCoordinator(
             calendar: calendar,
-            referenceDate: input.createdAt
-        ).reconcilePlan(
-            plan,
-            medication: medication,
-            planTasks: [],
-            actionLogs: [],
-            doseChanges: [],
-            in: modelContext
+            referenceDate: input.createdAt,
+            scheduleDoses: scheduleDoses
         )
+        let preparedPlan: PreparedMedicationReminderPlan
+        do {
+            preparedPlan = try coordinator.preparePlan(
+                plan,
+                medication: medication,
+                planTasks: [],
+                actionLogs: [],
+                doseChanges: []
+            )
+        } catch {
+            return .scheduleFailed
+        }
+        modelContext.insert(medication)
+        modelContext.insert(plan)
+        let reminderBatch = coordinator.applyPreparedPlan(preparedPlan, in: modelContext)
 
         if input.initialStockQuantity > 0 || input.lowStockThreshold > 0 {
             let trimmedStockUnit = input.stockUnit.trimmingCharacters(in: .whitespacesAndNewlines)

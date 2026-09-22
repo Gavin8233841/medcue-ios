@@ -210,6 +210,124 @@ struct MedicationReminderTaskCoordinatorTests {
     }
 
     @Test @MainActor
+    func secondPlanScheduleFailurePreservesAllStateAndSystemEffects() async throws {
+        let calendar = makeCalendar()
+        let referenceDate = makeReferenceDate(calendar: calendar)
+        let container = try MedicationAdherenceModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        context.autosaveEnabled = false
+        let medication = StoredMedication(
+            displayName: "排程失败测试药",
+            kind: .overTheCounter,
+            inputSource: .manual,
+            createdAt: referenceDate
+        )
+        let firstPlan = makePlan(
+            medicationID: medication.id,
+            reminderTime: "08:00",
+            referenceDate: referenceDate,
+            calendar: calendar
+        )
+        let secondPlan = makePlan(
+            medicationID: medication.id,
+            reminderTime: "09:00",
+            referenceDate: referenceDate,
+            calendar: calendar
+        )
+        let existingTask = StoredDoseTask(
+            medicationID: medication.id,
+            planID: firstPlan.id,
+            dueAt: calendar.date(byAdding: .day, value: 1, to: referenceDate)!,
+            doseValue: 7,
+            doseUnit: "粒"
+        )
+        context.insert(medication)
+        context.insert(firstPlan)
+        context.insert(secondPlan)
+        context.insert(existingTask)
+        try context.save()
+        medication.notes = "用户尚未保存的备注"
+
+        var scheduleCallCount = 0
+        var saveCallCount = 0
+        var systemEffectCallCount = 0
+        let service = NotificationService(
+            reminderTaskCoordinator: MedicationReminderTaskCoordinator(
+                calendar: calendar,
+                referenceDate: referenceDate,
+                scheduleDoses: { plan, calendar, timeZone in
+                    scheduleCallCount += 1
+                    if scheduleCallCount == 2 { throw InjectedScheduleFailure() }
+                    return try ReminderScheduleEngine().scheduledDoses(
+                        for: plan,
+                        calendar: calendar,
+                        timeZone: timeZone
+                    )
+                }
+            ),
+            reconciliationSaveOperation: { _ in saveCallCount += 1 },
+            reconciliationSystemEffects: MedicationReminderReconciliationSystemEffects(
+                cancelReminders: { _ in systemEffectCallCount += 1 },
+                scheduleReminderBatches: { _, _ in systemEffectCallCount += 1 },
+                refreshPendingReminderCount: { systemEffectCallCount += 1 }
+            )
+        )
+
+        let outcome = await service.reconcileAndScheduleReminders(in: context)
+
+        #expect(outcome == .scheduleFailed)
+        #expect(service.lastReminderReconciliationOutcome == .scheduleFailed)
+        #expect(scheduleCallCount == 2)
+        #expect(saveCallCount == 0)
+        #expect(systemEffectCallCount == 0)
+        #expect(medication.notes == "用户尚未保存的备注")
+        #expect(context.hasChanges)
+        #expect(existingTask.status == .pending)
+        #expect(existingTask.doseValue == 7)
+        #expect(existingTask.doseUnit == "粒")
+        #expect(try context.fetch(FetchDescriptor<StoredDoseTask>()).map(\.id) == [existingTask.id])
+    }
+
+    @Test @MainActor
+    func endedPlanIsLegitimateEmptyWithoutCallingScheduleEngine() throws {
+        let calendar = makeCalendar()
+        let referenceDate = makeReferenceDate(calendar: calendar)
+        let medication = StoredMedication(
+            displayName: "已结束疗程",
+            kind: .overTheCounter,
+            inputSource: .manual,
+            createdAt: referenceDate
+        )
+        let plan = makePlan(
+            medicationID: medication.id,
+            reminderTime: "08:00",
+            referenceDate: referenceDate,
+            calendar: calendar
+        )
+        plan.courseEndAt = calendar.date(byAdding: .day, value: -1, to: referenceDate)
+        var scheduleCallCount = 0
+        let coordinator = MedicationReminderTaskCoordinator(
+            calendar: calendar,
+            referenceDate: referenceDate,
+            scheduleDoses: { _, _, _ in
+                scheduleCallCount += 1
+                throw InjectedScheduleFailure()
+            }
+        )
+
+        let prepared = try coordinator.preparePlan(
+            plan,
+            medication: medication,
+            planTasks: [],
+            actionLogs: [],
+            doseChanges: []
+        )
+
+        #expect(prepared.targetDoses?.isEmpty == true)
+        #expect(scheduleCallCount == 0)
+    }
+
+    @Test @MainActor
     func saveFailureRollsBackReconciledTasksAndDoesNotApplySystemEffects() async throws {
         defer {
             UserDefaults.standard.removeObject(forKey: AppPersistenceCommitter.failureMessageDefaultsKey)
@@ -258,8 +376,8 @@ struct MedicationReminderTaskCoordinatorTests {
         #expect(!context.hasChanges)
     }
 
-    @Test @MainActor
-    func retryAfterReadFailureCreatesOneLogicalTaskSet() async throws {
+    @Test(arguments: [false, true]) @MainActor
+    func retryAfterPreparationFailureCreatesOneLogicalTaskSet(scheduleFailure: Bool) async throws {
         let calendar = makeCalendar()
         let referenceDate = makeReferenceDate(calendar: calendar)
         let container = try MedicationAdherenceModelContainer.make(isStoredInMemoryOnly: true)
@@ -286,22 +404,32 @@ struct MedicationReminderTaskCoordinatorTests {
             scheduleReminderBatches: { _, _ in },
             refreshPendingReminderCount: {}
         )
+        var shouldFailSchedule = true
         let failingService = NotificationService(
             reminderTaskCoordinator: MedicationReminderTaskCoordinator(
                 calendar: calendar,
                 referenceDate: referenceDate,
-                dataSource: makeDataSource(failing: .doseChanges)
+                dataSource: scheduleFailure ? .live : makeDataSource(failing: .doseChanges),
+                scheduleDoses: { plan, calendar, timeZone in
+                    if scheduleFailure && shouldFailSchedule { throw InjectedScheduleFailure() }
+                    return try ReminderScheduleEngine().scheduledDoses(
+                        for: plan, calendar: calendar, timeZone: timeZone
+                    )
+                }
             ),
-            reconciliationSaveOperation: { _ in },
+            reconciliationSaveOperation: { try $0.save() },
             reconciliationSystemEffects: noSystemEffects
         )
 
         let failedOutcome = await failingService.reconcileAndScheduleReminders(in: context)
-        #expect(failedOutcome == .readFailed(.doseChanges))
-        #expect(failingService.lastReminderReconciliationOutcome == .readFailed(.doseChanges))
+        let expectedFailure: MedicationReminderReconciliationOutcome = scheduleFailure
+            ? .scheduleFailed : .readFailed(.doseChanges)
+        #expect(failedOutcome == expectedFailure)
+        #expect(failingService.lastReminderReconciliationOutcome == expectedFailure)
         #expect(try context.fetch(FetchDescriptor<StoredDoseTask>()).isEmpty)
 
-        let retryingService = NotificationService(
+        shouldFailSchedule = false
+        let retryingService = scheduleFailure ? failingService : NotificationService(
             reminderTaskCoordinator: MedicationReminderTaskCoordinator(
                 calendar: calendar,
                 referenceDate: referenceDate
@@ -383,3 +511,4 @@ struct MedicationReminderTaskCoordinatorTests {
 
 private struct InjectedReadFailure: Error {}
 private struct InjectedSaveFailure: Error {}
+private struct InjectedScheduleFailure: Error {}

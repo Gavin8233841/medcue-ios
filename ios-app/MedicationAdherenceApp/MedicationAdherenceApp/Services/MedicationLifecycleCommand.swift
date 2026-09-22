@@ -1,4 +1,5 @@
 import Foundation
+import MedicationAdherenceCore
 import SwiftData
 
 struct MedicationLifecycleUpdate {
@@ -23,6 +24,7 @@ enum MedicationLifecycleRejection: Equatable {
 enum MedicationLifecycleCommandOutcome {
     case committed(MedicationLifecycleCommit)
     case rejected(MedicationLifecycleRejection)
+    case scheduleFailed
     case saveFailed
 }
 
@@ -33,15 +35,20 @@ struct MedicationLifecycleCommand {
     private let modelContext: ModelContext
     private let calendar: Calendar
     private let saveOperation: SaveOperation
+    private let scheduleDoses: MedicationReminderTaskCoordinator.ScheduleDoses
 
     init(
         modelContext: ModelContext,
         calendar: Calendar = .current,
-        saveOperation: @escaping SaveOperation = { try $0.save() }
+        saveOperation: @escaping SaveOperation = { try $0.save() },
+        scheduleDoses: @escaping MedicationReminderTaskCoordinator.ScheduleDoses = {
+            try ReminderScheduleEngine().scheduledDoses(for: $0, calendar: $1, timeZone: $2)
+        }
     ) {
         self.modelContext = modelContext
         self.calendar = calendar
         self.saveOperation = saveOperation
+        self.scheduleDoses = scheduleDoses
     }
 
     func update(_ input: MedicationLifecycleUpdate) -> MedicationLifecycleCommandOutcome {
@@ -120,6 +127,34 @@ struct MedicationLifecycleCommand {
             doseChanges = []
         }
 
+        let coordinator = MedicationReminderTaskCoordinator(
+            calendar: calendar,
+            referenceDate: input.occurredAt,
+            scheduleDoses: scheduleDoses
+        )
+        let preparedPlans: [PreparedMedicationReminderPlan]
+        if isReactivating {
+            let tasksByPlanID = Dictionary(grouping: tasks, by: \.planID)
+            do {
+                preparedPlans = try plans.map { plan in
+                    try coordinator.preparePlan(
+                        plan,
+                        medication: medication,
+                        planTasks: tasksByPlanID[plan.id] ?? [],
+                        actionLogs: actionLogs,
+                        doseChanges: doseChanges.filter {
+                            $0.planID == plan.id || ($0.planID == nil && $0.medicationID == medication.id)
+                        },
+                        treatingMedicationAsActive: true
+                    )
+                }
+            } catch {
+                return .scheduleFailed
+            }
+        } else {
+            preparedPlans = []
+        }
+
         let snapshots = tasks.map(MedicationLifecycleTaskSnapshot.init)
         medication.lifecycleStatus = input.status
         modelContext.insert(
@@ -152,23 +187,7 @@ struct MedicationLifecycleCommand {
             disabledTaskIDs = affectedTasks.map(\.id).sorted { $0.uuidString < $1.uuidString }
         } else if isReactivating {
             operation = "medication-reactivate-with-future-tasks"
-            let coordinator = MedicationReminderTaskCoordinator(
-                calendar: calendar,
-                referenceDate: input.occurredAt
-            )
-            let tasksByPlanID = Dictionary(grouping: tasks, by: \.planID)
-            reminderBatches = plans.map { plan in
-                coordinator.reconcilePlan(
-                    plan,
-                    medication: medication,
-                    planTasks: tasksByPlanID[plan.id] ?? [],
-                    actionLogs: actionLogs,
-                    doseChanges: doseChanges.filter {
-                        $0.planID == plan.id || ($0.planID == nil && $0.medicationID == medication.id)
-                    },
-                    in: modelContext
-                )
-            }
+            reminderBatches = preparedPlans.map { coordinator.applyPreparedPlan($0, in: modelContext) }
         } else {
             operation = "medication-lifecycle-update"
         }

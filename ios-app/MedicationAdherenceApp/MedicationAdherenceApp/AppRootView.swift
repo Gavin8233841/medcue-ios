@@ -434,6 +434,9 @@ struct AppRootView: View {
         if case .readFailed = outcome {
             didScheduleStartupReminderReconcile = false
             reminderReconciliationFailureMessage = "用药提醒暂时无法刷新，现有提醒保持不变。请稍后重试。"
+        } else if outcome == .scheduleFailed {
+            didScheduleStartupReminderReconcile = false
+            reminderReconciliationFailureMessage = "提醒时间暂时无法计算，现有提醒保持不变。请稍后重试。"
         }
     }
 
