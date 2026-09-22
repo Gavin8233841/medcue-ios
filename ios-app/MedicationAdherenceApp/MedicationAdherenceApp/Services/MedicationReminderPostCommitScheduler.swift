@@ -15,6 +15,27 @@ struct MedicationReminderPostCommitEntry: Sendable, Equatable {
     let dueAt: Date
     let deliveryMethodRaw: String
     let escalatesToAlarmWhenUnhandled: Bool
+    let medicationIsActive: Bool
+    let taskIsOpen: Bool
+
+    @MainActor
+    init(
+        task: StoredDoseTask,
+        medication: StoredMedication,
+        deliveryMethod: StoredReminderDeliveryMethod,
+        escalatesToAlarmWhenUnhandled: Bool
+    ) {
+        taskID = task.id
+        medicationID = medication.id
+        planID = task.planID
+        medicationName = userFacingMedicationName(for: medication)
+        doseText = "\(task.doseValue.formatted()) \(localizedMedicationUnit(task.doseUnit))"
+        dueAt = task.dueAt
+        deliveryMethodRaw = deliveryMethod.rawValue
+        self.escalatesToAlarmWhenUnhandled = escalatesToAlarmWhenUnhandled
+        medicationIsActive = medication.lifecycleStatus == .active
+        taskIsOpen = task.status == .pending || task.status == .delayed
+    }
 }
 
 struct MedicationReminderPostCommitPlan: Sendable, Equatable {
@@ -26,22 +47,43 @@ struct MedicationReminderPostCommitSnapshot: Sendable, Equatable {
     let entries: [MedicationReminderPostCommitEntry]
     let cancelledTaskIDs: [UUID]
 
+    init(
+        entries: [MedicationReminderPostCommitEntry],
+        cancelledTaskIDs: [UUID]
+    ) {
+        self.entries = entries
+        self.cancelledTaskIDs = cancelledTaskIDs
+    }
+
     @MainActor
     init(batch: MedicationReminderScheduleBatch) {
-        let medicationName = userFacingMedicationName(for: batch.medication)
         entries = batch.tasks.map { task in
             MedicationReminderPostCommitEntry(
-                taskID: task.id,
-                medicationID: batch.medication.id,
-                planID: task.planID,
-                medicationName: medicationName,
-                doseText: "\(task.doseValue.formatted()) \(localizedMedicationUnit(task.doseUnit))",
-                dueAt: task.dueAt,
-                deliveryMethodRaw: batch.deliveryMethod.rawValue,
+                task: task,
+                medication: batch.medication,
+                deliveryMethod: batch.deliveryMethod,
                 escalatesToAlarmWhenUnhandled: batch.escalatesToAlarmWhenUnhandled
             )
         }
         cancelledTaskIDs = batch.cancelledTaskIDs
+    }
+
+    @MainActor
+    init(
+        batches: [MedicationReminderScheduleBatch],
+        additionalCancelledTaskIDs: [UUID] = []
+    ) {
+        entries = batches.flatMap { batch in
+            batch.tasks.map { task in
+                MedicationReminderPostCommitEntry(
+                    task: task,
+                    medication: batch.medication,
+                    deliveryMethod: batch.deliveryMethod,
+                    escalatesToAlarmWhenUnhandled: batch.escalatesToAlarmWhenUnhandled
+                )
+            }
+        }
+        cancelledTaskIDs = batches.flatMap(\.cancelledTaskIDs) + additionalCancelledTaskIDs
     }
 
     func schedulingPlan(
@@ -49,7 +91,7 @@ struct MedicationReminderPostCommitSnapshot: Sendable, Equatable {
         maximumScheduledEntries: Int
     ) -> MedicationReminderPostCommitPlan {
         let futureEntries = entries
-            .filter { $0.dueAt > now }
+            .filter { $0.medicationIsActive && $0.taskIsOpen && $0.dueAt > now }
             .sorted { lhs, rhs in
                 if lhs.dueAt != rhs.dueAt {
                     return lhs.dueAt < rhs.dueAt
@@ -71,10 +113,15 @@ struct MedicationReminderPostCommitSnapshot: Sendable, Equatable {
     }
 }
 
+enum MedicationReminderSystemOperationQueue {
+    static let shared = ReminderOperationQueue()
+}
+
 enum MedicationReminderPostCommitDispatcher {
+    @discardableResult
     @MainActor
-    static func dispatch(_ snapshot: MedicationReminderPostCommitSnapshot) {
-        Task.detached(priority: .utility) {
+    static func dispatch(_ snapshot: MedicationReminderPostCommitSnapshot) -> Task<Void, Never> {
+        MedicationReminderSystemOperationQueue.shared.enqueue {
             await MedicationReminderPostCommitScheduler.shared.apply(snapshot)
         }
     }

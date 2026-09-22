@@ -103,8 +103,9 @@ final class MedicationNotificationDelegate: NSObject, @preconcurrency UNUserNoti
         let plans = (try? context.fetch(FetchDescriptor<StoredMedicationPlan>())) ?? []
         let plan = plans.first { $0.id == task.planID }
         guard medication?.lifecycleStatus == .active else {
+            let reminderSync = NotificationService().cancelReminders(for: openTaskGroup.map(\.id))
+            await reminderSync.value
             for groupTask in openTaskGroup {
-                NotificationService().cancelReminder(for: groupTask.id)
                 await MedicationLiveActivityService().end(for: groupTask.id)
             }
             return
@@ -120,8 +121,9 @@ final class MedicationNotificationDelegate: NSObject, @preconcurrency UNUserNoti
                 reason: "通过通知标记已服用",
                 context: context
             ) else { return }
+            let reminderSync = NotificationService().cancelReminders(for: openTaskGroup.map(\.id))
+            await reminderSync.value
             for groupTask in openTaskGroup {
-                NotificationService().cancelReminder(for: groupTask.id)
                 await MedicationLiveActivityService().end(for: groupTask.id)
             }
         case Self.delayActionIdentifier:
@@ -135,17 +137,16 @@ final class MedicationNotificationDelegate: NSObject, @preconcurrency UNUserNoti
                 context: context
             ) else { return }
             if let medication {
-                for groupTask in openTaskGroup {
-                    if groupTask.id == task.id {
-                        await NotificationService().scheduleReminder(
-                            for: groupTask,
-                            medication: medication,
-                            deliveryMethod: plan?.reminderDeliveryMethod ?? .notification
-                        )
-                    } else {
-                        NotificationService().cancelReminder(for: groupTask.id)
-                    }
-                }
+                let snapshot = MedicationReminderPostCommitSnapshot(
+                    entries: [MedicationReminderPostCommitEntry(
+                        task: task,
+                        medication: medication,
+                        deliveryMethod: plan?.reminderDeliveryMethod ?? .notification,
+                        escalatesToAlarmWhenUnhandled: plan?.escalatesToAlarmWhenUnhandled ?? true
+                    )],
+                    cancelledTaskIDs: openTaskGroup.filter { $0.id != task.id }.map(\.id)
+                )
+                _ = await NotificationService().beginApplyReminderSnapshot(snapshot).value
             }
             for groupTask in openTaskGroup {
                 await MedicationLiveActivityService().end(for: groupTask.id)
@@ -159,8 +160,9 @@ final class MedicationNotificationDelegate: NSObject, @preconcurrency UNUserNoti
                 reason: "通过通知忽略",
                 context: context
             ) else { return }
+            let reminderSync = NotificationService().cancelReminders(for: openTaskGroup.map(\.id))
+            await reminderSync.value
             for groupTask in openTaskGroup {
-                NotificationService().cancelReminder(for: groupTask.id)
                 await MedicationLiveActivityService().end(for: groupTask.id)
             }
         default:

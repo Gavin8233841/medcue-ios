@@ -504,8 +504,9 @@ private struct TodayContentView: View {
         }
         guard didCommit else { return false }
         presentCompletionRateFeedbackIfNeeded(from: previousCompletionSnapshot, to: nextCompletionSnapshot)
+        let systemSurfaceSync = systemSurfaceSynchronizer.beginSynchronize(.handled(group))
         performDeferredSystemSurfaceSync {
-            await systemSurfaceSynchronizer.synchronize(.handled(group))
+            _ = await systemSurfaceSync.value
             scheduleLiveActivityRefresh(after: 0.35)
         }
         return true
@@ -550,10 +551,11 @@ private struct TodayContentView: View {
         if presentation == .elder {
             elderReminderSyncInProgress = true
         }
+        let systemSurfaceSync = systemSurfaceSynchronizer.beginSynchronize(
+            .delayed(group, primaryTaskID: task.id)
+        )
         performDeferredSystemSurfaceSync(after: presentation == .elder ? 0 : 0.75) {
-            let result = await systemSurfaceSynchronizer.synchronize(
-                .delayed(group, primaryTaskID: task.id)
-            )
+            let result = await systemSurfaceSync.value
             if presentation == .elder, operationID == elderOperationID {
                 elderReminderSyncInProgress = false
                 switch result {
@@ -892,10 +894,11 @@ private struct TodayContentView: View {
             presentCompletionRateFeedbackIfNeeded(from: previousCompletionSnapshot, to: nextCompletionSnapshot)
             showDoseUndoBanner(for: task, rollbackToken: commit.rollbackToken)
             clearReopenedTaskHighlightAfterDelay(task)
+            let systemSurfaceSync = systemSurfaceSynchronizer.beginSynchronize(
+                .reopened(group, primaryTaskID: task.id)
+            )
             performDeferredSystemSurfaceSync {
-                await systemSurfaceSynchronizer.synchronize(
-                    .reopened(group, primaryTaskID: task.id)
-                )
+                _ = await systemSurfaceSync.value
                 scheduleLiveActivityRefresh(after: 0.35)
             }
         }
@@ -964,10 +967,11 @@ private struct TodayContentView: View {
         } else {
             withAnimation(.easeOut(duration: 0.18), clearReopenState)
         }
+        let systemSurfaceSync = systemSurfaceSynchronizer.beginSynchronize(
+            .rollback(restoredTasks, primaryTaskID: banner.taskID)
+        )
         performDeferredSystemSurfaceSync {
-            await systemSurfaceSynchronizer.synchronize(
-                .rollback(restoredTasks, primaryTaskID: banner.taskID)
-            )
+            _ = await systemSurfaceSync.value
             scheduleLiveActivityRefresh(after: 0.35)
         }
         dismissDoseUndoBanner()

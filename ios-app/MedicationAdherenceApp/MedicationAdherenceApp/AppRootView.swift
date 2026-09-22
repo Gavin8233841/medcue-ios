@@ -501,13 +501,17 @@ final class ElderUITestFixture {
 
     var systemSurfaceAdapter: TodaySystemSurfaceAdapter {
         TodaySystemSurfaceAdapter(
-            cancelReminder: { _ in },
-            scheduleReminder: { [self] _, _, _ in
-                defaults.set(scheduleAttemptCount + 1, forKey: "scheduleAttempts")
-                if reminderUnavailable {
-                    return .unavailable(message: "无法添加系统提醒，请检查通知设置。")
+            applyReminderSnapshot: { [self] snapshot in
+                Task { @MainActor in
+                    var results: [UUID: MedicationReminderSchedulingResult] = [:]
+                    for entry in snapshot.entries {
+                        defaults.set(scheduleAttemptCount + 1, forKey: "scheduleAttempts")
+                        results[entry.taskID] = reminderUnavailable
+                            ? .unavailable(message: "无法添加系统提醒，请检查通知设置。")
+                            : .scheduled
+                    }
+                    return results
                 }
-                return .scheduled
             },
             endLiveActivity: { _ in },
             startLiveActivity: { _, _ in }

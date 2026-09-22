@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E82000000000000000000001 /* ReminderOperationQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82000000000000000000002 /* ReminderOperationQueue.swift */; };
 		4999EF233F823324EF93114D /* VisitSummaryTextBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A516827FA75A253312E60344 /* VisitSummaryTextBuilder.swift */; };
 		0A7C94B0AB629D2DACC001B3 /* VisitSummaryPDFExportViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4135C281C31F1960CC9D7DB9 /* VisitSummaryPDFExportViews.swift */; };
 		1BF8B51DD10B9709D2E3A96F /* RecordsDoseDetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9803CE7524B0FCD6C1E6B54 /* RecordsDoseDetailViews.swift */; };
@@ -223,6 +224,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		E82000000000000000000002 /* ReminderOperationQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../../swift-core/Sources/MedicationAdherenceCore/ReminderOperationQueue.swift; sourceTree = SOURCE_ROOT; };
 		081D397587D84E33974AF67A /* RiskDisplayProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiskDisplayProjection.swift; sourceTree = "<group>"; };
 		5D9D55DE5B394B95AFE4FD9C /* MedicationTrendProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationTrendProjection.swift; sourceTree = "<group>"; };
 		669FEBD05E3D4895AE4322E4 /* TodaySystemSurfaceSynchronizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodaySystemSurfaceSynchronizer.swift; sourceTree = "<group>"; };
@@ -625,6 +627,7 @@
 		C40000000000000000000002 /* MedicationAdherenceWatchApp */ = {
 			isa = PBXGroup;
 			children = (
+				E82000000000000000000002 /* ReminderOperationQueue.swift */,
 				C20000000000000000000004 /* MedicationAdherenceWatchApp.swift */,
 				C20000000000000000000005 /* WatchTodayView.swift */,
 				C20000000000000000000013 /* Assets.xcassets */,
@@ -1101,6 +1104,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				C10000000000000000000003 /* MedicationWatchSnapshot.swift in Sources */,
+				E82000000000000000000001 /* ReminderOperationQueue.swift in Sources */,
 				C10000000000000000000004 /* MedicationAdherenceWatchApp.swift in Sources */,
 				C10000000000000000000005 /* WatchTodayView.swift in Sources */,
 			);

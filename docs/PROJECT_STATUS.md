@@ -205,3 +205,28 @@ synthetic in-memory records; it does not validate local-model inference or
 physical-device notification delivery. Exact final-commit full-gate, CI and
 independent-review evidence belongs in the linked Issue/PR. #82 still owns
 cross-await scheduling convergence and the global request budget.
+
+## Issue #82 A Candidate: Ordered Reminder Effects (2026-09-22)
+
+The `codex/82-reminder-serialization` candidate builds on PR #93 at
+`928771223188b33fc1c9d5c4cb6c467c5154ec72`. Each process serializes complete
+system-reminder operations, including suspension points. iPhone post-commit
+and NotificationService paths share one owner; Watch compiles the same queue
+source and owns its own instance. Cancelling a UI waiter does not cancel an
+already committed reminder update.
+
+Successful commands freeze reminder values and enqueue before deferred UI or
+Live Activity work. Today, record correction, lifecycle changes, notification
+and Live Activity actions submit whole reminder groups. Global reconciliation
+alone prunes the global snapshot; a single-plan update preserves other plans.
+Read/schedule/save failure boundaries from #81/#89 remain in place. Notification
+and Live Activity delay snapshots now retain the plan's escalation setting.
+
+Local candidate evidence: 32 focused hosted tests passed, including controlled
+cross-instance reconciliation interleaving and existing failure/no-side-effect
+checks; two portable queue tests (including replacement/cancellation cases)
+and Watch Simulator Debug build passed. The complete native gate is delegated
+to exact-revision CI rather than duplicating the whole UI/build matrix locally.
+Final quick, review and CI evidence is recorded in the Issue/PR. This candidate
+is not integrated main or physical-device delivery evidence. Issue #82 B still
+owns actual-request budgets, partial failures and recovery.

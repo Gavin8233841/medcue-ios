@@ -561,26 +561,16 @@ struct MedicationDetailView: View {
             return
         }
         let notificationService = NotificationService()
-        for taskID in commit.disabledTaskIDs {
-            notificationService.cancelReminder(for: taskID)
-        }
-        let cancelledTaskIDs = commit.reminderBatches.flatMap(\.cancelledTaskIDs)
-        notificationService.cancelReminders(for: cancelledTaskIDs)
+        let reminderSync = notificationService.beginScheduleReminderBatches(
+            commit.reminderBatches,
+            additionalCancelledTaskIDs: commit.disabledTaskIDs
+        )
         Task { @MainActor in
+            await reminderSync.value
             let liveActivityService = MedicationLiveActivityService()
             for taskID in commit.disabledTaskIDs {
                 await liveActivityService.end(for: taskID)
             }
-            for batch in commit.reminderBatches {
-                for task in batch.tasks {
-                    await notificationService.scheduleReminder(
-                        for: task,
-                        medication: batch.medication,
-                        deliveryMethod: batch.deliveryMethod
-                    )
-                }
-            }
-            await notificationService.refreshPendingReminderCount()
         }
     }
 
@@ -593,9 +583,7 @@ struct MedicationDetailView: View {
             return
         }
         let notificationService = NotificationService()
-        for taskID in commit.taskIDs {
-            notificationService.cancelReminder(for: taskID)
-        }
+        notificationService.cancelReminders(for: commit.taskIDs)
         Task {
             let liveActivityService = MedicationLiveActivityService()
             for taskID in commit.taskIDs {

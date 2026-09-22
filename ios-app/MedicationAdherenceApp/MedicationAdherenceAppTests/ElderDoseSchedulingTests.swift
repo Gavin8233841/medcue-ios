@@ -207,10 +207,12 @@ struct ElderDoseSchedulingTests {
         var cancelledIDs: [UUID] = []
         let synchronizer = TodaySystemSurfaceSynchronizer(
             adapter: TodaySystemSurfaceAdapter(
-                cancelReminder: { cancelledIDs.append($0) },
-                scheduleReminder: { task, _, _ in
-                    scheduledIDs.append(task.id)
-                    return failure
+                applyReminderSnapshot: { snapshot in
+                    Task { @MainActor in
+                        scheduledIDs.append(contentsOf: snapshot.entries.map(\.taskID))
+                        cancelledIDs.append(contentsOf: snapshot.cancelledTaskIDs)
+                        return Dictionary(uniqueKeysWithValues: snapshot.entries.map { ($0.taskID, failure) })
+                    }
                 },
                 endLiveActivity: { _ in },
                 startLiveActivity: { _, _ in }
@@ -234,10 +236,11 @@ struct ElderDoseSchedulingTests {
         var submitted = false
         let synchronizer = TodaySystemSurfaceSynchronizer(
             adapter: TodaySystemSurfaceAdapter(
-                cancelReminder: { _ in },
-                scheduleReminder: { _, _, _ in
-                    submitted = true
-                    return .scheduled
+                applyReminderSnapshot: { snapshot in
+                    Task { @MainActor in
+                        submitted = !snapshot.entries.isEmpty
+                        return [:]
+                    }
                 },
                 endLiveActivity: { _ in },
                 startLiveActivity: { _, _ in }

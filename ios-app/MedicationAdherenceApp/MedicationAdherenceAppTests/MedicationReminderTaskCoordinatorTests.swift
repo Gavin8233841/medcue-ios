@@ -7,6 +7,75 @@ import Testing
 @Suite(.serialized)
 struct MedicationReminderTaskCoordinatorTests {
     @Test @MainActor
+    func reconciliationSerializesCompleteSystemEffectsAcrossServiceInstances() async throws {
+        let operationQueue = ReminderOperationQueue()
+        let firstContext = ModelContext(try MedicationAdherenceModelContainer.make(isStoredInMemoryOnly: true))
+        let secondContext = ModelContext(try MedicationAdherenceModelContainer.make(isStoredInMemoryOnly: true))
+        let firstEntered = ReminderTestSignal()
+        let releaseFirst = ReminderTestSignal()
+        let secondCommitted = ReminderTestSignal()
+        var events: [String] = []
+
+        let firstService = NotificationService(
+            reconciliationSaveOperation: { _ in events.append("first-commit") },
+            reconciliationSystemEffects: MedicationReminderReconciliationSystemEffects(
+                cancelReminders: { _ in events.append("first-cancel") },
+                scheduleReminderSnapshot: { _, _ in
+                    events.append("first-schedule-start")
+                    firstEntered.signal()
+                    await releaseFirst.wait()
+                    events.append("first-schedule-end")
+                },
+                refreshPendingReminderCount: { events.append("first-refresh") }
+            ),
+            reminderOperationQueue: operationQueue
+        )
+        let secondService = NotificationService(
+            reconciliationSaveOperation: { _ in
+                events.append("second-commit")
+                secondCommitted.signal()
+            },
+            reconciliationSystemEffects: MedicationReminderReconciliationSystemEffects(
+                cancelReminders: { _ in events.append("second-cancel") },
+                scheduleReminderSnapshot: { _, _ in events.append("second-schedule") },
+                refreshPendingReminderCount: { events.append("second-refresh") }
+            ),
+            reminderOperationQueue: operationQueue
+        )
+
+        let first = Task { @MainActor in
+            await firstService.reconcileAndScheduleReminders(in: firstContext)
+        }
+        await firstEntered.wait()
+        let second = Task { @MainActor in
+            await secondService.reconcileAndScheduleReminders(in: secondContext)
+        }
+        await secondCommitted.wait()
+
+        #expect(events == [
+            "first-commit",
+            "first-cancel",
+            "first-schedule-start",
+            "second-commit"
+        ])
+
+        releaseFirst.signal()
+        #expect(await first.value == .committed)
+        #expect(await second.value == .committed)
+        #expect(events == [
+            "first-commit",
+            "first-cancel",
+            "first-schedule-start",
+            "second-commit",
+            "first-schedule-end",
+            "first-refresh",
+            "second-cancel",
+            "second-schedule",
+            "second-refresh"
+        ])
+    }
+
+    @Test @MainActor
     func inactiveReconcileUsesReferenceDayForCancellationAndReportsSameTask() throws {
         let calendar = makeCalendar()
         let referenceDate = makeReferenceDate(calendar: calendar)
@@ -148,8 +217,8 @@ struct MedicationReminderTaskCoordinatorTests {
             },
             reconciliationSystemEffects: MedicationReminderReconciliationSystemEffects(
                 cancelReminders: { cancelledTaskIDCalls.append($0) },
-                scheduleReminderBatches: { batches, prune in
-                    scheduledBatchCalls.append((batches.count, prune))
+                scheduleReminderSnapshot: { snapshot, prune in
+                    scheduledBatchCalls.append((snapshot.entries.count, prune))
                 },
                 refreshPendingReminderCount: { refreshCallCount += 1 }
             )
@@ -190,8 +259,8 @@ struct MedicationReminderTaskCoordinatorTests {
             },
             reconciliationSystemEffects: MedicationReminderReconciliationSystemEffects(
                 cancelReminders: { cancelledTaskIDCalls.append($0) },
-                scheduleReminderBatches: { batches, prune in
-                    scheduledBatchCalls.append((batches.count, prune))
+                scheduleReminderSnapshot: { snapshot, prune in
+                    scheduledBatchCalls.append((snapshot.entries.count, prune))
                 },
                 refreshPendingReminderCount: { refreshCallCount += 1 }
             )
@@ -268,7 +337,7 @@ struct MedicationReminderTaskCoordinatorTests {
             reconciliationSaveOperation: { _ in saveCallCount += 1 },
             reconciliationSystemEffects: MedicationReminderReconciliationSystemEffects(
                 cancelReminders: { _ in systemEffectCallCount += 1 },
-                scheduleReminderBatches: { _, _ in systemEffectCallCount += 1 },
+                scheduleReminderSnapshot: { _, _ in systemEffectCallCount += 1 },
                 refreshPendingReminderCount: { systemEffectCallCount += 1 }
             )
         )
@@ -362,7 +431,7 @@ struct MedicationReminderTaskCoordinatorTests {
             reconciliationSaveOperation: { _ in throw InjectedSaveFailure() },
             reconciliationSystemEffects: MedicationReminderReconciliationSystemEffects(
                 cancelReminders: { _ in systemEffectCallCount += 1 },
-                scheduleReminderBatches: { _, _ in systemEffectCallCount += 1 },
+                scheduleReminderSnapshot: { _, _ in systemEffectCallCount += 1 },
                 refreshPendingReminderCount: { systemEffectCallCount += 1 }
             )
         )
@@ -401,7 +470,7 @@ struct MedicationReminderTaskCoordinatorTests {
 
         let noSystemEffects = MedicationReminderReconciliationSystemEffects(
             cancelReminders: { _ in },
-            scheduleReminderBatches: { _, _ in },
+            scheduleReminderSnapshot: { _, _ in },
             refreshPendingReminderCount: {}
         )
         var shouldFailSchedule = true
@@ -506,6 +575,30 @@ struct MedicationReminderTaskCoordinatorTests {
             reminderTimesRaw: reminderTime,
             createdAt: referenceDate
         )
+    }
+}
+
+@MainActor
+private final class ReminderTestSignal {
+    private var pendingSignalCount = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func signal() {
+        guard !waiters.isEmpty else {
+            pendingSignalCount += 1
+            return
+        }
+        waiters.removeFirst().resume()
+    }
+
+    func wait() async {
+        guard pendingSignalCount == 0 else {
+            pendingSignalCount -= 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
     }
 }
 

@@ -7,7 +7,7 @@ import AlarmKit
 import SwiftUI
 #endif
 
-enum MedicationReminderSchedulingResult: Equatable {
+enum MedicationReminderSchedulingResult: Sendable, Equatable {
     case scheduled
     case unavailable(message: String)
 
@@ -17,7 +17,7 @@ enum MedicationReminderSchedulingResult: Equatable {
     }
 }
 
-enum MedicationReminderReconciliationOutcome: Equatable {
+enum MedicationReminderReconciliationOutcome: Sendable, Equatable {
     case committed
     case readFailed(MedicationReminderReconciliationReadStage)
     case scheduleFailed
@@ -27,7 +27,7 @@ enum MedicationReminderReconciliationOutcome: Equatable {
 @MainActor
 struct MedicationReminderReconciliationSystemEffects {
     var cancelReminders: @MainActor ([UUID]) -> Void
-    var scheduleReminderBatches: @MainActor ([MedicationReminderScheduleBatch], Bool) async -> Void
+    var scheduleReminderSnapshot: @MainActor (MedicationReminderPostCommitSnapshot, Bool) async -> Void
     var refreshPendingReminderCount: @MainActor () async -> Void
 }
 
@@ -65,15 +65,18 @@ final class NotificationService: ObservableObject {
     private let injectedReminderTaskCoordinator: MedicationReminderTaskCoordinator?
     private let reconciliationSaveOperation: (ModelContext) throws -> Void
     private let reconciliationSystemEffects: MedicationReminderReconciliationSystemEffects?
+    private let reminderOperationQueue: ReminderOperationQueue
 
     init(
         reminderTaskCoordinator: MedicationReminderTaskCoordinator? = nil,
         reconciliationSaveOperation: @escaping (ModelContext) throws -> Void = { try $0.save() },
-        reconciliationSystemEffects: MedicationReminderReconciliationSystemEffects? = nil
+        reconciliationSystemEffects: MedicationReminderReconciliationSystemEffects? = nil,
+        reminderOperationQueue: ReminderOperationQueue = MedicationReminderSystemOperationQueue.shared
     ) {
         injectedReminderTaskCoordinator = reminderTaskCoordinator
         self.reconciliationSaveOperation = reconciliationSaveOperation
         self.reconciliationSystemEffects = reconciliationSystemEffects
+        self.reminderOperationQueue = reminderOperationQueue
     }
 
     @discardableResult
@@ -139,18 +142,45 @@ final class NotificationService: ObservableObject {
             return .saveFailed
         }
 
-        let cancelledTaskIDs = batches.flatMap(\.cancelledTaskIDs)
-        if let reconciliationSystemEffects {
-            reconciliationSystemEffects.cancelReminders(cancelledTaskIDs)
-            await reconciliationSystemEffects.scheduleReminderBatches(batches, true)
-            await reconciliationSystemEffects.refreshPendingReminderCount()
-        } else {
-            cancelReminders(for: cancelledTaskIDs)
-            await scheduleReminderBatches(batches, pruneExistingPrefixRequests: true)
-            await refreshPendingReminderCount()
+        let snapshot = MedicationReminderPostCommitSnapshot(batches: batches)
+        let operation = reminderOperationQueue.enqueue { @MainActor [self, snapshot] in
+            if let reconciliationSystemEffects {
+                reconciliationSystemEffects.cancelReminders(snapshot.cancelledTaskIDs)
+                await reconciliationSystemEffects.scheduleReminderSnapshot(snapshot, true)
+                await reconciliationSystemEffects.refreshPendingReminderCount()
+            } else {
+                cancelRemindersImmediately(for: snapshot.cancelledTaskIDs)
+                _ = await scheduleReminderSnapshotImmediately(
+                    snapshot,
+                    pruneExistingPrefixRequests: true
+                )
+                await refreshPendingReminderCount()
+            }
         }
+        await operation.value
         lastReminderReconciliationOutcome = .committed
         return .committed
+    }
+
+    func beginScheduleReminder(
+        for task: StoredDoseTask,
+        medication: StoredMedication,
+        deliveryMethod: StoredReminderDeliveryMethod = .notification,
+        escalatesToAlarmWhenUnhandled: Bool = true,
+        refreshPendingCount: Bool = true
+    ) -> Task<MedicationReminderSchedulingResult, Never> {
+        let entry = MedicationReminderPostCommitEntry(
+            task: task,
+            medication: medication,
+            deliveryMethod: deliveryMethod,
+            escalatesToAlarmWhenUnhandled: escalatesToAlarmWhenUnhandled
+        )
+        return reminderOperationQueue.enqueue { @MainActor [self, entry] in
+            await scheduleReminderImmediately(
+                entry,
+                refreshPendingCount: refreshPendingCount
+            )
+        }
     }
 
     @discardableResult
@@ -161,25 +191,41 @@ final class NotificationService: ObservableObject {
         escalatesToAlarmWhenUnhandled: Bool = true,
         refreshPendingCount: Bool = true
     ) async -> MedicationReminderSchedulingResult {
-        guard medication.lifecycleStatus == .active else {
-            cancelReminder(for: task.id)
+        await beginScheduleReminder(
+            for: task,
+            medication: medication,
+            deliveryMethod: deliveryMethod,
+            escalatesToAlarmWhenUnhandled: escalatesToAlarmWhenUnhandled,
+            refreshPendingCount: refreshPendingCount
+        ).value
+    }
+
+    private func scheduleReminderImmediately(
+        _ entry: MedicationReminderPostCommitEntry,
+        refreshPendingCount: Bool
+    ) async -> MedicationReminderSchedulingResult {
+        guard entry.medicationIsActive else {
+            cancelReminderImmediately(for: entry.taskID)
             authorizationMessage = "药物已归档或中断，未安排提醒"
             if refreshPendingCount {
                 await refreshPendingReminderCount()
             }
             return .unavailable(message: "药品已停用，提醒未安排。")
         }
-        cancelReminder(for: task.id)
-        var result = await scheduleNotificationReminder(for: task, medication: medication, refreshPendingCount: refreshPendingCount)
-        if deliveryMethod == .alarm,
-           task.dueAt > Date(),
-           await scheduleAlarmReminder(for: task, medication: medication) {
+        cancelReminderImmediately(for: entry.taskID)
+        var result = await scheduleNotificationReminder(
+            for: entry,
+            refreshPendingCount: refreshPendingCount
+        )
+        if entry.deliveryMethodRaw == StoredReminderDeliveryMethod.alarm.rawValue,
+           entry.dueAt > Date(),
+           await scheduleAlarmReminder(for: entry) {
             result = .scheduled
         }
-        if escalatesToAlarmWhenUnhandled {
-            await scheduleEscalationAlarmIfNeeded(for: task, medication: medication)
+        if entry.escalatesToAlarmWhenUnhandled {
+            await scheduleEscalationAlarmIfNeeded(for: entry)
         } else {
-            cancelEscalationAlarmReminder(for: task.id)
+            cancelEscalationAlarmReminder(for: entry.taskID)
         }
         return result
     }
@@ -189,79 +235,112 @@ final class NotificationService: ObservableObject {
         medication: StoredMedication,
         deliveryMethod: StoredReminderDeliveryMethod = .notification
     ) async {
-        guard medication.lifecycleStatus == .active else {
-            cancelReminders(for: tasks.map(\.id))
-            return
-        }
-        let sortedTasks = tasks
-            .filter { ($0.status == .pending || $0.status == .delayed) && $0.dueAt > Date() }
-            .sorted { $0.dueAt < $1.dueAt }
-        let scheduleableTasks = notificationPolicy.boundedUniqueEntries(
-            from: sortedTasks,
-            identifiedBy: \.id
-        )
-
-        for task in scheduleableTasks {
-            await scheduleReminder(
-                for: task,
+        let entries = tasks.map {
+            MedicationReminderPostCommitEntry(
+                task: $0,
                 medication: medication,
                 deliveryMethod: deliveryMethod,
-                refreshPendingCount: false
+                escalatesToAlarmWhenUnhandled: true
             )
         }
-        await refreshPendingReminderCount()
+        let snapshot = MedicationReminderPostCommitSnapshot(
+            entries: entries,
+            cancelledTaskIDs: medication.lifecycleStatus == .active ? [] : tasks.map(\.id)
+        )
+        _ = await beginApplyReminderSnapshot(snapshot).value
+    }
+
+    func beginApplyReminderSnapshot(
+        _ snapshot: MedicationReminderPostCommitSnapshot,
+        pruneExistingPrefixRequests: Bool = false
+    ) -> Task<[UUID: MedicationReminderSchedulingResult], Never> {
+        reminderOperationQueue.enqueue { @MainActor [self, snapshot] in
+            cancelRemindersImmediately(for: snapshot.cancelledTaskIDs)
+            return await scheduleReminderSnapshotImmediately(
+                snapshot,
+                pruneExistingPrefixRequests: pruneExistingPrefixRequests
+            )
+        }
+    }
+
+    func beginScheduleReminderBatches(
+        _ batches: [MedicationReminderScheduleBatch],
+        additionalCancelledTaskIDs: [UUID] = [],
+        pruneExistingPrefixRequests: Bool = false
+    ) -> Task<Void, Never> {
+        let snapshot = MedicationReminderPostCommitSnapshot(
+            batches: batches,
+            additionalCancelledTaskIDs: additionalCancelledTaskIDs
+        )
+        let operation = beginApplyReminderSnapshot(
+            snapshot,
+            pruneExistingPrefixRequests: pruneExistingPrefixRequests
+        )
+        return Task {
+            _ = await operation.value
+        }
     }
 
     func scheduleReminderBatches(
         _ batches: [MedicationReminderScheduleBatch],
         pruneExistingPrefixRequests: Bool = false
     ) async {
-        var entries: [MedicationReminderScheduleEntry] = []
-        for batch in batches {
-            for task in batch.tasks {
-                guard (task.status == .pending || task.status == .delayed) && task.dueAt > Date() else {
-                    continue
-                }
-                entries.append(MedicationReminderScheduleEntry(
-                    task: task,
-                    medication: batch.medication,
-                    deliveryMethod: batch.deliveryMethod,
-                    escalatesToAlarmWhenUnhandled: batch.escalatesToAlarmWhenUnhandled
-                ))
-            }
-        }
-        let sortedEntries = entries
-            .sorted { $0.task.dueAt < $1.task.dueAt }
+        await beginScheduleReminderBatches(
+            batches,
+            pruneExistingPrefixRequests: pruneExistingPrefixRequests
+        ).value
+    }
+
+    private func scheduleReminderSnapshotImmediately(
+        _ snapshot: MedicationReminderPostCommitSnapshot,
+        pruneExistingPrefixRequests: Bool = false
+    ) async -> [UUID: MedicationReminderSchedulingResult] {
+        let sortedEntries = snapshot.entries
+            .filter { $0.medicationIsActive && $0.taskIsOpen && $0.dueAt > Date() }
+            .sorted { $0.dueAt < $1.dueAt }
         let nearTermEntries = notificationPolicy.boundedUniqueEntries(
             from: sortedEntries,
-            identifiedBy: \.task.id
+            identifiedBy: \.taskID
         )
         let overflowTaskIDs = sortedEntries
             .dropFirst(notificationPolicy.maximumScheduledEntries)
-            .map(\.task.id)
+            .map(\.taskID)
 
-        cancelReminders(for: overflowTaskIDs)
+        cancelRemindersImmediately(for: overflowTaskIDs)
         if pruneExistingPrefixRequests {
-            await cancelScheduledNotificationRequests(except: Set(nearTermEntries.map { notificationIdentifier(for: $0.task.id) }))
+            await cancelScheduledNotificationRequests(except: Set(nearTermEntries.map { notificationIdentifier(for: $0.taskID) }))
         }
 
+        var results: [UUID: MedicationReminderSchedulingResult] = [:]
         for entry in nearTermEntries {
-            await scheduleReminder(
-                for: entry.task,
-                medication: entry.medication,
-                deliveryMethod: entry.deliveryMethod,
-                escalatesToAlarmWhenUnhandled: entry.escalatesToAlarmWhenUnhandled,
+            results[entry.taskID] = await scheduleReminderImmediately(
+                entry,
                 refreshPendingCount: false
             )
         }
         await refreshPendingReminderCount()
+        return results
     }
 
-    func cancelReminders(for taskIDs: [UUID]) {
-        taskIDs.forEach { cancelReminder(for: $0) }
+    @discardableResult
+    func cancelReminders(for taskIDs: [UUID]) -> Task<Void, Never> {
+        reminderOperationQueue.enqueue { @MainActor [self, taskIDs] in
+            cancelRemindersImmediately(for: taskIDs)
+        }
     }
 
-    func cancelReminder(for taskID: UUID) {
+    @discardableResult
+    func cancelReminder(for taskID: UUID) -> Task<Void, Never> {
+        reminderOperationQueue.enqueue { @MainActor [self, taskID] in
+            cancelReminderImmediately(for: taskID)
+        }
+    }
+
+    private func cancelRemindersImmediately(for taskIDs: [UUID]) {
+        taskIDs.forEach { cancelReminderImmediately(for: $0) }
+    }
+
+    private func cancelReminderImmediately(for taskID: UUID) {
         let identifier = notificationIdentifier(for: taskID)
         let escalationIdentifier = escalationAlarmNotificationIdentifier(for: taskID)
         let notificationIdentifiers = [identifier, escalationIdentifier]
@@ -283,7 +362,7 @@ final class NotificationService: ObservableObject {
         staleIdentifiers
             .compactMap(taskIDFromNotificationIdentifier)
             .forEach { taskID in
-                cancelReminder(for: taskID)
+                cancelReminderImmediately(for: taskID)
             }
     }
 
@@ -307,11 +386,10 @@ final class NotificationService: ObservableObject {
     }
 
     private func scheduleNotificationReminder(
-        for task: StoredDoseTask,
-        medication: StoredMedication,
+        for entry: MedicationReminderPostCommitEntry,
         refreshPendingCount: Bool = true
     ) async -> MedicationReminderSchedulingResult {
-        guard task.dueAt > Date() else {
+        guard entry.dueAt > Date() else {
             authorizationMessage = "提醒时间已过，未安排本地提醒"
             if refreshPendingCount {
                 await refreshPendingReminderCount()
@@ -320,11 +398,11 @@ final class NotificationService: ObservableObject {
         }
 
         let payload = NotificationPayload(
-            scheduledDoseID: task.id,
-            medicationID: medication.id,
-            planID: task.planID,
-            medicationName: userFacingMedicationName(for: medication),
-            doseText: "\(task.doseValue.formatted()) \(task.doseUnit)"
+            scheduledDoseID: entry.taskID,
+            medicationID: entry.medicationID,
+            planID: entry.planID,
+            medicationName: entry.medicationName,
+            doseText: entry.doseText
         )
 
         let content = UNMutableNotificationContent()
@@ -338,9 +416,9 @@ final class NotificationService: ObservableObject {
             "planID": payload.planID.uuidString
         ]
 
-        let components = notificationPolicy.triggerDateComponents(for: task.dueAt, calendar: .current)
+        let components = notificationPolicy.triggerDateComponents(for: entry.dueAt, calendar: .current)
         let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
-        let identifier = notificationIdentifier(for: task.id)
+        let identifier = notificationIdentifier(for: entry.taskID)
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
         let result = await MedicationNotificationRequestScheduler(
@@ -368,7 +446,7 @@ final class NotificationService: ObservableObject {
         return result
     }
 
-    private func scheduleAlarmReminder(for task: StoredDoseTask, medication: StoredMedication) async -> Bool {
+    private func scheduleAlarmReminder(for entry: MedicationReminderPostCommitEntry) async -> Bool {
         #if canImport(AlarmKit)
         if #available(iOS 26.0, *) {
             do {
@@ -378,11 +456,11 @@ final class NotificationService: ObservableObject {
                 }
 
                 let payload = NotificationPayload(
-                    scheduledDoseID: task.id,
-                    medicationID: medication.id,
-                    planID: task.planID,
-                    medicationName: userFacingMedicationName(for: medication),
-                    doseText: "\(task.doseValue.formatted()) \(task.doseUnit)"
+                    scheduledDoseID: entry.taskID,
+                    medicationID: entry.medicationID,
+                    planID: entry.planID,
+                    medicationName: entry.medicationName,
+                    doseText: entry.doseText
                 )
                 let title = LocalizedStringResource(stringLiteral: "\(payload.medicationName) · \(payload.doseText)")
                 let stopButton = AlarmButton(
@@ -401,10 +479,10 @@ final class NotificationService: ObservableObject {
                     tintColor: .teal
                 )
                 let configuration = AlarmManager.AlarmConfiguration<MedicationAlarmMetadata>.alarm(
-                    schedule: .fixed(task.dueAt),
+                    schedule: .fixed(entry.dueAt),
                     attributes: attributes
                 )
-                _ = try await AlarmManager.shared.schedule(id: task.id, configuration: configuration)
+                _ = try await AlarmManager.shared.schedule(id: entry.taskID, configuration: configuration)
                 authorizationMessage = "已安排 iPhone 闹钟提醒"
                 return true
             } catch {
@@ -417,27 +495,31 @@ final class NotificationService: ObservableObject {
         return false
     }
 
-    private func scheduleEscalationAlarmIfNeeded(for task: StoredDoseTask, medication: StoredMedication) async {
-        guard task.status == .pending || task.status == .delayed else {
+    private func scheduleEscalationAlarmIfNeeded(for entry: MedicationReminderPostCommitEntry) async {
+        guard entry.taskIsOpen else {
             return
         }
-        let escalationAt = reminderPolicy.escalationDueAt(for: task.dueAt)
+        let escalationAt = reminderPolicy.escalationDueAt(for: entry.dueAt)
         guard escalationAt > Date() else {
             return
         }
         #if canImport(AlarmKit)
         if #available(iOS 26.0, *) {
-            if await scheduleAlarmReminder(for: task, medication: medication, alarmID: escalationAlarmID(for: task.id), dueAt: escalationAt, titlePrefix: "仍未确认") {
+            if await scheduleAlarmReminder(
+                for: entry,
+                alarmID: escalationAlarmID(for: entry.taskID),
+                dueAt: escalationAt,
+                titlePrefix: "仍未确认"
+            ) {
                 return
             }
         }
         #endif
-        await scheduleEscalationNotification(for: task, medication: medication, escalationAt: escalationAt)
+        await scheduleEscalationNotification(for: entry, escalationAt: escalationAt)
     }
 
     private func scheduleEscalationNotification(
-        for task: StoredDoseTask,
-        medication: StoredMedication,
+        for entry: MedicationReminderPostCommitEntry,
         escalationAt: Date
     ) async {
         guard await ensureNotificationAuthorizationForScheduling() else {
@@ -446,19 +528,19 @@ final class NotificationService: ObservableObject {
 
         let content = UNMutableNotificationContent()
         content.title = "仍未确认服药"
-        content.body = "\(userFacingMedicationName(for: medication)) · 请在 App 内确认已服用、稍后或忽略"
+        content.body = "\(entry.medicationName) · 请在 App 内确认已服用、稍后或忽略"
         content.sound = .default
         content.categoryIdentifier = MedicationNotificationDelegate.categoryIdentifier
         content.userInfo = [
-            "scheduledDoseID": task.id.uuidString,
-            "medicationID": medication.id.uuidString,
-            "planID": task.planID.uuidString,
+            "scheduledDoseID": entry.taskID.uuidString,
+            "medicationID": entry.medicationID.uuidString,
+            "planID": entry.planID.uuidString,
             "reminderKind": "escalation"
         ]
 
         let components = notificationPolicy.triggerDateComponents(for: escalationAt, calendar: .current)
         let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
-        let identifier = escalationAlarmNotificationIdentifier(for: task.id)
+        let identifier = escalationAlarmNotificationIdentifier(for: entry.taskID)
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
         do {
@@ -472,8 +554,7 @@ final class NotificationService: ObservableObject {
     #if canImport(AlarmKit)
     @available(iOS 26.0, *)
     private func scheduleAlarmReminder(
-        for task: StoredDoseTask,
-        medication: StoredMedication,
+        for entry: MedicationReminderPostCommitEntry,
         alarmID: UUID,
         dueAt: Date,
         titlePrefix: String
@@ -484,11 +565,11 @@ final class NotificationService: ObservableObject {
             }
 
             let payload = NotificationPayload(
-                scheduledDoseID: task.id,
-                medicationID: medication.id,
-                planID: task.planID,
-                medicationName: userFacingMedicationName(for: medication),
-                doseText: "\(task.doseValue.formatted()) \(task.doseUnit)"
+                scheduledDoseID: entry.taskID,
+                medicationID: entry.medicationID,
+                planID: entry.planID,
+                medicationName: entry.medicationName,
+                doseText: entry.doseText
             )
             let title = LocalizedStringResource(stringLiteral: "\(titlePrefix)：\(payload.medicationName) · \(payload.doseText)")
             let stopButton = AlarmButton(
