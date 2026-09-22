@@ -41,9 +41,20 @@ covers both the request and response-body read, and stream at most 65536 actual
 response bytes before JSON decoding. The byte cap does not trust
 `Content-Length`.
 
-The broker also has an instance-local 30 requests/minute limit. Its
-completed-response cache is instance-local; it reduces retries for warm
-instances but is not cross-instance exactly-once delivery.
+The broker also has an instance-local 30 requests/minute limit. Concurrent
+requests on one warm instance that use the same `request_id` and prompt share
+one provider operation; reuse of that ID with another prompt returns a conflict.
+The in-flight table and completed-response cache each use the configured
+idempotency-cache capacity. New distinct work is rejected while the in-flight
+table is full instead of evicting an active operation.
+
+Provider work is governed by the broker timeout rather than an individual HTTP
+client connection. A disconnected waiter therefore does not cancel provider
+work that another matching waiter still needs. In-flight entries are removed
+after success, failure, or timeout so later retries can proceed.
+
+Both idempotency stores are instance-local. They reduce duplicate work for warm
+instances but do not provide cross-instance exactly-once delivery.
 
 The static client token is a temporary competition/low-volume gate. It is not
 equivalent to user identity or App Attest and must not be described as either.
