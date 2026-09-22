@@ -16,7 +16,8 @@ Current verified source checkpoint: `baeabcade7b040301f7b8ac13e9a3a89bb1008e7`
 - 35 Issues remain open, all assigned to a milestone. Of these, 13 carry the
   technical-debt label and 8 the defect label. These are tracker categories,
   not an estimate of 35 independent defects or a completion percentage.
-- 11 PRs remain open. Superseded #63 and #79 were closed without deleting their
+- 10 implementation PRs remain open (excluding this status-document update).
+  Superseded #63 and #79 were closed without deleting their
   branches; #90 is the single delivery candidate for #61.
 - Exact-head required CI succeeded for #78 (`6e7633e`), #87 (`5d3f154`),
   #88 (`8a9ca69`) and #90 (`004e44e`). These PRs remain unmerged. #86
