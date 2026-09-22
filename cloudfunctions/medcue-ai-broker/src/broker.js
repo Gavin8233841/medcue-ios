@@ -81,7 +81,7 @@ function abortError() {
   return error;
 }
 
-async function readWithAbort(reader, signal) {
+async function awaitWithAbort(operation, signal) {
   if (signal.aborted) {
     throw abortError();
   }
@@ -94,7 +94,7 @@ async function readWithAbort(reader, signal) {
   });
 
   try {
-    return await Promise.race([reader.read(), aborted]);
+    return await Promise.race([Promise.resolve().then(operation), aborted]);
   } finally {
     removeAbortListener();
   }
@@ -112,7 +112,7 @@ async function readBoundedProviderBody(response, maxBytes, signal) {
 
   try {
     while (true) {
-      const { done, value } = await readWithAbort(reader, signal);
+      const { done, value } = await awaitWithAbort(() => reader.read(), signal);
       if (done) {
         break;
       }
@@ -153,6 +153,7 @@ function createBrokerHandler({ config, fetchProvider, now = Date.now }) {
     idempotencyCacheMax,
   } = validateBrokerConfig(config);
   const completedResponses = new Map();
+  const inFlightResponses = new Map();
   const requestTimestamps = [];
 
   return async function handle(request) {
@@ -279,68 +280,38 @@ function createBrokerHandler({ config, fetchProvider, now = Date.now }) {
       return completed.response;
     }
 
-    const rateLimitWindowMs = config.rateLimitWindowMs ?? 60_000;
-    const rateLimitMax = config.rateLimitMax ?? 30;
-    while (
-      requestTimestamps.length > 0 &&
-      requestTimestamps[0] <= currentTime - rateLimitWindowMs
-    ) {
-      requestTimestamps.shift();
+    const inFlight = inFlightResponses.get(payload.request_id);
+    if (inFlight) {
+      if (inFlight.prompt !== payload.prompt) {
+        return jsonResponse(409, {
+          error: {
+            code: "idempotency_conflict",
+            message: "request_id was already used for another request.",
+          },
+        });
+      }
+      return inFlight.responsePromise;
     }
-    if (requestTimestamps.length >= rateLimitMax) {
-      return jsonResponse(429, {
+
+    if (inFlightResponses.size >= idempotencyCacheMax) {
+      return jsonResponse(503, {
         error: {
-          code: "rate_limited",
-          message: "Too many requests. Try again later.",
+          code: "in_flight_capacity_reached",
+          message: "Too many AI requests are already in progress.",
         },
       });
     }
-    requestTimestamps.push(currentTime);
 
-    const abortController = new AbortController();
-    const timeout = setTimeout(() => abortController.abort(), providerTimeoutMs);
-    let providerResponse;
-    let providerPayload;
-    try {
-      providerResponse = await fetchProvider(DOUBAO_RESPONSES_ENDPOINT, {
-        method: "POST",
-        redirect: "manual",
-        headers: {
-          authorization: `Bearer ${config.providerAPIKey}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          model: config.providerModel,
-          input: [
-            {
-              role: "user",
-              content: [{ type: "input_text", text: payload.prompt }],
-            },
-          ],
-        }),
-        signal: abortController.signal,
-      });
-
-      if (providerResponse.status >= 300 && providerResponse.status < 400) {
-        abortProviderResponse(abortController);
-        return jsonResponse(502, {
-          error: {
-            code: "provider_redirect_rejected",
-            message: "AI provider redirect was rejected.",
-          },
-        });
+    const responsePromise = (async () => {
+      const rateLimitWindowMs = config.rateLimitWindowMs ?? 60_000;
+      const rateLimitMax = config.rateLimitMax ?? 30;
+      while (
+        requestTimestamps.length > 0 &&
+        requestTimestamps[0] <= currentTime - rateLimitWindowMs
+      ) {
+        requestTimestamps.shift();
       }
-      if (providerResponse.status === 401 || providerResponse.status === 403) {
-        abortProviderResponse(abortController);
-        return jsonResponse(502, {
-          error: {
-            code: "provider_authentication_failed",
-            message: "AI provider authentication failed.",
-          },
-        });
-      }
-      if (providerResponse.status === 429) {
-        abortProviderResponse(abortController);
+      if (requestTimestamps.length >= rateLimitMax) {
         return jsonResponse(429, {
           error: {
             code: "rate_limited",
@@ -348,41 +319,126 @@ function createBrokerHandler({ config, fetchProvider, now = Date.now }) {
           },
         });
       }
-      if (providerResponse.status < 200 || providerResponse.status >= 300) {
-        abortProviderResponse(abortController);
+      requestTimestamps.push(currentTime);
+
+      const abortController = new AbortController();
+      const timeout = setTimeout(() => abortController.abort(), providerTimeoutMs);
+      let providerResponse;
+      let providerPayload;
+      try {
+        providerResponse = await awaitWithAbort(
+          () =>
+            fetchProvider(DOUBAO_RESPONSES_ENDPOINT, {
+              method: "POST",
+              redirect: "manual",
+              headers: {
+                authorization: `Bearer ${config.providerAPIKey}`,
+                "content-type": "application/json",
+              },
+              body: JSON.stringify({
+                model: config.providerModel,
+                input: [
+                  {
+                    role: "user",
+                    content: [{ type: "input_text", text: payload.prompt }],
+                  },
+                ],
+              }),
+              signal: abortController.signal,
+            }),
+          abortController.signal,
+        );
+
+        if (providerResponse.status >= 300 && providerResponse.status < 400) {
+          abortProviderResponse(abortController);
+          return jsonResponse(502, {
+            error: {
+              code: "provider_redirect_rejected",
+              message: "AI provider redirect was rejected.",
+            },
+          });
+        }
+        if (providerResponse.status === 401 || providerResponse.status === 403) {
+          abortProviderResponse(abortController);
+          return jsonResponse(502, {
+            error: {
+              code: "provider_authentication_failed",
+              message: "AI provider authentication failed.",
+            },
+          });
+        }
+        if (providerResponse.status === 429) {
+          abortProviderResponse(abortController);
+          return jsonResponse(429, {
+            error: {
+              code: "rate_limited",
+              message: "Too many requests. Try again later.",
+            },
+          });
+        }
+        if (providerResponse.status < 200 || providerResponse.status >= 300) {
+          abortProviderResponse(abortController);
+          return jsonResponse(502, {
+            error: {
+              code: "provider_unavailable",
+              message: "AI provider is temporarily unavailable.",
+            },
+          });
+        }
+
+        const providerBody = await readBoundedProviderBody(
+          providerResponse,
+          providerResponseMaxBytes,
+          abortController.signal,
+        );
+        providerPayload = JSON.parse(providerBody);
+      } catch (error) {
+        if (error?.name === "AbortError") {
+          return jsonResponse(504, {
+            error: {
+              code: "provider_timeout",
+              message: "AI provider timed out.",
+            },
+          });
+        }
+        if (error?.name === "ProviderResponseTooLargeError") {
+          abortController.abort();
+          return jsonResponse(502, {
+            error: {
+              code: "provider_response_too_large",
+              message: "AI provider response exceeded the allowed size.",
+            },
+          });
+        }
+        if (providerResponse) {
+          return jsonResponse(502, {
+            error: {
+              code: "invalid_provider_response",
+              message: "AI provider returned an invalid response.",
+            },
+          });
+        }
         return jsonResponse(502, {
           error: {
             code: "provider_unavailable",
             message: "AI provider is temporarily unavailable.",
           },
         });
+      } finally {
+        clearTimeout(timeout);
       }
-
-      const providerBody = await readBoundedProviderBody(
-        providerResponse,
-        providerResponseMaxBytes,
-        abortController.signal,
-      );
-      providerPayload = JSON.parse(providerBody);
-    } catch (error) {
-      if (error?.name === "AbortError") {
-        return jsonResponse(504, {
-          error: {
-            code: "provider_timeout",
-            message: "AI provider timed out.",
-          },
-        });
-      }
-      if (error?.name === "ProviderResponseTooLargeError") {
-        abortController.abort();
-        return jsonResponse(502, {
-          error: {
-            code: "provider_response_too_large",
-            message: "AI provider response exceeded the allowed size.",
-          },
-        });
-      }
-      if (providerResponse) {
+      const outputText =
+        typeof providerPayload?.output_text === "string"
+          ? providerPayload.output_text
+          : Array.isArray(providerPayload?.output)
+            ? providerPayload.output
+                .flatMap((item) => item?.content ?? [])
+                .map((content) => content?.text)
+                .filter((text) => typeof text === "string")
+                .join("\n")
+            : undefined;
+      const answer = typeof outputText === "string" ? outputText.trim() : "";
+      if (answer.length === 0) {
         return jsonResponse(502, {
           error: {
             code: "invalid_provider_response",
@@ -390,49 +446,32 @@ function createBrokerHandler({ config, fetchProvider, now = Date.now }) {
           },
         });
       }
-      return jsonResponse(502, {
-        error: {
-          code: "provider_unavailable",
-          message: "AI provider is temporarily unavailable.",
-        },
-      });
-    } finally {
-      clearTimeout(timeout);
-    }
-    const outputText =
-      typeof providerPayload?.output_text === "string"
-        ? providerPayload.output_text
-        : Array.isArray(providerPayload?.output)
-          ? providerPayload.output
-              .flatMap((item) => item?.content ?? [])
-              .map((content) => content?.text)
-              .filter((text) => typeof text === "string")
-              .join("\n")
-          : undefined;
-    const answer = typeof outputText === "string" ? outputText.trim() : "";
-    if (answer.length === 0) {
-      return jsonResponse(502, {
-        error: {
-          code: "invalid_provider_response",
-          message: "AI provider returned an invalid response.",
-        },
-      });
-    }
 
-    const response = jsonResponse(200, {
-      request_id: payload.request_id,
-      answer,
-    });
-    if (completedResponses.size >= idempotencyCacheMax) {
-      const oldestKey = completedResponses.keys().next().value;
-      completedResponses.delete(oldestKey);
+      const response = jsonResponse(200, {
+        request_id: payload.request_id,
+        answer,
+      });
+      if (completedResponses.size >= idempotencyCacheMax) {
+        const oldestKey = completedResponses.keys().next().value;
+        completedResponses.delete(oldestKey);
+      }
+      completedResponses.set(payload.request_id, {
+        prompt: payload.prompt,
+        response,
+        expiresAt: currentTime + idempotencyTTLms,
+      });
+      return response;
+    })();
+
+    const entry = { prompt: payload.prompt, responsePromise };
+    inFlightResponses.set(payload.request_id, entry);
+    try {
+      return await responsePromise;
+    } finally {
+      if (inFlightResponses.get(payload.request_id) === entry) {
+        inFlightResponses.delete(payload.request_id);
+      }
     }
-    completedResponses.set(payload.request_id, {
-      prompt: payload.prompt,
-      response,
-      expiresAt: currentTime + idempotencyTTLms,
-    });
-    return response;
   };
 }
 
