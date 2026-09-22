@@ -96,7 +96,7 @@ M1 由 [Issue #46](https://github.com/Gavin8233841/medcue-ios/issues/46)
 | GitHub 里程碑 | 开放工作项 | 退出条件 |
 | --- | --- | --- |
 | [M1 适老与大字交互收口](https://github.com/Gavin8233841/medcue-ios/milestone/3) | #46、#50、#55、#56、#57、#85 | 单一当前任务、主操作免滚动、完整大字信息、双模式同源；适用 VoiceOver 与电话真机证据齐备 |
-| [M2–M3 可靠提醒与用药闭环](https://github.com/Gavin8233841/medcue-ios/milestone/4) | #7、#52、#81、#82、#83、#89 | 读取/排程失败不当空状态、调度收敛与预算、关键写入路径、Broker 并发边界；#80 已合入源码 |
+| [M2–M3 可靠提醒与用药闭环](https://github.com/Gavin8233841/medcue-ios/milestone/4) | #7、#52、#81、#82、#89 | 读取/排程失败不当空状态、调度收敛与预算、关键写入路径；#80/#83 已合入源码，合并后门禁按状态文档分别记录 |
 | [M5 受控真机与安全验收](https://github.com/Gavin8233841/medcue-ios/milestone/1) | #2、#4、#6、#13、#14、#15、#16、#17、#28 | 适用账户、安全、设备与真实交互证据完成；#28 不抢占本地闭环 |
 | [M6 工程交付与可复核源码](https://github.com/Gavin8233841/medcue-ios/milestone/2) | #33、#47、#61、#76 | 协作界面、源码包、提交门禁与审计形成可复核交付 |
 | [后续架构、本地化与扩展](https://github.com/Gavin8233841/medcue-ios/milestone/5) | #9、#10、#11、#18、#19、#20、#21、#22、#51、#62 | 按明确需求启动，不作为当前竞赛前全部完成的承诺 |
