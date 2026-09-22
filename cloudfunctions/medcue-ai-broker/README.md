@@ -11,9 +11,11 @@ proxy.
 - Route: `POST /v1/respond`
 - Required request headers: `Authorization: Bearer <client-token>` and
   `Content-Type: application/json`
-- Required JSON fields: `request_id` (canonical UUID) and `prompt` (1 to
-  12000 characters)
+- Required JSON body: a non-null object with `request_id` (canonical UUID) and
+  `prompt` (1 to 12000 characters)
 - Maximum request body: 32768 bytes
+- Malformed URLs and unexpected request-processing failures return generic JSON
+  errors; disconnected clients are terminated safely.
 
 The function uses these environment variables:
 

@@ -219,6 +219,19 @@ function createBrokerHandler({ config, fetchProvider, now = Date.now }) {
       });
     }
 
+    if (
+      payload === null ||
+      typeof payload !== "object" ||
+      Array.isArray(payload)
+    ) {
+      return jsonResponse(422, {
+        error: {
+          code: "invalid_request",
+          message: "Request body must be a JSON object.",
+        },
+      });
+    }
+
     const canonicalUUID =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     if (
