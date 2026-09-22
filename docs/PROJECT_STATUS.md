@@ -32,7 +32,8 @@ Current source checkpoint: `7de86b34df209bd6b33aca8495b9c9a5ec4e16ae`
   [exact-head Broker CI](https://github.com/Gavin8233841/medcue-ios/actions/runs/35692799471)
   passed. It merged into the current source checkpoint and #83 closed.
   [Post-merge full CI](https://github.com/Gavin8233841/medcue-ios/actions/runs/35693333809)
-  remains pending at this snapshot; post-merge verification is not yet complete.
+  succeeded on the exact merged source checkpoint, including all native builds
+  and Swift Core, hosted iOS and UI test lanes.
   No provider deployment is claimed.
 - #81's final `8a9ca69` cumulative fresh-context data-safety review completed
   with no Blocker/Required findings. Its remote full CI is green, but no local
