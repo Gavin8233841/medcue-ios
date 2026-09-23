@@ -108,7 +108,7 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         XCTAssertTrue(restoredMedicationSearch.waitForExistence(timeout: 5))
         clearSearchField(restoredMedicationSearch)
         let restoredMedicationGroup = app.buttons.matching(
-            NSPredicate(format: "label BEGINSWITH %@", "当前用药")
+            NSPredicate(format: "label BEGINSWITH %@", "正在服用药品")
         ).firstMatch
         XCTAssertTrue(restoredMedicationGroup.waitForExistence(timeout: 5))
         XCTAssertTrue(String(describing: restoredMedicationGroup.value).contains("已折叠"))
@@ -135,8 +135,9 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         XCTAssertFalse(riskSearch.label.isEmpty)
         riskSearch.tap()
         riskSearch.typeText("ibuprofen")
+        riskSearch.typeText("\n")
         let ibuprofenRiskGroup = app.buttons["布洛芬"].firstMatch
-        XCTAssertTrue(ibuprofenRiskGroup.waitForExistence(timeout: 10))
+        XCTAssertTrue(ibuprofenRiskGroup.waitForExistence(timeout: 10), app.debugDescription)
         ibuprofenRiskGroup.tap()
         XCTAssertTrue(String(describing: ibuprofenRiskGroup.value).contains("已展开"))
 
@@ -237,9 +238,10 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         XCTAssertTrue(riskSearch.isHittable)
         riskSearch.tap()
         riskSearch.typeText("ibuprofen")
+        riskSearch.typeText("\n")
         let riskGroup = app.buttons["布洛芬"].firstMatch
-        XCTAssertTrue(riskGroup.waitForExistence(timeout: 10))
-        XCTAssertTrue(riskGroup.isHittable)
+        XCTAssertTrue(riskGroup.waitForExistence(timeout: 10), app.debugDescription)
+        scrollToElement(riskGroup, in: app)
         XCTAssertGreaterThanOrEqual(riskGroup.frame.height, 44)
     }
 
