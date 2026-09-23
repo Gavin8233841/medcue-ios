@@ -101,8 +101,8 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         let medicationResult = app.staticTexts["布洛芬"].firstMatch
         XCTAssertTrue(medicationResult.waitForExistence(timeout: 10))
         medicationResult.tap()
-        XCTAssertTrue(app.navigationBars["布洛芬"].waitForExistence(timeout: 5))
-        app.navigationBars["布洛芬"].buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.navigationBars["药品详情"].waitForExistence(timeout: 5))
+        app.navigationBars["药品详情"].buttons.element(boundBy: 0).tap()
 
         let restoredMedicationSearch = app.searchFields.firstMatch
         XCTAssertTrue(restoredMedicationSearch.waitForExistence(timeout: 5))
@@ -220,9 +220,10 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         XCTAssertTrue(medicationSearch.isHittable)
         medicationSearch.tap()
         medicationSearch.typeText("Ibuprofen")
+        medicationSearch.typeText("\n")
         let medicationResult = app.staticTexts["布洛芬"].firstMatch
         XCTAssertTrue(medicationResult.waitForExistence(timeout: 10))
-        XCTAssertTrue(medicationResult.isHittable)
+        scrollToElement(medicationResult, in: app)
         clearSearchField(medicationSearch)
 
         app.swipeDown()
