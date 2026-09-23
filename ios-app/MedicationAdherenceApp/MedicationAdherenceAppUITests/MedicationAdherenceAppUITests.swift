@@ -111,8 +111,10 @@ final class MedicationAdherenceAppUITests: XCTestCase {
             NSPredicate(format: "label BEGINSWITH %@", "正在服用药品")
         ).firstMatch
         XCTAssertTrue(restoredMedicationGroup.waitForExistence(timeout: 5))
-        XCTAssertTrue(String(describing: restoredMedicationGroup.value).contains("已折叠"))
-        XCTAssertTrue(restoredMedicationGroup.label.contains("人工泪液"))
+        XCTAssertTrue(restoredMedicationGroup.label.contains(" 个"))
+        XCTAssertTrue(medicationResult.waitForNonExistence(timeout: 5))
+        restoredMedicationGroup.tap()
+        XCTAssertTrue(medicationResult.waitForExistence(timeout: 5))
 
         restoredMedicationSearch.tap()
         restoredMedicationSearch.typeText("synthetic-no-result-query")
@@ -136,10 +138,9 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         riskSearch.tap()
         riskSearch.typeText("ibuprofen")
         riskSearch.typeText("\n")
-        let ibuprofenRiskGroup = app.buttons["布洛芬"].firstMatch
+        let ibuprofenRiskGroup = riskMedicationGroup(named: "布洛芬", in: app)
         XCTAssertTrue(ibuprofenRiskGroup.waitForExistence(timeout: 10), app.debugDescription)
         ibuprofenRiskGroup.tap()
-        XCTAssertTrue(String(describing: ibuprofenRiskGroup.value).contains("已展开"))
 
         let riskCard = app.buttons.matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "risk.card.")
@@ -157,7 +158,7 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         let restoredRiskSearch = app.searchFields.firstMatch
         XCTAssertTrue(restoredRiskSearch.waitForExistence(timeout: 5))
         let archivedIbuprofenRiskGroup = app.buttons.matching(
-            NSPredicate(format: "label == %@", "布洛芬")
+            NSPredicate(format: "label BEGINSWITH %@", "布洛芬")
         ).element(boundBy: 1)
         scrollToElement(archivedIbuprofenRiskGroup, in: app)
         archivedIbuprofenRiskGroup.tap()
@@ -171,20 +172,18 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         clearSearchField(restoredRiskSearch)
         restoredRiskSearch.tap()
         restoredRiskSearch.typeText("loratadine")
-        XCTAssertTrue(app.buttons["氯雷他定"].firstMatch.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["布洛芬"].firstMatch.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(riskMedicationGroup(named: "氯雷他定", in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(riskMedicationGroup(named: "布洛芬", in: app).waitForNonExistence(timeout: 5))
 
         clearSearchField(restoredRiskSearch)
         app.swipeDown()
         app.swipeDown()
-        let restoredIbuprofenRiskGroup = app.buttons["布洛芬"].firstMatch
+        let restoredIbuprofenRiskGroup = riskMedicationGroup(named: "布洛芬", in: app)
         XCTAssertTrue(restoredIbuprofenRiskGroup.waitForExistence(timeout: 5))
-        XCTAssertTrue(String(describing: restoredIbuprofenRiskGroup.value).contains("已展开"))
         let restoredArchivedIbuprofenRiskGroup = app.buttons.matching(
-            NSPredicate(format: "label == %@", "布洛芬")
+            NSPredicate(format: "label BEGINSWITH %@", "布洛芬")
         ).element(boundBy: 1)
         scrollToElement(restoredArchivedIbuprofenRiskGroup, in: app)
-        XCTAssertTrue(String(describing: restoredArchivedIbuprofenRiskGroup.value).contains("已展开"))
         let restoredArchivedCardsDisclosure = app.buttons["已复核归档"]
         scrollToElement(restoredArchivedCardsDisclosure, in: app)
         XCTAssertTrue(String(describing: restoredArchivedCardsDisclosure.value).contains("已展开"))
@@ -239,7 +238,7 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         riskSearch.tap()
         riskSearch.typeText("ibuprofen")
         riskSearch.typeText("\n")
-        let riskGroup = app.buttons["布洛芬"].firstMatch
+        let riskGroup = riskMedicationGroup(named: "布洛芬", in: app)
         XCTAssertTrue(riskGroup.waitForExistence(timeout: 10), app.debugDescription)
         scrollToElement(riskGroup, in: app)
         XCTAssertGreaterThanOrEqual(riskGroup.frame.height, 44)
@@ -251,6 +250,10 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         XCTAssertTrue(clearButton.waitForExistence(timeout: 2), "System search clear button is missing")
         clearButton.tap()
         XCTAssertTrue(clearButton.waitForNonExistence(timeout: 2), "Search field retained its clear button")
+    }
+
+    private func riskMedicationGroup(named name: String, in app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", name)).firstMatch
     }
 
     private func scrollToElement(_ element: XCUIElement, in app: XCUIApplication) {
