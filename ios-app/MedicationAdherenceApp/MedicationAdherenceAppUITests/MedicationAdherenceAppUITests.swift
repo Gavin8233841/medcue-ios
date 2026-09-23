@@ -155,7 +155,9 @@ final class MedicationAdherenceAppUITests: XCTestCase {
 
         let restoredRiskSearch = app.searchFields.firstMatch
         XCTAssertTrue(restoredRiskSearch.waitForExistence(timeout: 5))
-        let archivedIbuprofenRiskGroup = app.buttons["布洛芬"].element(boundBy: 1)
+        let archivedIbuprofenRiskGroup = app.buttons.matching(
+            NSPredicate(format: "label == %@", "布洛芬")
+        ).element(boundBy: 1)
         scrollToElement(archivedIbuprofenRiskGroup, in: app)
         archivedIbuprofenRiskGroup.tap()
         let archivedCardsDisclosure = app.buttons["已复核归档"]
@@ -177,7 +179,9 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         let restoredIbuprofenRiskGroup = app.buttons["布洛芬"].firstMatch
         XCTAssertTrue(restoredIbuprofenRiskGroup.waitForExistence(timeout: 5))
         XCTAssertTrue(String(describing: restoredIbuprofenRiskGroup.value).contains("已展开"))
-        let restoredArchivedIbuprofenRiskGroup = app.buttons["布洛芬"].element(boundBy: 1)
+        let restoredArchivedIbuprofenRiskGroup = app.buttons.matching(
+            NSPredicate(format: "label == %@", "布洛芬")
+        ).element(boundBy: 1)
         scrollToElement(restoredArchivedIbuprofenRiskGroup, in: app)
         XCTAssertTrue(String(describing: restoredArchivedIbuprofenRiskGroup.value).contains("已展开"))
         let restoredArchivedCardsDisclosure = app.buttons["已复核归档"]
