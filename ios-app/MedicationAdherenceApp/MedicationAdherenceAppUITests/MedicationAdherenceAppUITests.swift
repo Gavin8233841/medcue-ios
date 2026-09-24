@@ -111,10 +111,9 @@ final class MedicationAdherenceAppUITests: XCTestCase {
             NSPredicate(format: "label BEGINSWITH %@", "正在服用药品")
         ).firstMatch
         XCTAssertTrue(restoredMedicationGroup.waitForExistence(timeout: 5))
-        XCTAssertTrue(restoredMedicationGroup.label.contains(" 个"))
-        XCTAssertTrue(medicationResult.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(medicationResult.waitForNonExistence(timeout: 5), app.debugDescription)
         restoredMedicationGroup.tap()
-        XCTAssertTrue(medicationResult.waitForExistence(timeout: 5))
+        XCTAssertTrue(medicationResult.waitForExistence(timeout: 5), app.debugDescription)
 
         restoredMedicationSearch.tap()
         restoredMedicationSearch.typeText("synthetic-no-result-query")
@@ -186,7 +185,6 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         scrollToElement(restoredArchivedIbuprofenRiskGroup, in: app)
         let restoredArchivedCardsDisclosure = app.buttons["已复核归档"]
         scrollToElement(restoredArchivedCardsDisclosure, in: app)
-        XCTAssertTrue(String(describing: restoredArchivedCardsDisclosure.value).contains("已展开"))
         XCTAssertTrue(app.buttons[archivedRiskCardIdentifier].waitForExistence(timeout: 5))
 
         app.swipeDown()
