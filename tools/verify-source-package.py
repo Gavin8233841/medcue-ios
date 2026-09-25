@@ -97,9 +97,11 @@ def verify(zip_path: Path, digest_path: Path) -> dict[str, object]:
         data_by_path: dict[str, bytes] = {}
         total_size = 0
         for info in infos:
-            validate_path(info.filename, folded)
             if info.is_dir():
                 fail(f"directory entries are not allowed: {info.filename}")
+            validate_path(info.filename, folded)
+            if info.create_system != 3:
+                fail(f"unsupported ZIP creator platform for {info.filename}: {info.create_system}")
             if info.flag_bits & 0x1:
                 fail(f"encrypted ZIP entries are not allowed: {info.filename}")
             if info.compress_type != zipfile.ZIP_DEFLATED:
@@ -139,6 +141,11 @@ def verify(zip_path: Path, digest_path: Path) -> dict[str, object]:
         fail("manifest dependencyInventory must be an array")
     if not isinstance(manifest.get("assetInventory"), dict):
         fail("manifest assetInventory must be an object")
+    reproducibility = manifest.get("reproducibility")
+    if not isinstance(reproducibility, dict) or not isinstance(reproducibility.get("zlibVersion"), str) or not reproducibility["zlibVersion"]:
+        fail("manifest reproducibility.zlibVersion must be a non-empty string")
+    if reproducibility.get("sameTreeSameBytes") != "requires the same zlib version and ZIP settings":
+        fail("manifest reproducibility policy is missing or unsupported")
     dependency_inventory = manifest["dependencyInventory"]
     if not dependency_inventory:
         fail("manifest dependencyInventory must not be empty")
