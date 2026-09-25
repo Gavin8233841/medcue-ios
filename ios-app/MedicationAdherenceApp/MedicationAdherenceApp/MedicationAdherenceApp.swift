@@ -15,9 +15,16 @@ struct MedicationAdherenceApp: App {
     @AppStorage("appColorSchemePreference") private var appColorSchemePreference = AppColorSchemePreference.system.rawValue
 
     init() {
+        #if DEBUG
+        let usesInMemoryUITestStore = ProcessInfo.processInfo.arguments.contains("--ui-testing-in-memory-store")
+        #else
+        let usesInMemoryUITestStore = false
+        #endif
         let isPersistentStoreAvailable: Bool
         do {
-            modelContainer = try MedicationAdherenceModelContainer.make()
+            modelContainer = try MedicationAdherenceModelContainer.make(
+                isStoredInMemoryOnly: usesInMemoryUITestStore
+            )
             persistenceStartupFailure = nil
             isPersistentStoreAvailable = true
             MedicationNotificationDelegate.shared.install(modelContainer: modelContainer)
