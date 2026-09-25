@@ -354,7 +354,10 @@ PY
     fixture_expect_success 'HTTP and HTTPS URLs are not drive paths'
 
     fixture_reset_index
-    printf 'const schemes = ["x-y:/resource", "x.y:/resource", "x+y:/resource"];\n' >"$fixture/tools/fixture-other-schemes.js"
+    printf 'const schemes = ["%s", "%s", "%s"];\n' \
+        "$(printf '%s%s%s' x- y ':/resource')" \
+        "$(printf '%s%s%s' x. y ':/resource')" \
+        "$(printf '%s%s%s' x+ y ':/resource')" >"$fixture/tools/fixture-other-schemes.js"
     fixture_stage tools/fixture-other-schemes.js
     fixture_expect_success 'legal URI schemes are not drive paths'
 
