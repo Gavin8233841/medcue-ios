@@ -167,48 +167,6 @@ enum MedicationReminderCancellationReadback {
     }
 }
 
-struct MedicationReminderCancellationTargets {
-    let notificationIDs: Set<String>
-    let deliveredNotificationIDsToRemove: Set<String>
-    let alarmIDs: Set<UUID>
-
-    init(
-        taskIDs: Set<UUID>,
-        pendingNotificationIDs: Set<String>,
-        deliveredNotificationIDs: Set<String> = [],
-        existingAlarmIDs: Set<UUID>,
-        pruneAllReminders: Bool,
-        preserveBaseForTaskIDs: Set<UUID>,
-        preservedDeliveredNotificationIDs: Set<String> = [],
-        replacePreviouslyDisplayedContent: Bool = false
-    ) {
-        var notifications = Set(taskIDs.flatMap {
-            [MedicationReminderSystemIdentifiers.baseNotification(for: $0),
-             MedicationReminderSystemIdentifiers.escalationNotification(for: $0)]
-        })
-        var alarms = Set(taskIDs.flatMap {
-            [$0, MedicationReminderSystemIdentifiers.escalationAlarm(for: $0)]
-        })
-        var deliveredToRemove = notifications
-        if pruneAllReminders {
-            notifications.formUnion(pendingNotificationIDs.filter { $0.hasPrefix("dose.") })
-            deliveredToRemove.formUnion(deliveredNotificationIDs.filter { $0.hasPrefix("dose.") })
-            // AlarmKit is currently used only for medication reminders in this app.
-            alarms.formUnion(existingAlarmIDs)
-        }
-        if !replacePreviouslyDisplayedContent {
-            notifications.subtract(preserveBaseForTaskIDs.map {
-                MedicationReminderSystemIdentifiers.baseNotification(for: $0)
-            })
-            alarms.subtract(preserveBaseForTaskIDs)
-            deliveredToRemove.subtract(preservedDeliveredNotificationIDs)
-        }
-        notificationIDs = notifications
-        deliveredNotificationIDsToRemove = deliveredToRemove
-        alarmIDs = alarms
-    }
-}
-
 enum MedicationReminderRequestTiming {
     static func hasIncompleteResult(
         _ results: [UUID: MedicationReminderSchedulingResult]
