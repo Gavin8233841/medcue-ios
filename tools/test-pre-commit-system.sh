@@ -22,8 +22,16 @@ done
 [[ -x "$CHECKER" ]] || fail "checker is not executable: $CHECKER"
 [[ -x "$INSTALLER" ]] || fail "installer is not executable: $INSTALLER"
 
-command -v python3 >/dev/null 2>&1 || fail "python3 is required for configuration validation"
-python3 -m json.tool "$CONFIG_FILE" >/dev/null
+PYTHON_BIN=''
+for candidate in python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1 &&
+        "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)' >/dev/null 2>&1; then
+        PYTHON_BIN="$(command -v "$candidate")"
+        break
+    fi
+done
+[[ -n "$PYTHON_BIN" ]] || fail "Python 3.8 or newer is required for configuration validation"
+"$PYTHON_BIN" -m json.tool "$CONFIG_FILE" >/dev/null
 
 bash -n "$CHECKER"
 bash -n "$INSTALLER"
@@ -57,6 +65,7 @@ run_fixture_boundary_tests() (
     local temp_root fixture fixture_physical fixture_index output hook_path backup_count
     local absolute_hooks absolute_hook_path linked_fixture shared_custom_hooks textconv_script textconv_marker fake_local_path
     local symlink_hooks symlink_target absolute_symlink_hooks absolute_symlink_target fake_bin
+    local python_fallback_bin crlf_site windows_bin windows_hooks windows_drive_hooks real_git
     local external_hooks_parent external_hooks_link conflict_sha hardlink_hooks hardlink_target
     local synthetic_marker fixture_output ambient_global ambient_system scope_hooks type_blob
     temp_root="${TMPDIR:-/tmp}"
@@ -165,7 +174,7 @@ run_fixture_boundary_tests() (
 
     fixture_policy_variant() {
         local variant="$1"
-        python3 - "$fixture/tools/pre-commit-checks.json" "$variant" <<'PY'
+        "$PYTHON_BIN" - "$fixture/tools/pre-commit-checks.json" "$variant" <<'PY'
 import json
 import sys
 
@@ -194,7 +203,7 @@ PY
     }
 
     fixture_builder_drift() {
-        python3 - "$fixture/tools/build-source-package.py" <<'PY'
+        "$PYTHON_BIN" - "$fixture/tools/build-source-package.py" <<'PY'
 import sys
 
 path = sys.argv[1]
@@ -210,7 +219,7 @@ PY
     }
 
     fixture_builder_empty_prefix() {
-        python3 - "$fixture/tools/build-source-package.py" <<'PY'
+        "$PYTHON_BIN" - "$fixture/tools/build-source-package.py" <<'PY'
 import sys
 
 path = sys.argv[1]
@@ -230,7 +239,7 @@ PY
         if fixture_check >"$fixture_output" 2>&1; then
             fail "fixture unexpectedly passed: $label"
         fi
-        python3 - "$fixture_output" "$synthetic_marker" <<'PY'
+        "$PYTHON_BIN" - "$fixture_output" "$synthetic_marker" <<'PY'
 import pathlib
 import sys
 
@@ -302,6 +311,45 @@ PY
     fixture_stage tools/fixture-plus.txt
     fixture_expect_failure 'leading-plus absolute path' 'absolute local path in added staged content'
 
+    fixture_reset_index
+    printf 'const endpoints = ["http://127.0.0.1", "https://127.0.0.1:8787/v1"];\n' >"$fixture/tools/fixture-url.js"
+    fixture_stage tools/fixture-url.js
+    fixture_expect_success 'HTTP and HTTPS URLs are not drive paths'
+
+    fixture_reset_index
+    printf 'const local = "%s";\n' "$(printf '%s%s' C ':/Synthetic/fixture.txt')" >"$fixture/tools/fixture-drive.js"
+    fixture_stage tools/fixture-drive.js
+    fixture_expect_failure 'quoted Windows drive path' 'rule=windows-drive-root'
+
+    fixture_reset_index
+    printf 'const values = ["https://127.0.0.1/v1", "%s"];\n' "$(printf '%s%s' D ':/Synthetic/fixture.txt')" >"$fixture/tools/fixture-url-and-drive.js"
+    fixture_stage tools/fixture-url-and-drive.js
+    fixture_expect_failure 'URL does not hide a drive path on the same line' 'rule=windows-drive-root'
+
+    python_fallback_bin="$fixture/fake-python-bin"
+    mkdir -p "$python_fallback_bin"
+    printf '%s\n' '#!/bin/sh' 'exit 1' >"$python_fallback_bin/python3"
+    printf '%s\n' '#!/usr/bin/env bash' 'exec "$MEDCUE_TEST_VALID_PYTHON" "$@"' >"$python_fallback_bin/python"
+    chmod +x "$python_fallback_bin/python3" "$python_fallback_bin/python"
+    fixture_reset_index
+    printf 'const safe = true;\n' >"$fixture/tools/fixture-python-fallback.js"
+    fixture_stage tools/fixture-python-fallback.js
+    MEDCUE_TEST_VALID_PYTHON="$PYTHON_BIN" PATH="$python_fallback_bin:$PATH" \
+        fixture_expect_success 'working python is selected after broken python3 alias'
+
+    crlf_site="$fixture/fake-crlf-site"
+    mkdir -p "$crlf_site"
+    cat >"$crlf_site/sitecustomize.py" <<'PY'
+import io
+import sys
+
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", newline="\r\n", write_through=True)
+PY
+    fixture_reset_index
+    printf 'const safe = true;\n' >"$fixture/tools/fixture-crlf-policy.js"
+    fixture_stage tools/fixture-crlf-policy.js
+    PYTHONPATH="$crlf_site" fixture_expect_success 'policy records remain LF under CRLF text stdout'
+
     fake_bin="$fixture/fake-bin"
     mkdir -p "$fake_bin"
     printf '%s\n' '#!/bin/sh' 'exit 0' >"$fake_bin/grep"
@@ -310,7 +358,7 @@ PY
     printf '%s %s\n' "$fake_local_path" "$synthetic_marker" >"$fixture/tools/fixture-fake-grep.txt"
     fixture_stage tools/fixture-fake-grep.txt
     if ! PATH="$fake_bin:$PATH" fixture_check >"$fixture_output" 2>&1; then
-        python3 - "$fixture_output" "$synthetic_marker" <<'PY'
+        "$PYTHON_BIN" - "$fixture_output" "$synthetic_marker" <<'PY'
 import pathlib
 import sys
 
@@ -468,6 +516,53 @@ PY
     fi
     [[ ! -e "$fixture/pre-commit" ]] || fail 'symlinked-root hooks path check created a repository-root hook'
     printf '[PASS] installer rejects a symlinked path resolving to the repository root\n'
+
+    windows_bin="$fixture/fake-windows-bin"
+    windows_hooks="$fixture/.windows-hooks"
+    windows_drive_hooks="$(printf '%s%s' D ':/hooks')"
+    real_git="$(command -v git)"
+    mkdir -p "$windows_bin"
+    cat >"$windows_bin/git" <<'SH'
+#!/usr/bin/env bash
+if [[ $# -eq 6 && "$3" == rev-parse && "$5" == --git-path && "$6" == hooks ]]; then
+    printf '%s%s\n' D ':/hooks'
+else
+    exec "$MEDCUE_TEST_REAL_GIT" "$@"
+fi
+SH
+    cat >"$windows_bin/cygpath" <<'SH'
+#!/usr/bin/env bash
+[[ $# -eq 2 && "$1" == -u && "$2" == "$(printf '%s%s' D ':/hooks')" ]] || exit 1
+printf '%s\n' "$MEDCUE_TEST_WINDOWS_HOOKS"
+SH
+    chmod +x "$windows_bin/git" "$windows_bin/cygpath"
+    git -C "$fixture" config core.hooksPath "$windows_drive_hooks"
+    [[ ! -e "$windows_hooks" ]] || fail 'synthetic Windows hooks directory unexpectedly exists before check'
+    if output="$(cd /tmp && PATH="$windows_bin:$PATH" MEDCUE_TEST_REAL_GIT="$real_git" MEDCUE_TEST_WINDOWS_HOOKS="$windows_hooks" "$fixture/tools/install-hooks.sh" --check 2>&1)"; then
+        fail 'synthetic Windows drive hooks path unexpectedly passed before installation'
+    fi
+    [[ ! -e "$windows_hooks" ]] || fail 'Windows drive --check created the hooks directory'
+    if ! output="$(cd /tmp && PATH="$windows_bin:$PATH" MEDCUE_TEST_REAL_GIT="$real_git" MEDCUE_TEST_WINDOWS_HOOKS="$windows_hooks" "$fixture/tools/install-hooks.sh" 2>&1)"; then
+        printf '%s\n' "$output" >&2
+        fail 'installer did not normalize a Windows drive hooks path'
+    fi
+    if ! output="$(cd /tmp && PATH="$windows_bin:$PATH" MEDCUE_TEST_REAL_GIT="$real_git" MEDCUE_TEST_WINDOWS_HOOKS="$windows_hooks" "$fixture/tools/install-hooks.sh" --check 2>&1)"; then
+        printf '%s\n' "$output" >&2
+        fail 'installed Windows drive hooks path did not pass --check'
+    fi
+    [[ -f "$windows_hooks/pre-commit" ]] || fail 'normalized Windows drive hook was not installed'
+    [[ ! -e "$fixture/$windows_drive_hooks/pre-commit" ]] || fail 'installer used a repository-relative D: path'
+    printf '%s\n' '#!/bin/sh' 'printf "%s\\n" relative-hooks' >"$windows_bin/cygpath"
+    chmod +x "$windows_bin/cygpath"
+    if output="$(cd /tmp && PATH="$windows_bin:$PATH" MEDCUE_TEST_REAL_GIT="$real_git" MEDCUE_TEST_WINDOWS_HOOKS="$windows_hooks" "$fixture/tools/install-hooks.sh" --check 2>&1)"; then
+        fail 'non-absolute cygpath output unexpectedly passed installer --check'
+    fi
+    if ! printf '%s\n' "$output" | grep -Fq -- 'normalized Git hooks drive path is not absolute'; then
+        printf '%s\n' "$output" >&2
+        fail 'non-absolute cygpath rejection was not explicit'
+    fi
+    git -C "$fixture" config --unset-all core.hooksPath
+    printf '[PASS] installer normalizes Windows drive hooks paths for install and --check\n'
 
     absolute_hooks="$fixture/.absolute-hooks"
     git -C "$fixture" config core.hooksPath "$absolute_hooks"

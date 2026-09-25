@@ -42,11 +42,15 @@ fi
 ROOT_DIR="$(cd "$ROOT_DIR" && pwd -P)"
 cd "$ROOT_DIR"
 
-PYTHON_BIN="$(command -v python3 || command -v python || true)"
-[[ -n "$PYTHON_BIN" ]] || fail "Python 3 is required to read the checked-in allowlist configuration"
-if ! "$PYTHON_BIN" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)' >/dev/null 2>&1; then
-    fail "Python 3.8 or newer is required to read the checked-in allowlist configuration"
-fi
+PYTHON_BIN=''
+for candidate in python3 python; do
+    if command -v "$candidate" >/dev/null 2>&1 &&
+        "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 8) else 1)' >/dev/null 2>&1; then
+        PYTHON_BIN="$(command -v "$candidate")"
+        break
+    fi
+done
+[[ -n "$PYTHON_BIN" ]] || fail "Python 3.8 or newer is required to read the checked-in allowlist configuration"
 
 temporary_root="$(mktemp -d "${TMPDIR:-/tmp}/medcue-precommit.XXXXXX")"
 report_temporary_files() {
@@ -78,6 +82,11 @@ import json
 import re
 import sys
 
+def emit_record(kind, value):
+    # Binary stdout avoids Windows text-mode CRLF translation. Bash reads the
+    # policy records as LF-delimited fields on every supported host.
+    sys.stdout.buffer.write(f"{kind}\t{value}\n".encode("utf-8"))
+
 policy_path, source_package_path = sys.argv[1:3]
 try:
     with open(policy_path, encoding="utf-8") as handle:
@@ -98,7 +107,7 @@ patterns = {
     "posix-home-root": r"/(?:home)/",
     "posix-private-root": r"/(?:private)/",
     "posix-volumes-root": r"/(?:Volumes)/",
-    "windows-drive-root": r"[A-Za-z]:[\\/]",
+    "windows-drive-root": r"(?<![A-Za-z0-9])[A-Za-z]:[\\/]",
 }
 pattern_ids = policy.get("absolutePathPatterns")
 if not isinstance(pattern_ids, list) or not pattern_ids or any(not isinstance(item, str) for item in pattern_ids):
@@ -110,7 +119,7 @@ for pattern_id in pattern_ids:
         pattern = patterns[pattern_id]
     except KeyError as exc:
         raise SystemExit("unknown absolute path pattern id") from exc
-    print(f"absolute\t{pattern_id}\t{pattern}")
+    emit_record("absolute", f"{pattern_id}\t{pattern}")
 
 syntax_parsers = {
     ".js": "javascript",
@@ -131,7 +140,7 @@ for extension in syntax_extensions:
         raise SystemExit("invalid syntax extension")
     if extension not in syntax_parsers:
         raise SystemExit("unsupported syntax extension")
-    print(f"syntax\t{extension}")
+    emit_record("syntax", extension)
 
 def assignment_value(module, name):
     matches = []
@@ -201,9 +210,9 @@ if set(config_roots) != set(builder_roots):
 if set(config_prefixes) != set(builder_prefixes):
     raise SystemExit("source-package prefix policy drift; align the two staged policies")
 for path in config_roots:
-    print(f"root\t{path}")
+    emit_record("root", path)
 for prefix in config_prefixes:
-    print(f"prefix\t{prefix}")
+    emit_record("prefix", prefix)
 PY
 
 mv "$records_file" "$policy_file"

@@ -22,6 +22,18 @@ fail() {
     exit 2
 }
 
+normalize_git_path() {
+    local path="$1"
+    if [[ "$path" =~ ^[A-Za-z]:[/\\] ]]; then
+        command -v cygpath >/dev/null 2>&1 || fail 'Git returned a Windows drive path but cygpath is unavailable'
+        path="$(cygpath -u "$path")" || fail 'cannot normalize the Git hooks drive path'
+        [[ "$path" == /* ]] || fail 'normalized Git hooks drive path is not absolute'
+    elif [[ "$path" =~ ^[A-Za-z]: ]]; then
+        fail 'refusing a drive-relative Git hooks path'
+    fi
+    printf '%s\n' "$path"
+}
+
 CONFIGURED_HOOKS_PATH=''
 # Keep the NUL-delimited scope/origin/value fields separate, including empty
 # values. A command failure must not be mistaken for an unset hooks path.
@@ -38,7 +50,7 @@ if [[ ${#hooks_config_fields[@]} -eq 4 && "${hooks_config_fields[3]}" == 0 ]]; t
         local|worktree) ;;
         *) fail 'refusing core.hooksPath from global, system, command, or unknown scope; configure a repository-local or worktree-specific path explicitly' ;;
     esac
-    CONFIGURED_HOOKS_PATH="${hooks_config_fields[2]}"
+    CONFIGURED_HOOKS_PATH="$(normalize_git_path "${hooks_config_fields[2]}")"
     case "$CONFIGURED_HOOKS_PATH" in
         *[[:cntrl:]]*)
             fail 'Git hooks path contains a control character'
@@ -54,6 +66,9 @@ if ! REPO_GIT_DIR="$(git -C "$ROOT_DIR" rev-parse --path-format=absolute --git-d
     ! COMMON_GIT_DIR="$(git -C "$ROOT_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; then
     fail "cannot resolve Git worktree directories for $ROOT_DIR"
 fi
+HOOKS_PATH="$(normalize_git_path "$HOOKS_PATH")"
+REPO_GIT_DIR="$(normalize_git_path "$REPO_GIT_DIR")"
+COMMON_GIT_DIR="$(normalize_git_path "$COMMON_GIT_DIR")"
 
 case "$HOOKS_PATH" in
     ''|.|./|"$ROOT_DIR")
