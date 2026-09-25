@@ -9,7 +9,7 @@ protocol LocalMedicalGenerating: Sendable {
         prompt: String,
         modelURL: URL,
         maxTokens: Int
-    ) async -> LocalMedicalGenerationStream
+    ) -> LocalMedicalGenerationStream
 }
 
 struct LocalMedicalGenerationStream: Sendable {
@@ -32,6 +32,8 @@ struct LocalMedicalGenerationStream: Sendable {
 actor LocalMedicalModelRuntime: LocalMedicalGenerating {
     static let shared = LocalMedicalModelRuntime()
 
+    private init() {}
+
     static var isAvailable: Bool {
         #if canImport(llama)
         true
@@ -44,57 +46,63 @@ actor LocalMedicalModelRuntime: LocalMedicalGenerating {
         Self.isAvailable
     }
 
-    func generateResponse(prompt: String, modelURL: URL, maxTokens: Int) async throws -> String {
-        #if canImport(llama)
+    nonisolated func generateResponse(prompt: String, modelURL: URL, maxTokens: Int) async throws -> String {
+        let cancellationSignal = LlamaCancellationSignal()
         do {
-            try Task.checkCancellation()
-            let context = try LlamaCppContext(modelURL: modelURL)
-            let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedPrompt.isEmpty else {
-                throw LocalMedicalAIError.emptyResponse
-            }
-            let response = try context.generate(prompt: trimmedPrompt, maxTokens: maxTokens)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !response.isEmpty else {
-                throw LocalMedicalAIError.emptyResponse
-            }
-            return response
+            return try await withTaskCancellationHandler(operation: {
+                let response = try await runGeneration(
+                    prompt: prompt,
+                    modelURL: modelURL,
+                    maxTokens: maxTokens,
+                    cancellationSignal: cancellationSignal
+                )
+                try cancellationSignal.checkCancellation()
+                let trimmedResponse = response.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmedResponse.isEmpty else {
+                    throw LocalMedicalAIError.emptyResponse
+                }
+                return trimmedResponse
+            }, onCancel: {
+                cancellationSignal.cancel()
+            })
         } catch {
-            if Task.isCancelled {
+            if Task.isCancelled || cancellationSignal.isCancelled {
                 throw CancellationError()
             }
             throw error
         }
-        #else
-        try Task.checkCancellation()
-        throw LocalMedicalAIError.runtimeUnavailable
-        #endif
     }
 
-    func generateResponseStream(prompt: String, modelURL: URL, maxTokens: Int) -> LocalMedicalGenerationStream {
+    // Return the cancellation handle without waiting for the native actor.
+    // Only runGeneration creates and releases llama contexts, so a cancelled
+    // request and its immediate retry cannot overlap backend init/free.
+    nonisolated func generateResponseStream(prompt: String, modelURL: URL, maxTokens: Int) -> LocalMedicalGenerationStream {
         let (stream, continuation) = AsyncThrowingStream<String, Error>.makeStream()
+        let cancellationSignal = LlamaCancellationSignal()
+        if Task.isCancelled {
+            cancellationSignal.cancel()
+        }
         let worker = Task {
             do {
-                try Task.checkCancellation()
-                #if canImport(llama)
-                let context = try LlamaCppContext(modelURL: modelURL)
-                let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmedPrompt.isEmpty else {
-                    throw LocalMedicalAIError.emptyResponse
-                }
-                _ = try context.generate(prompt: trimmedPrompt, maxTokens: maxTokens) { delta in
-                    guard !delta.isEmpty, !Task.isCancelled else {
-                        return
+                try await withTaskCancellationHandler(operation: {
+                    _ = try await self.runGeneration(
+                        prompt: prompt,
+                        modelURL: modelURL,
+                        maxTokens: maxTokens,
+                        cancellationSignal: cancellationSignal
+                    ) { delta in
+                        guard !delta.isEmpty, !cancellationSignal.isCancelled else {
+                            return
+                        }
+                        continuation.yield(delta)
                     }
-                    continuation.yield(delta)
-                }
-                try Task.checkCancellation()
-                continuation.finish()
-                #else
-                throw LocalMedicalAIError.runtimeUnavailable
-                #endif
+                    try cancellationSignal.checkCancellation()
+                    continuation.finish()
+                }, onCancel: {
+                    cancellationSignal.cancel()
+                })
             } catch {
-                if Task.isCancelled {
+                if Task.isCancelled || cancellationSignal.isCancelled {
                     continuation.finish(throwing: CancellationError())
                 } else {
                     continuation.finish(throwing: error)
@@ -102,16 +110,77 @@ actor LocalMedicalModelRuntime: LocalMedicalGenerating {
             }
         }
         continuation.onTermination = { @Sendable _ in
+            cancellationSignal.cancel()
             worker.cancel()
         }
         return LocalMedicalGenerationStream(stream: stream) {
+            cancellationSignal.cancel()
             worker.cancel()
             continuation.finish(throwing: CancellationError())
+        }
+    }
+
+    // This actor-isolated operation intentionally has no suspension points.
+    // Cancellation reaches native callbacks through the thread-safe signal,
+    // not by scheduling another operation on this busy actor.
+    private func runGeneration(
+        prompt: String,
+        modelURL: URL,
+        maxTokens: Int,
+        cancellationSignal: LlamaCancellationSignal,
+        onToken: (@Sendable (String) -> Void)? = nil
+    ) throws -> String {
+        try cancellationSignal.checkCancellation()
+        #if canImport(llama)
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPrompt.isEmpty else {
+            throw LocalMedicalAIError.emptyResponse
+        }
+        let context = try LlamaCppContext(modelURL: modelURL, cancellationSignal: cancellationSignal)
+        return try context.generate(prompt: trimmedPrompt, maxTokens: maxTokens, onToken: onToken)
+        #else
+        throw LocalMedicalAIError.runtimeUnavailable
+        #endif
+    }
+}
+
+private final class LlamaCancellationSignal: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+
+    var isCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancelled
+    }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        lock.unlock()
+    }
+
+    func checkCancellation() throws {
+        try Task.checkCancellation()
+        if isCancelled {
+            throw CancellationError()
         }
     }
 }
 
 #if canImport(llama)
+private func llamaProgressCallback(_ progress: Float, _ userData: UnsafeMutableRawPointer?) -> Bool {
+    guard let userData else { return true }
+    let signal = Unmanaged<LlamaCancellationSignal>.fromOpaque(userData).takeUnretainedValue()
+    return !signal.isCancelled
+}
+
+private func llamaAbortCallback(_ userData: UnsafeMutableRawPointer?) -> Bool {
+    guard let userData else { return false }
+    let signal = Unmanaged<LlamaCancellationSignal>.fromOpaque(userData).takeUnretainedValue()
+    return signal.isCancelled
+}
+
 private final class LlamaCppContext {
     private var model: OpaquePointer
     private var context: OpaquePointer
@@ -119,19 +188,42 @@ private final class LlamaCppContext {
     private var sampler: UnsafeMutablePointer<llama_sampler>
     private var pendingUTF8Bytes: [CChar] = []
     private let contextLength = 2048
+    private let cancellationSignal: LlamaCancellationSignal
 
-    init(modelURL: URL) throws {
+    init(modelURL: URL, cancellationSignal: LlamaCancellationSignal) throws {
+        self.cancellationSignal = cancellationSignal
+        try cancellationSignal.checkCancellation()
         llama_backend_init()
 
         var modelParameters = llama_model_default_params()
+        modelParameters.progress_callback = llamaProgressCallback
+        modelParameters.progress_callback_user_data = Unmanaged.passUnretained(cancellationSignal).toOpaque()
         #if targetEnvironment(simulator)
         modelParameters.n_gpu_layers = 0
         #endif
 
         guard let loadedModel = llama_model_load_from_file(modelURL.path, modelParameters) else {
+            llama_backend_free()
+            try cancellationSignal.checkCancellation()
             throw LocalMedicalAIError.modelMissing
         }
-        model = loadedModel
+
+        // Until initialization succeeds, Swift will not call deinit. Keep
+        // ownership local so every cancellation/failure releases what exists.
+        var loadedContext: OpaquePointer?
+        var initialized = false
+        defer {
+            if !initialized {
+                withExtendedLifetime(cancellationSignal) {
+                    if let loadedContext {
+                        llama_free(loadedContext)
+                    }
+                    llama_model_free(loadedModel)
+                    llama_backend_free()
+                }
+            }
+        }
+        try cancellationSignal.checkCancellation()
 
         let threadCount = max(1, min(8, ProcessInfo.processInfo.processorCount - 2))
         var contextParameters = llama_context_default_params()
@@ -140,12 +232,20 @@ private final class LlamaCppContext {
         contextParameters.n_ubatch = min(contextParameters.n_ubatch, 512)
         contextParameters.n_threads = Int32(threadCount)
         contextParameters.n_threads_batch = Int32(threadCount)
+        // The bundled llama.h documents this hook for CPU execution only.
+        // GPU offload settings are unchanged; do not promise an in-flight
+        // Metal command will be interrupted by this callback.
+        contextParameters.abort_callback = llamaAbortCallback
+        contextParameters.abort_callback_data = Unmanaged.passUnretained(cancellationSignal).toOpaque()
 
-        guard let loadedContext = llama_init_from_model(loadedModel, contextParameters) else {
-            llama_model_free(loadedModel)
+        guard let createdContext = llama_init_from_model(loadedModel, contextParameters) else {
+            try cancellationSignal.checkCancellation()
             throw LocalMedicalAIError.runtimeUnavailable
         }
-        context = loadedContext
+        loadedContext = createdContext
+        try cancellationSignal.checkCancellation()
+        model = loadedModel
+        context = createdContext
         vocab = llama_model_get_vocab(loadedModel)
 
         let samplerParameters = llama_sampler_chain_default_params()
@@ -155,17 +255,22 @@ private final class LlamaCppContext {
         llama_sampler_chain_add(sampler, llama_sampler_init_penalties(128, 1.10, 0.02, 0.0))
         llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.40))
         llama_sampler_chain_add(sampler, llama_sampler_init_dist(42))
+        initialized = true
     }
 
     deinit {
-        llama_sampler_free(sampler)
-        llama_free(context)
-        llama_model_free(model)
-        llama_backend_free()
+        // Both native callbacks borrow this signal. Keep it alive until all
+        // native owners are gone, including during failure/cancel teardown.
+        withExtendedLifetime(cancellationSignal) {
+            llama_sampler_free(sampler)
+            llama_free(context)
+            llama_model_free(model)
+            llama_backend_free()
+        }
     }
 
     func generate(prompt: String, maxTokens: Int, onToken: ((String) -> Void)? = nil) throws -> String {
-        try Task.checkCancellation()
+        try cancellationSignal.checkCancellation()
         pendingUTF8Bytes.removeAll()
         llama_memory_clear(llama_get_memory(context), true)
         llama_sampler_reset(sampler)
@@ -183,7 +288,7 @@ private final class LlamaCppContext {
             throw LocalMedicalAIError.emptyResponse
         }
 
-        try Task.checkCancellation()
+        try cancellationSignal.checkCancellation()
         var promptTokensForDecode = promptTokens
         let promptDecodeStatus = promptTokensForDecode.withUnsafeMutableBufferPointer { tokens in
             let promptBatch = llama_batch_get_one(tokens.baseAddress, Int32(tokens.count))
@@ -191,15 +296,18 @@ private final class LlamaCppContext {
         }
 
         guard promptDecodeStatus == 0 else {
+            if promptDecodeStatus == 2 || cancellationSignal.isCancelled {
+                throw CancellationError()
+            }
             throw LocalMedicalAIError.runtimeUnavailable
         }
-        try Task.checkCancellation()
+        try cancellationSignal.checkCancellation()
 
         var output = ""
         for _ in 0..<tokenLimit {
-            try Task.checkCancellation()
+            try cancellationSignal.checkCancellation()
             let newToken = llama_sampler_sample(sampler, context, -1)
-            try Task.checkCancellation()
+            try cancellationSignal.checkCancellation()
             if llama_vocab_is_eog(vocab, newToken) {
                 output += flushPendingUTF8Bytes()
                 break
@@ -208,20 +316,24 @@ private final class LlamaCppContext {
             let piece = appendTokenPiece(newToken)
             output += piece
             onToken?(piece)
-            try Task.checkCancellation()
+            try cancellationSignal.checkCancellation()
             llama_sampler_accept(sampler, newToken)
             var tokenForDecode = newToken
             let tokenBatch = llama_batch_get_one(&tokenForDecode, 1)
 
-            guard llama_decode(context, tokenBatch) == 0 else {
+            let decodeStatus = llama_decode(context, tokenBatch)
+            guard decodeStatus == 0 else {
+                if decodeStatus == 2 || cancellationSignal.isCancelled {
+                    throw CancellationError()
+                }
                 throw LocalMedicalAIError.runtimeUnavailable
             }
-            try Task.checkCancellation()
+            try cancellationSignal.checkCancellation()
         }
 
-        try Task.checkCancellation()
+        try cancellationSignal.checkCancellation()
         output += flushPendingUTF8Bytes()
-        try Task.checkCancellation()
+        try cancellationSignal.checkCancellation()
         return output
     }
 

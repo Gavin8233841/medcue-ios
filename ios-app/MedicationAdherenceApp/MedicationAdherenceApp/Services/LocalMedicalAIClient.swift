@@ -60,7 +60,8 @@ struct LocalMedicalAIClient: MedicalAIClient {
                     try Task.checkCancellation()
                     try await emit(.generationStarted)
                     try await emit(.modelLoading)
-                    let generation = await runtime.generateResponseStream(
+                    // Own cancellation before any runtime preparation can suspend.
+                    let generation = runtime.generateResponseStream(
                         prompt: prompt,
                         modelURL: modelURL,
                         maxTokens: MedicalAIExecutionPolicy.default.streamingResponseTokenLimit

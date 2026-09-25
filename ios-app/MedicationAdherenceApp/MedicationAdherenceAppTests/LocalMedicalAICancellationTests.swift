@@ -1,5 +1,6 @@
 import Foundation
 import MedicationAdherenceCore
+import os
 import Testing
 @testable import MedicationAdherenceApp
 
@@ -92,31 +93,74 @@ struct LocalMedicalAICancellationTests {
     }
 
     @Test
-    func cancellationAfterRuntimeStreamCreationBeforeConsumptionTerminatesRuntime() async {
-        let returnGate = StreamReturnGate()
-        let runtime = CancellationFakeRuntime(
-            plans: [
-                StreamPlan(
-                    initialDelay: .seconds(5),
-                    deltas: ["<answer>不应继续生成。</answer>"]
-                )
-            ],
-            returnGate: returnGate
-        )
+    func cancellationDuringRuntimePreparationReleasesProducer() async throws {
+        let preparationGate = CancellationPreparationGate()
+        let runtime = CancellationFakeRuntime(plans: [
+            StreamPlan(
+                deltas: ["<answer>不应继续生成。</answer>"],
+                preparationGate: preparationGate
+            )
+        ])
         let client = LocalMedicalAIClient(
             modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"),
             runtime: runtime
         )
         let collector = EventCollector()
         let consumer = consume(client: client, into: collector)
+        defer {
+            consumer.cancel()
+            // Failure-only safety net: all acceptance assertions run before
+            // this cleanup, so it cannot make the cancellation test pass.
+            preparationGate.cancel()
+        }
 
-        #expect(await waitUntil { await runtime.streamCallCount == 1 })
+        try #require(await waitUntil { preparationGate.isWaiting })
+        #expect(await runtime.activeProducerCount == 1)
+        #expect(await runtime.generationStartCount == 0)
         consumer.cancel()
-        await returnGate.open()
+        try #require(await waitUntil { await runtime.producerExitCount == 1 })
         await consumer.value
 
+        #expect(preparationGate.cancellationResumeCount == 1)
+        #expect(!preparationGate.isWaiting)
+        #expect(await runtime.activeProducerCount == 0)
+        #expect(await runtime.generationStartCount == 0)
+        #expect(await collector.answerDeltaCount == 0)
         #expect(await collector.failureCount == 0)
         #expect(await collector.completionCount == 0)
+        #expect(await waitUntil { await runtime.terminationCount == 1 })
+    }
+
+    @Test
+    func cancellingDeliveredHandleBeforeConsumptionReleasesPreparation() async throws {
+        let preparationGate = CancellationPreparationGate()
+        let runtime = CancellationFakeRuntime(plans: [
+            StreamPlan(
+                deltas: ["<answer>不应继续生成。</answer>"],
+                preparationGate: preparationGate
+            )
+        ])
+        let generator: any LocalMedicalGenerating = runtime
+        // Calling through the protocol must deliver a handle synchronously,
+        // even while the worker will be waiting for preparation to finish.
+        let generation = generator.generateResponseStream(
+            prompt: "仅用于取消测试。",
+            modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"),
+            maxTokens: 1
+        )
+        defer {
+            generation.cancel()
+            preparationGate.cancel()
+        }
+
+        try #require(await waitUntil { preparationGate.isWaiting })
+        generation.cancel()
+        try #require(await waitUntil { await runtime.producerExitCount == 1 })
+
+        #expect(preparationGate.cancellationResumeCount == 1)
+        #expect(!preparationGate.isWaiting)
+        #expect(await runtime.activeProducerCount == 0)
+        #expect(await runtime.generationStartCount == 0)
         #expect(await waitUntil { await runtime.terminationCount == 1 })
     }
 
@@ -269,8 +313,11 @@ struct LocalMedicalAICancellationTests {
         await consumer.value
 
         #expect(await waitUntil { await runtime.terminationCount == 1 })
+        #expect(await waitUntil { await runtime.producerExitCount == 1 })
         try? await Task.sleep(for: .milliseconds(200))
         #expect(await runtime.terminationCount == 1)
+        #expect(await runtime.producerExitCount == 1)
+        #expect(await runtime.activeProducerCount == 0)
         #expect(await runtime.streamCallCount == 1)
     }
 
@@ -290,44 +337,63 @@ struct LocalMedicalAICancellationTests {
         #expect(await collector.failureCount == 0)
         #expect(await collector.completionCount == 1)
         #expect(await waitUntil { await runtime.terminationCount == 1 })
+        #expect(await waitUntil { await runtime.producerExitCount == 1 })
         try? await Task.sleep(for: .milliseconds(100))
         #expect(await runtime.terminationCount == 1)
+        #expect(await runtime.producerExitCount == 1)
+        #expect(await runtime.activeProducerCount == 0)
     }
 
     @Test
-    func cancelThenImmediateRetryCompletesNewRequestIndependently() async {
-        let runtime = CancellationFakeRuntime(plans: [
-            StreamPlan(
-                initialDelay: .milliseconds(150),
-                deltas: ["<answer>旧请求", "不应该", "完成。</answer>"],
-                gap: .milliseconds(150)
-            ),
-            StreamPlan(deltas: ["<answer>今天可以核对提醒并及时记录处理情况。</answer>"])
-        ])
+    func cancelThenImmediateRetryCompletesNewRequestIndependently() async throws {
+        let preparationGates = (0..<3).map { _ in CancellationPreparationGate() }
+        let runtime = CancellationFakeRuntime(plans: preparationGates.flatMap { preparationGate in
+            [
+                StreamPlan(
+                    deltas: ["<answer>旧请求不应该完成。</answer>"],
+                    preparationGate: preparationGate
+                ),
+                StreamPlan(deltas: ["<answer>今天可以核对提醒并及时记录处理情况。</answer>"])
+            ]
+        })
         let client = LocalMedicalAIClient(
             modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"),
             runtime: runtime
         )
-        let staleCollector = EventCollector()
-        let retryCollector = EventCollector()
+        for (index, preparationGate) in preparationGates.enumerated() {
+            let staleCollector = EventCollector()
+            let retryCollector = EventCollector()
+            let staleConsumer = consume(client: client, into: staleCollector)
+            defer {
+                staleConsumer.cancel()
+                preparationGate.cancel()
+            }
 
-        let staleConsumer = consume(client: client, into: staleCollector)
-        // Wait until the stale request has actually reached the runtime so the
-        // cancel below cannot race ahead of the first stream creation.
-        #expect(await waitUntil { await runtime.streamCallCount >= 1 })
-        staleConsumer.cancel()
+            try #require(await waitUntil { preparationGate.isWaiting })
+            staleConsumer.cancel()
+            // Start the retry before joining the cancelled consumer or worker.
+            let retryConsumer = consume(client: client, into: retryCollector)
+            defer { retryConsumer.cancel() }
+            try #require(await waitUntil { await retryCollector.completionCount == 1 })
+            try #require(await waitUntil { await runtime.producerExitCount == (index + 1) * 2 })
+            await staleConsumer.value
+            await retryConsumer.value
 
-        let retryConsumer = consume(client: client, into: retryCollector)
-        await staleConsumer.value
-        await retryConsumer.value
-
-        #expect(await staleCollector.completionCount == 0)
-        #expect(await staleCollector.failureCount == 0)
-        #expect(await retryCollector.failureCount == 0)
-        let completions = await retryCollector.completions
-        #expect(completions.count == 1)
-        #expect(completions.first?.answer.contains("核对提醒") == true)
-        #expect(await runtime.streamCallCount == 2)
+            #expect(preparationGate.cancellationResumeCount == 1)
+            #expect(!preparationGate.isWaiting)
+            #expect(await runtime.activeProducerCount == 0)
+            #expect(await staleCollector.answerDeltaCount == 0)
+            #expect(await staleCollector.completionCount == 0)
+            #expect(await staleCollector.failureCount == 0)
+            #expect(await retryCollector.failureCount == 0)
+            let completions = await retryCollector.completions
+            #expect(completions.count == 1)
+            #expect(completions.first?.answer.contains("核对提醒") == true)
+        }
+        #expect(await runtime.streamCallCount == 6)
+        #expect(await runtime.producerExitCount == 6)
+        #expect(await runtime.generationStartCount == 3)
+        #expect(await waitUntil { await runtime.terminationCount == 6 })
         #expect(await runtime.generateResponseCallCount == 0)
     }
 
@@ -426,21 +492,23 @@ private struct StreamPlan: Sendable {
     var gap: Duration = .zero
     var failure: Failure = .none
     var ignoreCancellation = false
+    var preparationGate: CancellationPreparationGate?
 }
 
-/// Scripted `LocalMedicalGenerating` seam. Each streaming call dequeues one
-/// plan; termination of the returned stream is recorded so tests can prove
-/// the client tears the runtime worker down exactly once.
+/// Scripted `LocalMedicalGenerating` seam. The handle is delivered before
+/// the worker enters this actor and dequeues its plan. Stream termination and
+/// actual worker exit are counted separately; neither proves llama teardown.
 private actor CancellationFakeRuntime: LocalMedicalGenerating {
     private var plans: [StreamPlan]
-    private let returnGate: StreamReturnGate?
     private(set) var streamCallCount = 0
     private(set) var terminationCount = 0
+    private(set) var activeProducerCount = 0
+    private(set) var producerExitCount = 0
+    private(set) var generationStartCount = 0
     private(set) var generateResponseCallCount = 0
 
-    init(plans: [StreamPlan], returnGate: StreamReturnGate? = nil) {
+    init(plans: [StreamPlan]) {
         self.plans = plans
-        self.returnGate = returnGate
     }
 
     func generateResponse(prompt: String, modelURL: URL, maxTokens: Int) async throws -> String {
@@ -448,15 +516,43 @@ private actor CancellationFakeRuntime: LocalMedicalGenerating {
         throw LocalMedicalAIError.unstableResponse
     }
 
-    func generateResponseStream(
+    nonisolated func generateResponseStream(
         prompt: String,
         modelURL: URL,
         maxTokens: Int
-    ) async -> LocalMedicalGenerationStream {
-        streamCallCount += 1
-        let plan = plans.isEmpty ? StreamPlan() : plans.removeFirst()
+    ) -> LocalMedicalGenerationStream {
         let (stream, continuation) = AsyncThrowingStream<String, Error>.makeStream()
         let producer = Task {
+            await self.produce(into: continuation)
+        }
+        continuation.onTermination = { @Sendable _ in
+            producer.cancel()
+            Task {
+                await self.recordTermination()
+            }
+        }
+        return LocalMedicalGenerationStream(stream: stream) {
+            producer.cancel()
+            continuation.finish(throwing: CancellationError())
+        }
+    }
+
+    private func produce(into continuation: AsyncThrowingStream<String, Error>.Continuation) async {
+        streamCallCount += 1
+        let plan = plans.isEmpty ? StreamPlan() : plans.removeFirst()
+        activeProducerCount += 1
+        defer {
+            activeProducerCount -= 1
+            producerExitCount += 1
+        }
+        do {
+            if let preparationGate = plan.preparationGate {
+                try await preparationGate.wait()
+            }
+            if !plan.ignoreCancellation {
+                try Task.checkCancellation()
+            }
+            generationStartCount += 1
             if plan.initialDelay > .zero {
                 try? await Task.sleep(for: plan.initialDelay)
             }
@@ -477,25 +573,69 @@ private actor CancellationFakeRuntime: LocalMedicalGenerating {
             case .runtimeUnavailable:
                 continuation.finish(throwing: LocalMedicalAIError.runtimeUnavailable)
             }
+        } catch {
+            continuation.finish(throwing: error)
         }
-        continuation.onTermination = { @Sendable _ in
-            producer.cancel()
-            Task {
-                await self.recordTermination()
-            }
-        }
-        let generation = LocalMedicalGenerationStream(stream: stream) {
-            producer.cancel()
-            continuation.finish(throwing: CancellationError())
-        }
-        if let returnGate {
-            await returnGate.wait()
-        }
-        return generation
     }
 
     private func recordTermination() {
         terminationCount += 1
+    }
+}
+
+/// A single-use preparation wait that has no successful/open path. The
+/// producer's cancellation handler must release its continuation. The lock
+/// also handles cancellation arriving before continuation registration.
+private final class CancellationPreparationGate: Sendable {
+    private struct State: Sendable {
+        var isCancelled = false
+        var continuation: CheckedContinuation<Void, Error>?
+        var cancellationResumeCount = 0
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    var isWaiting: Bool {
+        state.withLock { $0.continuation != nil }
+    }
+
+    var cancellationResumeCount: Int {
+        state.withLock { $0.cancellationResumeCount }
+    }
+
+    func wait() async throws {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                let shouldResume = state.withLock { state in
+                    if state.isCancelled {
+                        state.cancellationResumeCount += 1
+                        return true
+                    }
+                    precondition(state.continuation == nil)
+                    state.continuation = continuation
+                    return false
+                }
+                if shouldResume {
+                    continuation.resume(throwing: CancellationError())
+                }
+            }
+        } onCancel: {
+            cancel()
+        }
+    }
+
+    func cancel() {
+        let continuation = state.withLock { state in
+            guard !state.isCancelled else { return nil as CheckedContinuation<Void, Error>? }
+            state.isCancelled = true
+            let continuation = state.continuation
+            state.continuation = nil
+            if continuation != nil {
+                state.cancellationResumeCount += 1
+            }
+            return continuation
+        }
+        continuation?.resume(throwing: CancellationError())
     }
 }
 
