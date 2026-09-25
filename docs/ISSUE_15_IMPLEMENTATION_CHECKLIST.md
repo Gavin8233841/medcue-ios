@@ -42,7 +42,8 @@
   - **测试**: `testSweepExactBoundary` 验证边界情况（恰好1小时）
 
 - [x] 进程终止后由下一次启动或导出前清扫恢复
-  - **实现**: `VisitSummaryView.task` 在启动时调用 `sweepExpiredFiles()`
+  - **实现**: `MedicationAdherenceApp.init` 在应用进程启动时调用 `sweepExpiredFiles()`
+  - **实现**: `VisitSummaryView.task` 在打开页面时再次调用 `sweepExpiredFiles()`
   - **实现**: `exportCurrentSummaryAsPDF()` 在生成前调用 `sweepExpiredFiles()`
 
 - [x] 重点测试覆盖主要失败与所有权边界
