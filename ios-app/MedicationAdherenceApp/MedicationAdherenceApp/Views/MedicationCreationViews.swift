@@ -668,6 +668,9 @@ struct AddMedicationView: View {
         case .rejected:
             visionStatusMessage = "药品未能保存，请检查药品名称后重试。"
             isSaveFlowActive = false
+        case .scheduleFailed:
+            visionStatusMessage = "提醒时间暂时无法计算，药品未保存。请稍后重试。"
+            isSaveFlowActive = false
         case .saveFailed:
             visionStatusMessage = AppPersistenceCommitter.failureUserMessage
             isSaveFlowActive = false

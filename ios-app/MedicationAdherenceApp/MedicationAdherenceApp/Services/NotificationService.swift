@@ -20,6 +20,7 @@ enum MedicationReminderSchedulingResult: Equatable {
 enum MedicationReminderReconciliationOutcome: Equatable {
     case committed
     case readFailed(MedicationReminderReconciliationReadStage)
+    case scheduleFailed
     case saveFailed
 }
 
@@ -125,6 +126,9 @@ final class NotificationService: ObservableObject {
             let outcome = MedicationReminderReconciliationOutcome.readFailed(stage)
             lastReminderReconciliationOutcome = outcome
             return outcome
+        case .scheduleFailed:
+            lastReminderReconciliationOutcome = .scheduleFailed
+            return .scheduleFailed
         }
         do {
             try reconciliationSaveOperation(modelContext)

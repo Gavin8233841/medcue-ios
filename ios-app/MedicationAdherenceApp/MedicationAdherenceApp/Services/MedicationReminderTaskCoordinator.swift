@@ -28,6 +28,16 @@ enum MedicationReminderReconciliationReadStage: String, CaseIterable, Equatable,
 enum MedicationReminderTaskReconciliationOutcome {
     case reconciled([MedicationReminderScheduleBatch])
     case readFailed(MedicationReminderReconciliationReadStage)
+    case scheduleFailed
+}
+
+struct PreparedMedicationReminderPlan {
+    let plan: StoredMedicationPlan
+    let medication: StoredMedication
+    let planTasks: [StoredDoseTask]
+    let actionLogs: [StoredDoseActionLog]
+    let doseChanges: [StoredMedicationDoseChange]
+    let targetDoses: [ScheduledDose]?
 }
 
 @MainActor
@@ -51,10 +61,15 @@ struct MedicationReminderReconciliationDataSource {
 
 @MainActor
 struct MedicationReminderTaskCoordinator {
+    typealias ScheduleDoses = (MedicationPlan, Calendar, TimeZone) throws -> [ScheduledDose]
+
     var rollingTaskWindowDays = 30
     var calendar = Calendar.current
     var referenceDate = Date()
     var dataSource = MedicationReminderReconciliationDataSource.live
+    var scheduleDoses: ScheduleDoses = { plan, calendar, timeZone in
+        try ReminderScheduleEngine().scheduledDoses(for: plan, calendar: calendar, timeZone: timeZone)
+    }
 
     func reconcileAllPlans(in modelContext: ModelContext) -> MedicationReminderTaskReconciliationOutcome {
         let medications: [StoredMedication]
@@ -91,35 +106,64 @@ struct MedicationReminderTaskCoordinator {
 
         let medicationByID = Dictionary(uniqueKeysWithValues: medications.map { ($0.id, $0) })
         let tasksByPlanID = Dictionary(grouping: tasks, by: \.planID)
-        let batches = plans.compactMap { plan -> MedicationReminderScheduleBatch? in
-            guard let medication = medicationByID[plan.medicationID] else {
-                return nil
+        let preparedPlans: [PreparedMedicationReminderPlan]
+        do {
+            preparedPlans = try plans.compactMap { plan in
+                guard let medication = medicationByID[plan.medicationID] else {
+                    return nil
+                }
+                return try preparePlan(
+                    plan,
+                    medication: medication,
+                    planTasks: tasksByPlanID[plan.id] ?? [],
+                    actionLogs: actionLogs,
+                    doseChanges: doseChanges.filter {
+                        $0.planID == plan.id || ($0.planID == nil && $0.medicationID == medication.id)
+                    }
+                )
             }
-            let planTasks = tasksByPlanID[plan.id] ?? []
-            let relevantDoseChanges = doseChanges.filter {
-                $0.planID == plan.id || ($0.planID == nil && $0.medicationID == medication.id)
-            }
-            return reconcilePlan(
-                plan,
-                medication: medication,
-                planTasks: planTasks,
-                actionLogs: actionLogs,
-                doseChanges: relevantDoseChanges,
-                in: modelContext
-            )
+        } catch {
+            return .scheduleFailed
         }
+        let batches = preparedPlans.map { applyPreparedPlan($0, in: modelContext) }
         return .reconciled(batches)
     }
 
-    func reconcilePlan(
+    func preparePlan(
         _ plan: StoredMedicationPlan,
         medication: StoredMedication,
         planTasks: [StoredDoseTask],
         actionLogs: [StoredDoseActionLog],
         doseChanges: [StoredMedicationDoseChange],
+        treatingMedicationAsActive: Bool = false
+    ) throws -> PreparedMedicationReminderPlan {
+        let isActive = treatingMedicationAsActive || medication.lifecycleStatus == .active
+        let targetDoses: [ScheduledDose]?
+        if isActive, let corePlan = rollingCorePlan(for: plan) {
+            targetDoses = try scheduleDoses(corePlan, calendar, calendar.timeZone)
+        } else if isActive {
+            targetDoses = []
+        } else {
+            targetDoses = nil
+        }
+        return PreparedMedicationReminderPlan(
+            plan: plan,
+            medication: medication,
+            planTasks: planTasks,
+            actionLogs: actionLogs,
+            doseChanges: doseChanges,
+            targetDoses: targetDoses
+        )
+    }
+
+    func applyPreparedPlan(
+        _ prepared: PreparedMedicationReminderPlan,
         in modelContext: ModelContext
     ) -> MedicationReminderScheduleBatch {
-        guard medication.lifecycleStatus == .active else {
+        let plan = prepared.plan
+        let medication = prepared.medication
+        let planTasks = prepared.planTasks
+        guard let targetDoses = prepared.targetDoses else {
             let tasksToDisable = planTasks.filter(shouldDisableFutureTaskForInactiveMedication)
             tasksToDisable.forEach {
                 disableFutureTaskForInactiveMedication($0, status: medication.lifecycleStatus)
@@ -133,8 +177,8 @@ struct MedicationReminderTaskCoordinator {
             )
         }
         let planTaskIDs = Set(planTasks.map(\.id))
-        restoreReopenedTasksDisabledByLegacyReconcile(planTasks, actionLogs: actionLogs)
-        let delayedOriginalKeys = Set(actionLogs.compactMap { log -> String? in
+        restoreReopenedTasksDisabledByLegacyReconcile(planTasks, actionLogs: prepared.actionLogs)
+        let delayedOriginalKeys = Set(prepared.actionLogs.compactMap { log -> String? in
             guard log.actionRaw == DoseActionKind.delay.rawValue,
                   log.undoneAt == nil,
                   planTaskIDs.contains(log.taskID)
@@ -143,7 +187,6 @@ struct MedicationReminderTaskCoordinator {
             }
             return logicalDoseKey(planID: plan.id, dueAt: log.previousDueAt)
         })
-        let targetDoses = scheduledDoses(for: plan)
         let targetKeys = Set(targetDoses.map(logicalDoseKey(for:)))
         var taskGroupsByKey = Dictionary(grouping: planTasks, by: logicalDoseKey(for:))
         var activeTasks: [StoredDoseTask] = []
@@ -155,7 +198,7 @@ struct MedicationReminderTaskCoordinator {
                 continue
             }
             let existingTasks = taskGroupsByKey[key] ?? []
-            let effectiveDose = effectiveDoseAmount(for: dose, plan: plan, medication: medication, doseChanges: doseChanges)
+            let effectiveDose = effectiveDoseAmount(for: dose, plan: plan, medication: medication, doseChanges: prepared.doseChanges)
             if let task = preferredTask(from: existingTasks) {
                 restoreFutureTaskDisabledByMedicationLifecycleIfNeeded(task)
                 if task.status == .pending || task.status == .delayed {
@@ -228,17 +271,6 @@ struct MedicationReminderTaskCoordinator {
             return (firstFutureChange.previousDoseValue ?? plan.doseValue, firstFutureChange.previousDoseUnit)
         }
         return (NSDecimalNumber(decimal: dose.dose.value).doubleValue, dose.dose.unit)
-    }
-
-    private func scheduledDoses(for plan: StoredMedicationPlan) -> [ScheduledDose] {
-        guard let corePlan = rollingCorePlan(for: plan) else {
-            return []
-        }
-        return (try? ReminderScheduleEngine().scheduledDoses(
-            for: corePlan,
-            calendar: calendar,
-            timeZone: calendar.timeZone
-        )) ?? []
     }
 
     private func rollingCorePlan(for plan: StoredMedicationPlan) -> MedicationPlan? {

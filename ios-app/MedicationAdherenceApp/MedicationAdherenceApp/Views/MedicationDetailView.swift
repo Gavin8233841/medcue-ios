@@ -552,6 +552,10 @@ struct MedicationDetailView: View {
                 occurredAt: Date()
             )
         )
+        if case .scheduleFailed = outcome {
+            photoStatusMessage = "提醒时间暂时无法计算，药品状态未更改。请稍后重试。"
+            return
+        }
         guard case let .committed(commit) = outcome else {
             photoStatusMessage = AppPersistenceCommitter.failureUserMessage
             return
