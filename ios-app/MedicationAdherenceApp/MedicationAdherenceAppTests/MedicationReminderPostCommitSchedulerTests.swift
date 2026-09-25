@@ -73,6 +73,35 @@ struct MedicationReminderPostCommitSchedulerTests {
     }
 
     @Test @MainActor
+    func queuedSnapshotKeepsExpiredEntryForFailureReporting() {
+        let capturedAt = Date(timeIntervalSince1970: 1_000)
+        let medication = StoredMedication(
+            displayName: "待处理药", kind: .overTheCounter, inputSource: .manual
+        )
+        let task = StoredDoseTask(
+            medicationID: medication.id, dueAt: capturedAt.addingTimeInterval(60),
+            doseValue: 1, doseUnit: "片"
+        )
+        let entry = MedicationReminderPostCommitSnapshot(batch: MedicationReminderScheduleBatch(
+            medication: medication, deliveryMethod: .notification,
+            escalatesToAlarmWhenUnhandled: true, tasks: [task], cancelledTaskIDs: []
+        )).entries[0]
+        let frozen = MedicationReminderPostCommitSnapshot(
+            entries: [entry], cancelledTaskIDs: [], capturedAt: capturedAt
+        )
+        let afterQueueWait = DoseReminderPolicy.competitionDemo
+            .escalationDueAt(for: task.dueAt).addingTimeInterval(1)
+
+        #expect(frozen.entriesPendingAtCapture().map(\.taskID) == [task.id])
+        #expect(MedicationReminderRequestTiming.missedWindow(
+            baseDueAt: task.dueAt,
+            escalationDueAt: DoseReminderPolicy.competitionDemo.escalationDueAt(for: task.dueAt),
+            initialNow: frozen.capturedAt, schedulingNow: afterQueueWait,
+            wantsEscalation: true
+        ))
+    }
+
+    @Test @MainActor
     func committedGlobalSnapshotRanksNewNearTermDoseAheadOfOtherPlans() throws {
         let container = try MedicationAdherenceModelContainer.make(isStoredInMemoryOnly: true)
         let context = ModelContext(container)
@@ -249,78 +278,6 @@ struct MedicationReminderPostCommitSchedulerTests {
         #expect(targets.alarmIDs.contains(obsoleteTask))
     }
 
-    @Test @MainActor
-    func baseTimeCrossingDuringSystemWaitStillSchedulesEscalation() async {
-        let beforeWait = Date(timeIntervalSince1970: 1_000)
-        let baseAt = beforeWait.addingTimeInterval(1)
-        let escalationAt = baseAt.addingTimeInterval(300)
-        let planned: [MedicationReminderRequestKind] = [.baseNotification, .escalationAlarm]
-        let before = MedicationReminderRequestTiming.kindsStillDue(
-            from: planned, baseDueAt: baseAt, escalationDueAt: escalationAt,
-            now: beforeWait, wantsEscalation: true,
-            notificationAvailable: true, alarmAvailable: true
-        )
-        #expect(before == planned)
-
-        let afterWait = beforeWait.addingTimeInterval(2)
-        let after = MedicationReminderRequestTiming.kindsStillDue(
-            from: planned, baseDueAt: baseAt, escalationDueAt: escalationAt,
-            now: afterWait, wantsEscalation: true,
-            notificationAvailable: true, alarmAvailable: true
-        )
-        #expect(after == [.escalationAlarm])
-        let reservedBaseOnly = MedicationReminderRequestTiming.kindsStillDue(
-            from: [.baseNotification], baseDueAt: baseAt, escalationDueAt: escalationAt,
-            now: afterWait, wantsEscalation: true,
-            notificationAvailable: true, alarmAvailable: true
-        )
-        #expect(reservedBaseOnly == [.escalationAlarm])
-        let outcome = await MedicationReminderRequestExecutor(
-            addBaseNotification: { Issue.record("Expired base must not be added"); return false },
-            addBaseAlarm: { Issue.record("Expired base must not be added"); return false },
-            addEscalationNotification: { Issue.record("Alarm succeeds without fallback"); return false },
-            addEscalationAlarm: { true }
-        ).execute(after)
-        #expect(outcome.schedulingResult(
-            wantsAlarm: false, wantsEscalationAlarm: true, plannedKinds: after
-        ) == .scheduled)
-        let reported = MedicationReminderRequestTiming.reportExpiredBase(
-            outcome.schedulingResult(
-                wantsAlarm: false, wantsEscalationAlarm: true, plannedKinds: after
-            ),
-            expired: true
-        )
-        #expect(reported.failureMessage?.contains("基础提醒时间已过") == true)
-
-        let crossingExecutor = MedicationReminderRequestExecutor(
-            addBaseNotification: { false },
-            addBaseAlarm: { Issue.record("Unplanned base alarm must not be added"); return false },
-            addEscalationNotification: { Issue.record("Alarm succeeds without fallback"); return false },
-            addEscalationAlarm: { true }
-        )
-        let initialAttempt = await crossingExecutor.execute(planned)
-        #expect(!initialAttempt.baseScheduled && !initialAttempt.escalationScheduled)
-        let retryKind = MedicationReminderRequestTiming.escalationKindAfterFailedBase(
-            from: planned, baseDueAt: baseAt, escalationDueAt: escalationAt,
-            now: afterWait, wantsEscalation: true,
-            notificationAvailable: true, alarmAvailable: true
-        )
-        #expect(retryKind == .escalationAlarm)
-        if let retryKind {
-            let retried = await crossingExecutor.execute([retryKind])
-            #expect(retried.schedulingResult(
-                wantsAlarm: false, wantsEscalationAlarm: true, plannedKinds: [retryKind]
-            ) == .scheduled)
-        }
-
-        let afterEscalation = MedicationReminderRequestTiming.kindsStillDue(
-            from: planned, baseDueAt: baseAt, escalationDueAt: escalationAt,
-            now: escalationAt, wantsEscalation: false,
-            notificationAvailable: true, alarmAvailable: true
-        )
-        #expect(afterEscalation.isEmpty)
-    }
-
     @Test
     func actualRequestBudgetCountsOtherPlansAndEveryDeliverySurface() {
         let now = Date(timeIntervalSince1970: 1_000)
@@ -431,6 +388,58 @@ struct MedicationReminderPostCommitSchedulerTests {
             MedicationReminderRequestAssignment(taskID: second, kinds: [.baseNotification])
         ])
         #expect(plan.deferredTaskIDs.isEmpty)
+    }
+
+    @Test @MainActor
+    func selectedRequestsExecuteInDueOrderAcrossTasksAndFallbacks() async {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let first = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let second = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+        let plan = MedicationNotificationPolicy(maximumScheduledRequests: 3).requestPlan(
+            candidates: [
+                MedicationReminderRequestCandidate(
+                    taskID: first, dueAt: start.addingTimeInterval(60),
+                    wantsAlarm: true, wantsEscalation: true,
+                    escalationDueAt: start.addingTimeInterval(360)
+                ),
+                MedicationReminderRequestCandidate(
+                    taskID: second, dueAt: start.addingTimeInterval(120),
+                    wantsAlarm: false, wantsEscalation: false
+                )
+            ], occupiedRequestCount: 0,
+            notificationAvailable: true, alarmAvailable: true
+        )
+        var queue = MedicationReminderRequestExecutionQueue(plan.orderedRequests)
+        var submitted: [MedicationReminderPlannedRequest] = []
+        while let request = queue.next() {
+            await Task.yield() // A system add may suspend before the next request.
+            submitted.append(request)
+        }
+        #expect(submitted.map(\.taskID) == [first, second, first])
+        #expect(submitted.map(\.kind) == [.baseAlarm, .baseNotification, .escalationAlarm])
+
+        let limited = MedicationNotificationPolicy(maximumScheduledRequests: 2).requestPlan(
+            candidates: [
+                MedicationReminderRequestCandidate(
+                    taskID: first, dueAt: start.addingTimeInterval(60),
+                    wantsAlarm: true, wantsEscalation: true,
+                    escalationDueAt: start.addingTimeInterval(360)
+                ),
+                MedicationReminderRequestCandidate(
+                    taskID: second, dueAt: start.addingTimeInterval(120),
+                    wantsAlarm: false, wantsEscalation: false
+                )
+            ], occupiedRequestCount: 0,
+            notificationAvailable: true, alarmAvailable: true
+        )
+        var fallbackQueue = MedicationReminderRequestExecutionQueue(limited.orderedRequests)
+        #expect(fallbackQueue.next()?.taskID == first)
+        fallbackQueue.insertEscalation(MedicationReminderPlannedRequest(
+            taskID: first, dueAt: start.addingTimeInterval(360),
+            kind: .escalationAlarm, isOptional: false
+        ))
+        #expect(fallbackQueue.next()?.taskID == second)
+        #expect(fallbackQueue.next()?.taskID == first)
     }
 
     @Test

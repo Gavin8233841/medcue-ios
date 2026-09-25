@@ -115,8 +115,37 @@ struct MedicationReminderRequestAssignment: Sendable, Equatable {
     let kinds: [MedicationReminderRequestKind]
 }
 
+struct MedicationReminderPlannedRequest: Sendable, Equatable {
+    let taskID: UUID
+    let dueAt: Date
+    let kind: MedicationReminderRequestKind
+    let isOptional: Bool
+}
+
+struct MedicationReminderRequestExecutionQueue {
+    private var requests: [MedicationReminderPlannedRequest]
+
+    init(_ requests: [MedicationReminderPlannedRequest]) {
+        self.requests = requests
+    }
+
+    mutating func next() -> MedicationReminderPlannedRequest? {
+        guard !requests.isEmpty else { return nil }
+        return requests.removeFirst()
+    }
+
+    mutating func insertEscalation(_ request: MedicationReminderPlannedRequest) {
+        let insertionIndex = requests.firstIndex {
+            $0.isOptional || $0.dueAt > request.dueAt
+                || ($0.dueAt == request.dueAt && $0.taskID.uuidString > request.taskID.uuidString)
+        } ?? requests.endIndex
+        requests.insert(request, at: insertionIndex)
+    }
+}
+
 struct MedicationReminderRequestPlan: Sendable, Equatable {
     let assignments: [MedicationReminderRequestAssignment]
+    let orderedRequests: [MedicationReminderPlannedRequest]
     let deferredTaskIDs: [UUID]
     let unavailableTaskIDs: [UUID]
 }
@@ -219,6 +248,12 @@ extension MedicationNotificationPolicy {
         }
         return MedicationReminderRequestPlan(
             assignments: assigned,
+            orderedRequests: selectedEvents.map {
+                MedicationReminderPlannedRequest(
+                    taskID: $0.taskID, dueAt: $0.dueAt, kind: $0.kind,
+                    isOptional: $0.priority == 2
+                )
+            },
             deferredTaskIDs: deferred,
             unavailableTaskIDs: unavailable
         )

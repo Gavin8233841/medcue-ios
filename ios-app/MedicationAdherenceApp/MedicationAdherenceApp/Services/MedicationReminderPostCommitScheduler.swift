@@ -38,6 +38,15 @@ struct MedicationReminderPostCommitSnapshot: Sendable, Equatable {
     let entries: [MedicationReminderPostCommitEntry]
     let cancelledTaskIDs: [UUID]
     let preservedDeliveredNotificationIDs: Set<String>
+    let capturedAt: Date
+
+    func entriesPendingAtCapture() -> [MedicationReminderPostCommitEntry] {
+        entries.filter {
+            $0.medicationIsActive && $0.taskIsOpen
+                && ($0.dueAt > capturedAt || ($0.escalatesToAlarmWhenUnhandled
+                    && DoseReminderPolicy.competitionDemo.escalationDueAt(for: $0.dueAt) > capturedAt))
+        }
+    }
 
     func preservedDeliveredNotificationIDs(at now: Date) -> Set<String> {
         var identifiers = preservedDeliveredNotificationIDs
@@ -56,11 +65,13 @@ struct MedicationReminderPostCommitSnapshot: Sendable, Equatable {
     init(
         entries: [MedicationReminderPostCommitEntry],
         cancelledTaskIDs: [UUID],
-        preservedDeliveredNotificationIDs: Set<String> = []
+        preservedDeliveredNotificationIDs: Set<String> = [],
+        capturedAt: Date = Date()
     ) {
         self.entries = entries
         self.cancelledTaskIDs = cancelledTaskIDs
         self.preservedDeliveredNotificationIDs = preservedDeliveredNotificationIDs
+        self.capturedAt = capturedAt
     }
 
     @MainActor
@@ -75,6 +86,7 @@ struct MedicationReminderPostCommitSnapshot: Sendable, Equatable {
         }
         cancelledTaskIDs = batch.cancelledTaskIDs
         preservedDeliveredNotificationIDs = []
+        capturedAt = Date()
     }
 
     @MainActor
@@ -94,6 +106,7 @@ struct MedicationReminderPostCommitSnapshot: Sendable, Equatable {
         }
         cancelledTaskIDs = batches.flatMap(\.cancelledTaskIDs) + additionalCancelledTaskIDs
         preservedDeliveredNotificationIDs = []
+        capturedAt = Date()
     }
 }
 
@@ -141,7 +154,8 @@ enum MedicationReminderCommittedSnapshotReader {
         return MedicationReminderPostCommitSnapshot(
             entries: entries,
             cancelledTaskIDs: [],
-            preservedDeliveredNotificationIDs: preservedDeliveredNotificationIDs
+            preservedDeliveredNotificationIDs: preservedDeliveredNotificationIDs,
+            capturedAt: now
         )
     }
 }
