@@ -236,8 +236,10 @@ owns actual-request budgets, partial failures and recovery.
 The iPhone post-commit and NotificationService paths now share one serialized
 system scheduler. Its app policy of 60 counts pending notification and AlarmKit
 requests, including other medications, base alerts, alarm delivery and
-escalation. Global reconciliation considers all plans; a local update reserves
-other pending requests. Candidates are ordered by due time and stable task ID.
+escalation. Post-commit iPhone entry points read a fresh committed global task
+snapshot and replan all medication reminders, so an earlier new dose can
+displace later requests across plans. Candidates are ordered by due time and
+stable task ID.
 When a candidate has only one free slot, its selected base delivery takes
 priority over escalation or a second base channel; the omitted escalation is
 reported as a partial result. If a selected base alarm then fails, an ordinary
@@ -261,9 +263,11 @@ tracked per task, so a successful local retry clears only the resolved task's
 warning. Elder delay feedback shows the specific partial-result message.
 The shared path now uses a MainActor service; real-device save responsiveness
 after this change has not been measured and needs a device check before merge.
+Global replanning cancels and replaces the selected reminders; interruption
+between those system calls is recovered on next startup but needs device review.
 
-Local candidate evidence: 41 focused hosted test functions (39 unit, two UI),
-46 test runs and zero failures on an iPhone 17 Pro iOS 26.5 Simulator, covering
+Local candidate evidence: 42 focused hosted test functions (40 unit, two UI),
+47 test runs and zero failures on an iPhone 17 Pro iOS 26.5 Simulator, covering
 request-budget ordering, delivery availability, partial add retry, cancellation
 readback, warning text in elder mode and existing reconciliation behavior.
 This is not exact-head CI, physical-device

@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 @MainActor
 struct TodaySystemSurfaceAdapter {
@@ -40,6 +41,7 @@ struct TodaySystemSurfaceSynchronizer {
 
     init(
         notificationService: NotificationService,
+        modelContext: ModelContext,
         liveActivityService: MedicationLiveActivityService,
         medicationForTask: @escaping (StoredDoseTask) -> StoredMedication?,
         deliveryMethodForTask: @escaping (StoredDoseTask) -> StoredReminderDeliveryMethod,
@@ -47,8 +49,8 @@ struct TodaySystemSurfaceSynchronizer {
     ) {
         self.init(
             adapter: TodaySystemSurfaceAdapter(
-                applyReminderSnapshot: { snapshot in
-                    notificationService.beginApplyReminderSnapshot(snapshot)
+                applyReminderSnapshot: { _ in
+                    notificationService.beginApplyCommittedReminderState(in: modelContext)
                 },
                 endLiveActivity: liveActivityService.end(for:),
                 startLiveActivity: liveActivityService.startIfNeeded(for:medication:)

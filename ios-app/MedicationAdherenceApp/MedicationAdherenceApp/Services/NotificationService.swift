@@ -146,6 +146,22 @@ enum MedicationReminderCancellationReadback {
                 || remainingAlarmIDs.contains(MedicationReminderSystemIdentifiers.escalationAlarm(for: $0))
         })
     }
+
+    static func hasUnattributedFailure(
+        among taskIDs: Set<UUID>,
+        remainingNotificationIDs: Set<String>,
+        remainingAlarmIDs: Set<UUID>
+    ) -> Bool {
+        let knownNotificationIDs = Set(taskIDs.flatMap {
+            [MedicationReminderSystemIdentifiers.baseNotification(for: $0),
+             MedicationReminderSystemIdentifiers.escalationNotification(for: $0)]
+        })
+        let knownAlarmIDs = Set(taskIDs.flatMap {
+            [$0, MedicationReminderSystemIdentifiers.escalationAlarm(for: $0)]
+        })
+        return !remainingNotificationIDs.subtracting(knownNotificationIDs).isEmpty
+            || !remainingAlarmIDs.subtracting(knownAlarmIDs).isEmpty
+    }
 }
 
 @MainActor
@@ -433,6 +449,24 @@ final class NotificationService: ObservableObject {
         }
     }
 
+    @discardableResult
+    func beginApplyCommittedReminderState(
+        in modelContext: ModelContext
+    ) -> Task<[UUID: MedicationReminderSchedulingResult], Never> {
+        do {
+            let snapshot = try MedicationReminderCommittedSnapshotReader.read(in: modelContext)
+            return beginApplyReminderSnapshot(snapshot, pruneExistingPrefixRequests: true)
+        } catch {
+            return reminderOperationQueue.enqueue { @MainActor [self] in
+                lastSystemOperationFailed = true
+                var warnings = loadReminderSyncWarningState()
+                warnings.globalMessage = "全局提醒信息暂时无法读取；现有提醒保持不变，请稍后重试。"
+                persistReminderSyncWarningState(warnings)
+                return [:]
+            }
+        }
+    }
+
     func beginScheduleReminderBatches(
         _ batches: [MedicationReminderScheduleBatch],
         additionalCancelledTaskIDs: [UUID] = [],
@@ -557,7 +591,7 @@ final class NotificationService: ObservableObject {
             results[taskID] = .unavailable(message: "提醒未安排，请检查通知或闹钟权限。")
         }
         warningState.replace(affectedTaskIDs: affectedTaskIDs, results: results)
-        if cleanup.failed && pruneExistingPrefixRequests {
+        if cleanup.hasUnattributedFailure {
             warningState.globalMessage = "部分旧提醒未能从系统取消，请稍后重试。"
         }
         persistReminderSyncWarningState(warningState)
@@ -630,6 +664,7 @@ final class NotificationService: ObservableObject {
         let occupiedRequestCount: Int
         let blockedTaskIDs: Set<UUID>
         let failed: Bool
+        let hasUnattributedFailure: Bool
     }
 
     private func removeExistingReminderRequests(
@@ -693,7 +728,12 @@ final class NotificationService: ObservableObject {
         return ReminderCleanupResult(
             occupiedRequestCount: pendingAfter.count + alarmsAfter.count,
             blockedTaskIDs: blockedTaskIDs,
-            failed: !remainingNotificationIDs.isEmpty || !remainingAlarmIDs.isEmpty
+            failed: !remainingNotificationIDs.isEmpty || !remainingAlarmIDs.isEmpty,
+            hasUnattributedFailure: MedicationReminderCancellationReadback.hasUnattributedFailure(
+                among: taskIDs,
+                remainingNotificationIDs: remainingNotificationIDs,
+                remainingAlarmIDs: remainingAlarmIDs
+            )
         )
     }
 

@@ -561,12 +561,9 @@ struct MedicationDetailView: View {
             return
         }
         let notificationService = NotificationService()
-        let reminderSync = notificationService.beginScheduleReminderBatches(
-            commit.reminderBatches,
-            additionalCancelledTaskIDs: commit.disabledTaskIDs
-        )
+        let reminderSync = notificationService.beginApplyCommittedReminderState(in: modelContext)
         Task { @MainActor in
-            await reminderSync.value
+            _ = await reminderSync.value
             let liveActivityService = MedicationLiveActivityService()
             for taskID in commit.disabledTaskIDs {
                 await liveActivityService.end(for: taskID)
@@ -583,7 +580,7 @@ struct MedicationDetailView: View {
             return
         }
         let notificationService = NotificationService()
-        notificationService.cancelReminders(for: commit.taskIDs)
+        notificationService.beginApplyCommittedReminderState(in: modelContext)
         Task {
             let liveActivityService = MedicationLiveActivityService()
             for taskID in commit.taskIDs {

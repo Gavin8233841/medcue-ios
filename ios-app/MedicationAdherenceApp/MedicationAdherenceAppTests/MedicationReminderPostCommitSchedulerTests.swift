@@ -1,5 +1,6 @@
 import Foundation
 import MedicationAdherenceCore
+import SwiftData
 import Testing
 @testable import MedicationAdherenceApp
 
@@ -41,6 +42,60 @@ struct MedicationReminderPostCommitSchedulerTests {
         #expect(entry.medicationName == "测试药")
         #expect(entry.dueAt == Date(timeIntervalSince1970: 2_000))
         #expect(entry.doseText == "1 片")
+    }
+
+    @Test @MainActor
+    func committedGlobalSnapshotRanksNewNearTermDoseAheadOfOtherPlans() throws {
+        let container = try MedicationAdherenceModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let now = Date()
+        let farMedication = StoredMedication(
+            displayName: "远期药", kind: .overTheCounter, inputSource: .manual
+        )
+        let nearMedication = StoredMedication(
+            displayName: "近期药", kind: .overTheCounter, inputSource: .manual
+        )
+        let farPlan = StoredMedicationPlan(
+            medicationID: farMedication.id, doseValue: 1, doseUnit: "片",
+            timingSummary: "每日", timeZonePolicy: .localClock, sourceNote: ""
+        )
+        let nearPlan = StoredMedicationPlan(
+            medicationID: nearMedication.id, doseValue: 1, doseUnit: "片",
+            timingSummary: "每日", timeZonePolicy: .localClock, sourceNote: ""
+        )
+        let farTask = StoredDoseTask(
+            medicationID: farMedication.id, planID: farPlan.id,
+            dueAt: now.addingTimeInterval(86_400), doseValue: 1, doseUnit: "片"
+        )
+        let nearTask = StoredDoseTask(
+            medicationID: nearMedication.id, planID: nearPlan.id,
+            dueAt: now.addingTimeInterval(600), doseValue: 1, doseUnit: "片"
+        )
+        for medication in [farMedication, nearMedication] { context.insert(medication) }
+        for plan in [farPlan, nearPlan] { context.insert(plan) }
+        for task in [farTask, nearTask] { context.insert(task) }
+        try context.save()
+        farTask.dueAt = now.addingTimeInterval(60) // Deliberately unsaved view edit.
+
+        let snapshot = try MedicationReminderCommittedSnapshotReader.read(in: context)
+        #expect(Set(snapshot.entries.map(\.taskID)) == [farTask.id, nearTask.id])
+        #expect(snapshot.entries.first(where: { $0.taskID == farTask.id })?.dueAt
+            == now.addingTimeInterval(86_400))
+        let plan = MedicationNotificationPolicy(maximumScheduledRequests: 1).requestPlan(
+            candidates: snapshot.entries.map {
+                MedicationReminderRequestCandidate(
+                    taskID: $0.taskID,
+                    dueAt: $0.dueAt,
+                    wantsAlarm: false,
+                    wantsEscalation: false
+                )
+            },
+            occupiedRequestCount: 0,
+            notificationAvailable: true,
+            alarmAvailable: false
+        )
+        #expect(plan.assignments.map(\.taskID) == [nearTask.id])
+        #expect(plan.deferredTaskIDs == [farTask.id])
     }
 
     @Test
@@ -384,6 +439,16 @@ struct MedicationReminderPostCommitSchedulerTests {
             remainingAlarmIDs: []
         )
         #expect(blocked == requested)
+        #expect(!MedicationReminderCancellationReadback.hasUnattributedFailure(
+            among: requested,
+            remainingNotificationIDs: [staleNotification],
+            remainingAlarmIDs: []
+        ))
+        #expect(MedicationReminderCancellationReadback.hasUnattributedFailure(
+            among: requested,
+            remainingNotificationIDs: [staleNotification, unrelatedNotification],
+            remainingAlarmIDs: []
+        ))
 
         let afterRetry = MedicationReminderCancellationReadback.blockedTaskIDs(
             among: requested,

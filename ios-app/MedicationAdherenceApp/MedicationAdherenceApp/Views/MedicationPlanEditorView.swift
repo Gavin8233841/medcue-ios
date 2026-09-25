@@ -276,10 +276,9 @@ struct PlanEditorView: View {
         )
 
         switch outcome {
-        case let .committed(_, _, reminderBatch):
-            let schedulingSnapshot = MedicationReminderPostCommitSnapshot(batch: reminderBatch)
+        case .committed:
+            MedicationReminderPostCommitDispatcher.dispatch(in: modelContext)
             dismiss()
-            MedicationReminderPostCommitDispatcher.dispatch(schedulingSnapshot)
         case .rejected:
             permissionStatusMessage = "疗程与提醒未能保存，请检查填写内容后重试。"
             isSaveFlowActive = false

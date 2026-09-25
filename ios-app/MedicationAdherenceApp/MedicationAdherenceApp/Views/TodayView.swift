@@ -169,6 +169,7 @@ private struct TodayContentView: View {
         }
         return TodaySystemSurfaceSynchronizer(
             notificationService: notificationService,
+            modelContext: modelContext,
             liveActivityService: liveActivityService,
             medicationForTask: medication(for:),
             deliveryMethodForTask: reminderDeliveryMethod(for:),
@@ -235,9 +236,8 @@ private struct TodayContentView: View {
                 helpMissingMessage: $elderHelpMissingMessage,
                 helpConfirmationPhone: $elderHelpConfirmationPhone,
                 successFeedback: $elderDoseSuccessMessage,
-                notificationUnavailableMessage: elderReminderUnavailableMessage.isEmpty
-                    ? (systemSurfaceAdapter == nil ? reminderWarningMessage : "")
-                    : elderReminderUnavailableMessage,
+                notificationUnavailableMessage: systemSurfaceAdapter == nil
+                    ? reminderWarningMessage : elderReminderUnavailableMessage,
                 loadErrorMessage: _tasks.fetchError != nil
                     || _medications.fetchError != nil || _plans.fetchError != nil
                     ? "用药信息未能加载。" : nil,

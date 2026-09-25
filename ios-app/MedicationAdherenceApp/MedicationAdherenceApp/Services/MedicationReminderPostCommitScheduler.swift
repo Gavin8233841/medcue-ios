@@ -1,5 +1,6 @@
 import Foundation
 import MedicationAdherenceCore
+import SwiftData
 
 struct MedicationReminderPostCommitEntry: Sendable, Equatable {
     let taskID: UUID
@@ -77,6 +78,34 @@ struct MedicationReminderPostCommitSnapshot: Sendable, Equatable {
     }
 }
 
+@MainActor
+enum MedicationReminderCommittedSnapshotReader {
+    static func read(in modelContext: ModelContext) throws -> MedicationReminderPostCommitSnapshot {
+        // A fresh context sees committed records without unrelated unsaved view edits.
+        let committed = ModelContext(modelContext.container)
+        let medications = try committed.fetch(FetchDescriptor<StoredMedication>())
+        let plans = try committed.fetch(FetchDescriptor<StoredMedicationPlan>())
+        let tasks = try committed.fetch(FetchDescriptor<StoredDoseTask>())
+        let medicationByID = Dictionary(uniqueKeysWithValues: medications.map { ($0.id, $0) })
+        let planByID = Dictionary(uniqueKeysWithValues: plans.map { ($0.id, $0) })
+        let now = Date()
+        let entries = tasks.compactMap { task -> MedicationReminderPostCommitEntry? in
+            guard let plan = planByID[task.planID],
+                  let medication = medicationByID[plan.medicationID],
+                  medication.lifecycleStatus == .active,
+                  task.status == .pending || task.status == .delayed,
+                  task.dueAt > now else { return nil }
+            return MedicationReminderPostCommitEntry(
+                task: task,
+                medication: medication,
+                deliveryMethod: plan.reminderDeliveryMethod,
+                escalatesToAlarmWhenUnhandled: plan.escalatesToAlarmWhenUnhandled
+            )
+        }
+        return MedicationReminderPostCommitSnapshot(entries: entries, cancelledTaskIDs: [])
+    }
+}
+
 enum MedicationReminderSystemOperationQueue {
     static let shared = ReminderOperationQueue()
 }
@@ -84,8 +113,8 @@ enum MedicationReminderSystemOperationQueue {
 enum MedicationReminderPostCommitDispatcher {
     @discardableResult
     @MainActor
-    static func dispatch(_ snapshot: MedicationReminderPostCommitSnapshot) -> Task<Void, Never> {
-        let operation = NotificationService().beginApplyReminderSnapshot(snapshot)
+    static func dispatch(in modelContext: ModelContext) -> Task<Void, Never> {
+        let operation = NotificationService().beginApplyCommittedReminderState(in: modelContext)
         return Task { _ = await operation.value }
     }
 }
