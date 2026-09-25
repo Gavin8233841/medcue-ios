@@ -253,3 +253,106 @@ synthetic in-memory records; it does not validate local-model inference or
 physical-device notification delivery. Exact final-commit full-gate, CI and
 independent-review evidence belongs in the linked Issue/PR. #82 still owns
 cross-await scheduling convergence and the global request budget.
+
+## Issue #82 A Candidate: Ordered Reminder Effects (2026-09-22)
+
+The `codex/82-reminder-serialization` candidate builds on PR #93 at
+`928771223188b33fc1c9d5c4cb6c467c5154ec72`. Each process serializes complete
+system-reminder operations, including suspension points. iPhone post-commit
+and NotificationService paths share one owner; Watch compiles the same queue
+source and owns its own instance. Cancelling a UI waiter does not cancel an
+already committed reminder update.
+
+Successful commands freeze reminder values and enqueue before deferred UI or
+Live Activity work. Today, record correction, lifecycle changes, notification
+and Live Activity actions submit whole reminder groups. Global reconciliation
+alone prunes the global snapshot; a single-plan update preserves other plans.
+Read/schedule/save failure boundaries from #81/#89 remain in place. Notification
+and Live Activity delay snapshots now retain the plan's escalation setting.
+
+Local candidate evidence: 32 focused hosted tests passed, including controlled
+cross-instance reconciliation interleaving and existing failure/no-side-effect
+checks; two portable queue tests (including replacement/cancellation cases)
+and Watch Simulator Debug build passed. The complete native gate is delegated
+to exact-revision CI rather than duplicating the whole UI/build matrix locally.
+Final quick, review and CI evidence is recorded in the Issue/PR. This candidate
+is not integrated main or physical-device delivery evidence. Issue #82 B still
+owns actual-request budgets, partial failures and recovery.
+
+## Issue #82 B Candidate: Actual Request Budget and Recovery (2026-09-25)
+
+The iPhone post-commit and NotificationService paths now share one serialized
+system scheduler. Its app policy of 60 counts pending notification and AlarmKit
+requests, including other medications, base alerts, alarm delivery and
+escalation. Post-commit iPhone entry points read a fresh committed global task
+snapshot and replan all medication reminders, so an earlier new dose can
+displace later requests across plans. Base and escalation requests are budgeted
+by their actual due time across medications, with a stable task ID tie-breaker.
+A second base notification channel receives only spare capacity after the
+selected base and escalation requests, then runs at its own due time among all
+selected requests. If the base time has passed but the
+five-minute escalation is still ahead, the open task remains eligible for
+escalation only. Replanning
+preserves its existing base notification or alarm while replacing the future
+escalation, and submits selected requests in global due-time order.
+The scheduler rechecks both times after cancellation and permission waits and
+before each add; if the base expires during an add attempt, its reserved slot
+can still carry the future escalation and the missed base is reported.
+Global cancellation reads both pending and delivered notifications. A delivered
+reminder for a completed task is removed, while a delivered base or escalation
+for an open overdue task remains available for action. The preservation set is
+recomputed at cleanup time, including an open reminder that became due while
+its committed snapshot waited in the queue. Snapshot capture time is retained
+so an entire reminder window that closes before or during execution receives a
+persistent failure warning. A base reminder that expires while queued also
+receives partial-failure feedback when its escalation is still schedulable;
+feedback describes only the requests that were actually arranged. The delivered
+readback catches a completed task's notification that fires during cancellation,
+and rechecks pending requests and AlarmKit state before deciding whether to
+block replacement or count occupied slots. The readback requires two stable
+clear rounds; unresolved requests after bounded retries retain a failure warning.
+When a candidate has only one free slot, its selected base delivery takes
+priority over its later escalation or a second base channel; the omitted
+escalation is reported as a partial result. If a selected base alarm then fails, an ordinary
+notification can reuse that reserved request slot as a fallback.
+The policy is an app-side budget, not an assertion about an iOS system limit.
+
+Cancellation is read back before replacement. A request that remains pending
+blocks its own replacement; an AlarmKit read failure or unresolved cancellation
+is reported rather than hidden. Base and escalation additions return distinct
+failure outcomes, and an AlarmKit escalation failure can use a notification
+within its reserved slot. A full startup reconciliation or the startup retry
+alert can recover after partial success, using stable request identifiers.
+The Today and Settings warning surfaces disclose an incomplete system update.
+Startup reconciliation also reports an incomplete outcome when budget or
+permission leaves a task unarranged, keeping the retry alert available.
+System sync warnings use a separate key from notification authorization warnings,
+so a permission refresh cannot erase an unresolved scheduling failure. If an
+AlarmKit add fails or alarm authorization is unavailable, an ordinary-notification
+fallback is reported as a partial result and remains eligible for retry. The
+persistent warning names the missing selected alarm for both cases, including
+batch paths that do not display individual scheduling results. Warnings are
+tracked per task, so a successful local retry clears only the resolved task's
+warning. Elder delay feedback shows the specific partial-result message.
+The shared path now uses a MainActor service; real-device save responsiveness
+after this change has not been measured and needs a device check before merge.
+Global replanning cancels and replaces the selected reminders; interruption
+between those system calls is recovered on next startup but needs device review.
+
+Local candidate evidence before the escalation-window fix: 42 focused hosted
+test functions (40 unit, two UI), 47 test runs and zero failures on an iPhone
+17 Pro iOS 26.5 Simulator, covering
+request-budget ordering, delivery availability, partial add retry, cancellation
+readback, warning text in elder mode and existing reconciliation behavior.
+After the cleanup and budget fixes, four focused suites passed 44 tests with
+zero failures on the same Simulator, including crossing the base and escalation
+windows before and during queue execution, request-time selection and
+submission order across medications, delivered-notification cleanup and
+pending-to-delivered readback races including a late retry round, accurate
+partial-failure and startup-retry outcomes, and preservation of an open task's
+displayed reminder.
+Full current-head CI remains pending.
+This is not exact-head CI, physical-device
+delivery, or a claim that the OS accepted or delivered every request. PR #94
+remains Draft pending final gates, independent review and parent/main
+integration; #17 owns the real notification and AlarmKit device matrix.

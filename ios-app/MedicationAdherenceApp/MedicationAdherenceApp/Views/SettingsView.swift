@@ -520,6 +520,7 @@ struct SettingsView: View {
     @AppStorage("showsMedicationPhotosInReminders") private var showsMedicationPhotosInReminders = true
     @AppStorage("usesLargeTouchTargets") private var usesLargeTouchTargets = true
     @AppStorage(NotificationService.reminderNotificationUnavailableMessageKey) private var reminderNotificationUnavailableMessage = ""
+    @AppStorage(NotificationService.reminderSystemSyncMessageKey) private var reminderSystemSyncMessage = ""
     @StateObject private var notificationService = NotificationService()
     @State private var pendingPermissionGate: AppPermissionGate?
     @State private var isUpdatingNotificationPermission = false
@@ -724,15 +725,15 @@ struct SettingsView: View {
         guard let detailText = notificationUnavailableDetailText else {
             return baseText
         }
-        return "\(baseText) · 普通提醒需检查：\(detailText)"
+        return "\(baseText) · 提醒需检查：\(detailText)"
     }
 
     private var notificationUnavailableDetailText: String? {
-        let trimmedMessage = reminderNotificationUnavailableMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedMessage.isEmpty else {
-            return nil
-        }
-        return trimmedMessage.replacingOccurrences(of: "普通提醒不可用：", with: "")
+        let messages = [reminderSystemSyncMessage, reminderNotificationUnavailableMessage]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map { $0.replacingOccurrences(of: "普通提醒不可用：", with: "") }
+        return messages.isEmpty ? nil : messages.joined(separator: "；")
     }
 
     private func startNotificationPermissionFlow() {

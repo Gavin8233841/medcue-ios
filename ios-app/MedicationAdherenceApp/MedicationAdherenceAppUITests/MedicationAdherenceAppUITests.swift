@@ -317,12 +317,24 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         tapElderAction("elder.action.delay", in: app)
         let reminderSettings = app.buttons["elder.reminder.settings"]
         XCTAssertTrue(reminderSettings.waitForExistence(timeout: 5))
-        XCTAssertTrue(reminderSettings.label.contains("记录已保存，提醒未能开启。"))
+        XCTAssertTrue(reminderSettings.label.contains("记录已保存；无法添加系统提醒，请检查通知设置。"))
         XCTAssertTrue(reminderSettings.label.contains("打开系统设置"))
         XCTAssertFalse(app.descendants(matching: .any)["elder.feedback.success"].exists)
         addScreenshot(named: "elder-reminder-unavailable", from: app)
         assertStoredState(in: app, statuses: ["delayed"], logCount: 1, saveAttempts: 1)
         XCTAssertEqual(app.staticTexts["elder.test.store.schedule-attempts"].label, "1")
+    }
+
+    func testElderBudgetWarningShowsPartialResultWithoutSettingsAction() {
+        continueAfterFailure = false
+        let app = launchElderFixture(extraArguments: ["--elder-ui-reminder-budget"])
+        tapElderAction("elder.action.delay", in: app)
+        let warning = app.descendants(matching: .any)["elder.reminder.warning"]
+        XCTAssertTrue(warning.waitForExistence(timeout: 5))
+        XCTAssertTrue(warning.label.contains("基础提醒已安排"))
+        XCTAssertTrue(warning.label.contains("升级提醒因本机排程预算未安排"))
+        XCTAssertFalse(app.buttons["elder.reminder.settings"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["elder.feedback.success"].exists)
     }
 
     func testElderRapidDoubleTapCommitsOnlyCurrentTask() {

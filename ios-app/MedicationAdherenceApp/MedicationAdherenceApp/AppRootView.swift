@@ -437,6 +437,9 @@ struct AppRootView: View {
         } else if outcome == .scheduleFailed {
             didScheduleStartupReminderReconcile = false
             reminderReconciliationFailureMessage = "提醒时间暂时无法计算，现有提醒保持不变。请稍后重试。"
+        } else if outcome == .systemFailed {
+            didScheduleStartupReminderReconcile = false
+            reminderReconciliationFailureMessage = "部分提醒未能同步到系统，请稍后重试。"
         }
     }
 
@@ -482,6 +485,7 @@ final class ElderUITestFixture {
     var preferences: UserDefaults { defaults }
     private let failsFirstSave: Bool
     private let reminderUnavailable: Bool
+    private let reminderBudgetLimited: Bool
     private var didInjectSaveFailure = false
 
     var dosePersistence: DoseActionPersistence {
@@ -501,13 +505,23 @@ final class ElderUITestFixture {
 
     var systemSurfaceAdapter: TodaySystemSurfaceAdapter {
         TodaySystemSurfaceAdapter(
-            cancelReminder: { _ in },
-            scheduleReminder: { [self] _, _, _ in
-                defaults.set(scheduleAttemptCount + 1, forKey: "scheduleAttempts")
-                if reminderUnavailable {
-                    return .unavailable(message: "无法添加系统提醒，请检查通知设置。")
+            applyReminderSnapshot: { [self] snapshot in
+                Task { @MainActor in
+                    var results: [UUID: MedicationReminderSchedulingResult] = [:]
+                    for entry in snapshot.entries {
+                        defaults.set(scheduleAttemptCount + 1, forKey: "scheduleAttempts")
+                        if reminderBudgetLimited {
+                            results[entry.taskID] = .unavailable(
+                                message: "基础提醒已安排，升级提醒因本机排程预算未安排。"
+                            )
+                        } else {
+                            results[entry.taskID] = reminderUnavailable
+                                ? .unavailable(message: "无法添加系统提醒，请检查通知设置。")
+                                : .scheduled
+                        }
+                    }
+                    return results
                 }
-                return .scheduled
             },
             endLiveActivity: { _ in },
             startLiveActivity: { _, _ in }
@@ -532,6 +546,7 @@ final class ElderUITestFixture {
             initialExperienceMode: initialExperienceMode,
             failsFirstSave: arguments.contains("--elder-ui-fail-first-save"),
             reminderUnavailable: arguments.contains("--elder-ui-reminder-unavailable"),
+            reminderBudgetLimited: arguments.contains("--elder-ui-reminder-budget"),
             inspectsStore: arguments.contains("--elder-ui-inspect-store"),
             usesBoldText: arguments.contains("--elder-ui-bold-text")
         )
@@ -550,6 +565,7 @@ final class ElderUITestFixture {
         initialExperienceMode: AppExperienceMode,
         failsFirstSave: Bool,
         reminderUnavailable: Bool,
+        reminderBudgetLimited: Bool,
         inspectsStore: Bool,
         usesBoldText: Bool
     ) throws {
@@ -583,6 +599,7 @@ final class ElderUITestFixture {
         clockOrigin = date
         self.failsFirstSave = failsFirstSave
         self.reminderUnavailable = reminderUnavailable
+        self.reminderBudgetLimited = reminderBudgetLimited
         self.inspectsStore = inspectsStore
         self.usesBoldText = usesBoldText
         helpContactStore = try ElderUITestHelpContactStore(scenario: scenario)

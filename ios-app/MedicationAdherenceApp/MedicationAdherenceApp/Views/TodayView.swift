@@ -67,6 +67,7 @@ private struct TodayContentView: View {
     @AppStorage(AppExperienceMode.storageKey) private var appExperienceModeRaw = AppExperienceMode.complete.rawValue
     @AppStorage("prefersReducedAppMotion") private var prefersReducedAppMotion = false
     @AppStorage(NotificationService.reminderNotificationUnavailableMessageKey) private var reminderNotificationUnavailableMessage = ""
+    @AppStorage(NotificationService.reminderSystemSyncMessageKey) private var reminderSystemSyncMessage = ""
     @AppStorage(DoseActionPersistence.failureMessageDefaultsKey) private var externalDosePersistenceErrorMessage = ""
     @StateObject private var notificationService = NotificationService()
     @StateObject private var liveActivityService = MedicationLiveActivityService()
@@ -168,6 +169,7 @@ private struct TodayContentView: View {
         }
         return TodaySystemSurfaceSynchronizer(
             notificationService: notificationService,
+            modelContext: modelContext,
             liveActivityService: liveActivityService,
             medicationForTask: medication(for:),
             deliveryMethodForTask: reminderDeliveryMethod(for:),
@@ -208,6 +210,13 @@ private struct TodayContentView: View {
             .joined(separator: "|")
     }
 
+    private var reminderWarningMessage: String {
+        [reminderSystemSyncMessage, reminderNotificationUnavailableMessage]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "；")
+    }
+
     var body: some View {
         let now = displayedNow
         let snapshot = doseProjectionStore.projection(
@@ -227,9 +236,8 @@ private struct TodayContentView: View {
                 helpMissingMessage: $elderHelpMissingMessage,
                 helpConfirmationPhone: $elderHelpConfirmationPhone,
                 successFeedback: $elderDoseSuccessMessage,
-                notificationUnavailableMessage: elderReminderUnavailableMessage.isEmpty
-                    ? (systemSurfaceAdapter == nil ? reminderNotificationUnavailableMessage : "")
-                    : elderReminderUnavailableMessage,
+                notificationUnavailableMessage: systemSurfaceAdapter == nil
+                    ? reminderWarningMessage : elderReminderUnavailableMessage,
                 loadErrorMessage: _tasks.fetchError != nil
                     || _medications.fetchError != nil || _plans.fetchError != nil
                     ? "用药信息未能加载。" : nil,
@@ -257,7 +265,7 @@ private struct TodayContentView: View {
         } else {
             TodayScreen(
                 snapshot: snapshot,
-                notificationUnavailableMessage: reminderNotificationUnavailableMessage,
+                notificationUnavailableMessage: reminderWarningMessage,
                 completionRateFeedback: completionRateFeedback,
                 completionRateDisplayedSnapshot: completionRateDisplayedSnapshot,
                 isCompletionRateFeedbackVisible: isCompletionRateFeedbackVisible,
@@ -504,8 +512,9 @@ private struct TodayContentView: View {
         }
         guard didCommit else { return false }
         presentCompletionRateFeedbackIfNeeded(from: previousCompletionSnapshot, to: nextCompletionSnapshot)
+        let systemSurfaceSync = systemSurfaceSynchronizer.beginSynchronize(.handled(group))
         performDeferredSystemSurfaceSync {
-            await systemSurfaceSynchronizer.synchronize(.handled(group))
+            _ = await systemSurfaceSync.value
             scheduleLiveActivityRefresh(after: 0.35)
         }
         return true
@@ -550,17 +559,22 @@ private struct TodayContentView: View {
         if presentation == .elder {
             elderReminderSyncInProgress = true
         }
+        let systemSurfaceSync = systemSurfaceSynchronizer.beginSynchronize(
+            .delayed(group, primaryTaskID: task.id)
+        )
         performDeferredSystemSurfaceSync(after: presentation == .elder ? 0 : 0.75) {
-            let result = await systemSurfaceSynchronizer.synchronize(
-                .delayed(group, primaryTaskID: task.id)
-            )
+            let result = await systemSurfaceSync.value
             if presentation == .elder, operationID == elderOperationID {
                 elderReminderSyncInProgress = false
                 switch result {
                 case .reminder(.scheduled):
                     elderReminderUnavailableMessage = ""
                     elderDoseSuccessMessage = "已设置 \(delayDurationText)后提醒"
-                case .reminder(.unavailable), .completed:
+                case .reminder(.unavailable(let message)):
+                    elderDoseSuccessMessage = nil
+                    elderReminderUnavailableMessage = "记录已保存；\(message)"
+                    UIAccessibility.post(notification: .announcement, argument: elderReminderUnavailableMessage)
+                case .completed:
                     elderDoseSuccessMessage = nil
                     elderReminderUnavailableMessage = "记录已保存，提醒未能开启。"
                     UIAccessibility.post(notification: .announcement, argument: elderReminderUnavailableMessage)
@@ -892,10 +906,11 @@ private struct TodayContentView: View {
             presentCompletionRateFeedbackIfNeeded(from: previousCompletionSnapshot, to: nextCompletionSnapshot)
             showDoseUndoBanner(for: task, rollbackToken: commit.rollbackToken)
             clearReopenedTaskHighlightAfterDelay(task)
+            let systemSurfaceSync = systemSurfaceSynchronizer.beginSynchronize(
+                .reopened(group, primaryTaskID: task.id)
+            )
             performDeferredSystemSurfaceSync {
-                await systemSurfaceSynchronizer.synchronize(
-                    .reopened(group, primaryTaskID: task.id)
-                )
+                _ = await systemSurfaceSync.value
                 scheduleLiveActivityRefresh(after: 0.35)
             }
         }
@@ -964,10 +979,11 @@ private struct TodayContentView: View {
         } else {
             withAnimation(.easeOut(duration: 0.18), clearReopenState)
         }
+        let systemSurfaceSync = systemSurfaceSynchronizer.beginSynchronize(
+            .rollback(restoredTasks, primaryTaskID: banner.taskID)
+        )
         performDeferredSystemSurfaceSync {
-            await systemSurfaceSynchronizer.synchronize(
-                .rollback(restoredTasks, primaryTaskID: banner.taskID)
-            )
+            _ = await systemSurfaceSync.value
             scheduleLiveActivityRefresh(after: 0.35)
         }
         dismissDoseUndoBanner()

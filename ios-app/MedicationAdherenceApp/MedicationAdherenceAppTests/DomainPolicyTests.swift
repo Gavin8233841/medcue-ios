@@ -31,12 +31,26 @@ struct DomainPolicyTests {
     }
 
     @Test
-    func notificationPolicyCapsScheduledEntriesAtSixty() {
+    func notificationPolicyCapsActualRequestsAtSixty() {
         let policy = MedicationNotificationPolicy.default
-        let entries = Array(0..<75)
+        let candidates = (0..<75).map { index in
+            MedicationReminderRequestCandidate(
+                taskID: UUID(),
+                dueAt: Date(timeIntervalSince1970: Double(2_000 + index)),
+                wantsAlarm: false,
+                wantsEscalation: false
+            )
+        }
+        let plan = policy.requestPlan(
+            candidates: candidates,
+            occupiedRequestCount: 0,
+            notificationAvailable: true,
+            alarmAvailable: false
+        )
 
-        #expect(policy.maximumScheduledEntries == 60)
-        #expect(Array(policy.nearTermEntries(from: entries)) == Array(0..<60))
+        #expect(policy.maximumScheduledRequests == 60)
+        #expect(plan.assignments.count == 60)
+        #expect(plan.deferredTaskIDs.count == 15)
     }
 
     @Test

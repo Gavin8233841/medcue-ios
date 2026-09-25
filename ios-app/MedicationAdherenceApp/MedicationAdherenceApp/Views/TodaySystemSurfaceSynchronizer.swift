@@ -1,9 +1,9 @@
 import Foundation
+import SwiftData
 
 @MainActor
 struct TodaySystemSurfaceAdapter {
-    var cancelReminder: @MainActor (UUID) -> Void
-    var scheduleReminder: @MainActor (StoredDoseTask, StoredMedication, StoredReminderDeliveryMethod) async -> MedicationReminderSchedulingResult
+    var applyReminderSnapshot: @MainActor (MedicationReminderPostCommitSnapshot) -> Task<[UUID: MedicationReminderSchedulingResult], Never>
     var endLiveActivity: @MainActor (UUID) async -> Void
     var startLiveActivity: @MainActor (StoredDoseTask, StoredMedication?) async -> Void
 }
@@ -15,7 +15,7 @@ enum TodaySystemSurfaceSyncIntent {
     case rollback([StoredDoseTask], primaryTaskID: UUID)
 }
 
-enum TodaySystemSurfaceSyncResult: Equatable {
+enum TodaySystemSurfaceSyncResult: Sendable, Equatable {
     case completed
     case reminder(MedicationReminderSchedulingResult)
 }
@@ -41,6 +41,7 @@ struct TodaySystemSurfaceSynchronizer {
 
     init(
         notificationService: NotificationService,
+        modelContext: ModelContext,
         liveActivityService: MedicationLiveActivityService,
         medicationForTask: @escaping (StoredDoseTask) -> StoredMedication?,
         deliveryMethodForTask: @escaping (StoredDoseTask) -> StoredReminderDeliveryMethod,
@@ -48,13 +49,8 @@ struct TodaySystemSurfaceSynchronizer {
     ) {
         self.init(
             adapter: TodaySystemSurfaceAdapter(
-                cancelReminder: notificationService.cancelReminder(for:),
-                scheduleReminder: { task, medication, deliveryMethod in
-                    await notificationService.scheduleReminder(
-                        for: task,
-                        medication: medication,
-                        deliveryMethod: deliveryMethod
-                    )
+                applyReminderSnapshot: { _ in
+                    notificationService.beginApplyCommittedReminderState(in: modelContext)
                 },
                 endLiveActivity: liveActivityService.end(for:),
                 startLiveActivity: liveActivityService.startIfNeeded(for:medication:)
@@ -67,70 +63,102 @@ struct TodaySystemSurfaceSynchronizer {
 
     @discardableResult
     func synchronize(_ intent: TodaySystemSurfaceSyncIntent) async -> TodaySystemSurfaceSyncResult {
+        await beginSynchronize(intent).value
+    }
+
+    func beginSynchronize(
+        _ intent: TodaySystemSurfaceSyncIntent
+    ) -> Task<TodaySystemSurfaceSyncResult, Never> {
         switch intent {
         case let .handled(tasks):
-            for task in tasks {
-                adapter.cancelReminder(task.id)
-                await adapter.endLiveActivity(task.id)
-            }
-            return .completed
-        case let .delayed(tasks, primaryTaskID):
-            var result = MedicationReminderSchedulingResult.unavailable(
-                message: "提醒未安排，请重新查看这项用药。"
-            )
-            for task in tasks {
-                await adapter.endLiveActivity(task.id)
-                if task.id == primaryTaskID,
-                   isOpen(task),
-                   let medication = medicationForTask(task) {
-                    result = await adapter.scheduleReminder(
-                        task,
-                        medication,
-                        deliveryMethodForTask(task)
-                    )
-                } else {
-                    adapter.cancelReminder(task.id)
-                }
-            }
-            return .reminder(result)
-        case let .reopened(tasks, primaryTaskID):
-            var result = TodaySystemSurfaceSyncResult.completed
-            for task in tasks {
-                if task.id == primaryTaskID,
-                   task.dueAt > now(),
-                   isOpen(task),
-                   let medication = medicationForTask(task) {
-                    result = .reminder(await adapter.scheduleReminder(
-                        task,
-                        medication,
-                        deliveryMethodForTask(task)
-                    ))
-                } else {
-                    adapter.cancelReminder(task.id)
-                }
-                await adapter.endLiveActivity(task.id)
-            }
-            return result
-        case let .rollback(tasks, primaryTaskID):
-            var result = TodaySystemSurfaceSyncResult.completed
-            for task in tasks {
-                if task.id == primaryTaskID,
-                   task.dueAt > now(),
-                   isOpen(task),
-                   let medication = medicationForTask(task) {
-                    result = .reminder(await adapter.scheduleReminder(
-                        task,
-                        medication,
-                        deliveryMethodForTask(task)
-                    ))
-                    await adapter.startLiveActivity(task, medication)
-                } else {
-                    adapter.cancelReminder(task.id)
+            let reminderOperation = adapter.applyReminderSnapshot(MedicationReminderPostCommitSnapshot(
+                entries: [],
+                cancelledTaskIDs: tasks.map(\.id)
+            ))
+            return Task { @MainActor in
+                _ = await reminderOperation.value
+                for task in tasks {
                     await adapter.endLiveActivity(task.id)
                 }
+                return .completed
             }
-            return result
+        case let .delayed(tasks, primaryTaskID):
+            let snapshot = reminderSnapshot(
+                tasks: tasks,
+                primaryTaskID: primaryTaskID,
+                requiresFutureDueAt: false
+            )
+            let reminderOperation = adapter.applyReminderSnapshot(snapshot)
+            return Task { @MainActor in
+                let results = await reminderOperation.value
+                for task in tasks {
+                    await adapter.endLiveActivity(task.id)
+                }
+                return .reminder(results[primaryTaskID] ?? .unavailable(
+                    message: "提醒未安排，请重新查看这项用药。"
+                ))
+            }
+        case let .reopened(tasks, primaryTaskID):
+            let snapshot = reminderSnapshot(
+                tasks: tasks,
+                primaryTaskID: primaryTaskID,
+                requiresFutureDueAt: true
+            )
+            let reminderOperation = adapter.applyReminderSnapshot(snapshot)
+            return Task { @MainActor in
+                let results = await reminderOperation.value
+                for task in tasks {
+                    await adapter.endLiveActivity(task.id)
+                }
+                return results[primaryTaskID].map(TodaySystemSurfaceSyncResult.reminder) ?? .completed
+            }
+        case let .rollback(tasks, primaryTaskID):
+            let snapshot = reminderSnapshot(
+                tasks: tasks,
+                primaryTaskID: primaryTaskID,
+                requiresFutureDueAt: true
+            )
+            let reminderOperation = adapter.applyReminderSnapshot(snapshot)
+            return Task { @MainActor in
+                let results = await reminderOperation.value
+                for task in tasks {
+                    if task.id == primaryTaskID,
+                       results[primaryTaskID] != nil,
+                       let medication = medicationForTask(task) {
+                        await adapter.startLiveActivity(task, medication)
+                    } else {
+                        await adapter.endLiveActivity(task.id)
+                    }
+                }
+                return results[primaryTaskID].map(TodaySystemSurfaceSyncResult.reminder) ?? .completed
+            }
         }
+    }
+
+    private func reminderSnapshot(
+        tasks: [StoredDoseTask],
+        primaryTaskID: UUID,
+        requiresFutureDueAt: Bool
+    ) -> MedicationReminderPostCommitSnapshot {
+        guard let primaryTask = tasks.first(where: { $0.id == primaryTaskID }),
+              (!requiresFutureDueAt || primaryTask.dueAt > now()),
+              isOpen(primaryTask),
+              let medication = medicationForTask(primaryTask)
+        else {
+            return MedicationReminderPostCommitSnapshot(
+                entries: [],
+                cancelledTaskIDs: tasks.map(\.id)
+            )
+        }
+        return MedicationReminderPostCommitSnapshot(
+            entries: [MedicationReminderPostCommitEntry(
+                task: primaryTask,
+                medication: medication,
+                deliveryMethod: deliveryMethodForTask(primaryTask),
+                escalatesToAlarmWhenUnhandled: true
+            )],
+            cancelledTaskIDs: tasks.filter { $0.id != primaryTaskID }.map(\.id)
+        )
     }
 
     private func isOpen(_ task: StoredDoseTask) -> Bool {
