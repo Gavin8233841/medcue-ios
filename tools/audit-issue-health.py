@@ -590,8 +590,7 @@ def classify_title(title: str, form_prefixes: Sequence[str]) -> str:
     return "no recognized prefix"
 
 
-def extract_form_sections(body: str) -> dict[str, tuple[str, ...]]:
-    headings: list[tuple[int, int, str]] = []
+def visible_markdown_lines(body: str) -> Iterable[tuple[int, str]]:
     fence_character = ""
     fence_length = 0
     offset = 0
@@ -608,10 +607,16 @@ def extract_form_sections(body: str) -> dict[str, tuple[str, ...]]:
             fence_character = fence.group(1)[0]
             fence_length = len(fence.group(1))
         else:
-            heading = re.match(r"^###\s+(.+?)\s*$", content)
-            if heading:
-                headings.append((offset, offset + len(content), heading.group(1).strip()))
+            yield offset, content
         offset += len(line)
+
+
+def extract_form_sections(body: str) -> dict[str, tuple[str, ...]]:
+    headings: list[tuple[int, int, str]] = []
+    for offset, content in visible_markdown_lines(body):
+        heading = re.match(r"^###\s+(.+?)\s*$", content)
+        if heading:
+            headings.append((offset, offset + len(content), heading.group(1).strip()))
     sections: dict[str, list[str]] = {}
     for index, (_, start, label) in enumerate(headings):
         end = headings[index + 1][0] if index + 1 < len(headings) else len(body)
@@ -738,7 +743,7 @@ DEPENDENCY_INLINE_RE = re.compile(
 def extract_dependencies(body: str, repository: str) -> tuple[int, ...]:
     dependencies: set[int] = set()
     in_dependency_section = False
-    for raw_line in body.splitlines():
+    for _, raw_line in visible_markdown_lines(body):
         line = raw_line.strip()
         heading = re.match(r"^#{1,6}\s+(.+?)\s*$", line)
         if heading:

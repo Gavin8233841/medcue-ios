@@ -472,6 +472,10 @@ Check #77.
 """
         self.assertEqual(audit.extract_dependencies(body, "example/project"), (1, 2, 3, 4))
 
+    def test_dependency_parser_ignores_fenced_examples(self) -> None:
+        body = "### Notes\n```md\n### Blocked by\n#99\n```\nDepends on #2.\n"
+        self.assertEqual(audit.extract_dependencies(body, "example/project"), (2,))
+
     def test_dependency_parser_accepts_reference_on_heading_line(self) -> None:
         body = "## Blocked by #7\n\n- #8\n\n## Verification\n\nSee #9."
         self.assertEqual(audit.extract_dependencies(body, "example/project"), (7, 8))
