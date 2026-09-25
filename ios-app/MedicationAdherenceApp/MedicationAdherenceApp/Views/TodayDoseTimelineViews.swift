@@ -47,6 +47,9 @@ struct WeatherMedicationHintCard: View {
 }
 
 struct TimelineDoseTaskRow: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var isAccessibilitySize: Bool { dynamicTypeSize.isAccessibilitySize }
+
     @Environment(\.medcueReduceMotionEnabled) private var reduceMotionEnabled
     let task: StoredDoseTask
     let medication: StoredMedication?
@@ -78,8 +81,15 @@ struct TimelineDoseTaskRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 9) {
-            timeRail
+        (isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 9)) : AnyLayout(HStackLayout(alignment: .top, spacing: 9))) {
+            if isAccessibilitySize {
+                Text(AppFormatters.time.string(from: task.dueAt))
+                    .font(.caption.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("timeline.time")
+            } else {
+                timeRail
+            }
             VStack(alignment: .leading, spacing: 10) {
                 if let medication {
                     NavigationLink {
@@ -93,9 +103,10 @@ struct TimelineDoseTaskRow: View {
                 }
 
                 if isOpen {
-                    HStack(spacing: 8) {
+                    (isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))) {
                         CompactDoseActionButton(
                             title: completionText,
+                            accessibilityIdentifier: AppAccessibilityID.todayTimelineTaken,
                             confirmationIconName: "checkmark",
                             tint: TodayDoseActionPalette.primary,
                             isProminent: true,
@@ -105,6 +116,7 @@ struct TimelineDoseTaskRow: View {
                         .id("\(task.id.uuidString)-taken")
                         CompactDoseActionButton(
                             title: "稍后",
+                            accessibilityIdentifier: AppAccessibilityID.todayTimelineDelay,
                             confirmationIconName: "clock",
                             tint: .gray,
                             isProminent: false,
@@ -114,6 +126,7 @@ struct TimelineDoseTaskRow: View {
                         .id("\(task.id.uuidString)-delay")
                         CompactDoseActionButton(
                             title: "忽略",
+                            accessibilityIdentifier: AppAccessibilityID.todayTimelineSkip,
                             confirmationIconName: "minus.circle",
                             tint: .orange,
                             isProminent: false,
@@ -122,7 +135,7 @@ struct TimelineDoseTaskRow: View {
                         )
                         .id("\(task.id.uuidString)-skip")
                     }
-                    .padding(.leading, 50)
+                    .padding(.leading, isAccessibilitySize ? 0 : 50)
                     .disabled(isActionInFlight)
                     if let confirmationKind {
                         InlineDoseConfirmationCard(
@@ -138,7 +151,7 @@ struct TimelineDoseTaskRow: View {
                             removal: .opacity
                                 .combined(with: .scale(scale: 0.98, anchor: .top))
                         ))
-                        .padding(.leading, 50)
+                        .padding(.leading, isAccessibilitySize ? 0 : 50)
                     }
                 }
             }
@@ -198,7 +211,7 @@ struct TimelineDoseTaskRow: View {
     }
 
     private var rowHeader: some View {
-        HStack(alignment: .center, spacing: 10) {
+        (isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))) {
             MedicationPhotoView(
                 photoData: medication?.photoData,
                 symbolName: medication?.photoSymbolName ?? "pills.fill",
@@ -213,12 +226,16 @@ struct TimelineDoseTaskRow: View {
                     Text(medication.map(userFacingMedicationName(for:)) ?? "未知药品")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.86)
+                        .lineLimit(isAccessibilitySize ? nil : 1)
+                        .minimumScaleFactor(isAccessibilitySize ? 1 : 0.86)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("timeline.medication-name")
                 }
                 Text("\(task.doseValue.formatted()) \(localizedMedicationUnit(task.doseUnit))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("timeline.dose")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             StatusBadge(text: statusText, color: tint)
@@ -227,6 +244,8 @@ struct TimelineDoseTaskRow: View {
 }
 
 struct InlineDoseConfirmationCard: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     let kind: PendingDoseConfirmation.Kind
     let delayDurationText: String
     let confirm: () -> Void
@@ -236,7 +255,7 @@ struct InlineDoseConfirmationCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 9) {
                 Image(systemName: kind.iconName)
-                    .font(.caption.weight(.semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(kind.tint)
                     .frame(width: 24, height: 24)
                     .background(kind.tint.opacity(0.12), in: Circle())
@@ -252,20 +271,32 @@ struct InlineDoseConfirmationCard: View {
                 }
             }
 
-            HStack(spacing: 8) {
-                Button("取消", action: cancel)
-                    .font(.caption.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 30)
-                    .foregroundStyle(.secondary)
-                    .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+            (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))) {
+                Button(action: cancel) {
+                    Text("取消")
+                        .font(.caption.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, dynamicTypeSize.isAccessibilitySize ? 8 : 0)
+                        .frame(minHeight: dynamicTypeSize.isAccessibilitySize ? 60 : 44)
+                        .foregroundStyle(.secondary)
+                        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+                        .contentShape(Rectangle())
+                }
+                .accessibilityIdentifier(AppAccessibilityID.todayTimelineConfirmationCancel)
 
-                Button(kind.confirmTitle, action: confirm)
-                    .font(.caption.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 30)
-                    .foregroundStyle(.white)
-                    .background(kind.tint, in: RoundedRectangle(cornerRadius: 8))
+                Button(action: confirm) {
+                    Text(kind.confirmTitle)
+                        .font(.caption.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, dynamicTypeSize.isAccessibilitySize ? 8 : 0)
+                        .frame(minHeight: dynamicTypeSize.isAccessibilitySize ? 60 : 44)
+                        .foregroundStyle(.white)
+                        .background(kind.tint, in: RoundedRectangle(cornerRadius: 8))
+                        .contentShape(Rectangle())
+                }
+                .accessibilityIdentifier(AppAccessibilityID.todayTimelineConfirmationConfirm)
             }
             .buttonStyle(.plain)
         }
@@ -275,7 +306,7 @@ struct InlineDoseConfirmationCard: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(kind.tint.opacity(0.16), lineWidth: 1)
         )
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -477,6 +508,7 @@ struct CompactDoseActionButton: View {
     @Environment(\.medcueReduceMotionEnabled) private var reduceMotionEnabled
     @AppStorage("usesLargeTouchTargets") private var usesLargeTouchTargets = true
     let title: String
+    let accessibilityIdentifier: String
     let confirmationIconName: String
     let tint: Color
     let isProminent: Bool
@@ -512,6 +544,7 @@ struct CompactDoseActionButton: View {
         .buttonStyle(CompactDoseActionButtonStyle())
         .disabled(isConfirming)
         .accessibilityLabel(title)
+        .accessibilityIdentifier(accessibilityIdentifier)
     }
 
     private var background: Color {

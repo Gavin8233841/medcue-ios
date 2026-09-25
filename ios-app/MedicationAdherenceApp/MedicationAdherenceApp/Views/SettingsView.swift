@@ -297,6 +297,7 @@ struct ProfileView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .accessibilityIdentifier(AppAccessibilityID.profileRoot)
         .coordinateSpace(name: "ProfileTopGradientList")
         .navigationTitle("个人")
         .onAppear {
@@ -476,6 +477,8 @@ private struct ProfileSnapshot {
 }
 
 private struct ProfileActionRow: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     let iconName: String
     let tint: Color
     let title: String
@@ -483,9 +486,9 @@ private struct ProfileActionRow: View {
     let trailingText: String?
 
     var body: some View {
-        HStack(spacing: 12) {
+        (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))) {
             Image(systemName: iconName)
-                .font(.headline)
+                .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(tint)
                 .frame(width: 34, height: 34)
                 .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
@@ -496,9 +499,10 @@ private struct ProfileActionRow: View {
                 Text(subtitle)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 8)
+            if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
             if let trailingText {
                 Text(trailingText)
                     .font(.caption.weight(.semibold))
