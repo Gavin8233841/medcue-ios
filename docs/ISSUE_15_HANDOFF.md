@@ -1,5 +1,7 @@
 # Issue #15 实现交接文档
 
+> 历史交接快照（2026-08-24，Windows 实现阶段）。当前实现、文件路径和验证状态以 [当前检查清单](ISSUE_15_IMPLEMENTATION_CHECKLIST.md) 与 PR #60 的精确 HEAD 为准。
+
 ## 分支信息
 - **分支名**: `codex/15-pdf-temp-file-protection`
 - **提交 SHA**: `4408d65`
@@ -19,7 +21,7 @@
 
 ### 修改文件统计
 ```
- IMPLEMENTATION_CHECKLIST.md                        | 116 +++++
+ docs/ISSUE_15_IMPLEMENTATION_CHECKLIST.md          | 116 +++++
  ios-app/ISSUE-15-IMPLEMENTATION.md                 | 152 +++++
  ios-app/.../project.pbxproj                        |   6 +
  ios-app/.../Services/VisitSummaryPDFLifecycle.swift        | 140 +++++
@@ -179,7 +181,7 @@ tools/verify-native.sh
 
 ## 📋 验收标准对照
 
-详见 `IMPLEMENTATION_CHECKLIST.md`，所有代码实现已完成，等待验证：
+详见 `docs/ISSUE_15_IMPLEMENTATION_CHECKLIST.md`；以下为当时的验收预估，并非当前结论：
 
 - ✅ 不透明唯一文件名
 - ✅ `NSFileProtectionComplete` 保护
@@ -196,7 +198,7 @@ tools/verify-native.sh
 
 ## 🔗 相关文档
 
-- `IMPLEMENTATION_CHECKLIST.md` - 详细验收标准对照
+- `docs/ISSUE_15_IMPLEMENTATION_CHECKLIST.md` - 当前验收标准对照
 - `ios-app/ISSUE-15-IMPLEMENTATION.md` - 实现细节和架构说明
 - Issue #15: https://github.com/Gavin8233841/medcue-ios/issues/15
 

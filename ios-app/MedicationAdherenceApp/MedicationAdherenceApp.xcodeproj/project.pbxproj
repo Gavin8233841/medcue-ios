@@ -11,7 +11,6 @@
 		18F1330514DB412D8163FE04 /* VisitSummaryPDFLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB25FBE59F2547A1A00BBEEB /* VisitSummaryPDFLifecycleTests.swift */; };
 		4999EF233F823324EF93114D /* VisitSummaryTextBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A516827FA75A253312E60344 /* VisitSummaryTextBuilder.swift */; };
 		0A7C94B0AB629D2DACC001B3 /* VisitSummaryPDFExportViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4135C281C31F1960CC9D7DB9 /* VisitSummaryPDFExportViews.swift */; };
-				BE949A0B3A2D49FD98FC7F91 /* VisitSummaryPDFLifecycle.swift */,
 		1BF8B51DD10B9709D2E3A96F /* RecordsDoseDetailViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9803CE7524B0FCD6C1E6B54 /* RecordsDoseDetailViews.swift */; };
 		A665D0E9E23EB68DCEA75136 /* RecordsDoseCalendarViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D40890D46BEC61633BC1D5B /* RecordsDoseCalendarViews.swift */; };
 		51C19DA6F9D15FF14A3D0218 /* TodayDoseRowViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7ED73A39295EB4D498D7A95 /* TodayDoseRowViews.swift */; };

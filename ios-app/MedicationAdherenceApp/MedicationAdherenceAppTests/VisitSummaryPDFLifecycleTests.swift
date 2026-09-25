@@ -4,6 +4,7 @@ import Testing
 
 @Suite("VisitSummaryPDFLifecycle")
 struct VisitSummaryPDFLifecycleTests {
+    enum InjectedFailure: Error { case expected }
     let fileManager = FileManager.default
 
     func makeTestLifecycle(
@@ -109,6 +110,16 @@ struct VisitSummaryPDFLifecycleTests {
 
         #expect(!removed)
         #expect(fileManager.fileExists(atPath: outsideURL.path))
+
+        let sameNamedRoot = fileManager.temporaryDirectory
+            .appendingPathComponent("another-location-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent(rootURL.lastPathComponent, isDirectory: true)
+        try fileManager.createDirectory(at: sameNamedRoot, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: sameNamedRoot.deletingLastPathComponent()) }
+        let sameNamedFile = sameNamedRoot.appendingPathComponent(lifecycle.makeUniqueFilename())
+        try Data("Outside".utf8).write(to: sameNamedFile)
+        #expect(!lifecycle.remove(sameNamedFile))
+        #expect(fileManager.fileExists(atPath: sameNamedFile.path))
     }
 
     @Test("Sweeps expired files and preserves recent files")
@@ -123,7 +134,7 @@ struct VisitSummaryPDFLifecycleTests {
         try lifecycle.ensureRootDirectory()
 
         // Create an expired file (2 hours old)
-        let expiredURL = rootURL.appendingPathComponent("expired.pdf")
+        let expiredURL = rootURL.appendingPathComponent(lifecycle.makeUniqueFilename())
         try Data("Expired".utf8).write(to: expiredURL)
         let expiredDate = now.addingTimeInterval(-7200)
         try fileManager.setAttributes(
@@ -132,7 +143,7 @@ struct VisitSummaryPDFLifecycleTests {
         )
 
         // Create a recent file (30 minutes old)
-        let recentURL = rootURL.appendingPathComponent("recent.pdf")
+        let recentURL = rootURL.appendingPathComponent(lifecycle.makeUniqueFilename())
         try Data("Recent".utf8).write(to: recentURL)
         let recentDate = now.addingTimeInterval(-1800)
         try fileManager.setAttributes(
@@ -143,6 +154,8 @@ struct VisitSummaryPDFLifecycleTests {
         // Create a non-PDF file that should be preserved
         let otherURL = rootURL.appendingPathComponent("other.txt")
         try Data("Other".utf8).write(to: otherURL)
+        let unrelatedPDF = rootURL.appendingPathComponent("unrelated.pdf")
+        try Data("Unrelated".utf8).write(to: unrelatedPDF)
 
         let removedCount = lifecycle.sweepExpiredFiles()
 
@@ -150,6 +163,7 @@ struct VisitSummaryPDFLifecycleTests {
         #expect(!fileManager.fileExists(atPath: expiredURL.path))
         #expect(fileManager.fileExists(atPath: recentURL.path))
         #expect(fileManager.fileExists(atPath: otherURL.path))
+        #expect(fileManager.fileExists(atPath: unrelatedPDF.path))
     }
 
     @Test("Sweep handles boundary case: exactly at expiry threshold")
@@ -164,7 +178,7 @@ struct VisitSummaryPDFLifecycleTests {
         try lifecycle.ensureRootDirectory()
 
         // Create a file exactly at the 1-hour boundary
-        let boundaryURL = rootURL.appendingPathComponent("boundary.pdf")
+        let boundaryURL = rootURL.appendingPathComponent(lifecycle.makeUniqueFilename())
         try Data("Boundary".utf8).write(to: boundaryURL)
         let boundaryDate = now.addingTimeInterval(-3600)
         try fileManager.setAttributes(
@@ -244,16 +258,12 @@ struct VisitSummaryPDFLifecycleTests {
             exportSignature: "test-signature"
         )
 
-        let task = Task {
-            try await VisitSummaryPDFExporter.export(payload: payload, lifecycle: lifecycle)
-        }
-
-        // Allow publication to complete before cancelling
-        try await Task.sleep(nanoseconds: 10_000_000) // 10ms
-        task.cancel()
-
         do {
-            _ = try await task.value
+            _ = try await VisitSummaryPDFExporter.export(
+                payload: payload,
+                lifecycle: lifecycle,
+                afterPublication: { _ in throw CancellationError() }
+            )
             #expect(Bool(false), "Expected CancellationError to be thrown")
         } catch is CancellationError {
             // Expected: cancellation after publication should throw
@@ -278,23 +288,17 @@ struct VisitSummaryPDFLifecycleTests {
 
         try lifecycle.ensureRootDirectory()
 
-        // Attempt to write to a read-only directory to simulate write failure
-        let readOnlySubdir = rootURL.appendingPathComponent("readonly", isDirectory: true)
-        try fileManager.createDirectory(at: readOnlySubdir, withIntermediateDirectories: false)
-        try fileManager.setAttributes([.posixPermissions: 0o444], ofItemAtPath: readOnlySubdir.path)
-        defer {
-            try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: readOnlySubdir.path)
-            try? fileManager.removeItem(at: readOnlySubdir)
-        }
-
         let testData = Data("Test".utf8)
-        let targetURL = readOnlySubdir.appendingPathComponent(lifecycle.makeUniqueFilename())
+        let targetURL = rootURL.appendingPathComponent(lifecycle.makeUniqueFilename())
 
         do {
-            _ = try lifecycle.publish(data: testData, to: targetURL)
-            #expect(Bool(false), "Expected publish to fail in read-only directory")
-        } catch {
-            // Expected: publish should fail and clean up
+            _ = try lifecycle.publish(data: testData, to: targetURL, writeData: { _, url in
+                try Data("partial".utf8).write(to: url)
+                throw InjectedFailure.expected
+            })
+            #expect(Bool(false), "Expected injected write failure")
+        } catch InjectedFailure.expected {
+            // The partial artifact must be removed by publish.
         }
 
         // Verify no partial file was left behind
@@ -311,21 +315,12 @@ struct VisitSummaryPDFLifecycleTests {
         let testData = Data("Test".utf8)
         let targetURL = rootURL.appendingPathComponent(lifecycle.makeUniqueFilename())
 
-        // Write file successfully
-        try testData.write(to: targetURL, options: [.atomic, .completeFileProtection])
-
-        // Now simulate attribute inspection failure by removing the file before inspection
-        // (This tests the catch block around attributesOfItem)
-        try fileManager.removeItem(at: targetURL)
-
-        // Re-attempt publish which will write successfully but fail during attribute check
         do {
-            _ = try lifecycle.publish(data: testData, to: targetURL)
-            // If attributes can be read, verify protection is correct
-            let attributes = try fileManager.attributesOfItem(atPath: targetURL.path)
-            #expect(attributes[.protectionKey] as? FileProtectionType == .complete)
-        } catch {
-            // If attribute inspection fails, verify artifact was removed
+            _ = try lifecycle.publish(data: testData, to: targetURL, inspectProtection: { _ in
+                throw InjectedFailure.expected
+            })
+            #expect(Bool(false), "Expected injected inspection failure")
+        } catch InjectedFailure.expected {
             #expect(!fileManager.fileExists(atPath: targetURL.path))
         }
     }
@@ -343,11 +338,28 @@ struct VisitSummaryPDFLifecycleTests {
 
         #expect(fileManager.fileExists(atPath: publishedURL.path))
 
-        // Simulate preview dismissal callback removing the file
-        let removed = lifecycle.remove(publishedURL)
-
-        #expect(removed)
+        var leases = VisitSummaryPDFLeaseStore()
+        let token = leases.beginUse(publishedURL)
+        leases.requestRemoval(publishedURL, lifecycle: lifecycle)
+        #expect(fileManager.fileExists(atPath: publishedURL.path))
+        leases.finishUse(token, lifecycle: lifecycle)
         #expect(!fileManager.fileExists(atPath: publishedURL.path))
+    }
+
+    @Test("Share ownership keeps the PDF until the completion callback releases it")
+    func testShareOwnership() throws {
+        let (lifecycle, rootURL) = try makeTestLifecycle()
+        defer { cleanup(rootURL) }
+        try lifecycle.ensureRootDirectory()
+        let url = rootURL.appendingPathComponent(lifecycle.makeUniqueFilename())
+        try lifecycle.publish(data: Data("PDF".utf8), to: url)
+        var leases = VisitSummaryPDFLeaseStore()
+        let token = leases.beginUse(url)
+        leases.requestRemoval(url, lifecycle: lifecycle)
+        #expect(fileManager.fileExists(atPath: url.path))
+        leases.finishUse(token, lifecycle: lifecycle)
+        leases.finishUse(token, lifecycle: lifecycle)
+        #expect(!fileManager.fileExists(atPath: url.path))
     }
 
     @Test("Concurrent generation requests cleanup replaced PDFs")
@@ -364,19 +376,21 @@ struct VisitSummaryPDFLifecycleTests {
 
         #expect(fileManager.fileExists(atPath: published1.path))
 
-        // Simulate replacement by new generation: remove old before publishing new
-        lifecycle.remove(published1)
+        var leases = VisitSummaryPDFLeaseStore()
+        let oldConsumer = leases.beginUse(published1)
+        leases.requestRemoval(published1, lifecycle: lifecycle)
 
         let data2 = Data("Second PDF".utf8)
         let url2 = rootURL.appendingPathComponent(lifecycle.makeUniqueFilename())
         let published2 = try lifecycle.publish(data: data2, to: url2)
 
         // Verify old is gone and new exists
-        #expect(!fileManager.fileExists(atPath: published1.path))
+        #expect(fileManager.fileExists(atPath: published1.path))
         #expect(fileManager.fileExists(atPath: published2.path))
+        leases.finishUse(oldConsumer, lifecycle: lifecycle)
+        #expect(!fileManager.fileExists(atPath: published1.path))
 
         // Clean up second file
         lifecycle.remove(published2)
     }
 }
-

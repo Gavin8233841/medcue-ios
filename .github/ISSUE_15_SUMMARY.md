@@ -1,5 +1,7 @@
 # Issue #15 实现状态总结
 
+> 历史实现快照（2026-08-24）。其中的提交、完成声明与测试数不能代表 PR #60 当前 HEAD；请查看 `docs/ISSUE_15_IMPLEMENTATION_CHECKLIST.md` 和 PR #60。
+
 ## 🎯 任务完成情况
 
 **Issue**: #15 - 【P1】【隐私】保护并约束就诊摘要 PDF 临时文件
@@ -30,9 +32,9 @@
    - 取消清理
 
 4. **文档**
-   - IMPLEMENTATION_CHECKLIST.md - 验收标准对照
+   - docs/ISSUE_15_IMPLEMENTATION_CHECKLIST.md - 验收标准对照
    - ios-app/ISSUE-15-IMPLEMENTATION.md - 技术实现细节
-   - HANDOFF_TO_COLLABORATOR.md - macOS 验证指南
+   - docs/ISSUE_15_HANDOFF.md - 历史 macOS 验证指南
 
 ### 修改统计
 ```
@@ -101,7 +103,7 @@ tools/verify-native.sh
 # - 测试分享流程
 ```
 
-详细步骤见 `HANDOFF_TO_COLLABORATOR.md`
+历史步骤见 `docs/ISSUE_15_HANDOFF.md`，当前验证见 PR #60。
 
 ### 如果验证失败
 1. 记录完整错误信息和堆栈

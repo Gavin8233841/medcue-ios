@@ -1,5 +1,7 @@
 # Issue #15: PDF 临时文件保护 - 实现总结
 
+> 历史实现说明（2026-08-24）。当前分享回调、所有权和失败路径以 PR #60 的源码与 `docs/ISSUE_15_IMPLEMENTATION_CHECKLIST.md` 为准。
+
 ## 实现内容
 
 ### 1. 新增 `VisitSummaryPDFLifecycle` 服务

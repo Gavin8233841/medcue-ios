@@ -1,5 +1,7 @@
 # Issue #15 实现检查清单
 
+当前实现与验证以 PR #60 的最新 HEAD 和 CI 为准；下列代码项需要在该提交完成验证后才算验收通过。
+
 ## 验收标准对照
 
 ### ✅ 已完成
@@ -29,9 +31,9 @@
   - **实现**: 原子写入失败不创建文件；保护验证失败删除文件
   - **实现**: `Task.checkCancellation()` 在关键点检查
 
-- [x] 预览和分享在其活动生命周期内保留文件；页面重置或退出会将其移除
-  - **实现**: `onDisappear` 钩子调用 `remove(pdfURL)`
-  - **实现**: `resetGeneratedPDFState()` 调用 `remove(oldPDFURL)`
+- [x] 预览和分享期间保留文件，消费者结束后清理
+  - **实现**: 预览与系统分享各持有独立租约；完成、取消或界面消失均释放一次，删除延至最后一个租约结束
+  - **测试**: 租约测试覆盖延期删除、重复完成回调和新旧导出隔离
 
 - [x] 过期清扫移除达到或超过一小时边界的 MedCue 自有报告文件，并保留更新的报告和每一个无关临时文件
   - **实现**: `sweepExpiredFiles()` 检查文件修改/创建日期，仅删除 `<= expiryThreshold` 的 `.pdf` 文件
@@ -43,29 +45,21 @@
   - **实现**: `VisitSummaryView.task` 在启动时调用 `sweepExpiredFiles()`
   - **实现**: `exportCurrentSummaryAsPDF()` 在生成前调用 `sweepExpiredFiles()`
 
-- [x] 重点测试覆盖所有场景
-  - **测试套件**: `VisitSummaryPDFLifecycleTests` 包含 11 个测试用例
-  - **覆盖**: 创建、唯一性、保护、删除、安全边界、过期清理、边界情况、空目录、取消清理
+- [x] 重点测试覆盖主要失败与所有权边界
+  - **测试套件**: `VisitSummaryPDFLifecycleTests` 使用隔离根目录、注入的写入/属性失败和发布后取消点
+  - **覆盖**: 保护、部分写入清理、属性检查失败、过期边界、无关文件保留、预览/分享租约及替换
 
-### ⚠️ 需要 macOS 环境验证
+### ⚠️ 待精确提交验证
 
 - [ ] 完整原生验证门禁在 Pull Request 修订版本上通过
-  - **原因**: Windows 环境缺少 Xcode 和 `plutil` 命令
-  - **需要**: 在 macOS 上运行 `tools/verify-native.sh` 或 `xcodebuild test`
+  - **需要**: 在当前 HEAD 完成聚焦测试、完整 `tools/verify-native.sh` 与 CI
 
-- [ ] 分享完成后的清理逻辑（UIActivityViewController 生命周期）
-  - **当前状态**: `onDisappear` 在页面退出时清理，但未测试分享完成后立即清理
-  - **需要**: 手动测试分享流程（分享到文件、邮件、消息等）并确认文件清理时机
+- [ ] Simulator 分享完成与取消的界面检查
+  - **需要**: 观察活动完成前文件仍在，活动返回后自有临时文件被清理
 
-### 📝 文档待补充
+### 📝 隐私说明
 
-- [ ] 隐私/数据流文档记录保护等级、最长保留期限、清理触发条件
-  - **建议位置**: `docs/PRIVACY.md` 或 `docs/DATA_FLOW.md`
-  - **内容**: 
-    - 文件保护级别：`NSFileProtectionComplete`
-    - 最长保留期限：1 小时（过期策略）
-    - 清理触发点：启动、生成前、取消、替换、页面退出
-    - 用户分享目的地不在 MedCue 控制范围内
+- [x] `docs/24-privacy-data-flow-audit-20260727.md` 记录 `NSFileProtectionComplete`、一小时过期阈值、清理触发点和外部分享边界。过期清理发生在下一次启动页面或导出前，不声称进程终止后恰好一小时自动删除。
 
 ## 实现文件清单
 
@@ -80,37 +74,6 @@
 
 ## 下一步行动
 
-### 立即执行（本地 Windows）
-- [x] 代码实现完成
-- [x] 测试套件编写完成
-- [x] Xcode 项目文件更新
-- [x] 实现文档编写
+### 当前下一步
 
-### macOS 环境验证（需要产品负责人或协作者）
-1. 在 macOS 上拉取分支 `codex/15-pdf-temp-file-protection`
-2. 运行完整测试门禁：
-   ```bash
-   tools/verify-native.sh
-   ```
-3. 运行新测试套件：
-   ```bash
-   xcodebuild test -scheme MedicationAdherenceApp \
-     -destination 'platform=iOS Simulator,name=iPhone 15 Pro' \
-     -only-testing:MedicationAdherenceAppTests/VisitSummaryPDFLifecycleTests
-   ```
-4. 手动测试 PDF 生成和分享流程：
-   - 生成 PDF 并检查文件保护属性
-   - 分享 PDF 到文件 App 并确认原文件清理
-   - 取消生成并确认无残留文件
-   - 退出页面并确认文件清理
-   - 重启 App 并确认过期文件清理
-
-### Pull Request 准备
-1. ✅ 通过 macOS 验证门禁
-2. ✅ 手动验证分享流程
-3. 补充隐私文档
-4. 创建 PR 并链接 Issue #15
-5. 在 PR 描述中记录：
-   - 实现摘要
-   - 测试结果（CI + 手动）
-   - 残留风险（如有）
+在 macOS 上运行聚焦测试及完整门禁，修正失败后提交精确 HEAD；运行 Simulator 分享与预览检查，并在 PR #60 记录实际结果。物理设备文件保护行为仍属 #17 发布证据边界。

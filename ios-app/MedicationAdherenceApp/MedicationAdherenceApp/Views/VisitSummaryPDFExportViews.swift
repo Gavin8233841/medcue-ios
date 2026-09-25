@@ -13,9 +13,10 @@ enum VisitSummaryPDFExporter {
     /// - Throws: If PDF generation, protection verification, or lifecycle management fails.
     static func export(
         payload: VisitSummaryExportPayload,
-        lifecycle: VisitSummaryPDFLifecycle
+        lifecycle: VisitSummaryPDFLifecycle,
+        afterPublication: @escaping @Sendable (URL) throws -> Void = { _ in }
     ) async throws -> URL {
-        try await Task.detached(priority: .utility) {
+        let worker = Task.detached(priority: .utility) {
             try Task.checkCancellation()
 
             // Ensure the export root directory exists
@@ -40,6 +41,7 @@ enum VisitSummaryPDFExporter {
 
             // Check for cancellation after publication and remove artifact if cancelled
             do {
+                try afterPublication(publishedURL)
                 try Task.checkCancellation()
             } catch {
                 lifecycle.remove(publishedURL)
@@ -47,13 +49,38 @@ enum VisitSummaryPDFExporter {
             }
 
             return publishedURL
-        }.value
+        }
+        return try await withTaskCancellationHandler {
+            try await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
     }
 }
 
 struct PDFPreviewItem: Identifiable {
-    let id = UUID()
+    let id: UUID
     let url: URL
+}
+
+struct PDFShareItem: Identifiable {
+    let id: UUID
+    let url: URL
+}
+
+struct PDFShareSheet: UIViewControllerRepresentable {
+    let url: URL
+    let onComplete: @MainActor () -> Void
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        controller.completionWithItemsHandler = { _, _, _, _ in
+            Task { @MainActor in onComplete() }
+        }
+        return controller
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
 struct PDFPreviewSheet: UIViewControllerRepresentable {

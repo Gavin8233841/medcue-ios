@@ -51,36 +51,44 @@ struct VisitSummaryPDFLifecycle: Sendable {
     /// - Parameter data: The PDF data to write atomically.
     /// - Throws: If the atomic write fails or if applying the protection fails.
     /// - Returns: The successfully protected target URL.
-    func publish(data: Data, to targetURL: URL) throws -> URL {
-        // Atomic write with NSFileProtectionComplete
-        do {
-            try data.write(
-                to: targetURL,
-                options: [.atomic, .completeFileProtection]
-            )
-        } catch {
-            // Atomic write failed; ensure no partial file remains
-            try? fileManager.removeItem(at: targetURL)
-            throw error
+    func publish(
+        data: Data,
+        to targetURL: URL,
+        writeData: ((Data, URL) throws -> Void)? = nil,
+        inspectProtection: ((URL) throws -> Bool)? = nil
+    ) throws -> URL {
+        guard owns(targetURL) else {
+            throw VisitSummaryPDFLifecycleError.unownedTarget
         }
-
-        // Verify that the protection was applied
         do {
-            let attributes = try fileManager.attributesOfItem(atPath: targetURL.path)
-            guard let protection = attributes[.protectionKey] as? FileProtectionType,
-                  protection == .complete
-            else {
-                // Protection verification failed; remove the file and report failure
-                try? fileManager.removeItem(at: targetURL)
+            if let writeData {
+                try writeData(data, targetURL)
+            } else {
+                try data.write(to: targetURL, options: [.atomic, .completeFileProtection])
+            }
+            let isProtected: Bool
+            if let inspectProtection {
+                isProtected = try inspectProtection(targetURL)
+            } else {
+                let attributes = try fileManager.attributesOfItem(atPath: targetURL.path)
+                isProtected = attributes[.protectionKey] as? FileProtectionType == .complete
+            }
+            guard isProtected else {
                 throw VisitSummaryPDFLifecycleError.protectionVerificationFailed
             }
+            return targetURL
         } catch {
-            // Attribute inspection failed; remove the artifact and propagate the error
+            // Every failure after creation removes the owned artifact.
             try? fileManager.removeItem(at: targetURL)
             throw error
         }
+    }
 
-        return targetURL
+    private func owns(_ url: URL) -> Bool {
+        url.isFileURL
+            && url.deletingLastPathComponent().standardizedFileURL == rootDirectory.standardizedFileURL
+            && url.pathExtension == "pdf"
+            && UUID(uuidString: url.deletingPathExtension().lastPathComponent) != nil
     }
 
     /// Remove a single owned report file.
@@ -89,8 +97,7 @@ struct VisitSummaryPDFLifecycle: Sendable {
     /// - Returns: `true` if the file was removed or did not exist; `false` on error.
     @discardableResult
     func remove(_ url: URL) -> Bool {
-        guard url.pathComponents.contains(rootDirectory.lastPathComponent) else {
-            // Refuse to remove a file outside the owned root
+        guard owns(url) else {
             return false
         }
         guard fileManager.fileExists(atPath: url.path) else {
@@ -123,7 +130,7 @@ struct VisitSummaryPDFLifecycle: Sendable {
 
         var removedCount = 0
         for url in contents {
-            guard url.pathExtension == "pdf" else {
+            guard owns(url) else {
                 continue
             }
 
@@ -148,5 +155,34 @@ struct VisitSummaryPDFLifecycle: Sendable {
 
 enum VisitSummaryPDFLifecycleError: Error {
     case protectionVerificationFailed
-    case atomicWriteFailed
+    case unownedTarget
+}
+
+/// Defers deletion while a system preview or share controller owns the URL.
+struct VisitSummaryPDFLeaseStore {
+    private var active: [UUID: URL] = [:]
+    private var pendingRemoval: Set<URL> = []
+
+    mutating func beginUse(_ url: URL) -> UUID {
+        let token = UUID()
+        active[token] = url
+        return token
+    }
+
+    mutating func requestRemoval(_ url: URL, lifecycle: VisitSummaryPDFLifecycle) {
+        pendingRemoval.insert(url)
+        flush(url, lifecycle: lifecycle)
+    }
+
+    mutating func finishUse(_ token: UUID, lifecycle: VisitSummaryPDFLifecycle) {
+        guard let url = active.removeValue(forKey: token) else { return }
+        flush(url, lifecycle: lifecycle)
+    }
+
+    private mutating func flush(_ url: URL, lifecycle: VisitSummaryPDFLifecycle) {
+        guard pendingRemoval.contains(url), !active.values.contains(url) else { return }
+        if lifecycle.remove(url) {
+            pendingRemoval.remove(url)
+        }
+    }
 }

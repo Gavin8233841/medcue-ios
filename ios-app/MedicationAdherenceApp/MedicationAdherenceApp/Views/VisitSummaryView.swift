@@ -14,6 +14,7 @@ struct VisitSummaryView: View {
     @State private var pdfURL: URL?
     @State private var generatedPDFSignature = ""
     @State private var previewPDFItem: PDFPreviewItem?
+    @State private var sharePDFItem: PDFShareItem?
     @State private var exportMessage = ""
     @State private var isSummaryPreviewExpanded = false
     @State private var snapshot: VisitSummarySnapshot?
@@ -21,7 +22,7 @@ struct VisitSummaryView: View {
     @State private var pdfGenerationTask: Task<Void, Never>?
     @State private var generationGate = VisitSummaryGenerationGate()
     @State private var isGeneratingPDF = false
-    @State private var shareCompletionTracking = Set<URL>()
+    @State private var pdfLeases = VisitSummaryPDFLeaseStore()
 
     private let pdfLifecycle = VisitSummaryPDFLifecycle.production()
 
@@ -83,7 +84,10 @@ struct VisitSummaryView: View {
                     isGeneratingPDF: isGeneratingPDF,
                     onGeneratePDF: generatePDF,
                     onPreviewPDF: { url in
-                        previewPDFItem = PDFPreviewItem(url: url)
+                        previewPDFItem = PDFPreviewItem(id: pdfLeases.beginUse(url), url: url)
+                    },
+                    onSharePDF: { url in
+                        sharePDFItem = PDFShareItem(id: pdfLeases.beginUse(url), url: url)
                     }
                 )
             }
@@ -161,9 +165,15 @@ struct VisitSummaryView: View {
         }
         .sheet(item: $previewPDFItem) { item in
             PDFPreviewSheet(url: item.url) {
-                // Preview dismissed - ownership returned, safe to remove
-                pdfLifecycle.remove(item.url)
+                finishPDFConsumer(item.id, url: item.url)
             }
+            .onDisappear { finishPDFConsumer(item.id, url: item.url) }
+        }
+        .sheet(item: $sharePDFItem) { item in
+            PDFShareSheet(url: item.url) {
+                finishPDFConsumer(item.id, url: item.url)
+            }
+            .onDisappear { finishPDFConsumer(item.id, url: item.url) }
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -175,10 +185,10 @@ struct VisitSummaryView: View {
         }
         .onDisappear {
             cancelPDFGeneration()
-            // Remove the current PDF file when leaving the screen
             if let pdfURL {
-                pdfLifecycle.remove(pdfURL)
+                pdfLeases.requestRemoval(pdfURL, lifecycle: pdfLifecycle)
             }
+            pdfURL = nil
         }
     }
 
@@ -193,7 +203,7 @@ struct VisitSummaryView: View {
 
         // Remove the previous PDF if it exists
         if let oldPDFURL = pdfURL {
-            pdfLifecycle.remove(oldPDFURL)
+            pdfLeases.requestRemoval(oldPDFURL, lifecycle: pdfLifecycle)
             pdfURL = nil
         }
 
@@ -294,12 +304,22 @@ struct VisitSummaryView: View {
     private func resetGeneratedPDFState() {
         cancelPDFGeneration()
         if let oldPDFURL = pdfURL {
-            pdfLifecycle.remove(oldPDFURL)
+            pdfLeases.requestRemoval(oldPDFURL, lifecycle: pdfLifecycle)
         }
         pdfURL = nil
         generatedPDFSignature = ""
         previewPDFItem = nil
+        sharePDFItem = nil
         exportMessage = ""
+    }
+
+    private func finishPDFConsumer(_ token: UUID, url: URL) {
+        pdfLeases.requestRemoval(url, lifecycle: pdfLifecycle)
+        pdfLeases.finishUse(token, lifecycle: pdfLifecycle)
+        if pdfURL == url {
+            pdfURL = nil
+            generatedPDFSignature = ""
+        }
     }
 
     private func cancelPDFGeneration() {
@@ -450,6 +470,7 @@ struct VisitSummaryExportPanel: View {
     let isGeneratingPDF: Bool
     let onGeneratePDF: () -> Void
     let onPreviewPDF: (URL) -> Void
+    let onSharePDF: (URL) -> Void
 
     private var isPDFReady: Bool {
         pdfURL != nil
@@ -504,9 +525,12 @@ struct VisitSummaryExportPanel: View {
                     }
                     .buttonStyle(.plain)
 
-                    ShareLink(item: pdfURL, preview: SharePreview("复诊沟通 PDF", image: Image(systemName: "doc.text"))) {
+                    Button {
+                        onSharePDF(pdfURL)
+                    } label: {
                         VisitSummaryExportActionLabel(title: "分享", systemImage: "square.and.arrow.up", tint: .teal)
                     }
+                    .buttonStyle(.plain)
                 }
             }
 
