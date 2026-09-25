@@ -598,3 +598,67 @@ struct CompletionCompleteCelebrationCard: View {
         }
     }
 }
+
+struct ElderDoseSuccessState: Equatable {
+    let message: String
+    let taskID: UUID?
+    let undoExpiresAt: Date?
+
+    func canUndo(at date: Date) -> Bool {
+        taskID != nil && undoExpiresAt.map { date <= $0 } == true
+    }
+}
+
+struct ElderDoseSuccessFeedback: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let feedback: ElderDoseSuccessState
+    let currentTime: Date
+    let undo: (UUID) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label(feedback.message, systemImage: "checkmark.circle.fill")
+            if feedback.canUndo(at: currentTime), let taskID = feedback.taskID {
+                Button("10 分钟内撤销，恢复为待处理") { undo(taskID) }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("elder.feedback.undo")
+            }
+        }
+        .font(.headline.weight(.semibold))
+        .foregroundStyle(ElderDoseActionTone.completion.foregroundColor(for: colorScheme))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(ElderDoseActionTone.completion.foregroundColor(for: colorScheme).opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("elder.feedback.success")
+    }
+}
+
+enum ElderDoseActionProminence: Equatable {
+    case primary
+    case secondary
+    case tertiary
+
+    var font: Font {
+        switch self {
+        case .primary:
+            return .title2.bold()
+        case .secondary:
+            return .title3.bold()
+        case .tertiary:
+            return .title3.weight(.semibold)
+        }
+    }
+
+    var minimumHeight: CGFloat {
+        switch self {
+        case .primary:
+            return 76
+        case .secondary:
+            return 68
+        case .tertiary:
+            return 60
+        }
+    }
+}

@@ -7,6 +7,21 @@ import UIKit
 @Suite(.serialized)
 struct ElderModeTests {
     @Test
+    func elderSuccessUndoEndsAtPersistedDeadline() {
+        let taskID = UUID()
+        let deadline = Date(timeIntervalSince1970: 600)
+        let feedback = ElderDoseSuccessState(
+            message: "已服用",
+            taskID: taskID,
+            undoExpiresAt: deadline
+        )
+
+        #expect(feedback.canUndo(at: deadline))
+        #expect(!feedback.canUndo(at: deadline.addingTimeInterval(0.001)))
+        #expect(!ElderDoseSuccessState(message: "提醒已设置", taskID: nil, undoExpiresAt: nil).canUndo(at: deadline))
+    }
+
+    @Test
     func elderActionsKeepLargeDistinctTouchTargets() {
         #expect(ElderDoseActionProminence.tertiary.minimumHeight >= 60)
         #expect(ElderDoseActionProminence.secondary.minimumHeight > ElderDoseActionProminence.tertiary.minimumHeight)
