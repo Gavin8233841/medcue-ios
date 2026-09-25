@@ -84,9 +84,19 @@ enum MedicationReminderRequestKind: Sendable, Hashable {
 
 struct MedicationReminderRequestCandidate: Sendable, Equatable {
     let taskID: UUID
+    // The next system request time; this is the escalation time after a base reminder has fired.
     let dueAt: Date
     let wantsAlarm: Bool
     let wantsEscalation: Bool
+    let wantsBase: Bool
+
+    init(taskID: UUID, dueAt: Date, wantsAlarm: Bool, wantsEscalation: Bool, wantsBase: Bool = true) {
+        self.taskID = taskID
+        self.dueAt = dueAt
+        self.wantsAlarm = wantsAlarm
+        self.wantsEscalation = wantsEscalation
+        self.wantsBase = wantsBase
+    }
 }
 
 struct MedicationReminderRequestAssignment: Sendable, Equatable {
@@ -119,15 +129,11 @@ extension MedicationNotificationPolicy {
                 : $0.dueAt < $1.dueAt
         }) where seen.insert(candidate.taskID).inserted {
             var kinds: [MedicationReminderRequestKind] = []
-            if notificationAvailable {
+            if candidate.wantsBase && notificationAvailable {
                 kinds.append(.baseNotification)
             }
-            if candidate.wantsAlarm && alarmAvailable {
+            if candidate.wantsBase && candidate.wantsAlarm && alarmAvailable {
                 kinds.append(.baseAlarm)
-            }
-            guard !kinds.isEmpty else {
-                unavailable.append(candidate.taskID)
-                continue
             }
             if candidate.wantsEscalation {
                 if alarmAvailable {
@@ -135,6 +141,10 @@ extension MedicationNotificationPolicy {
                 } else if notificationAvailable {
                     kinds.append(.escalationNotification)
                 }
+            }
+            guard !kinds.isEmpty else {
+                unavailable.append(candidate.taskID)
+                continue
             }
             guard !reachedCapacity && remaining > 0 else {
                 reachedCapacity = true
@@ -144,9 +154,10 @@ extension MedicationNotificationPolicy {
             if kinds.count > remaining {
                 // Preserve the selected base delivery before optional escalation
                 // and the second base channel when the request budget is tight.
-                var priority: [MedicationReminderRequestKind] = [
-                    candidate.wantsAlarm && alarmAvailable ? .baseAlarm : .baseNotification
-                ]
+                var priority: [MedicationReminderRequestKind] = []
+                if candidate.wantsBase {
+                    priority.append(candidate.wantsAlarm && alarmAvailable ? .baseAlarm : .baseNotification)
+                }
                 if candidate.wantsEscalation {
                     priority.append(alarmAvailable ? .escalationAlarm : .escalationNotification)
                 }

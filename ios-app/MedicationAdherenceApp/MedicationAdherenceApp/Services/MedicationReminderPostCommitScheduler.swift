@@ -94,7 +94,9 @@ enum MedicationReminderCommittedSnapshotReader {
                   let medication = medicationByID[plan.medicationID],
                   medication.lifecycleStatus == .active,
                   task.status == .pending || task.status == .delayed,
-                  task.dueAt > now else { return nil }
+                  task.dueAt > now || (plan.escalatesToAlarmWhenUnhandled
+                      && DoseReminderPolicy.competitionDemo.escalationDueAt(for: task.dueAt) > now)
+            else { return nil }
             return MedicationReminderPostCommitEntry(
                 task: task,
                 medication: medication,

@@ -98,6 +98,108 @@ struct MedicationReminderPostCommitSchedulerTests {
         #expect(plan.deferredTaskIDs == [farTask.id])
     }
 
+    @Test @MainActor
+    func committedOpenDoseKeepsFutureEscalationAfterBaseTime() async throws {
+        let container = try MedicationAdherenceModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        let medication = StoredMedication(
+            displayName: "升级窗口药", kind: .overTheCounter, inputSource: .manual
+        )
+        let plan = StoredMedicationPlan(
+            medicationID: medication.id, doseValue: 1, doseUnit: "片",
+            timingSummary: "每日", timeZonePolicy: .localClock, sourceNote: ""
+        )
+        let task = StoredDoseTask(
+            medicationID: medication.id, planID: plan.id,
+            dueAt: Date().addingTimeInterval(-120), doseValue: 1, doseUnit: "片"
+        )
+        context.insert(medication)
+        context.insert(plan)
+        context.insert(task)
+        try context.save()
+
+        let snapshot = try MedicationReminderCommittedSnapshotReader.read(in: context)
+        let entry = try #require(snapshot.entries.first { $0.taskID == task.id })
+        let candidate = MedicationReminderRequestCandidate(
+            taskID: entry.taskID,
+            dueAt: DoseReminderPolicy.competitionDemo.escalationDueAt(for: entry.dueAt),
+            wantsAlarm: false, wantsEscalation: true, wantsBase: false
+        )
+        let requestPlan = MedicationNotificationPolicy(maximumScheduledRequests: 1).requestPlan(
+            candidates: [candidate], occupiedRequestCount: 0,
+            notificationAvailable: true, alarmAvailable: true
+        )
+        let kinds = try #require(requestPlan.assignments.first?.kinds)
+        #expect(kinds == [.escalationAlarm])
+        let earlierBase = MedicationReminderRequestCandidate(
+            taskID: UUID(), dueAt: Date().addingTimeInterval(60),
+            wantsAlarm: false, wantsEscalation: false
+        )
+        let limitedPlan = MedicationNotificationPolicy(maximumScheduledRequests: 1).requestPlan(
+            candidates: [candidate, earlierBase], occupiedRequestCount: 0,
+            notificationAvailable: true, alarmAvailable: true
+        )
+        #expect(limitedPlan.assignments.map(\.taskID) == [earlierBase.taskID])
+        #expect(limitedPlan.deferredTaskIDs == [task.id])
+        let outcome = await MedicationReminderRequestExecutor(
+            addBaseNotification: { Issue.record("Past base reminder must not be rescheduled"); return false },
+            addBaseAlarm: { Issue.record("Past base alarm must not be rescheduled"); return false },
+            addEscalationNotification: { Issue.record("Alarm succeeded; fallback must not run"); return false },
+            addEscalationAlarm: { true }
+        ).execute(kinds)
+        #expect(outcome.schedulingResult(
+            wantsAlarm: candidate.wantsAlarm,
+            wantsEscalationAlarm: candidate.wantsEscalation,
+            plannedKinds: kinds
+        ) == .scheduled)
+        let failedEscalation = MedicationReminderRequestExecutionOutcome(
+            baseScheduled: false,
+            escalationScheduled: false,
+            failedKinds: [.escalationAlarm, .escalationNotification],
+            usedEscalationNotificationFallback: false
+        )
+        let failureMessage = failedEscalation.schedulingResult(
+            wantsAlarm: false, wantsEscalationAlarm: true, plannedKinds: kinds
+        ).failureMessage
+        #expect(failureMessage?.contains("升级提醒未能安排") == true)
+        #expect(failureMessage?.contains("基础提醒已安排") == false)
+    }
+
+    @Test
+    func globalReplanPreservesPresentingBaseWhileReplacingFutureEscalation() {
+        let activeTask = UUID()
+        let obsoleteTask = UUID()
+        let targets = MedicationReminderCancellationTargets(
+            taskIDs: [activeTask],
+            pendingNotificationIDs: [
+                MedicationReminderSystemIdentifiers.baseNotification(for: activeTask),
+                MedicationReminderSystemIdentifiers.escalationNotification(for: activeTask),
+                MedicationReminderSystemIdentifiers.baseNotification(for: obsoleteTask)
+            ],
+            existingAlarmIDs: [
+                activeTask,
+                MedicationReminderSystemIdentifiers.escalationAlarm(for: activeTask),
+                obsoleteTask
+            ],
+            pruneAllReminders: true,
+            preserveBaseForTaskIDs: [activeTask]
+        )
+        #expect(!targets.notificationIDs.contains(
+            MedicationReminderSystemIdentifiers.baseNotification(for: activeTask)
+        ))
+        #expect(!targets.alarmIDs.contains(activeTask))
+        #expect(targets.notificationIDs.contains(
+            MedicationReminderSystemIdentifiers.escalationNotification(for: activeTask)
+        ))
+        #expect(targets.alarmIDs.contains(
+            MedicationReminderSystemIdentifiers.escalationAlarm(for: activeTask)
+        ))
+        #expect(targets.notificationIDs.contains(
+            MedicationReminderSystemIdentifiers.baseNotification(for: obsoleteTask)
+        ))
+        #expect(targets.alarmIDs.contains(obsoleteTask))
+    }
+
     @Test
     func actualRequestBudgetCountsOtherPlansAndEveryDeliverySurface() {
         let now = Date(timeIntervalSince1970: 1_000)

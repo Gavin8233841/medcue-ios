@@ -89,11 +89,12 @@ struct MedicationReminderRequestExecutionOutcome: Equatable {
         wantsEscalationAlarm: Bool,
         plannedKinds: [MedicationReminderRequestKind]
     ) -> MedicationReminderSchedulingResult {
-        guard baseScheduled else {
+        let plannedBase = plannedKinds.contains(.baseNotification) || plannedKinds.contains(.baseAlarm)
+        guard !plannedBase || baseScheduled else {
             return .unavailable(message: "基础提醒未能安排，请稍后重试。")
         }
         var degradations: [String] = []
-        if wantsAlarm && !plannedKinds.contains(.baseAlarm) {
+        if plannedBase && wantsAlarm && !plannedKinds.contains(.baseAlarm) {
             degradations.append("所选 iPhone 闹钟未安排，已改用普通通知；请检查闹钟权限")
         } else if failedKinds.contains(.baseAlarm) {
             degradations.append("所选 iPhone 闹钟未安排，已改用普通通知")
@@ -102,7 +103,7 @@ struct MedicationReminderRequestExecutionOutcome: Equatable {
             degradations.append("普通通知未安排，iPhone 闹钟仍已安排")
         }
         if !escalationScheduled {
-            degradations.append("基础提醒已安排，升级提醒未能安排")
+            degradations.append(plannedBase ? "基础提醒已安排，升级提醒未能安排" : "升级提醒未能安排")
         } else if wantsEscalationAlarm && plannedKinds.contains(.escalationNotification) {
             degradations.append("升级闹钟未安排，已改用普通通知；请检查闹钟权限")
         } else if usedEscalationNotificationFallback {
@@ -164,6 +165,38 @@ enum MedicationReminderCancellationReadback {
     }
 }
 
+struct MedicationReminderCancellationTargets {
+    let notificationIDs: Set<String>
+    let alarmIDs: Set<UUID>
+
+    init(
+        taskIDs: Set<UUID>,
+        pendingNotificationIDs: Set<String>,
+        existingAlarmIDs: Set<UUID>,
+        pruneAllReminders: Bool,
+        preserveBaseForTaskIDs: Set<UUID>
+    ) {
+        var notifications = Set(taskIDs.flatMap {
+            [MedicationReminderSystemIdentifiers.baseNotification(for: $0),
+             MedicationReminderSystemIdentifiers.escalationNotification(for: $0)]
+        })
+        var alarms = Set(taskIDs.flatMap {
+            [$0, MedicationReminderSystemIdentifiers.escalationAlarm(for: $0)]
+        })
+        if pruneAllReminders {
+            notifications.formUnion(pendingNotificationIDs.filter { $0.hasPrefix("dose.") })
+            // AlarmKit is currently used only for medication reminders in this app.
+            alarms.formUnion(existingAlarmIDs)
+        }
+        notifications.subtract(preserveBaseForTaskIDs.map {
+            MedicationReminderSystemIdentifiers.baseNotification(for: $0)
+        })
+        alarms.subtract(preserveBaseForTaskIDs)
+        notificationIDs = notifications
+        alarmIDs = alarms
+    }
+}
+
 @MainActor
 struct MedicationReminderRequestExecutor {
     let addBaseNotification: @MainActor () async -> Bool
@@ -190,7 +223,8 @@ struct MedicationReminderRequestExecutor {
             if !fallbackScheduled { failedKinds.append(.baseNotification) }
             baseScheduled = fallbackScheduled
         }
-        guard baseScheduled else {
+        let plannedBase = kinds.contains(.baseNotification) || kinds.contains(.baseAlarm)
+        guard !plannedBase || baseScheduled else {
             return MedicationReminderRequestExecutionOutcome(
                 baseScheduled: false,
                 escalationScheduled: false,
@@ -507,7 +541,11 @@ final class NotificationService: ObservableObject {
         let now = Date()
         var seenTaskIDs: Set<UUID> = []
         let activeEntries = snapshot.entries
-            .filter { $0.medicationIsActive && $0.taskIsOpen && $0.dueAt > now }
+            .filter {
+                $0.medicationIsActive && $0.taskIsOpen
+                    && ($0.dueAt > now || ($0.escalatesToAlarmWhenUnhandled
+                        && reminderPolicy.escalationDueAt(for: $0.dueAt) > now))
+            }
             .sorted {
                 $0.dueAt == $1.dueAt
                     ? $0.taskID.uuidString < $1.taskID.uuidString
@@ -515,9 +553,11 @@ final class NotificationService: ObservableObject {
             }
             .filter { seenTaskIDs.insert($0.taskID).inserted }
         let affectedTaskIDs = Set(snapshot.entries.map(\.taskID) + snapshot.cancelledTaskIDs)
+        let preserveBaseForTaskIDs = Set(activeEntries.filter { $0.dueAt <= now }.map(\.taskID))
         guard let cleanup = await removeExistingReminderRequests(
             for: affectedTaskIDs,
-            pruneAllReminders: pruneExistingPrefixRequests
+            pruneAllReminders: pruneExistingPrefixRequests,
+            preserveBaseForTaskIDs: preserveBaseForTaskIDs
         ) else {
             lastSystemOperationFailed = true
             let message = "提醒状态暂时无法核对，请稍后重试。"
@@ -554,10 +594,12 @@ final class NotificationService: ObservableObject {
             candidates: schedulableEntries.map {
                 MedicationReminderRequestCandidate(
                     taskID: $0.taskID,
-                    dueAt: $0.dueAt,
+                    dueAt: $0.dueAt > now
+                        ? $0.dueAt : reminderPolicy.escalationDueAt(for: $0.dueAt),
                     wantsAlarm: $0.deliveryMethodRaw == StoredReminderDeliveryMethod.alarm.rawValue,
                     wantsEscalation: $0.escalatesToAlarmWhenUnhandled
-                        && reminderPolicy.escalationDueAt(for: $0.dueAt) > now
+                        && reminderPolicy.escalationDueAt(for: $0.dueAt) > now,
+                    wantsBase: $0.dueAt > now
                 )
             },
             occupiedRequestCount: cleanup.occupiedRequestCount,
@@ -669,31 +711,26 @@ final class NotificationService: ObservableObject {
 
     private func removeExistingReminderRequests(
         for taskIDs: Set<UUID>,
-        pruneAllReminders: Bool
+        pruneAllReminders: Bool,
+        preserveBaseForTaskIDs: Set<UUID>
     ) async -> ReminderCleanupResult? {
         let center = UNUserNotificationCenter.current()
         let pendingBefore = await center.pendingNotificationRequests()
         guard let alarmsBefore = try? pendingAlarmIDs() else { return nil }
-
-        var notificationIDs = Set(taskIDs.flatMap {
-            [notificationIdentifier(for: $0), escalationAlarmNotificationIdentifier(for: $0)]
-        })
-        if pruneAllReminders {
-            notificationIDs.formUnion(pendingBefore.map(\.identifier).filter {
-                $0.hasPrefix(notificationIdentifierPrefix)
-            })
-        }
+        let targets = MedicationReminderCancellationTargets(
+            taskIDs: taskIDs,
+            pendingNotificationIDs: Set(pendingBefore.map(\.identifier)),
+            existingAlarmIDs: alarmsBefore,
+            pruneAllReminders: pruneAllReminders,
+            preserveBaseForTaskIDs: preserveBaseForTaskIDs
+        )
+        let notificationIDs = targets.notificationIDs
         if !notificationIDs.isEmpty {
             let identifiers = notificationIDs.sorted()
             center.removePendingNotificationRequests(withIdentifiers: identifiers)
             center.removeDeliveredNotifications(withIdentifiers: identifiers)
         }
-
-        var alarmIDs = Set(taskIDs.flatMap { [$0, escalationAlarmID(for: $0)] })
-        if pruneAllReminders {
-            // The app currently creates only medication alarms in AlarmKit.
-            alarmIDs.formUnion(alarmsBefore)
-        }
+        let alarmIDs = targets.alarmIDs
         #if canImport(AlarmKit)
         if #available(iOS 26.0, *) {
             for id in alarmIDs.intersection(alarmsBefore).sorted(by: {
