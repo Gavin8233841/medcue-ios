@@ -17,58 +17,98 @@ struct MedicationReminderScheduleEntry {
     var escalatesToAlarmWhenUnhandled: Bool
 }
 
+enum MedicationReminderReconciliationReadStage: String, CaseIterable, Equatable, Sendable {
+    case medications
+    case plans
+    case tasks
+    case actionLogs
+    case doseChanges
+}
+
+enum MedicationReminderTaskReconciliationOutcome {
+    case reconciled([MedicationReminderScheduleBatch])
+    case readFailed(MedicationReminderReconciliationReadStage)
+}
+
+@MainActor
+struct MedicationReminderReconciliationDataSource {
+    var fetchMedications: (ModelContext) throws -> [StoredMedication]
+    var fetchPlans: (ModelContext) throws -> [StoredMedicationPlan]
+    var fetchTasks: (ModelContext) throws -> [StoredDoseTask]
+    var fetchActionLogs: (ModelContext) throws -> [StoredDoseActionLog]
+    var fetchDoseChanges: (ModelContext) throws -> [StoredMedicationDoseChange]
+
+    static var live: Self {
+        Self(
+            fetchMedications: { try $0.fetch(FetchDescriptor<StoredMedication>()) },
+            fetchPlans: { try $0.fetch(FetchDescriptor<StoredMedicationPlan>()) },
+            fetchTasks: { try $0.fetch(FetchDescriptor<StoredDoseTask>()) },
+            fetchActionLogs: { try $0.fetch(FetchDescriptor<StoredDoseActionLog>()) },
+            fetchDoseChanges: { try $0.fetch(FetchDescriptor<StoredMedicationDoseChange>()) }
+        )
+    }
+}
+
 @MainActor
 struct MedicationReminderTaskCoordinator {
     var rollingTaskWindowDays = 30
     var calendar = Calendar.current
     var referenceDate = Date()
+    var dataSource = MedicationReminderReconciliationDataSource.live
 
-    func reconcileAllPlans(in modelContext: ModelContext) -> [MedicationReminderScheduleBatch] {
-        let medications = (try? modelContext.fetch(FetchDescriptor<StoredMedication>())) ?? []
-        let plans = (try? modelContext.fetch(FetchDescriptor<StoredMedicationPlan>())) ?? []
+    func reconcileAllPlans(in modelContext: ModelContext) -> MedicationReminderTaskReconciliationOutcome {
+        let medications: [StoredMedication]
+        let plans: [StoredMedicationPlan]
+        let tasks: [StoredDoseTask]
+        let actionLogs: [StoredDoseActionLog]
+        let doseChanges: [StoredMedicationDoseChange]
+
+        do {
+            medications = try dataSource.fetchMedications(modelContext)
+        } catch {
+            return .readFailed(.medications)
+        }
+        do {
+            plans = try dataSource.fetchPlans(modelContext)
+        } catch {
+            return .readFailed(.plans)
+        }
+        do {
+            tasks = try dataSource.fetchTasks(modelContext)
+        } catch {
+            return .readFailed(.tasks)
+        }
+        do {
+            actionLogs = try dataSource.fetchActionLogs(modelContext)
+        } catch {
+            return .readFailed(.actionLogs)
+        }
+        do {
+            doseChanges = try dataSource.fetchDoseChanges(modelContext)
+        } catch {
+            return .readFailed(.doseChanges)
+        }
+
         let medicationByID = Dictionary(uniqueKeysWithValues: medications.map { ($0.id, $0) })
-
-        return plans.compactMap { plan in
+        let tasksByPlanID = Dictionary(grouping: tasks, by: \.planID)
+        let batches = plans.compactMap { plan -> MedicationReminderScheduleBatch? in
             guard let medication = medicationByID[plan.medicationID] else {
                 return nil
             }
-            guard medication.lifecycleStatus == .active else {
-                let cancelledTaskIDs = tasksToCancelForInactiveMedication(plan, in: modelContext)
-                cancelOpenFutureTasksForInactiveMedication(
-                    for: plan,
-                    status: medication.lifecycleStatus,
-                    in: modelContext
-                )
-                return MedicationReminderScheduleBatch(
-                    medication: medication,
-                    deliveryMethod: plan.reminderDeliveryMethod,
-                    escalatesToAlarmWhenUnhandled: plan.escalatesToAlarmWhenUnhandled,
-                    tasks: [],
-                    cancelledTaskIDs: cancelledTaskIDs
-                )
+            let planTasks = tasksByPlanID[plan.id] ?? []
+            let relevantDoseChanges = doseChanges.filter {
+                $0.planID == plan.id || ($0.planID == nil && $0.medicationID == medication.id)
             }
-            return reconcilePlan(plan, medication: medication, in: modelContext)
+            return reconcilePlan(
+                plan,
+                medication: medication,
+                planTasks: planTasks,
+                actionLogs: actionLogs,
+                doseChanges: relevantDoseChanges,
+                in: modelContext
+            )
         }
-    }
-
-    func reconcilePlan(
-        _ plan: StoredMedicationPlan,
-        medication: StoredMedication,
-        in modelContext: ModelContext
-    ) -> MedicationReminderScheduleBatch {
-        let allTasks = (try? modelContext.fetch(FetchDescriptor<StoredDoseTask>())) ?? []
-        let allLogs = (try? modelContext.fetch(FetchDescriptor<StoredDoseActionLog>())) ?? []
-        let doseChanges = ((try? modelContext.fetch(FetchDescriptor<StoredMedicationDoseChange>())) ?? [])
-            .filter { $0.planID == plan.id || ($0.planID == nil && $0.medicationID == medication.id) }
-        let planTasks = allTasks.filter { $0.planID == plan.id }
-        return reconcilePlan(
-            plan,
-            medication: medication,
-            planTasks: planTasks,
-            actionLogs: allLogs,
-            doseChanges: doseChanges,
-            in: modelContext
-        )
+        return .reconciled(batches)
     }
 
     func reconcilePlan(
@@ -157,24 +197,6 @@ struct MedicationReminderTaskCoordinator {
             tasks: activeTasks.sorted { $0.dueAt < $1.dueAt },
             cancelledTaskIDs: cancelledTaskIDs
         )
-    }
-
-    private func cancelOpenFutureTasksForInactiveMedication(
-        for plan: StoredMedicationPlan,
-        status: StoredMedicationLifecycleStatus,
-        in modelContext: ModelContext
-    ) {
-        let tasks = (try? modelContext.fetch(FetchDescriptor<StoredDoseTask>())) ?? []
-        for task in tasks where task.planID == plan.id && shouldDisableFutureTaskForInactiveMedication(task) {
-            disableFutureTaskForInactiveMedication(task, status: status)
-        }
-    }
-
-    private func tasksToCancelForInactiveMedication(_ plan: StoredMedicationPlan, in modelContext: ModelContext) -> [UUID] {
-        let tasks = (try? modelContext.fetch(FetchDescriptor<StoredDoseTask>())) ?? []
-        return tasks
-            .filter { $0.planID == plan.id && shouldDisableFutureTaskForInactiveMedication($0) }
-            .map(\.id)
     }
 
     private func effectiveDoseAmount(

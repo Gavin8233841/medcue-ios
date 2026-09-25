@@ -23,6 +23,7 @@ struct AppRootView: View {
     @State private var isCompletingFirstLaunch = false
     @State private var didDismissForcedFirstLaunch = false
     @State private var isShowingDemoModeError = false
+    @State private var reminderReconciliationFailureMessage = ""
     @State private var isShowingElderSettings = false
     @State private var topGradientState = AppTabTopGradientState()
     @State private var persistenceIntegrityStartupCheck = PersistenceIntegrityStartupCheck()
@@ -192,6 +193,29 @@ struct AppRootView: View {
             }
         } message: {
             Text(persistenceFailureMessage)
+        }
+        .alert(
+            "提醒未能刷新",
+            isPresented: Binding(
+                get: { !reminderReconciliationFailureMessage.isEmpty },
+                set: { isPresented in
+                    if !isPresented {
+                        reminderReconciliationFailureMessage = ""
+                    }
+                }
+            )
+        ) {
+            Button("重试") {
+                reminderReconciliationFailureMessage = ""
+                Task {
+                    await reconcileStartupReminders(after: .zero)
+                }
+            }
+            Button("稍后", role: .cancel) {
+                reminderReconciliationFailureMessage = ""
+            }
+        } message: {
+            Text(reminderReconciliationFailureMessage)
         }
         .alert("演示模式未能启动", isPresented: $isShowingDemoModeError) {
             Button("知道了", role: .cancel) {}
@@ -406,7 +430,11 @@ struct AppRootView: View {
         guard !Task.isCancelled else {
             return
         }
-        await notificationService.reconcileAndScheduleReminders(in: modelContext)
+        let outcome = await notificationService.reconcileAndScheduleReminders(in: modelContext)
+        if case .readFailed = outcome {
+            didScheduleStartupReminderReconcile = false
+            reminderReconciliationFailureMessage = "用药提醒暂时无法刷新，现有提醒保持不变。请稍后重试。"
+        }
     }
 
 }

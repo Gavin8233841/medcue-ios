@@ -17,6 +17,19 @@ enum MedicationReminderSchedulingResult: Equatable {
     }
 }
 
+enum MedicationReminderReconciliationOutcome: Equatable {
+    case committed
+    case readFailed(MedicationReminderReconciliationReadStage)
+    case saveFailed
+}
+
+@MainActor
+struct MedicationReminderReconciliationSystemEffects {
+    var cancelReminders: @MainActor ([UUID]) -> Void
+    var scheduleReminderBatches: @MainActor ([MedicationReminderScheduleBatch], Bool) async -> Void
+    var refreshPendingReminderCount: @MainActor () async -> Void
+}
+
 @MainActor
 struct MedicationNotificationRequestScheduler {
     let authorizationFailureMessage: @MainActor () async -> String?
@@ -41,12 +54,26 @@ final class NotificationService: ObservableObject {
 
     @Published private(set) var authorizationMessage = "尚未请求通知权限"
     @Published private(set) var pendingReminderCount = 0
+    @Published private(set) var lastReminderReconciliationOutcome: MedicationReminderReconciliationOutcome?
 
     var notificationIdentifierPrefix: String { "dose." }
     private var escalationAlarmIdentifierPrefix: String { "dose.escalation." }
     private let notificationPolicy = MedicationNotificationPolicy.default
     private let reminderPolicy = DoseReminderPolicy.competitionDemo
     private let defaults = UserDefaults.standard
+    private let injectedReminderTaskCoordinator: MedicationReminderTaskCoordinator?
+    private let reconciliationSaveOperation: (ModelContext) throws -> Void
+    private let reconciliationSystemEffects: MedicationReminderReconciliationSystemEffects?
+
+    init(
+        reminderTaskCoordinator: MedicationReminderTaskCoordinator? = nil,
+        reconciliationSaveOperation: @escaping (ModelContext) throws -> Void = { try $0.save() },
+        reconciliationSystemEffects: MedicationReminderReconciliationSystemEffects? = nil
+    ) {
+        injectedReminderTaskCoordinator = reminderTaskCoordinator
+        self.reconciliationSaveOperation = reconciliationSaveOperation
+        self.reconciliationSystemEffects = reconciliationSystemEffects
+    }
 
     @discardableResult
     func requestAuthorization() async -> Bool {
@@ -87,14 +114,39 @@ final class NotificationService: ObservableObject {
         pendingReminderCount = requests.filter { isBaseNotificationIdentifier($0.identifier) }.count
     }
 
-    func reconcileAndScheduleReminders(in modelContext: ModelContext) async {
-        let batches = MedicationReminderTaskCoordinator().reconcileAllPlans(in: modelContext)
-        guard AppPersistenceCommitter.save(modelContext, operation: "reminder-reconciliation") else {
-            return
+    @discardableResult
+    func reconcileAndScheduleReminders(in modelContext: ModelContext) async -> MedicationReminderReconciliationOutcome {
+        let batches: [MedicationReminderScheduleBatch]
+        let reminderTaskCoordinator = injectedReminderTaskCoordinator ?? MedicationReminderTaskCoordinator()
+        switch reminderTaskCoordinator.reconcileAllPlans(in: modelContext) {
+        case let .reconciled(reconciledBatches):
+            batches = reconciledBatches
+        case let .readFailed(stage):
+            let outcome = MedicationReminderReconciliationOutcome.readFailed(stage)
+            lastReminderReconciliationOutcome = outcome
+            return outcome
         }
-        cancelReminders(for: batches.flatMap(\.cancelledTaskIDs))
-        await scheduleReminderBatches(batches, pruneExistingPrefixRequests: true)
-        await refreshPendingReminderCount()
+        do {
+            try reconciliationSaveOperation(modelContext)
+        } catch {
+            modelContext.rollback()
+            AppPersistenceCommitter.reportFailure(operation: "reminder-reconciliation")
+            lastReminderReconciliationOutcome = .saveFailed
+            return .saveFailed
+        }
+
+        let cancelledTaskIDs = batches.flatMap(\.cancelledTaskIDs)
+        if let reconciliationSystemEffects {
+            reconciliationSystemEffects.cancelReminders(cancelledTaskIDs)
+            await reconciliationSystemEffects.scheduleReminderBatches(batches, true)
+            await reconciliationSystemEffects.refreshPendingReminderCount()
+        } else {
+            cancelReminders(for: cancelledTaskIDs)
+            await scheduleReminderBatches(batches, pruneExistingPrefixRequests: true)
+            await refreshPendingReminderCount()
+        }
+        lastReminderReconciliationOutcome = .committed
+        return .committed
     }
 
     @discardableResult

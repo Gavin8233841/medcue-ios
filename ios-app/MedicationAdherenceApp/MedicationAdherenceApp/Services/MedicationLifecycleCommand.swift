@@ -85,6 +85,41 @@ struct MedicationLifecycleCommand {
         guard previousStatus != input.status else {
             return .rejected(.unchangedStatus)
         }
+
+        let isReactivating =
+            (previousStatus == .archived || previousStatus == .interrupted)
+            && input.status == .active
+        let actionLogs: [StoredDoseActionLog]
+        let doseChanges: [StoredMedicationDoseChange]
+        if isReactivating {
+            do {
+                let taskIDs = tasks.map(\.id)
+                if taskIDs.isEmpty {
+                    actionLogs = []
+                } else {
+                    actionLogs = try modelContext.fetch(
+                        FetchDescriptor<StoredDoseActionLog>(
+                            predicate: #Predicate<StoredDoseActionLog> { log in
+                                taskIDs.contains(log.taskID)
+                            }
+                        )
+                    )
+                }
+                doseChanges = try modelContext.fetch(
+                    FetchDescriptor<StoredMedicationDoseChange>(
+                        predicate: #Predicate<StoredMedicationDoseChange> { change in
+                            change.medicationID == medicationID
+                        }
+                    )
+                )
+            } catch {
+                return .rejected(.readFailed)
+            }
+        } else {
+            actionLogs = []
+            doseChanges = []
+        }
+
         let snapshots = tasks.map(MedicationLifecycleTaskSnapshot.init)
         medication.lifecycleStatus = input.status
         modelContext.insert(
@@ -115,14 +150,24 @@ struct MedicationLifecycleCommand {
                 task.reason = reason
             }
             disabledTaskIDs = affectedTasks.map(\.id).sorted { $0.uuidString < $1.uuidString }
-        } else if previousStatus == .archived || previousStatus == .interrupted {
+        } else if isReactivating {
             operation = "medication-reactivate-with-future-tasks"
             let coordinator = MedicationReminderTaskCoordinator(
                 calendar: calendar,
                 referenceDate: input.occurredAt
             )
+            let tasksByPlanID = Dictionary(grouping: tasks, by: \.planID)
             reminderBatches = plans.map { plan in
-                coordinator.reconcilePlan(plan, medication: medication, in: modelContext)
+                coordinator.reconcilePlan(
+                    plan,
+                    medication: medication,
+                    planTasks: tasksByPlanID[plan.id] ?? [],
+                    actionLogs: actionLogs,
+                    doseChanges: doseChanges.filter {
+                        $0.planID == plan.id || ($0.planID == nil && $0.medicationID == medication.id)
+                    },
+                    in: modelContext
+                )
             }
         } else {
             operation = "medication-lifecycle-update"
