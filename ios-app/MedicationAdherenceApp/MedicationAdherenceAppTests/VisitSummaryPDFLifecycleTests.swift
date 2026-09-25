@@ -1,11 +1,12 @@
 import Foundation
+import MedicationAdherenceCore
 import Testing
 @testable import MedicationAdherenceApp
 
 @Suite("VisitSummaryPDFLifecycle")
 struct VisitSummaryPDFLifecycleTests {
     enum InjectedFailure: Error { case expected }
-    let fileManager = FileManager.default
+    var fileManager: FileManager { .default }
 
     func makeTestLifecycle(
         expiryInterval: TimeInterval = 3600,
@@ -14,11 +15,10 @@ struct VisitSummaryPDFLifecycleTests {
         let testRoot = fileManager.temporaryDirectory
             .appendingPathComponent("test-pdf-lifecycle-\(UUID().uuidString)", isDirectory: true)
 
-        var fixedTime = currentTime
+        let fixedTime = currentTime
         let lifecycle = VisitSummaryPDFLifecycle(
             rootDirectory: testRoot,
             expiryInterval: expiryInterval,
-            fileManager: fileManager,
             clock: { fixedTime }
         )
 
@@ -40,8 +40,27 @@ struct VisitSummaryPDFLifecycleTests {
         #expect(fileManager.fileExists(atPath: rootURL.path, isDirectory: &isDirectory))
         #expect(isDirectory.boolValue)
 
+        #if !targetEnvironment(simulator)
         let attributes = try fileManager.attributesOfItem(atPath: rootURL.path)
         #expect(attributes[.protectionKey] as? FileProtectionType == .complete)
+        #endif
+    }
+
+    @Test("Rejects a symlinked export root")
+    func testRejectsSymlinkedRoot() throws {
+        let container = fileManager.temporaryDirectory
+            .appendingPathComponent("test-pdf-root-\(UUID().uuidString)", isDirectory: true)
+        let destination = container.appendingPathComponent("destination", isDirectory: true)
+        let root = container.appendingPathComponent("exports", isDirectory: true)
+        try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
+        defer { cleanup(container) }
+        try fileManager.createSymbolicLink(at: root, withDestinationURL: destination)
+        let lifecycle = VisitSummaryPDFLifecycle(rootDirectory: root, expiryInterval: 3600, clock: Date.init)
+
+        #expect(throws: VisitSummaryPDFLifecycleError.self) {
+            try lifecycle.ensureRootDirectory()
+        }
+        #expect(try fileManager.contentsOfDirectory(atPath: destination.path).isEmpty)
     }
 
     @Test("Generates unique opaque filenames")
@@ -73,8 +92,10 @@ struct VisitSummaryPDFLifecycleTests {
         #expect(fileManager.fileExists(atPath: publishedURL.path))
         #expect(try Data(contentsOf: publishedURL) == testData)
 
+        #if !targetEnvironment(simulator)
         let attributes = try fileManager.attributesOfItem(atPath: publishedURL.path)
         #expect(attributes[.protectionKey] as? FileProtectionType == .complete)
+        #endif
     }
 
     @Test("Removes owned report file")
@@ -235,6 +256,7 @@ struct VisitSummaryPDFLifecycleTests {
     }
 
     @Test("Cancellation after successful publication removes artifact")
+    @MainActor
     func testCancellationAfterPublication() async throws {
         let (lifecycle, rootURL) = try makeTestLifecycle()
         defer { cleanup(rootURL) }
@@ -246,10 +268,13 @@ struct VisitSummaryPDFLifecycleTests {
             tasks: [],
             doseChanges: [],
             riskCards: [],
-            trendDashboard: MedicationTrendDashboard(
-                overallScore: 0.8,
-                direction: .stable,
-                signals: []
+            trendDashboard: MedicationTrendDashboardBuilder().build(
+                scheduledDoses: [],
+                events: [],
+                doseChanges: [],
+                healthSignals: [],
+                timeZone: TimeZone(secondsFromGMT: 0)!,
+                now: Date()
             ),
             healthSignals: [],
             startDate: Date(),
@@ -352,7 +377,7 @@ struct VisitSummaryPDFLifecycleTests {
         defer { cleanup(rootURL) }
         try lifecycle.ensureRootDirectory()
         let url = rootURL.appendingPathComponent(lifecycle.makeUniqueFilename())
-        try lifecycle.publish(data: Data("PDF".utf8), to: url)
+        _ = try lifecycle.publish(data: Data("PDF".utf8), to: url)
         var leases = VisitSummaryPDFLeaseStore()
         let token = leases.beginUse(url)
         leases.requestRemoval(url, lifecycle: lifecycle)

@@ -13,8 +13,8 @@ import Foundation
 struct VisitSummaryPDFLifecycle: Sendable {
     let rootDirectory: URL
     let expiryInterval: TimeInterval
-    let fileManager: FileManager
     let clock: @Sendable () -> Date
+    private var fileManager: FileManager { .default }
 
     /// Default production lifecycle using the app's temporary directory.
     static func production() -> VisitSummaryPDFLifecycle {
@@ -23,21 +23,31 @@ struct VisitSummaryPDFLifecycle: Sendable {
         return VisitSummaryPDFLifecycle(
             rootDirectory: appTempRoot,
             expiryInterval: 3600, // 1 hour
-            fileManager: .default,
             clock: { Date() }
         )
     }
 
     /// Create the export root directory if it does not exist.
     func ensureRootDirectory() throws {
-        guard !fileManager.fileExists(atPath: rootDirectory.path) else {
-            return
+        if fileManager.fileExists(atPath: rootDirectory.path) {
+            let values = try rootDirectory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            guard values.isDirectory == true, values.isSymbolicLink != true else {
+                throw VisitSummaryPDFLifecycleError.invalidRootDirectory
+            }
+        } else {
+            try fileManager.createDirectory(
+                at: rootDirectory,
+                withIntermediateDirectories: true,
+                attributes: [.protectionKey: FileProtectionType.complete]
+            )
         }
-        try fileManager.createDirectory(
-            at: rootDirectory,
-            withIntermediateDirectories: true,
-            attributes: [.protectionKey: FileProtectionType.complete]
-        )
+        try fileManager.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: rootDirectory.path)
+        #if !targetEnvironment(simulator)
+        let attributes = try fileManager.attributesOfItem(atPath: rootDirectory.path)
+        guard attributes[.protectionKey] as? FileProtectionType == .complete else {
+            throw VisitSummaryPDFLifecycleError.protectionVerificationFailed
+        }
+        #endif
     }
 
     /// Generate a unique opaque filename for a new report.
@@ -71,7 +81,18 @@ struct VisitSummaryPDFLifecycle: Sendable {
                 isProtected = try inspectProtection(targetURL)
             } else {
                 let attributes = try fileManager.attributesOfItem(atPath: targetURL.path)
-                isProtected = attributes[.protectionKey] as? FileProtectionType == .complete
+                if let protection = attributes[.protectionKey] as? FileProtectionType {
+                    isProtected = protection == .complete
+                } else {
+                    // Simulator does not expose the data-protection class. The
+                    // write still requests complete protection; physical-device
+                    // builds fail closed when the class cannot be verified.
+                    #if targetEnvironment(simulator)
+                    isProtected = true
+                    #else
+                    isProtected = false
+                    #endif
+                }
             }
             guard isProtected else {
                 throw VisitSummaryPDFLifecycleError.protectionVerificationFailed
@@ -155,6 +176,7 @@ struct VisitSummaryPDFLifecycle: Sendable {
 
 enum VisitSummaryPDFLifecycleError: Error {
     case protectionVerificationFailed
+    case invalidRootDirectory
     case unownedTarget
 }
 

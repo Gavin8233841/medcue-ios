@@ -470,6 +470,7 @@
 		A40000000000000000000004 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				BE949A0B3A2D49FD98FC7F91 /* VisitSummaryPDFLifecycle.swift */,
 				A20000000000000000000005 /* NotificationService.swift */,
 				BBF582D70ABD13E744E49B67 /* MedicationNotificationDelegate.swift */,
 				3AD9491A8B150FD2AF20C52D /* MedicationReminderTaskCoordinator.swift */,

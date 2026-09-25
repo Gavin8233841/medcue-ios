@@ -103,7 +103,8 @@ struct PDFPreviewSheet: UIViewControllerRepresentable {
         Coordinator(url: url, onDismiss: onDismiss)
     }
 
-    final class Coordinator: NSObject, QLPreviewControllerDataSource, QLPreviewControllerDelegate {
+    // QuickLook calls this delegate on the main actor, while its protocol is not annotated.
+    final class Coordinator: NSObject, QLPreviewControllerDataSource, @preconcurrency QLPreviewControllerDelegate {
         var url: URL
         let onDismiss: () -> Void
 
