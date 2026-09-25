@@ -939,7 +939,9 @@ private struct TodayContentView: View {
         let wasDelayed = task.status == .delayed
         performReopenTransition(task) {
             let previousCompletionSnapshot = currentCompletionRateSnapshot
-            prepareReopenedTaskHighlightIfNeeded(task)
+            if !wasDelayed {
+                prepareReopenedTaskHighlightIfNeeded(task)
+            }
             var outcome: DoseReopenCommandOutcome?
             updateDoseState(animated: false) {
                 let command = DoseReopenCommand(modelContext: modelContext)
