@@ -37,13 +37,16 @@ struct MedicationReminderPostCommitEntry: Sendable, Equatable {
 struct MedicationReminderPostCommitSnapshot: Sendable, Equatable {
     let entries: [MedicationReminderPostCommitEntry]
     let cancelledTaskIDs: [UUID]
+    let preservedDeliveredNotificationIDs: Set<String>
 
     init(
         entries: [MedicationReminderPostCommitEntry],
-        cancelledTaskIDs: [UUID]
+        cancelledTaskIDs: [UUID],
+        preservedDeliveredNotificationIDs: Set<String> = []
     ) {
         self.entries = entries
         self.cancelledTaskIDs = cancelledTaskIDs
+        self.preservedDeliveredNotificationIDs = preservedDeliveredNotificationIDs
     }
 
     @MainActor
@@ -57,6 +60,7 @@ struct MedicationReminderPostCommitSnapshot: Sendable, Equatable {
             )
         }
         cancelledTaskIDs = batch.cancelledTaskIDs
+        preservedDeliveredNotificationIDs = []
     }
 
     @MainActor
@@ -75,6 +79,7 @@ struct MedicationReminderPostCommitSnapshot: Sendable, Equatable {
             }
         }
         cancelledTaskIDs = batches.flatMap(\.cancelledTaskIDs) + additionalCancelledTaskIDs
+        preservedDeliveredNotificationIDs = []
     }
 }
 
@@ -89,6 +94,21 @@ enum MedicationReminderCommittedSnapshotReader {
         let medicationByID = Dictionary(uniqueKeysWithValues: medications.map { ($0.id, $0) })
         let planByID = Dictionary(uniqueKeysWithValues: plans.map { ($0.id, $0) })
         let now = Date()
+        let preservedDeliveredNotificationIDs = Set(tasks.flatMap { task -> [String] in
+            guard let plan = planByID[task.planID],
+                  let medication = medicationByID[plan.medicationID],
+                  medication.lifecycleStatus == .active,
+                  task.status == .pending || task.status == .delayed else { return [] }
+            var identifiers: [String] = []
+            if task.dueAt <= now {
+                identifiers.append(MedicationReminderSystemIdentifiers.baseNotification(for: task.id))
+            }
+            if plan.escalatesToAlarmWhenUnhandled,
+               DoseReminderPolicy.competitionDemo.escalationDueAt(for: task.dueAt) <= now {
+                identifiers.append(MedicationReminderSystemIdentifiers.escalationNotification(for: task.id))
+            }
+            return identifiers
+        })
         let entries = tasks.compactMap { task -> MedicationReminderPostCommitEntry? in
             guard let plan = planByID[task.planID],
                   let medication = medicationByID[plan.medicationID],
@@ -104,7 +124,11 @@ enum MedicationReminderCommittedSnapshotReader {
                 escalatesToAlarmWhenUnhandled: plan.escalatesToAlarmWhenUnhandled
             )
         }
-        return MedicationReminderPostCommitSnapshot(entries: entries, cancelledTaskIDs: [])
+        return MedicationReminderPostCommitSnapshot(
+            entries: entries,
+            cancelledTaskIDs: [],
+            preservedDeliveredNotificationIDs: preservedDeliveredNotificationIDs
+        )
     }
 }
 

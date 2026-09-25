@@ -120,6 +120,8 @@ struct MedicationReminderPostCommitSchedulerTests {
 
         let snapshot = try MedicationReminderCommittedSnapshotReader.read(in: context)
         let entry = try #require(snapshot.entries.first { $0.taskID == task.id })
+        let baseNotificationID = MedicationReminderSystemIdentifiers.baseNotification(for: task.id)
+        #expect(snapshot.preservedDeliveredNotificationIDs.contains(baseNotificationID))
         let candidate = MedicationReminderRequestCandidate(
             taskID: entry.taskID,
             dueAt: DoseReminderPolicy.competitionDemo.escalationDueAt(for: entry.dueAt),
@@ -163,6 +165,25 @@ struct MedicationReminderPostCommitSchedulerTests {
         ).failureMessage
         #expect(failureMessage?.contains("升级提醒未能安排") == true)
         #expect(failureMessage?.contains("基础提醒已安排") == false)
+
+        let openTargets = MedicationReminderCancellationTargets(
+            taskIDs: [task.id], pendingNotificationIDs: [],
+            deliveredNotificationIDs: [baseNotificationID], existingAlarmIDs: [],
+            pruneAllReminders: true, preserveBaseForTaskIDs: [task.id],
+            preservedDeliveredNotificationIDs: snapshot.preservedDeliveredNotificationIDs
+        )
+        #expect(!openTargets.deliveredNotificationIDsToRemove.contains(baseNotificationID))
+        task.status = .taken
+        try context.save()
+        let completedSnapshot = try MedicationReminderCommittedSnapshotReader.read(in: context)
+        #expect(!completedSnapshot.preservedDeliveredNotificationIDs.contains(baseNotificationID))
+        let completedTargets = MedicationReminderCancellationTargets(
+            taskIDs: [], pendingNotificationIDs: [],
+            deliveredNotificationIDs: [baseNotificationID], existingAlarmIDs: [],
+            pruneAllReminders: true, preserveBaseForTaskIDs: [],
+            preservedDeliveredNotificationIDs: completedSnapshot.preservedDeliveredNotificationIDs
+        )
+        #expect(completedTargets.deliveredNotificationIDsToRemove.contains(baseNotificationID))
     }
 
     @Test
@@ -235,6 +256,13 @@ struct MedicationReminderPostCommitSchedulerTests {
         #expect(outcome.schedulingResult(
             wantsAlarm: false, wantsEscalationAlarm: true, plannedKinds: after
         ) == .scheduled)
+        let reported = MedicationReminderRequestTiming.reportExpiredBase(
+            outcome.schedulingResult(
+                wantsAlarm: false, wantsEscalationAlarm: true, plannedKinds: after
+            ),
+            expired: true
+        )
+        #expect(reported.failureMessage?.contains("基础提醒时间已过") == true)
 
         let crossingExecutor = MedicationReminderRequestExecutor(
             addBaseNotification: { false },
