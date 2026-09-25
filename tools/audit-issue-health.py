@@ -298,17 +298,33 @@ def parse_issue_form(text: str, path: str) -> IssueForm:
     if not name or not title_prefix.strip():
         raise AuditError(f"Issue Form must define name and title prefix: {path}")
 
-    starts = [
+    body_headers = [
         index
         for index, line in enumerate(lines)
-        if re.match(r"^  - type:\s*[^\s#]+\s*(?:#.*)?$", line)
+        if re.match(r"^body:\s*(?:#.*)?$", line)
+    ]
+    if len(body_headers) != 1:
+        raise AuditError(f"Issue Form must define one top-level body: {path}")
+    body_start = body_headers[0] + 1
+    body_end = next(
+        (
+            index
+            for index in range(body_start, len(lines))
+            if lines[index].strip() and not lines[index][0].isspace() and not lines[index].startswith("#")
+        ),
+        len(lines),
+    )
+    starts = [
+        index
+        for index in range(body_start, body_end)
+        if re.match(r"^  - type:\s*[^\s#]+\s*(?:#.*)?$", lines[index])
     ]
     if not starts:
         raise AuditError(f"Issue Form does not contain a parseable body: {path}")
 
     fields: list[FormField] = []
     for offset, start in enumerate(starts):
-        end = starts[offset + 1] if offset + 1 < len(starts) else len(lines)
+        end = starts[offset + 1] if offset + 1 < len(starts) else body_end
         type_match = re.match(r"^  - type:\s*([^\s#]+)", lines[start])
         if type_match is None:
             raise AuditError(f"Issue Form contains an invalid body item: {path}")

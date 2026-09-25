@@ -293,6 +293,34 @@ body:
         with self.assertRaises(audit.AuditError):
             audit.parse_issue_form(malformed, "broken.yml")
 
+    def test_parse_form_rejects_fields_outside_missing_body(self) -> None:
+        malformed = """\
+name: Broken
+title: "[Broken] "
+not_body:
+  - type: textarea
+    id: decoy
+    attributes:
+      label: Decoy field
+"""
+        with self.assertRaisesRegex(audit.AuditError, "top-level body"):
+            audit.parse_issue_form(malformed, "broken.yml")
+
+    def test_parse_form_only_counts_items_inside_body(self) -> None:
+        form_text = synthetic_form_text() + """\
+not_body:
+  - type: textarea
+    id: decoy
+    attributes:
+      label: Decoy field
+"""
+        form = audit.parse_issue_form(form_text, "mixed.yml")
+        self.assertEqual([field.field_id for field in form.fields], ["impact", "notes"])
+
+    def test_parse_form_rejects_duplicate_body(self) -> None:
+        with self.assertRaisesRegex(audit.AuditError, "top-level body"):
+            audit.parse_issue_form(synthetic_form_text() + "body:\n", "duplicate.yml")
+
     def test_form_sections_treat_github_no_response_marker_as_missing(self) -> None:
         sections = audit.extract_form_sections(
             "### Required\n\nA value\n\n### Optional\n\n<!-- hidden -->\n_No response_"
