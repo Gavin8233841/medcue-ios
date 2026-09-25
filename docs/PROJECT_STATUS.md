@@ -187,7 +187,13 @@ milestone-free `重复` without `已阻塞`. Issue #25 carries the evidence-back
 - Portable domain logic, SwiftData transactions and migrations, iPhone-primary
   system snapshots, consent-scoped AI context, response safety checks, and the
   constrained Broker remain the current architectural boundaries.
-- Live Activity URL authorization remains tracked by Issue #2.
+- The Issue #14 privacy candidate uses generic iPhone system-surface text,
+  requires unlock for notification dose actions, and removes direct Live
+  Activity dose writes. Its legacy-content migration is implemented in the
+  candidate branch; exact-head CI and Simulator system-surface checks remain
+  open. See `docs/adr/0003-iphone-system-reminder-privacy.md`. Issue #2 remains
+  open for the full authorization regression boundary, and Issue #17 retains
+  real-device release evidence.
 - Broker fail-closed startup and bounded provider responses remain tracked by
   Issue #3.
 - Consent revocation transactionality, persistent-store recovery, physical

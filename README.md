@@ -28,11 +28,12 @@ The repository separates domain logic from Apple-platform integration:
 - `Packages/LlamaFramework/` provides the local model runtime package boundary.
 - `tools/` contains reproducible validation and release-safety checks.
 
-Application writes use explicit command and transaction boundaries. SwiftData commits complete before user-visible success or post-commit side effects such as notifications, Watch snapshots, and Live Activity updates. Critical dose actions are designed to be idempotent across in-app and system-surface entry points; the current Live Activity URL entry point has a documented authorization and idempotency gap tracked in [GitHub Issue #2](https://github.com/Gavin8233841/medcue-ios/issues/2) and is not release-ready.
+Application writes use explicit command and transaction boundaries. SwiftData commits complete before user-visible success or post-commit side effects such as notifications, Watch snapshots, and Live Activity updates. The former Live Activity URL dose-action handler is disabled; the legacy intent no longer writes a dose. [GitHub Issue #2](https://github.com/Gavin8233841/medcue-ios/issues/2) tracks the remaining authorization regression gate before this boundary is release-ready.
 
 ## Privacy And Safety
 
 - Medication data is stored locally with versioned SwiftData schemas and migration coverage.
+- iPhone notifications, alarms, Lock Screen Live Activities, and Dynamic Island views use generic reminder text without medication names or doses. Notification dose actions require device unlock; Live Activities open the app for confirmation. See [ADR-0003](docs/adr/0003-iphone-system-reminder-privacy.md) and the remaining [Issue #14](https://github.com/Gavin8233841/medcue-ios/issues/14) validation.
 - Cloud AI remains opt-in and receives only user-authorized context scopes.
 - Credentials are not stored in source control and release artifacts are checked for sensitive configuration.
 - iOS remote endpoints are HTTPS validated, client-side redirects are rejected,
