@@ -959,26 +959,36 @@ struct ElderTodayScreen: View {
     private var reminderWarning: some View {
         let message = notificationUnavailableMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         if !message.isEmpty {
-            Button(action: actions.openNotificationSettings) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Label(
-                        message == "记录已保存，提醒未能开启。" ? message : "提醒暂不可用",
-                        systemImage: "bell.slash.fill"
-                    )
-                        .font(.title3.bold())
-                    Label("打开系统设置", systemImage: "gearshape")
-                        .font(.title3.bold())
+            let opensSettings = message.contains("权限")
+                || message.contains("系统设置") || message.contains("通知设置")
+            if opensSettings {
+                Button(action: actions.openNotificationSettings) {
+                    reminderWarningCard(message: message, showsSettingsAction: true)
                 }
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
-                .padding(16)
-                .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("elder.reminder.settings")
+            } else {
+                reminderWarningCard(message: message, showsSettingsAction: false)
+                    .accessibilityIdentifier("elder.reminder.warning")
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("elder.reminder.settings")
         }
+    }
+
+    private func reminderWarningCard(message: String, showsSettingsAction: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(message, systemImage: "bell.slash.fill")
+                .font(.title3.bold())
+            if showsSettingsAction {
+                Label("打开系统设置", systemImage: "gearshape")
+                    .font(.title3.bold())
+            }
+        }
+        .foregroundStyle(.primary)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+        .padding(16)
+        .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+        .accessibilityElement(children: .combine)
     }
 
     private func currentTaskCard(_ task: StoredDoseTask, availableWidth: CGFloat) -> some View {
