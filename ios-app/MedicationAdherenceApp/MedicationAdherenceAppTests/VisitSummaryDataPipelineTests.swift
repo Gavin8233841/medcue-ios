@@ -89,12 +89,18 @@ struct VisitSummaryDataPipelineTests {
             generatedAt: fixture.rangeEnd,
             exportSignature: "pdf-test"
         )
-        let targetURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("visit-summary-test-\(UUID().uuidString).pdf")
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("visit-summary-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let lifecycle = VisitSummaryPDFLifecycle(
+            rootDirectory: rootURL,
+            expiryInterval: 3600,
+            clock: { Date() }
+        )
 
         let completedURL = try await VisitSummaryPDFExporter.export(
             payload: payload,
-            targetURL: targetURL
+            lifecycle: lifecycle
         )
         let dataAtURL = try Data(contentsOf: completedURL)
 

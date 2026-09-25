@@ -1,6 +1,54 @@
 # MedCue Project Status
 
-Last audited: 2026-08-23
+Latest coordination audit: 2026-09-22
+Current source checkpoint: `7de86b34df209bd6b33aca8495b9c9a5ec4e16ae`
+
+## 2026-09-22 Current Coordination Snapshot
+
+- GitHub visibility was read back as **PUBLIC**. The private-visibility statement
+  in the historical 2026-08-23 snapshot below is not current.
+- [PR #84](https://github.com/Gavin8233841/medcue-ios/pull/84) merged the Broker
+  input/HTTP failure boundary into `baeabcade7b040301f7b8ac13e9a3a89bb1008e7`; #80 closed.
+  PR HEAD `45edd7a` passed 31/31 strict Node tests, independent security review,
+  and its exact-head Broker CI. Post-merge full CI is tracked separately in
+  [run 35692029084](https://github.com/Gavin8233841/medcue-ios/actions/runs/35692029084).
+  That post-merge run succeeded; this does not claim CloudBase deployment.
+- 34 Issues remain open, all assigned to a milestone. Of these, 13 carry the
+  technical-debt label and 7 the defect label. These are tracker categories,
+  not an estimate of 34 independent defects or a completion percentage.
+- 10 implementation PRs remain open (excluding this status-document update).
+  Superseded #63 and #79 were closed without deleting their
+  branches; #90 is the single delivery candidate for #61.
+- Exact-head required CI succeeded for #78 (`6e7633e`), #87 (`5d3f154`),
+  #88 (`8a9ca69`) and #90 (`004e44e`). These PRs remain unmerged. #86
+  (`c9ad98e`) failed its required result after UI-job timeout; child #87's
+  successful run does not satisfy its parent's integration gate.
+- #17 remains open: merged evidence documentation is not physical-device
+  acceptance. #33 remains open for its explicit Topics decision. #20's local
+  work does not establish merged migration acceptance.
+- #83 now has [PR #92](https://github.com/Gavin8233841/medcue-ios/pull/92)
+  at `cf761441589964dcd8d93d281fe61833f3fb5944`: strict Node tests 38/38,
+  fresh-context security review with no Blocker/Required findings, and
+  [exact-head Broker CI](https://github.com/Gavin8233841/medcue-ios/actions/runs/35692799471)
+  passed. It merged into the current source checkpoint and #83 closed.
+  [Post-merge full CI](https://github.com/Gavin8233841/medcue-ios/actions/runs/35693333809)
+  succeeded on the exact merged source checkpoint, including all native builds
+  and Swift Core, hosted iOS and UI test lanes.
+  No provider deployment is claimed.
+- #81's final `8a9ca69` cumulative fresh-context data-safety review completed
+  with no Blocker/Required findings. Its remote full CI is green, but no local
+  full-gate completion log bound to this final HEAD was found. Reminder shared
+  files have one writer: hand off this stable checkpoint to #89, then #82.
+  Broker #83 is a separate line.
+  Existing contributor ownership of #47/#61/#62/#16 is preserved.
+
+This snapshot is a source/integration status, not release, device, VoiceOver,
+telephone, notification-delivery, or representative-user acceptance. Current
+GitHub Issue and PR state supersedes these timestamped counts.
+
+## Historical Audit Baseline (2026-08-23)
+
+Last audited for the historical baseline below: 2026-08-23
 Authoritative branch: `main`
 Audit baseline: `d6aa4af85f225028fc3f912391328e1f745d0b34`
 Audit-baseline CI: [Native Verification run 32640833807](https://github.com/Gavin8233841/medcue-ios/actions/runs/32640833807)
