@@ -58,6 +58,9 @@ func medicalAIScopeDisplayName(_ scope: MedicalAIDataScope) -> String {
 }
 
 struct AgentRuntimeSelectorBar: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var isAccessibilitySize: Bool { dynamicTypeSize.isAccessibilitySize }
+
     let onlineConfiguration: MedicalAIConfiguration
     let onlineReadiness: MedicalAITransportReadiness
     let status: LocalMedicalModelStatus
@@ -117,11 +120,11 @@ struct AgentRuntimeSelectorBar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
+            (isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))) {
                 Button(action: toggleExpanded) {
                     HStack(spacing: 8) {
                         Image(systemName: prefersLocalResponses ? "iphone.gen3.radiowaves.left.and.right" : "network")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.system(size: 17, weight: .semibold))
                             .foregroundStyle(activeTint)
                             .frame(width: shouldUseCompactChip ? 24 : 28, height: shouldUseCompactChip ? 24 : 28)
                             .background(activeTint.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -132,31 +135,34 @@ struct AgentRuntimeSelectorBar: View {
                         } else {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(activeTitle)
+                                    .fixedSize(horizontal: false, vertical: true)
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(.primary)
                                 Text(activeSubtitle)
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                                    .lineLimit(isAccessibilitySize ? nil : 1)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                         Image(systemName: "chevron.down")
-                            .font(.caption.weight(.bold))
+                            .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(.secondary)
                             .rotationEffect(.degrees(isExpanded ? 180 : 0))
                     }
                     .padding(.horizontal, shouldUseCompactChip ? 9 : 10)
                     .padding(.vertical, shouldUseCompactChip ? 7 : 8)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: isAccessibilitySize ? 16 : 100))
                     .overlay(
-                        Capsule()
+                        RoundedRectangle(cornerRadius: isAccessibilitySize ? 16 : 100)
                             .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
                     )
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("切换智能体模式")
+                .accessibilityIdentifier("assistant.runtime.toggle")
 
-                Spacer(minLength: 8)
+                if !isAccessibilitySize { Spacer(minLength: 8) }
 
                 if !shouldUseCompactChip {
                     Text(prefersLocalResponses ? "Beta" : onlineStatusText)
@@ -219,6 +225,9 @@ struct AgentRuntimeSelectorBar: View {
 }
 
 struct RuntimeChoiceRow: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var isAccessibilitySize: Bool { dynamicTypeSize.isAccessibilitySize }
+
     let title: String
     let subtitle: String
     let status: String
@@ -232,15 +241,15 @@ struct RuntimeChoiceRow: View {
     let action: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        (isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))) {
             Image(systemName: iconName)
-                .font(.subheadline.weight(.semibold))
+                .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(isEnabled ? tint : .secondary)
                 .frame(width: 32, height: 32)
                 .background((isEnabled ? tint : Color.secondary).opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
+                (isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(spacing: 6))) {
                     Text(title)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(isEnabled ? .primary : .secondary)
@@ -254,7 +263,8 @@ struct RuntimeChoiceRow: View {
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .lineLimit(isAccessibilitySize ? nil : 2)
+                    .fixedSize(horizontal: false, vertical: true)
                 if let progress {
                     VStack(alignment: .leading, spacing: 4) {
                         ProgressView(value: progress)
@@ -275,7 +285,7 @@ struct RuntimeChoiceRow: View {
                 }
             }
 
-            Spacer(minLength: 8)
+            if !isAccessibilitySize { Spacer(minLength: 8) }
 
             if isSelected {
                 Button(actionTitle, action: action)

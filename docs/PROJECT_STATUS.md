@@ -46,6 +46,54 @@ This snapshot is a source/integration status, not release, device, VoiceOver,
 telephone, notification-delivery, or representative-user acceptance. Current
 GitHub Issue and PR state supersedes these timestamped counts.
 
+## 2026-09-17 Local Candidate: Issue #85 Complete-Mode Dynamic Type
+
+- Branch: `codex/85-complete-dynamic-type`; base:
+  `c9ad98ebe60c91b2e7ede5f7dc4e53589b9e3a8b` (PR #86).
+  This is a serial UI child of the #46 / #55 workline, not integrated main.
+- Accessibility text sizes now use a vertical timeline header/action layout,
+  single-column medication metrics, expanded runtime selector descriptions,
+  naturally sized records previews and seven readable calendar rows. Local-data
+  and profile-entry descriptions wrap; decorative icons retain bounded sizes.
+  Default text retains the compact page structure.
+- Inline confirmation buttons now include their whole background in the
+  tappable label, with minimum height 44 pt (60 pt at accessibility sizes).
+  Cancel/confirm callbacks and medication commit/delay semantics are unchanged;
+  no consent, download, persistence, reminder or AI-request command changed.
+- The synthetic iPhone 17 Pro twice stalled while scrolling an expanded AX5
+  confirmation (runs 07 and 08, including an isolated retry). A process sample
+  showed main-thread SwiftUI lazy-layout updates. Resolving the finite outer
+  Today sections with VStack removed that reproduced stall: the same journey
+  passed in run 09, then the final SE journey also passed. This is simulator
+  regression evidence, not a physical-device performance measurement.
+- Final layout inputs: `.codex-local/issue85/final-layout-inputs.json`.
+  SE run 10 passed UI 5/5 (default and AX5 five-tab tours, content/navigation
+  journey, touch-preference persistence, elder entry). iPhone 17 Pro run 09
+  passed the AX5 journey 1/1; run 11 passed tours/settings 3/3. Tests check
+  medication text geometry, metric width, seven distinct date rows, actual
+  navigation/back, confirmation cancellation with zero medication writes,
+  and the full settings-entry description.
+- Earlier same-workline evidence is separately scoped: run 05 passed SE AX5
+  profile/settings 1/1; run 06 passed ElderModeTests 17/17 and UI 6/6.
+  These precede only the final outer Today stack adjustment. They are not a
+  second final-revision full-suite claim. Failed/interrupted runs are retained.
+- Twenty final five-tab screenshots cover two screen sizes and two text sizes;
+  focused action screenshots and the earlier failure evidence are retained.
+  Preflight, Swift source-size and diff-whitespace checks pass. The expected
+  missing Debug AI configuration warning applies to this explicitly marked
+  synthetic simulator test host. Existing staged-hook checks apply; the PR #77
+  reusable scripts are absent on this branch.
+- No new full `verify-native.sh` result, exact-head remote CI, physical
+  VoiceOver, notification/phone delivery, or release is claimed. PR #86's
+  run 35102932986 completed 29 UI tests without assertion failures but the
+  job exceeded its 25-minute budget; its required gate remains failed.
+  Keep this stacked child Draft until parent and integration gates are met.
+  Issue #52 retains broader detail-page/long-content visual coverage and
+  cross-page data/end-to-end acceptance. The assistant's horizontally scrolling
+  quick-question chips still warrant an AX layout follow-up; this candidate
+  fixes the runtime selector and does not declare every assistant control
+  visually complete.
+
 ## 2026-09-16 Local Candidate: Issue #55 Elder Interaction
 
 - Branch: `codex/55-elder-no-scroll`; base:

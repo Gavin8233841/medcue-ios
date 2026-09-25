@@ -207,7 +207,9 @@ struct TodayScreen: View {
 
     private var timeline: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 22) {
+            // These bounded sections can grow while scrolling (inline confirmations).
+            // Resolve their heights together to keep AX scroll geometry stable.
+            VStack(alignment: .leading, spacing: 22) {
                 if snapshot.completionRateSnapshot.isComplete,
                    shouldShowCompletionCelebration {
                     CompletionCompleteCelebrationCard(
@@ -253,7 +255,7 @@ struct TodayScreen: View {
         Button(action: actions.switchToElderMode) {
             HStack(spacing: 14) {
                 Image(systemName: "checklist")
-                    .font(.title3.weight(.semibold))
+                    .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(.blue)
                     .frame(width: 42, height: 42)
                     .background(
@@ -269,7 +271,7 @@ struct TodayScreen: View {
                 Spacer(minLength: 8)
 
                 Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.tertiary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -377,7 +379,10 @@ struct TodayScreen: View {
     }
 
     private var openTimelineSection: some View {
-        todaySection("今日待处理") {
+        todaySection(
+            "今日待处理",
+            titleAccessibilityIdentifier: AppAccessibilityID.todayOpenTimeline
+        ) {
             if isOpenTimelineTemporarilyCollapsed {
                 OpenDoseSummaryRow(
                     count: snapshot.displayedOpenCount,
@@ -436,7 +441,6 @@ struct TodayScreen: View {
             prefersReducedMotion ? nil : .snappy(duration: 0.24, extraBounce: 0.02),
             value: recentlyReopenedDoseKeys
         )
-        .accessibilityIdentifier(AppAccessibilityID.todayOpenTimeline)
     }
 
     private var handledTimelineSection: some View {
@@ -604,13 +608,11 @@ struct TodayScreen: View {
 
     private func todaySection<Content: View>(
         _ title: String,
+        titleAccessibilityIdentifier: String? = nil,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            todaySectionTitle(title, accessibilityIdentifier: titleAccessibilityIdentifier)
 
             VStack(alignment: .leading, spacing: 10) {
                 content()
@@ -623,6 +625,23 @@ struct TodayScreen: View {
             )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func todaySectionTitle(
+        _ title: String,
+        accessibilityIdentifier: String?
+    ) -> some View {
+        let label = Text(title)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+        if let accessibilityIdentifier {
+            label.accessibilityIdentifier(accessibilityIdentifier)
+        } else {
+            label
+        }
     }
 
     private func openSystemNotificationSettings() {

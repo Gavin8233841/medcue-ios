@@ -50,9 +50,110 @@ final class MedicationAdherenceAppUITests: XCTestCase {
             }
             if contentSizeArguments != nil {
                 XCTAssertTrue(tab.isHittable)
-                addScreenshot(named: "complete-ax5-\(identifier)", from: app)
             }
+            addScreenshot(named: "complete-\(contentSizeArguments == nil ? "default" : "ax5")-\(identifier)", from: app)
         }
+    }
+
+    func testCompleteMaximumTextContentAndNavigation() {
+        continueAfterFailure = false
+        let app = launchElderFixture(scenario: "future", mode: "complete", contentSizeArguments: accessibilityXXXLContentSizeArguments)
+        let name = app.staticTexts["timeline.medication-name"]
+        scrollToHittable(name, in: app)
+        XCTAssertEqual(name.label, "布洛芬")
+        XCTAssertGreaterThan(name.frame.width, 120, "The medication name must retain its full AX font width")
+        let dose = app.staticTexts["timeline.dose"]
+        scrollToHittable(dose, in: app)
+        XCTAssertEqual(dose.label, "1 片")
+        XCTAssertGreaterThanOrEqual(dose.frame.minY, name.frame.maxY)
+        addScreenshot(named: "complete-ax5-today-dose", from: app)
+
+        let delay = app.buttons["today.timeline.action.delay"]
+        scrollToHittable(delay, in: app)
+        delay.tap()
+        let cancel = app.buttons["today.timeline.confirmation.cancel"]
+        scrollToHittable(cancel, in: app)
+        XCTAssertGreaterThanOrEqual(cancel.frame.height, 60)
+        addScreenshot(named: "complete-ax5-today-confirmation", from: app)
+        cancel.tap()
+        XCTAssertFalse(cancel.exists)
+
+        app.tabBars.buttons.element(boundBy: 1).tap()
+        let metric = app.buttons["medications.metric.title.药品"]
+        scrollToHittable(metric, in: app)
+        XCTAssertTrue(metric.label.contains("查看详情"))
+        let metricTitle = metric.staticTexts["medications.metric.title.药品"]
+        XCTAssertGreaterThan(metricTitle.frame.width, 75)
+        XCTAssertGreaterThanOrEqual(metric.frame.width, 300, "AX overview must use the available column")
+        addScreenshot(named: "complete-ax5-medication-metric", from: app)
+        metric.tap()
+        XCTAssertTrue(app.navigationBars["药品总览"].waitForExistence(timeout: 5))
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(app.buttons["medications.metric.title.药品"].waitForExistence(timeout: 5))
+        let risk = app.buttons["medications.metric.title.风险复核"]
+        scrollToHittable(risk, in: app)
+        XCTAssertGreaterThan(risk.staticTexts["medications.metric.title.风险复核"].frame.width, 150)
+        addScreenshot(named: "complete-ax5-medication-risk-entry", from: app)
+
+        app.tabBars.buttons.element(boundBy: 2).tap()
+        dismissAssistantGatesIfPresented(in: app)
+        let runtime = app.buttons["assistant.runtime.toggle"]
+        XCTAssertTrue(runtime.waitForExistence(timeout: 5))
+        runtime.tap()
+        let cloudDescription = app.staticTexts["连接云端能力，适合复杂问题和更长文本"]
+        scrollToHittable(cloudDescription, in: app)
+        XCTAssertGreaterThan(cloudDescription.frame.width, 240)
+        addScreenshot(named: "complete-ax5-runtime-expanded", from: app)
+        // Inspect the selector without starting a download, consent change or AI request.
+        scrollToHittable(runtime, in: app)
+        runtime.tap()
+        XCTAssertFalse(cloudDescription.exists)
+
+        app.tabBars.buttons.element(boundBy: 3).tap()
+        let days = app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@", "records.week.day."))
+        XCTAssertEqual(days.count, 7, "The accessible calendar must retain all seven dates")
+        let firstDay = days.element(boundBy: 0)
+        let lastDay = days.element(boundBy: 6)
+        XCTAssertLessThan(firstDay.frame.maxY, days.element(boundBy: 1).frame.minY)
+        scrollToHittable(firstDay, in: app)
+        XCTAssertGreaterThanOrEqual(firstDay.frame.width, 280)
+        addScreenshot(named: "complete-ax5-calendar-first-dates", from: app)
+        scrollToHittable(lastDay, in: app)
+        addScreenshot(named: "complete-ax5-calendar-last-dates", from: app)
+        lastDay.tap()
+        XCTAssertTrue(app.navigationBars.buttons.firstMatch.waitForExistence(timeout: 5))
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(firstDay.exists)
+
+        assertStoredState(in: app, statuses: ["pending"], logCount: 0, saveAttempts: 0)
+    }
+
+    func testProfileMaximumTextSettingsRemainReadableAndReachable() {
+        continueAfterFailure = false
+        let app = launchElderFixture(mode: "complete", contentSizeArguments: accessibilityXXXLContentSizeArguments)
+        app.tabBars.buttons.element(boundBy: 4).tap()
+        let profileRoot = app.descendants(matching: .any)["profile.root"]
+        XCTAssertTrue(profileRoot.waitForExistence(timeout: 5))
+        let summary = app.staticTexts["profile.local-data.summary"]
+        scrollToHittable(summary, in: app)
+        XCTAssertEqual(summary.label, "提醒、记录和药品资料保存在这台 iPhone")
+        XCTAssertGreaterThan(summary.frame.width, 220)
+        addScreenshot(named: "complete-ax5-local-data", from: app)
+        let settings = app.buttons["profile.settings"]
+        for _ in 0..<12 {
+            if settings.exists { break }
+            app.swipeUp()
+        }
+        scrollToHittable(settings, in: app)
+        let settingsSummary = settings.staticTexts["外观、提醒、触控和系统设置"]
+        XCTAssertTrue(settingsSummary.exists)
+        XCTAssertGreaterThan(settingsSummary.frame.width, 220)
+        addScreenshot(named: "complete-ax5-profile-settings-entry", from: app)
+        settings.tap()
+        XCTAssertTrue(app.navigationBars["应用设置"].waitForExistence(timeout: 5))
+        app.navigationBars.buttons.firstMatch.tap()
+        XCTAssertTrue(profileRoot.waitForExistence(timeout: 5))
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
     }
 
     func testTodayCanOpenElderMode() {
@@ -539,7 +640,7 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         var previousFrame: CGRect?
         for identifier in identifiers {
             let button = app.buttons[identifier]
-            XCTAssertTrue(button.waitForExistence(timeout: 10), file: file, line: line)
+            XCTAssertTrue(button.exists || button.waitForExistence(timeout: 10), file: file, line: line)
             XCTAssertTrue(button.isHittable, "\(identifier) must be tappable without scrolling", file: file, line: line)
             XCTAssertTrue(viewport.contains(button.frame), "\(identifier) is outside the visible safe area: \(button.frame)", file: file, line: line)
             XCTAssertGreaterThanOrEqual(button.frame.height, 60, file: file, line: line)
@@ -656,8 +757,8 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        XCTAssertTrue(element.waitForExistence(timeout: 5), file: file, line: line)
-        XCTAssertTrue(element.wait(for: \.isEnabled, toEqual: true, timeout: 5), file: file, line: line)
+        XCTAssertTrue(element.exists || element.waitForExistence(timeout: 5), file: file, line: line)
+        XCTAssertTrue(element.isEnabled || element.wait(for: \.isEnabled, toEqual: true, timeout: 5), file: file, line: line)
         if element.identifier.hasPrefix("elder.action.") || element.identifier.hasPrefix("elder.confirmation.") {
             assertElderActionsVisible(in: app, identifiers: [element.identifier], file: file, line: line)
             return
@@ -680,7 +781,7 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         }
         XCTAssertTrue(element.isHittable, "Control remained unreachable after scrolling", file: file, line: line)
         XCTAssertTrue(visibleViewport(in: app, scrollSurface: scrollSurface).contains(element.frame),
-                      "Control remained clipped by navigation or the visible viewport", file: file, line: line)
+                      "Control remained clipped: \(element.frame); viewport: \(visibleViewport(in: app, scrollSurface: scrollSurface))", file: file, line: line)
     }
 
     private func visibleViewport(in app: XCUIApplication, scrollSurface: XCUIElement) -> CGRect {

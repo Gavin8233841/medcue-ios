@@ -385,22 +385,27 @@ struct ConsentScopeRow: View {
 }
 
 struct AccountHeaderRow: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var isAccessibilitySize: Bool { dynamicTypeSize.isAccessibilitySize }
+
     @AppStorage("wantsICloudBackup") private var wantsICloudBackup = false
 
     var body: some View {
-        HStack(spacing: 14) {
+        (isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 14)) : AnyLayout(HStackLayout(spacing: 14))) {
             Image(systemName: wantsICloudBackup ? "externaldrive.badge.checkmark" : "externaldrive.fill")
-                .font(.largeTitle)
+                .font(.system(size: 28))
                 .foregroundStyle(.blue)
                 .frame(width: 48, height: 48)
             VStack(alignment: .leading, spacing: 4) {
                 Text("本机数据")
                     .font(.headline)
                 Text(statusText)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("profile.local-data.summary")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
-            Spacer()
+            if !isAccessibilitySize { Spacer() }
         }
         .padding(.vertical, 8)
     }
