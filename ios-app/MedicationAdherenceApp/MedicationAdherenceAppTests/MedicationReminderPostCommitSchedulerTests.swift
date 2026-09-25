@@ -161,10 +161,16 @@ struct MedicationReminderPostCommitSchedulerTests {
         )
         let kinds: [MedicationReminderRequestKind] = [.baseNotification, .escalationAlarm]
 
-        #expect(await executor.execute(kinds) == .escalationFailed)
+        let first = await executor.execute(kinds)
+        #expect(first.baseScheduled)
+        #expect(!first.escalationScheduled)
+        #expect(first.failedKinds == [.escalationAlarm, .escalationNotification])
         #expect(state.installed == ["dose.stable-task"])
         state.fallbackFails = false
-        #expect(await executor.execute(kinds) == .scheduled)
+        let retried = await executor.execute(kinds)
+        #expect(retried.baseScheduled && retried.escalationScheduled)
+        #expect(retried.failedKinds == [.escalationAlarm])
+        #expect(retried.usedEscalationNotificationFallback)
         #expect(state.installed == ["dose.stable-task", "dose.escalation.stable-task"])
         #expect(state.alarmAttempts == 2)
     }
@@ -184,8 +190,39 @@ struct MedicationReminderPostCommitSchedulerTests {
                 return true
             }
         )
-        #expect(await executor.execute([.baseNotification, .escalationAlarm]) == .baseFailed)
+        let outcome = await executor.execute([.baseNotification, .escalationAlarm])
+        #expect(!outcome.baseScheduled)
+        #expect(outcome.failedKinds == [.baseNotification])
         #expect(escalationAttempts == 0)
+    }
+
+    @Test @MainActor
+    func selectedBaseAlarmFailureIsReportedDespiteNotificationFallback() async {
+        let executor = MedicationReminderRequestExecutor(
+            addBaseNotification: { true },
+            addBaseAlarm: { false },
+            addEscalationNotification: { true },
+            addEscalationAlarm: { true }
+        )
+
+        let outcome = await executor.execute([.baseNotification, .baseAlarm])
+        #expect(outcome.baseScheduled && outcome.escalationScheduled)
+        #expect(outcome.failedKinds == [.baseAlarm])
+    }
+
+    @Test @MainActor
+    func authorizationRefreshPreservesUnresolvedSystemWarning() async throws {
+        let suite = try #require(UserDefaults(suiteName: "MedCue.ReminderWarning.\(UUID().uuidString)"))
+        let message = "部分提醒未能同步到系统"
+        suite.set(message, forKey: NotificationService.reminderSystemSyncMessageKey)
+        defer {
+            suite.removeObject(forKey: NotificationService.reminderSystemSyncMessageKey)
+            suite.removeObject(forKey: NotificationService.reminderNotificationUnavailableMessageKey)
+        }
+
+        await NotificationService(defaults: suite).refreshAuthorizationStatus()
+
+        #expect(suite.string(forKey: NotificationService.reminderSystemSyncMessageKey) == message)
     }
 
     @Test

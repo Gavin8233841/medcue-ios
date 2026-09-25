@@ -67,6 +67,7 @@ private struct TodayContentView: View {
     @AppStorage(AppExperienceMode.storageKey) private var appExperienceModeRaw = AppExperienceMode.complete.rawValue
     @AppStorage("prefersReducedAppMotion") private var prefersReducedAppMotion = false
     @AppStorage(NotificationService.reminderNotificationUnavailableMessageKey) private var reminderNotificationUnavailableMessage = ""
+    @AppStorage(NotificationService.reminderSystemSyncMessageKey) private var reminderSystemSyncMessage = ""
     @AppStorage(DoseActionPersistence.failureMessageDefaultsKey) private var externalDosePersistenceErrorMessage = ""
     @StateObject private var notificationService = NotificationService()
     @StateObject private var liveActivityService = MedicationLiveActivityService()
@@ -208,6 +209,13 @@ private struct TodayContentView: View {
             .joined(separator: "|")
     }
 
+    private var reminderWarningMessage: String {
+        [reminderSystemSyncMessage, reminderNotificationUnavailableMessage]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "；")
+    }
+
     var body: some View {
         let now = displayedNow
         let snapshot = doseProjectionStore.projection(
@@ -228,7 +236,7 @@ private struct TodayContentView: View {
                 helpConfirmationPhone: $elderHelpConfirmationPhone,
                 successFeedback: $elderDoseSuccessMessage,
                 notificationUnavailableMessage: elderReminderUnavailableMessage.isEmpty
-                    ? (systemSurfaceAdapter == nil ? reminderNotificationUnavailableMessage : "")
+                    ? (systemSurfaceAdapter == nil ? reminderWarningMessage : "")
                     : elderReminderUnavailableMessage,
                 loadErrorMessage: _tasks.fetchError != nil
                     || _medications.fetchError != nil || _plans.fetchError != nil
@@ -257,7 +265,7 @@ private struct TodayContentView: View {
         } else {
             TodayScreen(
                 snapshot: snapshot,
-                notificationUnavailableMessage: reminderNotificationUnavailableMessage,
+                notificationUnavailableMessage: reminderWarningMessage,
                 completionRateFeedback: completionRateFeedback,
                 completionRateDisplayedSnapshot: completionRateDisplayedSnapshot,
                 isCompletionRateFeedbackVisible: isCompletionRateFeedbackVisible,

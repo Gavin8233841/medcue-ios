@@ -50,10 +50,11 @@ struct MedicationNotificationRequestScheduler {
     }
 }
 
-enum MedicationReminderRequestExecutionOutcome: Equatable {
-    case scheduled
-    case baseFailed
-    case escalationFailed
+struct MedicationReminderRequestExecutionOutcome: Equatable {
+    let baseScheduled: Bool
+    let escalationScheduled: Bool
+    let failedKinds: [MedicationReminderRequestKind]
+    let usedEscalationNotificationFallback: Bool
 }
 
 enum MedicationReminderSystemIdentifiers {
@@ -95,30 +96,69 @@ struct MedicationReminderRequestExecutor {
     let addEscalationAlarm: @MainActor () async -> Bool
 
     func execute(_ kinds: [MedicationReminderRequestKind]) async -> MedicationReminderRequestExecutionOutcome {
+        var failedKinds: [MedicationReminderRequestKind] = []
         var baseScheduled = false
         if kinds.contains(.baseNotification) {
-            baseScheduled = await addBaseNotification()
+            let scheduled = await addBaseNotification()
+            if !scheduled { failedKinds.append(.baseNotification) }
+            baseScheduled = scheduled
         }
         if kinds.contains(.baseAlarm) {
             let alarmScheduled = await addBaseAlarm()
+            if !alarmScheduled { failedKinds.append(.baseAlarm) }
             baseScheduled = baseScheduled || alarmScheduled
         }
-        guard baseScheduled else { return .baseFailed }
+        guard baseScheduled else {
+            return MedicationReminderRequestExecutionOutcome(
+                baseScheduled: false,
+                escalationScheduled: false,
+                failedKinds: failedKinds,
+                usedEscalationNotificationFallback: false
+            )
+        }
 
         if kinds.contains(.escalationAlarm) {
-            if await addEscalationAlarm() { return .scheduled }
-            return await addEscalationNotification() ? .scheduled : .escalationFailed
+            if await addEscalationAlarm() {
+                return MedicationReminderRequestExecutionOutcome(
+                    baseScheduled: true,
+                    escalationScheduled: true,
+                    failedKinds: failedKinds,
+                    usedEscalationNotificationFallback: false
+                )
+            }
+            failedKinds.append(.escalationAlarm)
+            let fallbackScheduled = await addEscalationNotification()
+            if !fallbackScheduled { failedKinds.append(.escalationNotification) }
+            return MedicationReminderRequestExecutionOutcome(
+                baseScheduled: true,
+                escalationScheduled: fallbackScheduled,
+                failedKinds: failedKinds,
+                usedEscalationNotificationFallback: fallbackScheduled
+            )
         }
         if kinds.contains(.escalationNotification) {
-            return await addEscalationNotification() ? .scheduled : .escalationFailed
+            let scheduled = await addEscalationNotification()
+            if !scheduled { failedKinds.append(.escalationNotification) }
+            return MedicationReminderRequestExecutionOutcome(
+                baseScheduled: true,
+                escalationScheduled: scheduled,
+                failedKinds: failedKinds,
+                usedEscalationNotificationFallback: false
+            )
         }
-        return .scheduled
+        return MedicationReminderRequestExecutionOutcome(
+            baseScheduled: true,
+            escalationScheduled: true,
+            failedKinds: failedKinds,
+            usedEscalationNotificationFallback: false
+        )
     }
 }
 
 @MainActor
 final class NotificationService: ObservableObject {
     static let reminderNotificationUnavailableMessageKey = "reminderNotificationUnavailableMessage"
+    static let reminderSystemSyncMessageKey = "reminderSystemSyncMessage"
 
     @Published private(set) var authorizationMessage = "尚未请求通知权限"
     @Published private(set) var pendingReminderCount = 0
@@ -128,7 +168,7 @@ final class NotificationService: ObservableObject {
     private var escalationAlarmIdentifierPrefix: String { "dose.escalation." }
     private let notificationPolicy = MedicationNotificationPolicy.default
     private let reminderPolicy = DoseReminderPolicy.competitionDemo
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
     private let injectedReminderTaskCoordinator: MedicationReminderTaskCoordinator?
     private let reconciliationSaveOperation: (ModelContext) throws -> Void
     private let reconciliationSystemEffects: MedicationReminderReconciliationSystemEffects?
@@ -139,12 +179,14 @@ final class NotificationService: ObservableObject {
         reminderTaskCoordinator: MedicationReminderTaskCoordinator? = nil,
         reconciliationSaveOperation: @escaping (ModelContext) throws -> Void = { try $0.save() },
         reconciliationSystemEffects: MedicationReminderReconciliationSystemEffects? = nil,
-        reminderOperationQueue: ReminderOperationQueue = MedicationReminderSystemOperationQueue.shared
+        reminderOperationQueue: ReminderOperationQueue = MedicationReminderSystemOperationQueue.shared,
+        defaults: UserDefaults = .standard
     ) {
         injectedReminderTaskCoordinator = reminderTaskCoordinator
         self.reconciliationSaveOperation = reconciliationSaveOperation
         self.reconciliationSystemEffects = reconciliationSystemEffects
         self.reminderOperationQueue = reminderOperationQueue
+        self.defaults = defaults
     }
 
     @discardableResult
@@ -357,7 +399,7 @@ final class NotificationService: ObservableObject {
         refreshPendingCount: Bool = true
     ) async -> [UUID: MedicationReminderSchedulingResult] {
         lastSystemOperationFailed = false
-        let previousWarning = defaults.string(forKey: Self.reminderNotificationUnavailableMessageKey)
+        let previousWarning = defaults.string(forKey: Self.reminderSystemSyncMessageKey)
         let now = Date()
         var seenTaskIDs: Set<UUID> = []
         let activeEntries = snapshot.entries
@@ -374,7 +416,7 @@ final class NotificationService: ObservableObject {
             pruneAllReminders: pruneExistingPrefixRequests
         ) else {
             lastSystemOperationFailed = true
-            updateNotificationUnavailableMessage("提醒状态暂时无法核对，请稍后重试。")
+            updateReminderSystemSyncMessage("提醒状态暂时无法核对，请稍后重试。")
             if refreshPendingCount {
                 await refreshPendingReminderCount()
             }
@@ -429,13 +471,13 @@ final class NotificationService: ObservableObject {
             results[taskID] = .unavailable(message: "提醒未安排，请检查通知或闹钟权限。")
         }
         if lastSystemOperationFailed {
-            updateNotificationUnavailableMessage("部分提醒未能同步到系统；重新打开 App 后会重试。")
+            updateReminderSystemSyncMessage("部分提醒未能同步到系统；下次启动 App 后会重试。")
         } else if !plan.unavailableTaskIDs.isEmpty {
-            updateNotificationUnavailableMessage("部分提醒未安排，请检查通知或闹钟权限。")
+            updateReminderSystemSyncMessage("部分提醒未安排，请检查通知或闹钟权限。")
         } else if !plan.deferredTaskIDs.isEmpty {
-            updateNotificationUnavailableMessage("近期提醒已达到本机排程预算；打开 App 后会继续安排较早的待办提醒。")
+            updateReminderSystemSyncMessage("近期提醒已达到本机排程预算；下次启动 App 时会重新选择较早的待办提醒。")
         } else {
-            updateNotificationUnavailableMessage(pruneExistingPrefixRequests ? nil : previousWarning)
+            updateReminderSystemSyncMessage(pruneExistingPrefixRequests ? nil : previousWarning)
         }
         if refreshPendingCount {
             await refreshPendingReminderCount()
@@ -472,14 +514,26 @@ final class NotificationService: ObservableObject {
                 return false
             }
         ).execute(kinds)
-        switch outcome {
-        case .scheduled:
-            return .scheduled
-        case .baseFailed:
+        guard outcome.baseScheduled else {
             return .unavailable(message: "基础提醒未能安排，请稍后重试。")
-        case .escalationFailed:
+        }
+        guard outcome.escalationScheduled else {
             return .unavailable(message: "基础提醒已安排，升级提醒未能安排，请稍后重试。")
         }
+        var degradations: [String] = []
+        if outcome.failedKinds.contains(.baseAlarm) {
+            degradations.append("所选 iPhone 闹钟未安排，已改用普通通知")
+        }
+        if outcome.failedKinds.contains(.baseNotification) {
+            degradations.append("普通通知未安排，iPhone 闹钟仍已安排")
+        }
+        if outcome.usedEscalationNotificationFallback {
+            degradations.append("升级闹钟未安排，已改用普通通知")
+        }
+        if !degradations.isEmpty {
+            return .unavailable(message: "\(degradations.joined(separator: "；"))；下次启动 App 后会重试。")
+        }
+        return .scheduled
     }
 
     @discardableResult
@@ -849,6 +903,14 @@ final class NotificationService: ObservableObject {
             defaults.set(message, forKey: Self.reminderNotificationUnavailableMessageKey)
         } else {
             defaults.removeObject(forKey: Self.reminderNotificationUnavailableMessageKey)
+        }
+    }
+
+    private func updateReminderSystemSyncMessage(_ message: String?) {
+        if let message, !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            defaults.set(message, forKey: Self.reminderSystemSyncMessageKey)
+        } else {
+            defaults.removeObject(forKey: Self.reminderSystemSyncMessageKey)
         }
     }
 
