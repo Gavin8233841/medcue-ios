@@ -11,6 +11,28 @@ private final class ReminderRequestTestState {
     var alarmAttempts = 0
 }
 
+@MainActor
+private final class ReminderReadbackTestState {
+    var pendingIDs: Set<String>
+    var deliveredIDs: Set<String>
+    var pendingReads = 0
+    var removedDeliveredIDs: Set<String> = []
+
+    init(pendingIDs: Set<String>, deliveredIDs: Set<String>) {
+        self.pendingIDs = pendingIDs
+        self.deliveredIDs = deliveredIDs
+    }
+
+    func readPendingIDs() async -> Set<String> {
+        pendingReads += 1
+        if pendingReads == 2 {
+            deliveredIDs.formUnion(pendingIDs)
+            pendingIDs.removeAll()
+        }
+        return pendingIDs
+    }
+}
+
 struct MedicationReminderPostCommitSchedulerTests {
     @Test @MainActor
     func snapshotCopiesValuesBeforeLiveModelsChange() throws {
@@ -313,6 +335,32 @@ struct MedicationReminderPostCommitSchedulerTests {
             preservedDeliveredNotificationIDs: [openID]
         )
         #expect(readbackTargets.deliveredNotificationIDsToRemove == [completedID])
+    }
+
+    @Test @MainActor
+    func readbackRechecksPendingAfterNotificationFiresDuringCancellation() async {
+        let completedID = MedicationReminderSystemIdentifiers.baseNotification(for: UUID())
+        let openID = MedicationReminderSystemIdentifiers.baseNotification(for: UUID())
+        let state = ReminderReadbackTestState(
+            pendingIDs: [completedID], deliveredIDs: [openID]
+        )
+        let readback = await MedicationReminderNotificationReadback.converge(
+            targetedPendingIDs: [completedID],
+            readPendingIDs: { await state.readPendingIDs() },
+            readDeliveredIDs: { state.deliveredIDs },
+            unwantedDeliveredIDs: { $0.subtracting([openID]) },
+            removePendingIDs: { _ in /* The request fires before cancellation takes effect. */ },
+            removeDeliveredIDs: { ids in
+                state.removedDeliveredIDs.formUnion(ids)
+                state.deliveredIDs.subtract(ids)
+            },
+            pause: { await Task.yield() }
+        )
+
+        #expect(readback.pendingIDs.isEmpty)
+        #expect(readback.remainingDeliveredIDs.isEmpty)
+        #expect(state.removedDeliveredIDs == [completedID])
+        #expect(state.deliveredIDs == [openID])
     }
 
     @Test

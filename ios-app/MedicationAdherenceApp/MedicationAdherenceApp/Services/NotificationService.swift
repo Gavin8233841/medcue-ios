@@ -167,6 +167,36 @@ enum MedicationReminderCancellationReadback {
     }
 }
 
+@MainActor
+enum MedicationReminderNotificationReadback {
+    static func converge(
+        targetedPendingIDs: Set<String>,
+        readPendingIDs: @MainActor () async -> Set<String>,
+        readDeliveredIDs: @MainActor () async -> Set<String>,
+        unwantedDeliveredIDs: @MainActor (Set<String>) -> Set<String>,
+        removePendingIDs: @MainActor (Set<String>) -> Void,
+        removeDeliveredIDs: @MainActor (Set<String>) -> Void,
+        pause: @MainActor () async -> Void
+    ) async -> (pendingIDs: Set<String>, remainingDeliveredIDs: Set<String>) {
+        var pendingIDs = await readPendingIDs()
+        var deliveredIDs = await readDeliveredIDs()
+        for _ in 0..<6 {
+            let remainingPendingIDs = targetedPendingIDs.intersection(pendingIDs)
+            let undesiredDeliveredIDs = unwantedDeliveredIDs(deliveredIDs)
+            if remainingPendingIDs.isEmpty && undesiredDeliveredIDs.isEmpty { break }
+            if !remainingPendingIDs.isEmpty { removePendingIDs(remainingPendingIDs) }
+            if !undesiredDeliveredIDs.isEmpty { removeDeliveredIDs(undesiredDeliveredIDs) }
+            await pause()
+            pendingIDs = await readPendingIDs()
+            deliveredIDs = await readDeliveredIDs()
+        }
+        // One final read reports any request that changed state during the last await.
+        pendingIDs = await readPendingIDs()
+        deliveredIDs = await readDeliveredIDs()
+        return (pendingIDs, unwantedDeliveredIDs(deliveredIDs))
+    }
+}
+
 struct MedicationReminderCancellationTargets {
     let notificationIDs: Set<String>
     let deliveredNotificationIDsToRemove: Set<String>
@@ -996,36 +1026,40 @@ final class NotificationService: ObservableObject {
         }
         #endif
 
-        var pendingAfter = await center.pendingNotificationRequests()
-        for _ in 0..<5 where pendingAfter.contains(where: { notificationIDs.contains($0.identifier) }) {
-            try? await Task.sleep(for: .milliseconds(80))
-            pendingAfter = await center.pendingNotificationRequests()
-        }
+        let readback = await MedicationReminderNotificationReadback.converge(
+            targetedPendingIDs: notificationIDs,
+            readPendingIDs: {
+                Set((await center.pendingNotificationRequests()).map(\.identifier))
+            },
+            readDeliveredIDs: {
+                Set((await center.deliveredNotifications()).map { $0.request.identifier })
+            },
+            unwantedDeliveredIDs: { deliveredIDs in
+                MedicationReminderCancellationTargets(
+                    taskIDs: taskIDs,
+                    pendingNotificationIDs: [],
+                    deliveredNotificationIDs: deliveredIDs,
+                    existingAlarmIDs: [],
+                    pruneAllReminders: pruneAllReminders,
+                    preserveBaseForTaskIDs: preserveBaseForTaskIDs,
+                    preservedDeliveredNotificationIDs: snapshot.preservedDeliveredNotificationIDs(at: Date())
+                ).deliveredNotificationIDsToRemove.intersection(deliveredIDs)
+            },
+            removePendingIDs: { ids in
+                center.removePendingNotificationRequests(withIdentifiers: ids.sorted())
+            },
+            removeDeliveredIDs: { ids in
+                center.removeDeliveredNotifications(withIdentifiers: ids.sorted())
+            },
+            pause: {
+                try? await Task.sleep(for: .milliseconds(80))
+            }
+        )
+        // A pending request can fire while delivered cleanup suspends. Both
+        // snapshots are refreshed in each readback round before deciding.
         guard let alarmsAfter = try? pendingAlarmIDs() else { return nil }
-        var deliveredAfter = await center.deliveredNotifications()
-        func deliveredIDsStillToRemove() -> Set<String> {
-            MedicationReminderCancellationTargets(
-                taskIDs: taskIDs,
-                pendingNotificationIDs: [],
-                deliveredNotificationIDs: Set(deliveredAfter.map { $0.request.identifier }),
-                existingAlarmIDs: [],
-                pruneAllReminders: pruneAllReminders,
-                preserveBaseForTaskIDs: preserveBaseForTaskIDs,
-                preservedDeliveredNotificationIDs: snapshot.preservedDeliveredNotificationIDs(at: Date())
-            ).deliveredNotificationIDsToRemove.intersection(
-                deliveredAfter.map { $0.request.identifier }
-            )
-        }
-        for _ in 0..<6 {
-            let undesiredDeliveredIDs = deliveredIDsStillToRemove()
-            if undesiredDeliveredIDs.isEmpty { break }
-            center.removeDeliveredNotifications(withIdentifiers: undesiredDeliveredIDs.sorted())
-            try? await Task.sleep(for: .milliseconds(80))
-            deliveredAfter = await center.deliveredNotifications()
-        }
-        let remainingDeliveredIDs = deliveredIDsStillToRemove()
-        let remainingNotificationIDs = notificationIDs.intersection(pendingAfter.map(\.identifier))
-            .union(remainingDeliveredIDs)
+        let remainingNotificationIDs = notificationIDs.intersection(readback.pendingIDs)
+            .union(readback.remainingDeliveredIDs)
         let remainingAlarmIDs = alarmIDs.intersection(alarmsAfter)
         let blockedTaskIDs = MedicationReminderCancellationReadback.blockedTaskIDs(
             among: taskIDs,
@@ -1033,7 +1067,7 @@ final class NotificationService: ObservableObject {
             remainingAlarmIDs: remainingAlarmIDs
         )
         return ReminderCleanupResult(
-            occupiedRequestCount: pendingAfter.count + alarmsAfter.count,
+            occupiedRequestCount: readback.pendingIDs.count + alarmsAfter.count,
             blockedTaskIDs: blockedTaskIDs,
             failed: !remainingNotificationIDs.isEmpty || !remainingAlarmIDs.isEmpty,
             hasUnattributedFailure: MedicationReminderCancellationReadback.hasUnattributedFailure(
