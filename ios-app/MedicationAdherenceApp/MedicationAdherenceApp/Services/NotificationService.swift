@@ -55,6 +55,37 @@ struct MedicationReminderRequestExecutionOutcome: Equatable {
     let escalationScheduled: Bool
     let failedKinds: [MedicationReminderRequestKind]
     let usedEscalationNotificationFallback: Bool
+
+    func schedulingResult(
+        wantsAlarm: Bool,
+        wantsEscalationAlarm: Bool,
+        plannedKinds: [MedicationReminderRequestKind]
+    ) -> MedicationReminderSchedulingResult {
+        guard baseScheduled else {
+            return .unavailable(message: "基础提醒未能安排，请稍后重试。")
+        }
+        guard escalationScheduled else {
+            return .unavailable(message: "基础提醒已安排，升级提醒未能安排，请稍后重试。")
+        }
+        var degradations: [String] = []
+        if wantsAlarm && !plannedKinds.contains(.baseAlarm) {
+            degradations.append("所选 iPhone 闹钟未安排，已改用普通通知；请检查闹钟权限")
+        } else if failedKinds.contains(.baseAlarm) {
+            degradations.append("所选 iPhone 闹钟未安排，已改用普通通知")
+        }
+        if failedKinds.contains(.baseNotification) {
+            degradations.append("普通通知未安排，iPhone 闹钟仍已安排")
+        }
+        if wantsEscalationAlarm && plannedKinds.contains(.escalationNotification) {
+            degradations.append("升级闹钟未安排，已改用普通通知；请检查闹钟权限")
+        } else if usedEscalationNotificationFallback {
+            degradations.append("升级闹钟未安排，已改用普通通知")
+        }
+        if !degradations.isEmpty {
+            return .unavailable(message: "\(degradations.joined(separator: "；"))；下次启动 App 后会重试。")
+        }
+        return .scheduled
+    }
 }
 
 enum MedicationReminderSystemIdentifiers {
@@ -451,6 +482,7 @@ final class NotificationService: ObservableObject {
         )
         let entriesByID = Dictionary(uniqueKeysWithValues: schedulableEntries.map { ($0.taskID, $0) })
         var results: [UUID: MedicationReminderSchedulingResult] = [:]
+        var missingSelectedAlarmAuthorization = false
         for taskID in cleanup.blockedTaskIDs {
             if affectedTaskIDs.contains(taskID) {
                 results[taskID] = .unavailable(message: "旧提醒暂时无法取消，请稍后重试。")
@@ -458,6 +490,12 @@ final class NotificationService: ObservableObject {
         }
         for assignment in plan.assignments {
             guard let entry = entriesByID[assignment.taskID] else { continue }
+            if (entry.deliveryMethodRaw == StoredReminderDeliveryMethod.alarm.rawValue
+                && !assignment.kinds.contains(.baseAlarm))
+                || (entry.escalatesToAlarmWhenUnhandled
+                && assignment.kinds.contains(.escalationNotification)) {
+                missingSelectedAlarmAuthorization = true
+            }
             let result = await scheduleAssignedReminder(entry, kinds: assignment.kinds)
             results[entry.taskID] = result
             if result.failureMessage != nil {
@@ -471,7 +509,8 @@ final class NotificationService: ObservableObject {
             results[taskID] = .unavailable(message: "提醒未安排，请检查通知或闹钟权限。")
         }
         if lastSystemOperationFailed {
-            updateReminderSystemSyncMessage("部分提醒未能同步到系统；下次启动 App 后会重试。")
+            let permissionHint = missingSelectedAlarmAuthorization ? "所选 iPhone 闹钟未安排，请检查闹钟权限；" : ""
+            updateReminderSystemSyncMessage("部分提醒未能同步到系统；\(permissionHint)下次启动 App 后会重试。")
         } else if !plan.unavailableTaskIDs.isEmpty {
             updateReminderSystemSyncMessage("部分提醒未安排，请检查通知或闹钟权限。")
         } else if !plan.deferredTaskIDs.isEmpty {
@@ -514,26 +553,11 @@ final class NotificationService: ObservableObject {
                 return false
             }
         ).execute(kinds)
-        guard outcome.baseScheduled else {
-            return .unavailable(message: "基础提醒未能安排，请稍后重试。")
-        }
-        guard outcome.escalationScheduled else {
-            return .unavailable(message: "基础提醒已安排，升级提醒未能安排，请稍后重试。")
-        }
-        var degradations: [String] = []
-        if outcome.failedKinds.contains(.baseAlarm) {
-            degradations.append("所选 iPhone 闹钟未安排，已改用普通通知")
-        }
-        if outcome.failedKinds.contains(.baseNotification) {
-            degradations.append("普通通知未安排，iPhone 闹钟仍已安排")
-        }
-        if outcome.usedEscalationNotificationFallback {
-            degradations.append("升级闹钟未安排，已改用普通通知")
-        }
-        if !degradations.isEmpty {
-            return .unavailable(message: "\(degradations.joined(separator: "；"))；下次启动 App 后会重试。")
-        }
-        return .scheduled
+        return outcome.schedulingResult(
+            wantsAlarm: entry.deliveryMethodRaw == StoredReminderDeliveryMethod.alarm.rawValue,
+            wantsEscalationAlarm: entry.escalatesToAlarmWhenUnhandled,
+            plannedKinds: kinds
+        )
     }
 
     @discardableResult

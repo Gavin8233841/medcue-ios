@@ -249,12 +249,12 @@ alert can recover after partial success, using stable request identifiers.
 The Today and Settings warning surfaces disclose an incomplete system update.
 System sync warnings use a separate key from notification authorization warnings,
 so a permission refresh cannot erase an unresolved scheduling failure. If an
-authorized AlarmKit add fails, an ordinary-notification fallback is reported
-as a partial result and remains eligible for retry.
+AlarmKit add fails or alarm authorization is unavailable, an ordinary-notification
+fallback is reported as a partial result and remains eligible for retry.
 The shared path now uses a MainActor service; real-device save responsiveness
 after this change has not been measured and needs a device check before merge.
 
-Local candidate evidence: 35 focused hosted test functions, 40 test runs and
+Local candidate evidence: 36 focused hosted test functions, 41 test runs and
 zero failures on an iPhone 17 Pro iOS 26.5 Simulator, covering request-budget
 ordering, delivery availability, partial add retry, cancellation readback and
 existing reconciliation behavior. This is not exact-head CI, physical-device
