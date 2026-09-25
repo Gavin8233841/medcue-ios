@@ -99,6 +99,20 @@ struct MedicationReminderPostCommitSchedulerTests {
             initialNow: frozen.capturedAt, schedulingNow: afterQueueWait,
             wantsEscalation: true
         ))
+        #expect(MedicationReminderRequestTiming.missedBaseWhileQueued(
+            baseDueAt: task.dueAt,
+            escalationDueAt: DoseReminderPolicy.competitionDemo.escalationDueAt(for: task.dueAt),
+            capturedAt: frozen.capturedAt,
+            schedulingNow: task.dueAt.addingTimeInterval(1),
+            wantsEscalation: true
+        ))
+        #expect(!MedicationReminderRequestTiming.missedBaseWhileQueued(
+            baseDueAt: task.dueAt,
+            escalationDueAt: DoseReminderPolicy.competitionDemo.escalationDueAt(for: task.dueAt),
+            capturedAt: frozen.capturedAt,
+            schedulingNow: afterQueueWait,
+            wantsEscalation: true
+        ))
     }
 
     @Test @MainActor
@@ -276,6 +290,29 @@ struct MedicationReminderPostCommitSchedulerTests {
             MedicationReminderSystemIdentifiers.baseNotification(for: obsoleteTask)
         ))
         #expect(targets.alarmIDs.contains(obsoleteTask))
+    }
+
+    @Test
+    func globalCleanupCatchesCompletedNotificationDeliveredDuringReadback() {
+        let completedTask = UUID()
+        let openTask = UUID()
+        let completedID = MedicationReminderSystemIdentifiers.baseNotification(for: completedTask)
+        let openID = MedicationReminderSystemIdentifiers.baseNotification(for: openTask)
+        let initialTargets = MedicationReminderCancellationTargets(
+            taskIDs: [], pendingNotificationIDs: [completedID],
+            deliveredNotificationIDs: [], existingAlarmIDs: [],
+            pruneAllReminders: true, preserveBaseForTaskIDs: [],
+            preservedDeliveredNotificationIDs: [openID]
+        )
+        #expect(initialTargets.deliveredNotificationIDsToRemove.isEmpty)
+
+        let readbackTargets = MedicationReminderCancellationTargets(
+            taskIDs: [], pendingNotificationIDs: [],
+            deliveredNotificationIDs: [completedID, openID], existingAlarmIDs: [],
+            pruneAllReminders: true, preserveBaseForTaskIDs: [],
+            preservedDeliveredNotificationIDs: [openID]
+        )
+        #expect(readbackTargets.deliveredNotificationIDsToRemove == [completedID])
     }
 
     @Test
@@ -458,6 +495,49 @@ struct MedicationReminderPostCommitSchedulerTests {
             schedulingNow: escalationAt.addingTimeInterval(-1),
             wantsEscalation: true
         ))
+    }
+
+    @Test
+    func missedBaseFeedbackDescribesOnlyActualEscalationDelivery() {
+        let notificationOutcome = MedicationReminderRequestExecutionOutcome(
+            baseScheduled: false, escalationScheduled: true,
+            failedKinds: [.baseNotification],
+            usedEscalationNotificationFallback: false
+        )
+        let notificationMessage = MedicationReminderRequestTiming.reportMissedBase(
+            outcome: notificationOutcome,
+            plannedKinds: [.baseNotification, .escalationAlarm],
+            wantsEscalation: true,
+            wantsEscalationAlarm: true
+        ).failureMessage
+        #expect(notificationMessage?.contains("基础提醒时间已过，已安排升级提醒") == true)
+        #expect(notificationMessage?.contains("iPhone 闹钟仍已安排") == false)
+
+        let alarmOutcome = MedicationReminderRequestExecutionOutcome(
+            baseScheduled: false, escalationScheduled: true,
+            failedKinds: [.baseAlarm, .baseNotification],
+            usedEscalationNotificationFallback: false
+        )
+        let alarmMessage = MedicationReminderRequestTiming.reportMissedBase(
+            outcome: alarmOutcome,
+            plannedKinds: [.baseAlarm, .escalationAlarm],
+            wantsEscalation: true,
+            wantsEscalationAlarm: true
+        ).failureMessage
+        #expect(alarmMessage?.contains("基础提醒时间已过，已安排升级提醒") == true)
+        #expect(alarmMessage?.contains("已改用普通通知") == false)
+
+        let baseOnlyMessage = MedicationReminderRequestTiming.reportMissedBase(
+            outcome: MedicationReminderRequestExecutionOutcome(
+                baseScheduled: false, escalationScheduled: false,
+                failedKinds: [.baseNotification],
+                usedEscalationNotificationFallback: false
+            ),
+            plannedKinds: [.baseNotification],
+            wantsEscalation: false,
+            wantsEscalationAlarm: false
+        ).failureMessage
+        #expect(baseOnlyMessage?.contains("升级提醒") == false)
     }
 
     @Test
