@@ -525,6 +525,7 @@ struct SettingsView: View {
     @State private var pendingPermissionGate: AppPermissionGate?
     @State private var isUpdatingNotificationPermission = false
     @State private var elderHelpPhoneInput = ""
+    @State private var hasSavedElderHelpContact = false
     @State private var elderHelpContactStatus = ""
     @State private var elderHelpContactErrorMessage: String?
     @FocusState private var isElderHelpPhoneFocused: Bool
@@ -548,123 +549,156 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        List {
-            Section("使用模式") {
-                Toggle("使用适老模式", isOn: elderModeBinding)
-                    .accessibilityHint("打开后首页只显示一个当前任务和三个大按钮")
-            }
-
-            Section("同机帮助") {
-                TextField("帮助电话号码", text: $elderHelpPhoneInput)
-                    .textContentType(.telephoneNumber)
-                    .keyboardType(.phonePad)
-                    .focused($isElderHelpPhoneFocused)
-                    .accessibilityHint("请输入帮助电话号码")
-                    .accessibilityIdentifier("settings.elder-help.phone")
-
-                Button("保存帮助号码") {
-                    saveElderHelpContact()
+        ScrollViewReader { scrollProxy in
+            List {
+                Section("使用模式") {
+                    Toggle("使用适老模式", isOn: elderModeBinding)
+                        .accessibilityHint("打开后首页只显示一个当前任务和三个大按钮")
                 }
-                .accessibilityIdentifier("settings.elder-help.save")
-                .disabled(elderHelpPhoneInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-                if !elderHelpPhoneInput.isEmpty {
-                    Button("移除帮助号码", role: .destructive) {
-                        removeElderHelpContact()
+                Section("同机帮助") {
+                    TextField("帮助电话号码", text: $elderHelpPhoneInput)
+                        .textContentType(.telephoneNumber)
+                        .keyboardType(.phonePad)
+                        .focused($isElderHelpPhoneFocused)
+                        .accessibilityHint("请输入帮助电话号码")
+                        .accessibilityIdentifier("settings.elder-help.phone")
+
+                    if !isElderHelpPhoneFocused {
+                        Button("保存帮助号码") {
+                            saveElderHelpContact()
+                        }
+                        .accessibilityIdentifier("settings.elder-help.save")
+                        .disabled(elderHelpPhoneInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-                    .accessibilityIdentifier("settings.elder-help.remove")
-                }
 
-                if !elderHelpContactStatus.isEmpty {
-                    Text(elderHelpContactStatus)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+                    if hasSavedElderHelpContact {
+                        Button("移除帮助号码", role: .destructive) {
+                            removeElderHelpContact()
+                        }
+                        .accessibilityIdentifier("settings.elder-help.remove")
+                    }
 
-            Section("外观与交互") {
-                Picker("显示模式", selection: $appColorSchemePreference) {
-                    ForEach(AppColorSchemePreference.allCases) { preference in
-                        Text(preference.displayName).tag(preference.rawValue)
+                    if !elderHelpContactStatus.isEmpty {
+                        Text(elderHelpContactStatus)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                .pickerStyle(.segmented)
+                .id("settings.elder-help")
 
-                SettingsToggleRow(title: "减少动态效果", isOn: $prefersReducedAppMotion)
-                HStack {
-                    Text("语言")
+                Section("外观与交互") {
+                    Picker("显示模式", selection: $appColorSchemePreference) {
+                        ForEach(AppColorSchemePreference.allCases) { preference in
+                            Text(preference.displayName).tag(preference.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    SettingsToggleRow(title: "减少动态效果", isOn: $prefersReducedAppMotion)
+                    HStack {
+                        Text("语言")
+                        Spacer()
+                        Text("中文")
+                            .foregroundStyle(.secondary)
+                    }
+                    SettingsToggleRow(title: "提醒时突出药品图片", isOn: $showsMedicationPhotosInReminders)
+                    SettingsToggleRow(title: "使用更大的触控区域", isOn: $usesLargeTouchTargets)
+                }
+
+                Section("用药提醒") {
+                    SettingsStatusRow(
+                        iconName: "bell.badge.fill",
+                        tint: .blue,
+                        title: "提醒通知",
+                        subtitle: notificationStatusText
+                    )
+                    Button {
+                        startNotificationPermissionFlow()
+                    } label: {
+                        Text(isUpdatingNotificationPermission ? "正在检查通知权限" : "开启或更新通知权限")
+                    }
+                    .disabled(isUpdatingNotificationPermission)
+                    Button {
+                        openSystemSettings()
+                    } label: {
+                        Text("打开系统通知设置")
+                    }
+                }
+
+                Section("隐私") {
+                    SettingsStatusRow(
+                        iconName: "lock.shield.fill",
+                        tint: .green,
+                        title: "本机优先",
+                        subtitle: "用药数据默认保存在本机"
+                    )
+                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if isElderHelpPhoneFocused {
+                    Button {
+                        saveElderHelpContact()
+                    } label: {
+                        Text("保存号码")
+                            .font(.title3.bold())
+                            .frame(maxWidth: .infinity, minHeight: 60)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityLabel("保存帮助号码")
+                    .accessibilityIdentifier("settings.elder-help.save")
+                    .disabled(elderHelpPhoneInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.bar)
+                }
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
-                    Text("中文")
-                        .foregroundStyle(.secondary)
-                }
-                SettingsToggleRow(title: "提醒时突出药品图片", isOn: $showsMedicationPhotosInReminders)
-                SettingsToggleRow(title: "使用更大的触控区域", isOn: $usesLargeTouchTargets)
-            }
-
-            Section("用药提醒") {
-                SettingsStatusRow(
-                    iconName: "bell.badge.fill",
-                    tint: .blue,
-                    title: "提醒通知",
-                    subtitle: notificationStatusText
-                )
-                Button {
-                    startNotificationPermissionFlow()
-                } label: {
-                    Text(isUpdatingNotificationPermission ? "正在检查通知权限" : "开启或更新通知权限")
-                }
-                .disabled(isUpdatingNotificationPermission)
-                Button {
-                    openSystemSettings()
-                } label: {
-                    Text("打开系统通知设置")
+                    Button("收起键盘") { isElderHelpPhoneFocused = false }
                 }
             }
-
-            Section("隐私") {
-                SettingsStatusRow(
-                    iconName: "lock.shield.fill",
-                    tint: .green,
-                    title: "本机优先",
-                    subtitle: "用药数据默认保存在本机"
-                )
+            .onChange(of: elderHelpPhoneInput) { _, _ in
+                if isElderHelpPhoneFocused { elderHelpContactStatus = "" }
             }
-        }
-        .navigationTitle("应用设置")
-        .appPermissionPrimer(pendingGate: $pendingPermissionGate) { gate in
-            guard gate == .notifications else {
-                return
+            .navigationTitle("应用设置")
+            .appPermissionPrimer(pendingGate: $pendingPermissionGate) { gate in
+                guard gate == .notifications else {
+                    return
+                }
+                Task {
+                    await requestNotificationPermissionAndRefresh()
+                }
             }
-            Task {
-                await requestNotificationPermissionAndRefresh()
+            .task {
+                loadElderHelpContact()
+                if focusesElderHelpContact {
+                    await Task.yield()
+                    scrollProxy.scrollTo("settings.elder-help", anchor: .top)
+                }
+                await notificationService.refreshAuthorizationStatus()
+                await notificationService.refreshPendingReminderCount()
             }
-        }
-        .task {
-            loadElderHelpContact()
-            if focusesElderHelpContact {
-                await Task.yield()
-                isElderHelpPhoneFocused = true
-            }
-            await notificationService.refreshAuthorizationStatus()
-            await notificationService.refreshPendingReminderCount()
-        }
-        .alert(
-            "帮助号码未保存",
-            isPresented: Binding(
-                get: { elderHelpContactErrorMessage != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        elderHelpContactErrorMessage = nil
+            .alert(
+                "帮助号码未保存",
+                isPresented: Binding(
+                    get: { elderHelpContactErrorMessage != nil },
+                    set: { isPresented in
+                        if !isPresented {
+                            elderHelpContactErrorMessage = nil
+                        }
                     }
+                )
+            ) {
+                Button("好", role: .cancel) {
+                    elderHelpContactErrorMessage = nil
                 }
-            )
-        ) {
-            Button("好", role: .cancel) {
-                elderHelpContactErrorMessage = nil
+            } message: {
+                Text(elderHelpContactErrorMessage ?? "")
             }
-        } message: {
-            Text(elderHelpContactErrorMessage ?? "")
         }
     }
 
@@ -680,8 +714,12 @@ struct SettingsView: View {
     }
 
     private func loadElderHelpContact() {
+        elderHelpContactStatus = ""
+        hasSavedElderHelpContact = false
         do {
-            elderHelpPhoneInput = try elderHelpContactStore.load()?.storageValue ?? ""
+            let savedPhone = try elderHelpContactStore.load()
+            elderHelpPhoneInput = savedPhone?.storageValue ?? ""
+            hasSavedElderHelpContact = savedPhone != nil
         } catch let error as ElderHelpContactError {
             elderHelpContactErrorMessage = error.userMessage
         } catch {
@@ -693,7 +731,9 @@ struct SettingsView: View {
         do {
             let phoneNumber = try ElderHelpPhoneNumber(validating: elderHelpPhoneInput)
             try elderHelpContactStore.save(phoneNumber)
+            hasSavedElderHelpContact = true
             elderHelpPhoneInput = phoneNumber.storageValue
+            isElderHelpPhoneFocused = false
             elderHelpContactStatus = "帮助号码已保存。"
         } catch let error as ElderHelpContactError {
             elderHelpContactErrorMessage = error.userMessage
@@ -705,6 +745,8 @@ struct SettingsView: View {
     private func removeElderHelpContact() {
         do {
             try elderHelpContactStore.remove()
+            hasSavedElderHelpContact = false
+            isElderHelpPhoneFocused = false
             elderHelpPhoneInput = ""
             elderHelpContactStatus = "本机帮助号码已移除。"
         } catch let error as ElderHelpContactError {
