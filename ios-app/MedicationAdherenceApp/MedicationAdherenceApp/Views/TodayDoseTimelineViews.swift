@@ -47,11 +47,13 @@ struct WeatherMedicationHintCard: View {
 }
 
 struct TimelineDoseTaskRow: View {
+    @Environment(\.medcueReduceMotionEnabled) private var reduceMotionEnabled
     let task: StoredDoseTask
     let medication: StoredMedication?
     let completionText: String
     let statusText: String
     let isOpen: Bool
+    let isActionInFlight: Bool
     let feedbackAction: PendingDoseFeedback.Action?
     let isClosing: Bool
     let isRecentlyReopened: Bool
@@ -121,6 +123,7 @@ struct TimelineDoseTaskRow: View {
                         .id("\(task.id.uuidString)-skip")
                     }
                     .padding(.leading, 50)
+                    .disabled(isActionInFlight)
                     if let confirmationKind {
                         InlineDoseConfirmationCard(
                             kind: confirmationKind,
@@ -150,9 +153,9 @@ struct TimelineDoseTaskRow: View {
             .blur(radius: isClosing ? 4 : 0)
             .scaleEffect(isClosing ? 0.96 : 1)
             .offset(y: isClosing ? 14 : (isRecentlyReopened ? -2 : 0))
-            .animation(.snappy(duration: 0.26, extraBounce: 0.03), value: isRecentlyReopened)
-            .animation(.easeInOut(duration: 0.18), value: isClosing)
-            .animation(.snappy(duration: 0.22, extraBounce: 0.02), value: confirmationKind)
+            .animation(reduceMotionEnabled ? nil : .snappy(duration: 0.26, extraBounce: 0.03), value: isRecentlyReopened)
+            .animation(reduceMotionEnabled ? nil : .easeInOut(duration: 0.18), value: isClosing)
+            .animation(reduceMotionEnabled ? nil : .snappy(duration: 0.22, extraBounce: 0.02), value: confirmationKind)
         }
         .padding(.vertical, 4)
         .transition(.asymmetric(
@@ -277,6 +280,7 @@ struct InlineDoseConfirmationCard: View {
 }
 
 struct OpenDoseSummaryRow: View {
+    @Environment(\.medcueReduceMotionEnabled) private var reduceMotionEnabled
     let count: Int
     let latestText: String
     let isReceiving: Bool
@@ -311,12 +315,13 @@ struct OpenDoseSummaryRow: View {
                 .fill(Color.blue.opacity(isReceiving ? 0.08 : 0))
         )
         .scaleEffect(isReceiving ? 1.01 : 1)
-        .animation(.easeInOut(duration: 0.18), value: isReceiving)
+        .animation(reduceMotionEnabled ? nil : .easeInOut(duration: 0.18), value: isReceiving)
         .accessibilityElement(children: .combine)
     }
 }
 
 struct HandledDoseSummaryRow: View {
+    @Environment(\.medcueReduceMotionEnabled) private var reduceMotionEnabled
     let count: Int
     let latestText: String
     let isReceiving: Bool
@@ -351,7 +356,7 @@ struct HandledDoseSummaryRow: View {
                 .fill(Color.green.opacity(isReceiving ? 0.08 : 0))
         )
         .scaleEffect(isReceiving ? 1.01 : 1)
-        .animation(.easeInOut(duration: 0.18), value: isReceiving)
+        .animation(reduceMotionEnabled ? nil : .easeInOut(duration: 0.18), value: isReceiving)
         .accessibilityElement(children: .combine)
     }
 }
@@ -469,6 +474,8 @@ struct HandledDoseTaskRow: View {
 }
 
 struct CompactDoseActionButton: View {
+    @Environment(\.medcueReduceMotionEnabled) private var reduceMotionEnabled
+    @AppStorage("usesLargeTouchTargets") private var usesLargeTouchTargets = true
     let title: String
     let confirmationIconName: String
     let tint: Color
@@ -495,10 +502,12 @@ struct CompactDoseActionButton: View {
             .lineLimit(1)
             .minimumScaleFactor(0.9)
             .frame(maxWidth: .infinity)
-            .frame(height: 36)
+            .frame(minHeight: usesLargeTouchTargets ? 48 : 36)
             .foregroundStyle(isProminent ? TodayDoseActionPalette.primaryText : tint)
             .background(background, in: RoundedRectangle(cornerRadius: 8))
-            .animation(.easeInOut(duration: 0.16), value: isConfirming)
+            .animation(reduceMotionEnabled ? nil : .easeInOut(duration: 0.16), value: isConfirming)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
         }
         .buttonStyle(CompactDoseActionButtonStyle())
         .disabled(isConfirming)
@@ -514,10 +523,12 @@ struct CompactDoseActionButton: View {
 }
 
 struct CompactDoseActionButtonStyle: ButtonStyle {
+    @Environment(\.medcueReduceMotionEnabled) private var reduceMotionEnabled
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .opacity(configuration.isPressed ? 0.78 : 1)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .animation(reduceMotionEnabled ? nil : .easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }

@@ -7,6 +7,34 @@ import AlarmKit
 import SwiftUI
 #endif
 
+enum MedicationReminderSchedulingResult: Equatable {
+    case scheduled
+    case unavailable(message: String)
+
+    var failureMessage: String? {
+        guard case let .unavailable(message) = self else { return nil }
+        return message
+    }
+}
+
+@MainActor
+struct MedicationNotificationRequestScheduler {
+    let authorizationFailureMessage: @MainActor () async -> String?
+    let addRequest: @MainActor (UNNotificationRequest) async throws -> Void
+
+    func schedule(_ request: UNNotificationRequest) async -> MedicationReminderSchedulingResult {
+        if let message = await authorizationFailureMessage() {
+            return .unavailable(message: message)
+        }
+        do {
+            try await addRequest(request)
+            return .scheduled
+        } catch {
+            return .unavailable(message: "提醒未安排，请稍后重试。")
+        }
+    }
+}
+
 @MainActor
 final class NotificationService: ObservableObject {
     static let reminderNotificationUnavailableMessageKey = "reminderNotificationUnavailableMessage"
@@ -69,103 +97,35 @@ final class NotificationService: ObservableObject {
         await refreshPendingReminderCount()
     }
 
+    @discardableResult
     func scheduleReminder(
         for task: StoredDoseTask,
         medication: StoredMedication,
         deliveryMethod: StoredReminderDeliveryMethod = .notification,
         escalatesToAlarmWhenUnhandled: Bool = true,
         refreshPendingCount: Bool = true
-    ) async {
+    ) async -> MedicationReminderSchedulingResult {
         guard medication.lifecycleStatus == .active else {
             cancelReminder(for: task.id)
             authorizationMessage = "药物已归档或中断，未安排提醒"
             if refreshPendingCount {
                 await refreshPendingReminderCount()
             }
-            return
+            return .unavailable(message: "药品已停用，提醒未安排。")
         }
         cancelReminder(for: task.id)
-        await scheduleNotificationReminder(for: task, medication: medication, refreshPendingCount: refreshPendingCount)
-        if deliveryMethod == .alarm {
-            _ = await scheduleAlarmReminder(for: task, medication: medication)
+        var result = await scheduleNotificationReminder(for: task, medication: medication, refreshPendingCount: refreshPendingCount)
+        if deliveryMethod == .alarm,
+           task.dueAt > Date(),
+           await scheduleAlarmReminder(for: task, medication: medication) {
+            result = .scheduled
         }
         if escalatesToAlarmWhenUnhandled {
             await scheduleEscalationAlarmIfNeeded(for: task, medication: medication)
         } else {
             cancelEscalationAlarmReminder(for: task.id)
         }
-    }
-
-    func settleOverdueDoseTasks(in modelContext: ModelContext, now: Date = Date()) -> MedicationReminderSettlement {
-        let tasks = (try? modelContext.fetch(FetchDescriptor<StoredDoseTask>())) ?? []
-        let medications = (try? modelContext.fetch(FetchDescriptor<StoredMedication>())) ?? []
-        let activeMedicationIDs = Set(
-            medications
-                .filter { $0.lifecycleStatus == .active }
-                .map(\.id)
-        )
-        let actionLogs = (try? modelContext.fetch(FetchDescriptor<StoredDoseActionLog>())) ?? []
-        var updatedTaskIDs: [UUID] = []
-        let inactiveOpenTaskIDs = tasks
-            .filter { ($0.status == .pending || $0.status == .delayed) && !activeMedicationIDs.contains($0.medicationID) }
-            .map(\.id)
-        cancelReminders(for: inactiveOpenTaskIDs)
-        let overdueTasks = tasks
-            .filter { activeMedicationIDs.contains($0.medicationID) }
-            .filter { shouldAutoSkip($0, actionLogs: actionLogs, now: now) }
-            .sorted { lhs, rhs in
-                if lhs.dueAt != rhs.dueAt {
-                    return lhs.dueAt < rhs.dueAt
-                }
-                return lhs.id.uuidString < rhs.id.uuidString
-            }
-        let overdueTaskGroups = Dictionary(grouping: overdueTasks, by: logicalDoseKey(for:))
-            .values
-            .sorted { lhs, rhs in
-                guard let lhsTask = lhs.first, let rhsTask = rhs.first else {
-                    return lhs.count > rhs.count
-                }
-                if lhsTask.dueAt != rhsTask.dueAt {
-                    return lhsTask.dueAt < rhsTask.dueAt
-                }
-                return lhsTask.id.uuidString < rhsTask.id.uuidString
-            }
-
-        for taskGroup in overdueTaskGroups {
-            guard let primaryTask = preferredAutoSkipTask(from: taskGroup) else {
-                continue
-            }
-            let autoSkipContext = autoSkipContext(for: primaryTask, actionLogs: actionLogs)
-            let reason = autoSkipContext.reason
-            let recordedAt = autoSkipContext.recordedAt
-            for task in taskGroup {
-                let taskReason = task.id == primaryTask.id ? reason : "同一剂量重复提醒已随本次自动忽略合并。"
-                let log = StoredDoseActionLog(
-                    taskID: task.id,
-                    action: .skip,
-                    previousStatus: task.status,
-                    previousDueAt: task.dueAt,
-                    previousRecordedAt: task.recordedAt,
-                    previousReason: task.reason,
-                    newStatus: .skipped,
-                    occurredAt: recordedAt,
-                    undoExpiresAt: now.addingTimeInterval(10 * 60),
-                    note: taskReason
-                )
-                modelContext.insert(log)
-                task.status = .skipped
-                task.recordedAt = recordedAt
-                task.reason = taskReason
-                updatedTaskIDs.append(task.id)
-            }
-        }
-        if !updatedTaskIDs.isEmpty {
-            guard AppPersistenceCommitter.save(modelContext, operation: "overdue-dose-settlement") else {
-                return MedicationReminderSettlement(updatedTaskIDs: [])
-            }
-            cancelReminders(for: updatedTaskIDs)
-        }
-        return MedicationReminderSettlement(updatedTaskIDs: updatedTaskIDs)
+        return result
     }
 
     func scheduleReminders(
@@ -294,16 +254,13 @@ final class NotificationService: ObservableObject {
         for task: StoredDoseTask,
         medication: StoredMedication,
         refreshPendingCount: Bool = true
-    ) async {
+    ) async -> MedicationReminderSchedulingResult {
         guard task.dueAt > Date() else {
             authorizationMessage = "提醒时间已过，未安排本地提醒"
             if refreshPendingCount {
                 await refreshPendingReminderCount()
             }
-            return
-        }
-        guard await ensureNotificationAuthorizationForScheduling() else {
-            return
+            return .unavailable(message: "提醒时间已过，请重新设置提醒。")
         }
 
         let payload = NotificationPayload(
@@ -330,17 +287,29 @@ final class NotificationService: ObservableObject {
         let identifier = notificationIdentifier(for: task.id)
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
-        do {
-            try await UNUserNotificationCenter.current().add(request)
+        let result = await MedicationNotificationRequestScheduler(
+            authorizationFailureMessage: {
+                guard await self.ensureNotificationAuthorizationForScheduling() else {
+                    return "提醒未安排，请在系统设置中允许通知。"
+                }
+                return nil
+            },
+            addRequest: { request in
+                try await UNUserNotificationCenter.current().add(request)
+            }
+        ).schedule(request)
+        switch result {
+        case .scheduled:
             authorizationMessage = "已安排下一次本地提醒"
             updateNotificationUnavailableMessage(nil)
             if refreshPendingCount {
                 await refreshPendingReminderCount()
             }
-        } catch {
+        case .unavailable:
             authorizationMessage = "本地提醒暂时无法安排，请稍后重试。"
-            updateNotificationUnavailableMessage("普通提醒不可用：本地通知暂时无法安排，请稍后重试。")
+            updateNotificationUnavailableMessage(result.failureMessage)
         }
+        return result
     }
 
     private func scheduleAlarmReminder(for task: StoredDoseTask, medication: StoredMedication) async -> Bool {
@@ -505,89 +474,6 @@ final class NotificationService: ObservableObject {
         var rawUUID = taskID.uuid
         rawUUID.0 ^= 0x80
         return UUID(uuid: rawUUID)
-    }
-
-    private func shouldAutoSkip(_ task: StoredDoseTask, actionLogs: [StoredDoseActionLog], now: Date) -> Bool {
-        guard task.status == .pending || task.status == .delayed,
-              !task.reason.contains("自动记录为忽略")
-        else {
-            return false
-        }
-        if task.reason.contains("用户撤销后等待确认") {
-            guard let reopenLog = latestReopenLog(for: task, actionLogs: actionLogs) else {
-                return false
-            }
-            return reminderPolicy.shouldAutoSkipReopenedDose(reopenedAt: reopenLog.occurredAt, now: now)
-        }
-        return reminderPolicy.shouldAutoSkip(plannedDueAt: task.dueAt, now: now)
-    }
-
-    private func autoSkipContext(
-        for task: StoredDoseTask,
-        actionLogs: [StoredDoseActionLog]
-    ) -> (recordedAt: Date, reason: String) {
-        if task.reason.contains("用户撤销后等待确认"),
-           let reopenLog = latestReopenLog(for: task, actionLogs: actionLogs) {
-            return (
-                reopenLog.occurredAt.addingTimeInterval(reminderPolicy.autoSkipInterval),
-                "撤销后超过 \(reminderPolicy.autoSkipMinutes) 分钟仍未重新确认，已自动记录为忽略。"
-            )
-        }
-        return (
-            reminderPolicy.autoSkipRecordedAt(for: task.dueAt),
-            "超过计划时间 \(reminderPolicy.autoSkipMinutes) 分钟未确认，已自动记录为忽略。"
-        )
-    }
-
-    private func latestReopenLog(for task: StoredDoseTask, actionLogs: [StoredDoseActionLog]) -> StoredDoseActionLog? {
-        actionLogs
-            .filter { log in
-                log.taskID == task.id
-                    && log.undoneAt == nil
-                    && log.actionRaw == DoseActionKind.correct.rawValue
-                    && log.newStatusRaw == StoredDoseStatus.pending.rawValue
-                    && log.note.contains("用户将已处理记录撤销为待处理")
-            }
-            .max { lhs, rhs in
-                lhs.occurredAt < rhs.occurredAt
-            }
-    }
-
-    private func preferredAutoSkipTask(from tasks: [StoredDoseTask]) -> StoredDoseTask? {
-        tasks.sorted { lhs, rhs in
-            if autoSkipPreferenceScore(lhs) == autoSkipPreferenceScore(rhs) {
-                return lhs.id.uuidString < rhs.id.uuidString
-            }
-            return autoSkipPreferenceScore(lhs) > autoSkipPreferenceScore(rhs)
-        }.first
-    }
-
-    private func autoSkipPreferenceScore(_ task: StoredDoseTask) -> Int {
-        var score = 0
-        if task.status == .delayed {
-            score += 20
-        }
-        if task.recordedAt != nil {
-            score += 10
-        }
-        if !task.reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            score += 5
-        }
-        return score
-    }
-
-    private func logicalDoseKey(for task: StoredDoseTask) -> String {
-        let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: task.dueAt)
-        return [
-            task.medicationID.uuidString,
-            "\(components.year ?? 0)",
-            "\(components.month ?? 0)",
-            "\(components.day ?? 0)",
-            "\(components.hour ?? 0)",
-            "\(components.minute ?? 0)",
-            task.doseValue.formatted(),
-            task.doseUnit
-        ].joined(separator: "|")
     }
 
     private func taskIDFromNotificationIdentifier(_ identifier: String) -> UUID? {

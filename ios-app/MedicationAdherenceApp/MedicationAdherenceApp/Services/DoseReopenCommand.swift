@@ -59,8 +59,6 @@ struct DoseReopenCommand {
     private static let reopenNote = "用户撤销后等待确认"
     private let modelContext: ModelContext
     private let saveOperation: SaveOperation
-    private let reminderPolicy = DoseReminderPolicy.competitionDemo
-
     init(
         modelContext: ModelContext,
         saveOperation: @escaping SaveOperation = { try $0.save() }
@@ -190,9 +188,7 @@ struct DoseReopenCommand {
             task.recordedAt = snapshotLog.previousRecordedAt
             task.reason = reopenedReason(
                 previousReason: snapshotLog.previousReason,
-                status: snapshotLog.previousStatus,
-                previousDueAt: snapshotLog.previousDueAt,
-                reopenedAt: occurredAt
+                status: snapshotLog.previousStatus
             )
         }
         let reactivatedLogs = matchingLogsByTaskID.values.sorted(by: Self.logOrder)
@@ -243,9 +239,7 @@ struct DoseReopenCommand {
             task.recordedAt = nil
             task.reason = reopenedReason(
                 previousReason: "",
-                status: .pending,
-                previousDueAt: task.dueAt,
-                reopenedAt: occurredAt
+                status: .pending
             )
         }
 
@@ -365,18 +359,14 @@ struct DoseReopenCommand {
 
     private func reopenedReason(
         previousReason: String,
-        status: StoredDoseStatus,
-        previousDueAt: Date,
-        reopenedAt: Date
+        status: StoredDoseStatus
     ) -> String {
         let baseReason = previousReason
             .split(separator: "；")
             .map(String.init)
             .filter { $0 != Self.archiveMarker }
             .joined(separator: "；")
-        guard Self.isOpen(status),
-              previousDueAt.addingTimeInterval(reminderPolicy.autoSkipInterval) <= reopenedAt
-        else {
+        guard Self.isOpen(status) else {
             return baseReason
         }
         if baseReason.isEmpty {

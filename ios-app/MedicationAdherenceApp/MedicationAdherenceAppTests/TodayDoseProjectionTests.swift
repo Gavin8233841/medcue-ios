@@ -531,6 +531,8 @@ struct TodayDoseProjectionTests {
         #expect(beforeProjection.overdueOpenTaskCount == 0)
         #expect(afterProjection.nextReminderTask == nil)
         #expect(afterProjection.overdueOpenTaskCount == 1)
+        #expect(task.status == .pending)
+        #expect(task.recordedAt == nil)
     }
 
     @Test @MainActor
@@ -594,6 +596,7 @@ private final class TodaySystemSurfaceRecorder {
             },
             scheduleReminder: { [weak self] task, _, _ in
                 self?.events.append(.scheduleReminder(task.id))
+                return .scheduled
             },
             endLiveActivity: { [weak self] taskID in
                 self?.events.append(.endLiveActivity(taskID))

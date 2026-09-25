@@ -400,7 +400,7 @@ struct DayDoseDetailTaskRow: View {
     }
 
     private var recordTimingTolerance: TimeInterval {
-        DoseReminderPolicy.competitionDemo.autoSkipInterval
+        15 * 60
     }
 
     private var timeDetailText: String {

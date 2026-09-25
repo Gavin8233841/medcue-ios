@@ -4,6 +4,9 @@ import Observation
 @Observable
 final class TodayDoseInteractionState {
     var pendingDoseFeedback: PendingDoseFeedback?
+    /// A synchronous commit still needs a visible guard so repeated taps cannot
+    /// enqueue another action before SwiftData refreshes the query-backed view.
+    var inFlightDoseKeys: Set<String> = []
     var isOpenTimelineTemporarilyCollapsed = false
     var isHandledTimelineTemporarilyCollapsed = false
     var pendingHandledArrivalCount = 0
@@ -55,5 +58,13 @@ final class TodayDoseInteractionState {
         pendingDoseFeedbackTask = nil
         doseLayoutTransitionTask?.cancel()
         doseLayoutTransitionTask = nil
+    }
+
+    func beginDoseAction(for doseKey: String) -> Bool {
+        inFlightDoseKeys.insert(doseKey).inserted
+    }
+
+    func finishDoseAction(for doseKey: String) {
+        inFlightDoseKeys.remove(doseKey)
     }
 }

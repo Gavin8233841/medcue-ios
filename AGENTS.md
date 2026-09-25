@@ -96,6 +96,13 @@ pre-normalization history, and never force-push over an active contributor.
 - Skills, plugins, MCP results, model scores, and generated knowledge graphs are
   aids, not sources of truth. Verify consequential claims against the exact
   source revision, tests, official platform documentation, or external system.
+- For Xcode-related control and inspection, use Xcode's native MCP capabilities
+  first when they are exposed in the current session. Keep repository scripts,
+  `xcodebuild`, and `simctl` for deterministic exact-revision build, test, and
+  evidence capture where they provide the stronger proof. Use Computer Use only
+  as a fallback when the native Xcode MCP and deterministic command-line path do
+  not expose the required Xcode, Simulator, or Accessibility Inspector action;
+  record the fallback reason and never infer a pass from UI appearance alone.
 
 ## 5. Report Progress Consistently
 

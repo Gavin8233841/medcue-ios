@@ -17,6 +17,34 @@ enum AppAccessibilityID {
     static let assistantSend = "assistant.send"
     static let firstLaunchSkip = "firstLaunch.skip"
     static let firstLaunchNext = "firstLaunch.next"
+    static let todayElderModeEntry = "today.elder-mode-entry"
+    static let elderHome = "elder.home"
+    static let elderCurrentTask = "elder.current-task"
+    static let elderMarkTaken = "elder.action.taken"
+    static let elderDelay = "elder.action.delay"
+    static let elderRequestHelp = "elder.action.help"
+    static let elderConfirmationConfirm = "elder.confirmation.confirm"
+    static let elderConfirmationCancel = "elder.confirmation.cancel"
+    static let elderOpenSettings = "elder.settings"
+    static let elderSwitchToComplete = "elder.switch-to-complete"
+}
+
+enum AppExperienceMode: String, CaseIterable, Identifiable {
+    static let storageKey = "appExperienceMode"
+
+    case complete
+    case elder
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .complete:
+            "完整模式"
+        case .elder:
+            "适老模式"
+        }
+    }
 }
 
 struct AppTabContentView: View, Equatable {
