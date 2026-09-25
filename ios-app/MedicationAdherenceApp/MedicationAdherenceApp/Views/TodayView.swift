@@ -570,7 +570,11 @@ private struct TodayContentView: View {
                 case .reminder(.scheduled):
                     elderReminderUnavailableMessage = ""
                     elderDoseSuccessMessage = "已设置 \(delayDurationText)后提醒"
-                case .reminder(.unavailable), .completed:
+                case .reminder(.unavailable(let message)):
+                    elderDoseSuccessMessage = nil
+                    elderReminderUnavailableMessage = "记录已保存；\(message)"
+                    UIAccessibility.post(notification: .announcement, argument: elderReminderUnavailableMessage)
+                case .completed:
                     elderDoseSuccessMessage = nil
                     elderReminderUnavailableMessage = "记录已保存，提醒未能开启。"
                     UIAccessibility.post(notification: .announcement, argument: elderReminderUnavailableMessage)

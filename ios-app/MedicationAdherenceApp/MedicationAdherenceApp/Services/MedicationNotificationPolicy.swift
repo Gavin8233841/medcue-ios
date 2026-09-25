@@ -75,7 +75,7 @@ struct MedicationNotificationPolicy: Equatable, Sendable {
 // The limit is an app scheduling policy, not a claim about an OS delivery limit.
 // A dose can occupy multiple system requests: a notification, an optional
 // AlarmKit alarm, and an escalation request.
-enum MedicationReminderRequestKind: Sendable, Equatable {
+enum MedicationReminderRequestKind: Sendable, Hashable {
     case baseNotification
     case baseAlarm
     case escalationNotification
@@ -136,12 +136,28 @@ extension MedicationNotificationPolicy {
                     kinds.append(.escalationNotification)
                 }
             }
-            guard !reachedCapacity && kinds.count <= remaining else {
+            guard !reachedCapacity && remaining > 0 else {
                 reachedCapacity = true
                 deferred.append(candidate.taskID)
                 continue
             }
+            if kinds.count > remaining {
+                // Preserve the selected base delivery before optional escalation
+                // and the second base channel when the request budget is tight.
+                var priority: [MedicationReminderRequestKind] = [
+                    candidate.wantsAlarm && alarmAvailable ? .baseAlarm : .baseNotification
+                ]
+                if candidate.wantsEscalation {
+                    priority.append(alarmAvailable ? .escalationAlarm : .escalationNotification)
+                }
+                if candidate.wantsAlarm && notificationAvailable && alarmAvailable {
+                    priority.append(.baseNotification)
+                }
+                let selected = Set(priority.prefix(remaining))
+                kinds = kinds.filter { selected.contains($0) }
+            }
             remaining -= kinds.count
+            reachedCapacity = remaining == 0
             assigned.append(MedicationReminderRequestAssignment(taskID: candidate.taskID, kinds: kinds))
         }
         return MedicationReminderRequestPlan(

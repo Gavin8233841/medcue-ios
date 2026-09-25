@@ -238,6 +238,10 @@ system scheduler. Its app policy of 60 counts pending notification and AlarmKit
 requests, including other medications, base alerts, alarm delivery and
 escalation. Global reconciliation considers all plans; a local update reserves
 other pending requests. Candidates are ordered by due time and stable task ID.
+When a candidate has only one free slot, its selected base delivery takes
+priority over escalation or a second base channel; the omitted escalation is
+reported as a partial result. If a selected base alarm then fails, an ordinary
+notification can reuse that reserved request slot as a fallback.
 The policy is an app-side budget, not an assertion about an iOS system limit.
 
 Cancellation is read back before replacement. A request that remains pending
@@ -252,11 +256,13 @@ so a permission refresh cannot erase an unresolved scheduling failure. If an
 AlarmKit add fails or alarm authorization is unavailable, an ordinary-notification
 fallback is reported as a partial result and remains eligible for retry. The
 persistent warning names the missing selected alarm for both cases, including
-batch paths that do not display individual scheduling results.
+batch paths that do not display individual scheduling results. Warnings are
+tracked per task, so a successful local retry clears only the resolved task's
+warning. Elder delay feedback shows the specific partial-result message.
 The shared path now uses a MainActor service; real-device save responsiveness
 after this change has not been measured and needs a device check before merge.
 
-Local candidate evidence: 36 focused hosted test functions, 41 test runs and
+Local candidate evidence: 38 focused hosted test functions, 43 test runs and
 zero failures on an iPhone 17 Pro iOS 26.5 Simulator, covering request-budget
 ordering, delivery availability, partial add retry, cancellation readback and
 existing reconciliation behavior. This is not exact-head CI, physical-device

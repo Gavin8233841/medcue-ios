@@ -97,8 +97,30 @@ struct MedicationReminderPostCommitSchedulerTests {
             notificationAvailable: true,
             alarmAvailable: true
         )
-        #expect(oneSlotLeft.assignments.isEmpty)
-        #expect(oneSlotLeft.deferredTaskIDs.count == 4)
+        #expect(oneSlotLeft.assignments == [
+            MedicationReminderRequestAssignment(taskID: first, kinds: [.baseAlarm])
+        ])
+        #expect(oneSlotLeft.deferredTaskIDs.count == 3)
+
+        let ordinaryWithOneSlot = MedicationNotificationPolicy(maximumScheduledRequests: 60)
+            .requestPlan(
+                candidates: [candidates[1]], occupiedRequestCount: 59,
+                notificationAvailable: true, alarmAvailable: true
+            )
+        #expect(ordinaryWithOneSlot.assignments == [
+            MedicationReminderRequestAssignment(taskID: second, kinds: [.baseNotification])
+        ])
+        let partialOutcome = MedicationReminderRequestExecutionOutcome(
+            baseScheduled: true,
+            escalationScheduled: true,
+            failedKinds: [],
+            usedEscalationNotificationFallback: false
+        )
+        #expect(partialOutcome.schedulingResult(
+            wantsAlarm: false,
+            wantsEscalationAlarm: true,
+            plannedKinds: [.baseNotification]
+        ).failureMessage?.contains("升级提醒因本机排程预算未安排") == true)
     }
 
     @Test
@@ -108,6 +130,12 @@ struct MedicationReminderPostCommitSchedulerTests {
             wantsAlarm: true, wantsEscalation: true
         )
         let policy = MedicationNotificationPolicy(maximumScheduledRequests: 2)
+
+        let selectedAlarmWithTwoSlots = policy.requestPlan(
+            candidates: [candidate], occupiedRequestCount: 0,
+            notificationAvailable: true, alarmAvailable: true
+        )
+        #expect(selectedAlarmWithTwoSlots.assignments.first?.kinds == [.baseAlarm, .escalationAlarm])
 
         let noAlarm = policy.requestPlan(
             candidates: [candidate], occupiedRequestCount: 0,
@@ -171,11 +199,6 @@ struct MedicationReminderPostCommitSchedulerTests {
         #expect(retried.baseScheduled && retried.escalationScheduled)
         #expect(retried.failedKinds == [.escalationAlarm])
         #expect(retried.usedEscalationNotificationFallback)
-        #expect(retried.selectedAlarmMissing(
-            wantsAlarm: false,
-            wantsEscalationAlarm: true,
-            plannedKinds: kinds
-        ))
         #expect(state.installed == ["dose.stable-task", "dose.escalation.stable-task"])
         #expect(state.alarmAttempts == 2)
     }
@@ -213,17 +236,34 @@ struct MedicationReminderPostCommitSchedulerTests {
         let outcome = await executor.execute([.baseNotification, .baseAlarm])
         #expect(outcome.baseScheduled && outcome.escalationScheduled)
         #expect(outcome.failedKinds == [.baseAlarm])
-        #expect(outcome.selectedAlarmMissing(
-            wantsAlarm: true,
-            wantsEscalationAlarm: false,
-            plannedKinds: [.baseNotification, .baseAlarm]
-        ))
         let result = outcome.schedulingResult(
             wantsAlarm: true,
             wantsEscalationAlarm: false,
             plannedKinds: [.baseNotification, .baseAlarm]
         )
         #expect(result.failureMessage?.contains("所选 iPhone 闹钟未安排") == true)
+    }
+
+    @Test @MainActor
+    func baseAlarmFailureReusesItsReservedSlotForNotificationFallback() async {
+        var notificationAttempts = 0
+        let outcome = await MedicationReminderRequestExecutor(
+            addBaseNotification: {
+                notificationAttempts += 1
+                return true
+            },
+            addBaseAlarm: { false },
+            addEscalationNotification: { false },
+            addEscalationAlarm: { false }
+        ).execute([.baseAlarm])
+        #expect(notificationAttempts == 1)
+        #expect(outcome.baseScheduled)
+        #expect(outcome.failedKinds == [.baseAlarm])
+        #expect(outcome.schedulingResult(
+            wantsAlarm: true,
+            wantsEscalationAlarm: false,
+            plannedKinds: [.baseAlarm]
+        ).failureMessage?.contains("已改用普通通知") == true)
     }
 
     @Test @MainActor
@@ -251,11 +291,6 @@ struct MedicationReminderPostCommitSchedulerTests {
         #expect(result.failureMessage?.contains("所选 iPhone 闹钟未安排") == true)
         #expect(result.failureMessage?.contains("升级闹钟未安排") == true)
         #expect(result.failureMessage?.contains("闹钟权限") == true)
-        #expect(outcome.selectedAlarmMissing(
-            wantsAlarm: true,
-            wantsEscalationAlarm: true,
-            plannedKinds: kinds
-        ))
     }
 
     @Test @MainActor
@@ -271,6 +306,32 @@ struct MedicationReminderPostCommitSchedulerTests {
         await NotificationService(defaults: suite).refreshAuthorizationStatus()
 
         #expect(suite.string(forKey: NotificationService.reminderSystemSyncMessageKey) == message)
+    }
+
+    @Test
+    func successfulLocalRetryClearsOnlyItsResolvedWarning() {
+        let recoveredTask = UUID()
+        let stillPendingTask = UUID()
+        var warnings = MedicationReminderSyncWarningState()
+        warnings.replace(
+            affectedTaskIDs: [recoveredTask, stillPendingTask],
+            results: [
+                recoveredTask: .unavailable(message: "所选 iPhone 闹钟未安排"),
+                stillPendingTask: .unavailable(message: "另一项提醒未安排")
+            ]
+        )
+        #expect(warnings.displayMessage?.contains("所选 iPhone 闹钟未安排") == true)
+
+        warnings.replace(
+            affectedTaskIDs: [recoveredTask],
+            results: [recoveredTask: .scheduled]
+        )
+        #expect(warnings.displayMessage == "另一项提醒未安排")
+        warnings.replace(
+            affectedTaskIDs: [stillPendingTask],
+            results: [stillPendingTask: .scheduled]
+        )
+        #expect(warnings.displayMessage == nil)
     }
 
     @Test
