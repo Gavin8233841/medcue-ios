@@ -12,6 +12,7 @@ DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-$ROOT_DIR/.codex-local/local-model-smoke
 APP_PATH="$DERIVED_DATA_PATH/Build/Products/Debug-iphonesimulator/MedicationAdherenceApp.app"
 LOCAL_MODEL_GGUF="${LOCAL_MODEL_GGUF:-}"
 LOCAL_MODEL_SMOKE_REPEAT_COUNT="${LOCAL_MODEL_SMOKE_REPEAT_COUNT:-1}"
+LOCAL_MODEL_SMOKE_CANCEL_PROBE="${LOCAL_MODEL_SMOKE_CANCEL_PROBE:-0}"
 EXPECTED_MODEL_NAME="MiniCPM4-0.5B-QAT-Int4_gptq_aware_q4_0.gguf"
 MIN_MODEL_BYTES=$((200 * 1024 * 1024))
 MAX_MODEL_BYTES=$((350 * 1024 * 1024))
@@ -78,6 +79,7 @@ fi
 set +e
 LAUNCH_OUTPUT="$(
   SIMCTL_CHILD_LOCAL_MODEL_SMOKE_REPEAT_COUNT="$LOCAL_MODEL_SMOKE_REPEAT_COUNT" \
+  SIMCTL_CHILD_LOCAL_MODEL_SMOKE_CANCEL_PROBE="$LOCAL_MODEL_SMOKE_CANCEL_PROBE" \
     xcrun simctl launch \
     --terminate-running-process \
     --console-pty \
@@ -89,15 +91,24 @@ LAUNCH_STATUS=$?
 set -e
 
 printf '%s\n' "$LAUNCH_OUTPUT"
-if grep -Fq "[LocalMedicalModel-Smoke] success" <<< "$LAUNCH_OUTPUT"; then
-  exit 0
-fi
 if grep -Fq "[LocalMedicalModel-Smoke] failure" <<< "$LAUNCH_OUTPUT"; then
   exit 1
 fi
 if (( LAUNCH_STATUS != 0 )); then
   exit "$LAUNCH_STATUS"
 fi
-
-echo "No LocalMedicalModel smoke result was captured from app console output." >&2
-exit 1
+if ! grep -Fq "[LocalMedicalModel-Smoke] summary total=$LOCAL_MODEL_SMOKE_REPEAT_COUNT failures=0" <<< "$LAUNCH_OUTPUT"; then
+  echo "Local model smoke summary was not successful." >&2
+  exit 1
+fi
+if [[ "$LOCAL_MODEL_SMOKE_CANCEL_PROBE" == "1" ]]; then
+  if ! grep -Eq '\[LocalMedicalModel-Smoke\] cancellation .* passed=true' <<< "$LAUNCH_OUTPUT"; then
+    echo "Local model cancellation probe did not pass." >&2
+    exit 1
+  fi
+  if ! grep -Fq "[LocalMedicalModel-Smoke] success index=$((LOCAL_MODEL_SMOKE_REPEAT_COUNT + 1)) " <<< "$LAUNCH_OUTPUT"; then
+    echo "Local model retry after cancellation did not pass." >&2
+    exit 1
+  fi
+fi
+exit 0
