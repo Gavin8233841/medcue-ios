@@ -268,6 +268,8 @@ def yaml_scalar(value: str) -> str:
     value = value.strip()
     if not value:
         return ""
+    if value[0] in "|>[{&*!":
+        raise AuditError("Issue Form contains an unsupported YAML scalar")
     if value.startswith('"'):
         try:
             parsed = json.loads(value)
@@ -314,10 +316,16 @@ def parse_issue_form(text: str, path: str) -> IssueForm:
         ),
         len(lines),
     )
+    body_lines = lines[body_start:body_end]
+    if any(
+        re.match(r"^  [^\s#]", line) and not re.match(r"^  -(?:\s|$)", line)
+        for line in body_lines
+    ):
+        raise AuditError(f"Issue Form body contains an unsupported entry: {path}")
     starts = [
         index
         for index in range(body_start, body_end)
-        if re.match(r"^  - type:\s*[^\s#]+\s*(?:#.*)?$", lines[index])
+        if re.match(r"^  -(?:\s|$)", lines[index])
     ]
     if not starts:
         raise AuditError(f"Issue Form does not contain a parseable body: {path}")
@@ -325,41 +333,59 @@ def parse_issue_form(text: str, path: str) -> IssueForm:
     fields: list[FormField] = []
     for offset, start in enumerate(starts):
         end = starts[offset + 1] if offset + 1 < len(starts) else body_end
-        type_match = re.match(r"^  - type:\s*([^\s#]+)", lines[start])
-        if type_match is None:
+        first_match = re.match(r"^  -(?:\s+([A-Za-z0-9_-]+):\s*(.*))?$", lines[start])
+        if first_match is None:
             raise AuditError(f"Issue Form contains an invalid body item: {path}")
-        field_type = type_match.group(1)
-        if field_type == "markdown":
-            continue
+        item_lines = lines[start + 1 : end]
+        if first_match.group(1) is not None:
+            item_lines = [f"    {first_match.group(1)}: {first_match.group(2)}", *item_lines]
 
+        field_type = ""
         field_id = ""
         label = ""
         required = False
+        required_seen = False
         section = ""
-        for line in lines[start + 1 : end]:
-            id_match = re.match(r"^    id:\s*(.*)$", line)
-            if id_match:
-                field_id = yaml_scalar(id_match.group(1)).strip()
+        for line in item_lines:
+            property_match = re.match(r"^    ([A-Za-z0-9_-]+):\s*(.*)$", line)
+            if property_match:
+                key, value = property_match.groups()
+                if key == "type":
+                    if field_type:
+                        raise AuditError(f"Issue Form body item repeats type: {path}")
+                    field_type = yaml_scalar(value).strip()
+                elif key == "id":
+                    if field_id:
+                        raise AuditError(f"Issue Form body item repeats id: {path}")
+                    field_id = yaml_scalar(value).strip()
+                elif key in {"attributes", "validations"}:
+                    if value.strip() and not value.strip().startswith("#"):
+                        raise AuditError(f"Issue Form has unsupported {key} mapping: {path}")
+                    section = key
+                    continue
                 section = ""
                 continue
-            section_match = re.match(r"^    (attributes|validations):\s*$", line)
-            if section_match:
-                section = section_match.group(1)
-                continue
-            if re.match(r"^    [A-Za-z0-9_-]+:", line):
-                section = ""
             if section == "attributes":
                 label_match = re.match(r"^      label:\s*(.*)$", line)
                 if label_match:
+                    if label:
+                        raise AuditError(f"Issue Form body item repeats label: {path}")
                     label = yaml_scalar(label_match.group(1)).strip()
             elif section == "validations":
                 required_match = re.match(r"^      required:\s*(.*)$", line)
                 if required_match:
+                    if required_seen:
+                        raise AuditError(f"Issue Form body item repeats required: {path}")
                     scalar = yaml_scalar(required_match.group(1)).strip().lower()
                     if scalar not in {"true", "false"}:
                         raise AuditError(f"Issue Form has invalid required value: {path}")
                     required = scalar == "true"
+                    required_seen = True
 
+        if field_type not in {"markdown", "input", "textarea", "dropdown", "checkboxes"}:
+            raise AuditError(f"Issue Form has missing or unsupported body item type: {path}")
+        if field_type == "markdown":
+            continue
         if not field_id or not label:
             raise AuditError(f"Issue Form field is missing id or label: {path}")
         fields.append(FormField(field_id, label, required))

@@ -321,6 +321,53 @@ not_body:
         with self.assertRaisesRegex(audit.AuditError, "top-level body"):
             audit.parse_issue_form(synthetic_form_text() + "body:\n", "duplicate.yml")
 
+    def test_parse_form_separates_items_when_type_is_not_first(self) -> None:
+        form_text = """\
+name: Ordered fields
+title: "[Ordered] "
+body:
+  - type: textarea
+    id: first
+    attributes:
+      label: First response
+    validations:
+      required: true
+  - id: second
+    type: textarea
+    attributes:
+      label: Second response
+    validations:
+      required: true
+"""
+        form = audit.parse_issue_form(form_text, "ordered.yml")
+        self.assertEqual(
+            [(field.field_id, field.label, field.required) for field in form.fields],
+            [("first", "First response", True), ("second", "Second response", True)],
+        )
+
+    def test_parse_form_rejects_body_item_without_supported_type(self) -> None:
+        malformed = synthetic_form_text() + """\
+  - id: hidden
+    attributes:
+      label: Hidden response
+"""
+        with self.assertRaisesRegex(audit.AuditError, "body item type"):
+            audit.parse_issue_form(malformed, "hidden.yml")
+
+    def test_parse_form_rejects_unsupported_folded_title(self) -> None:
+        malformed = synthetic_form_text().replace('title: "[Bug] "', 'title: >-\n  [Bug]')
+        with self.assertRaisesRegex(audit.AuditError, "unsupported YAML scalar"):
+            audit.parse_issue_form(malformed, "folded.yml")
+
+    def test_parse_form_rejects_flow_validation_mapping(self) -> None:
+        malformed = synthetic_form_text().replace(
+            "    validations:\n      required: true",
+            "    validations: {required: true}",
+            1,
+        )
+        with self.assertRaisesRegex(audit.AuditError, "unsupported validations mapping"):
+            audit.parse_issue_form(malformed, "flow.yml")
+
     def test_form_sections_treat_github_no_response_marker_as_missing(self) -> None:
         sections = audit.extract_form_sections(
             "### Required\n\nA value\n\n### Optional\n\n<!-- hidden -->\n_No response_"
