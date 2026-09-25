@@ -46,6 +46,50 @@ This snapshot is a source/integration status, not release, device, VoiceOver,
 telephone, notification-delivery, or representative-user acceptance. Current
 GitHub Issue and PR state supersedes these timestamped counts.
 
+## 2026-09-16 Local Candidate: Issue #55 Elder Interaction
+
+- Branch: `codex/55-elder-no-scroll`; base:
+  `ebf0a0c364a9bdeb263a76ddedd291013f2cd9c0`. This is a serial UI follow-up
+  to Issue #46 / PR #78. The unchanged base was published as
+  `codex/46-notification-postpone-fix` for a focused stacked Draft PR;
+  publishing that reference is not integration or release.
+- Three elder actions and confirmation controls now occupy a fixed bottom safe
+  area. Medication identity remains independently scrollable, photos open in a
+  stable detail sheet, and a task change restores the next identity to the top.
+  Success feedback follows the current identity. Text scales continuously and
+  secondary text has stronger contrast. Medication commit, delay, consent and
+  phone-opening semantics are unchanged.
+- Help settings no longer open the keyboard immediately. While editing, the
+  save control stays above it; successful persistence dismisses the keyboard.
+  Editing clears stale success feedback, and an unsaved draft does not expose
+  a remove-saved-contact action.
+- Synthetic SE (375x667 pt), Xcode 27 / iOS 26.5:
+  `regression-07` passed ElderModeTests 17/17 and UI 28/29. Its single
+  failure was the unfiltered accessibility audit's contrast check. The final
+  delta changes only three secondary foreground colors; `focused-09` then
+  passed 3/3 (unfiltered system audit, maximum text, and dark appearance).
+  Earlier failures are retained, not reclassified as passing.
+- A separate synthetic iPhone 17 Pro run, `normal-08`, passed 3/3 for
+  default-mode entry, AX5 confirmation/photo controls, and AX5 next-task
+  identity after scrolling. This shares the regression-07 geometry; it predates
+  only the three final foreground-color changes.
+- Logs, xcresults and SHA-256 input manifests are retained under
+  `.codex-local/elder-ux/`; the final code/test inputs are
+  `focused-09-inputs.json`. Preflight and Swift source-size checks pass;
+  preflight reports the expected absence of Debug-only AI configuration on
+  this explicitly marked synthetic test host. Existing staged-hook checks
+  apply; the unmerged PR #77 reusable checker is absent at this revision.
+- This is focused local evidence, not a new full `verify-native.sh` gate,
+  exact-head remote CI, physical VoiceOver, real notification/phone delivery,
+  or competition acceptance. The earlier #46 full gate does not validate this
+  changed UI. At that candidate date the child PR remained Draft; current integration and
+  release evidence belongs in the linked Issue and PR.
+- The complete-mode AX5 five-tab tour passed reachability checks but exposed
+  visible truncation/overlap in manual screenshot review. Those unfixed
+  production layouts are tracked in Issue #85, linked to the visual-baseline
+  Issue #52; this elder candidate does not declare those pages visually valid.
+
+
 ## Historical Audit Baseline (2026-08-23)
 
 Last audited for the historical baseline below: 2026-08-23
