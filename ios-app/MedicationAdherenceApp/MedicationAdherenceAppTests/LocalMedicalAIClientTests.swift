@@ -102,13 +102,13 @@ private actor StubLocalMedicalRuntime: LocalMedicalGenerating {
         return outputs.removeFirst()
     }
 
-    func generateResponseStream(
+    nonisolated func generateResponseStream(
         prompt: String,
         modelURL: URL,
         maxTokens: Int
-    ) async -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { continuation in
-            continuation.finish()
-        }
+    ) -> LocalMedicalGenerationStream {
+        let (stream, continuation) = AsyncThrowingStream<String, Error>.makeStream()
+        continuation.finish()
+        return LocalMedicalGenerationStream(stream: stream) {}
     }
 }
