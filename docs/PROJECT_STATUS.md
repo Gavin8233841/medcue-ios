@@ -1,7 +1,17 @@
 # MedCue Project Status
 
-Latest coordination audit: 2026-09-22
-Current source checkpoint: `7de86b34df209bd6b33aca8495b9c9a5ec4e16ae`
+Latest full coordination audit: 2026-09-22; targeted update: 2026-09-26 (#33)
+Verified source checkpoint for this update: `main@a0e7fce246c1522847a2647e28896aea54d5340a`
+
+## 2026-09-26 GitHub Topics completion (#33)
+
+The public repository description remains Chinese-first with an English
+explanation. Its Topics were set to `ios`, `watchos`, `swiftui`, `swiftdata`,
+`medication-management`, and `medication-reminders`, then read back through the
+GitHub API. These describe verified platforms, implementation, and medication
+organization features; they do not claim diagnosis, prescribing, or release
+readiness. PR #53 already delivered the bilingual README, templates, labels,
+and Issue migration. The earlier #33 Topics blocker below is historical.
 
 ## 2026-09-22 Current Coordination Snapshot
 
@@ -24,7 +34,8 @@ Current source checkpoint: `7de86b34df209bd6b33aca8495b9c9a5ec4e16ae`
   (`c9ad98e`) failed its required result after UI-job timeout; child #87's
   successful run does not satisfy its parent's integration gate.
 - #17 remains open: merged evidence documentation is not physical-device
-  acceptance. #33 remains open for its explicit Topics decision. #20's local
+  acceptance. At this 2026-09-22 snapshot, #33 still awaited a Topics decision;
+  the 2026-09-26 update above resolves it. #20's local
   work does not establish merged migration acceptance.
 - #83 now has [PR #92](https://github.com/Gavin8233841/medcue-ios/pull/92)
   at `cf761441589964dcd8d93d281fe61833f3fb5944`: strict Node tests 38/38,

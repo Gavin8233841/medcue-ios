@@ -65,6 +65,8 @@
 
 PR [#53](//github.com/Gavin8233841/medcue-ios/pull/53) 已合入（merge commit `93bdaf877cbcb339ff3d57a6c1c862e5ef511d80`），中文优先 README、模板、标签映射和开放 Issue 迁移已有远端读回记录。Issue #33 仍开放的唯一明确产品决策是 Topics 的精确词条：当前 Topics 为空，本文不猜测或写入词条。状态为 `BLOCKED`（owner decision），不是代码或 CI 阻塞。
 
+后续更新（2026-09-26）：上句是 2026-08-31 截面的历史状态。仓库 Topics 现为 `ios`、`watchos`、`swiftui`、`swiftdata`、`medication-management`、`medication-reminders`，已通过 GitHub API 写后读回；词条与 README 已核实的功能一致，不表示临床或发布就绪。#33 的 Topics 阻塞已解除。
+
 ## 7. YZY 开放 PR 门禁截面
 
 规则集要求：`Native Verification (required result)` 通过、review threads resolved、禁止非快进；当前 ruleset 的 required approving reviews 为 `0`，但不因此跳过作者累计自审、fresh-context 安全审查、精确 HEAD CI、冲突检查或必要的设备/账户证据。
