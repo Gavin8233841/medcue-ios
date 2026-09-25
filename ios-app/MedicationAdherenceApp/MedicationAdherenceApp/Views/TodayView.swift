@@ -95,7 +95,7 @@ private struct TodayContentView: View {
     @State private var elderHelpOpeningErrorMessage: String?
     @State private var elderHelpMissingMessage: String?
     @State private var elderHelpConfirmationPhone: ElderHelpPhoneNumber?
-    @State private var elderDoseSuccessMessage: String?
+    @State private var elderDoseSuccessFeedback: ElderDoseSuccessState?
     @State private var elderReminderUnavailableMessage = ""
     @State private var elderActionInProgress = false
     @State private var elderReminderSyncInProgress = false
@@ -235,7 +235,8 @@ private struct TodayContentView: View {
                 helpOpeningErrorMessage: $elderHelpOpeningErrorMessage,
                 helpMissingMessage: $elderHelpMissingMessage,
                 helpConfirmationPhone: $elderHelpConfirmationPhone,
-                successFeedback: $elderDoseSuccessMessage,
+                successFeedback: $elderDoseSuccessFeedback,
+                currentTime: now,
                 notificationUnavailableMessage: systemSurfaceAdapter == nil
                     ? reminderWarningMessage : elderReminderUnavailableMessage,
                 loadErrorMessage: _tasks.fetchError != nil
@@ -247,6 +248,8 @@ private struct TodayContentView: View {
                     completionVerb: todayCompletionVerb,
                     markTaken: requestMarkTaken,
                     delay: requestDelay,
+                    skip: requestElderSkip,
+                    undoSuccess: undoElderSuccess,
                     confirm: confirmPendingDoseConfirmation,
                     cancelConfirmation: clearPendingDoseConfirmation,
                     requestHelp: prepareElderHelp,
@@ -315,7 +318,7 @@ private struct TodayContentView: View {
                     },
                     confirm: confirmPendingDoseConfirmation,
                     cancelConfirmation: clearPendingDoseConfirmation,
-                    undoOrReopen: undoOrReopen,
+                    undoOrReopen: { undoOrReopen($0) },
                     archive: archive,
                     unarchive: unarchive,
                     rollbackUndo: rollbackDoseUndo,
@@ -437,7 +440,7 @@ private struct TodayContentView: View {
         completionCelebrationTask = nil
         completionRateFeedback = nil
         completionRateDisplayedSnapshot = nil
-        elderDoseSuccessMessage = nil
+        elderDoseSuccessFeedback = nil
         elderHelpConfirmationPhone = nil
         elderHelpMissingMessage = nil
         doseInteraction.inFlightDoseKeys.removeAll()
@@ -569,13 +572,17 @@ private struct TodayContentView: View {
                 switch result {
                 case .reminder(.scheduled):
                     elderReminderUnavailableMessage = ""
-                    elderDoseSuccessMessage = "已设置 \(delayDurationText)后提醒"
+                    elderDoseSuccessFeedback = ElderDoseSuccessState(
+                        message: "已设置 \(delayDurationText)后提醒",
+                        taskID: nil,
+                        undoExpiresAt: nil
+                    )
                 case .reminder(.unavailable(let message)):
-                    elderDoseSuccessMessage = nil
+                    elderDoseSuccessFeedback = nil
                     elderReminderUnavailableMessage = "记录已保存；\(message)"
                     UIAccessibility.post(notification: .announcement, argument: elderReminderUnavailableMessage)
                 case .completed:
-                    elderDoseSuccessMessage = nil
+                    elderDoseSuccessFeedback = nil
                     elderReminderUnavailableMessage = "记录已保存，提醒未能开启。"
                     UIAccessibility.post(notification: .announcement, argument: elderReminderUnavailableMessage)
                 }
@@ -600,6 +607,17 @@ private struct TodayContentView: View {
     private func performMarkTaken(_ task: StoredDoseTask, reason: String) {
         performWithDoseFeedback(task, action: .taken) {
             mark(task, mutation: .markTaken, reason: reason)
+        }
+    }
+
+    private func requestElderSkip(_ task: StoredDoseTask) {
+        guard presentation == .elder,
+              isOpenStatus(task.status),
+              !elderActionInProgress, !elderReminderSyncInProgress else {
+            return
+        }
+        performWithDoseFeedback(task, action: .skip) {
+            mark(task, mutation: .skip, reason: "用户选择这次不吃")
         }
     }
 
@@ -717,7 +735,7 @@ private struct TodayContentView: View {
         resetDoseTransitionState(animated: false)
         // Keep a previous success from masking a later save failure; a new success is shown only after commit.
         if presentation == .elder {
-            elderDoseSuccessMessage = nil
+            elderDoseSuccessFeedback = nil
         }
         let pendingFeedback = PendingDoseFeedback(doseKey: doseKey, action: action)
         if reduceMotionEnabled {
@@ -815,7 +833,11 @@ private struct TodayContentView: View {
             message = "\(medicationName)已跳过"
         }
         let present = {
-            elderDoseSuccessMessage = message
+            elderDoseSuccessFeedback = ElderDoseSuccessState(
+                message: message,
+                taskID: task.recordedAt == nil ? nil : task.id,
+                undoExpiresAt: task.recordedAt?.addingTimeInterval(DoseActionTransitionPlanner.undoWindow)
+            )
         }
         if reduceMotionEnabled {
             present()
@@ -885,7 +907,27 @@ private struct TodayContentView: View {
         }
     }
 
-    private func undoOrReopen(_ task: StoredDoseTask) {
+    private func undoElderSuccess(_ taskID: UUID) {
+        let occurredAt = now()
+        guard presentation == .elder,
+              let feedback = elderDoseSuccessFeedback,
+              feedback.taskID == taskID,
+              feedback.canUndo(at: occurredAt),
+              !elderActionInProgress, !elderReminderSyncInProgress,
+              let task = tasks.first(where: { $0.id == taskID }),
+              task.status == .taken || task.status == .skipped else {
+            return
+        }
+        undoOrReopen(task, at: occurredAt) {
+            elderDoseSuccessFeedback = nil
+        }
+    }
+
+    private func undoOrReopen(
+        _ task: StoredDoseTask,
+        at occurredAt: Date? = nil,
+        onCommit: (() -> Void)? = nil
+    ) {
         performReopenTransition(task) {
             let previousCompletionSnapshot = currentCompletionRateSnapshot
             prepareReopenedTaskHighlightIfNeeded(task)
@@ -893,13 +935,15 @@ private struct TodayContentView: View {
             updateDoseState(animated: false) {
                 outcome = DoseReopenCommand(modelContext: modelContext).perform(
                     taskID: task.id,
-                    at: now()
+                    at: occurredAt ?? now()
                 )
             }
             guard case let .committed(commit) = outcome else {
+                dosePersistenceErrorMessage = DoseActionPersistenceError.saveFailed.userMessage
                 resetDoseTransitionState(animated: false)
                 return
             }
+            onCommit?()
             let committedTaskIDs = Set(commit.taskIDs)
             let group = tasks.filter { committedTaskIDs.contains($0.id) }
             let nextCompletionSnapshot = currentCompletionRateSnapshot

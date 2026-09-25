@@ -397,6 +397,29 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         assertStoredState(in: app, statuses: ["taken", "taken"], logCount: 2, saveAttempts: 2)
     }
 
+    func testElderMoreActionsRequiresConfirmationAndSuccessCanUndo() {
+        continueAfterFailure = false
+        let app = launchElderFixture()
+
+        let moreActions = app.buttons["elder.moreActions"]
+        XCTAssertTrue(moreActions.waitForExistence(timeout: 5))
+        moreActions.tap()
+        app.buttons["这次不吃"].tap()
+        assertCurrentTask("布洛芬", status: "未确认", in: app)
+        XCTAssertFalse(app.descendants(matching: .any)["elder.feedback.success"].exists)
+
+        app.buttons["确认这次不吃"].tap()
+        XCTAssertTrue(app.staticTexts["没有待处理用药"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "已跳过")).firstMatch.exists)
+
+        let undo = app.buttons["elder.feedback.undo"]
+        XCTAssertTrue(undo.waitForExistence(timeout: 5))
+        undo.tap()
+        assertCurrentTask("布洛芬", status: "未确认", in: app)
+        XCTAssertFalse(app.descendants(matching: .any)["elder.feedback.success"].exists)
+        assertStoredState(in: app, statuses: ["pending"], logCount: 1, saveAttempts: 1)
+    }
+
     func testElderMaximumTextNextTaskRestoresIdentityAboveActions() {
         continueAfterFailure = false
         let app = launchElderFixture(scenario: "multiple", contentSizeArguments: accessibilityXXXLContentSizeArguments)

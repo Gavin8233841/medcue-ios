@@ -688,6 +688,8 @@ struct ElderTodayScreenActions {
     let completionVerb: (StoredMedication?) -> String
     let markTaken: (StoredDoseTask) -> Void
     let delay: (StoredDoseTask) -> Void
+    let skip: (StoredDoseTask) -> Void
+    let undoSuccess: (UUID) -> Void
     let confirm: (StoredDoseTask) -> Void
     let cancelConfirmation: (StoredDoseTask) -> Void
     let requestHelp: () -> Void
@@ -718,11 +720,13 @@ struct ElderTodayScreen: View {
     @Binding var helpOpeningErrorMessage: String?
     @Binding var helpMissingMessage: String?
     @Binding var helpConfirmationPhone: ElderHelpPhoneNumber?
-    @Binding var successFeedback: String?
+    @Binding var successFeedback: ElderDoseSuccessState?
+    let currentTime: Date
     let notificationUnavailableMessage: String
     let loadErrorMessage: String?
     let isLoading: Bool
     let actions: ElderTodayScreenActions
+    @State private var taskPendingSkip: StoredDoseTask?
     private let currentTaskRefreshTimer = Timer
         .publish(every: 1, on: .main, in: .common)
         .autoconnect()
@@ -770,6 +774,27 @@ struct ElderTodayScreen: View {
     }
 
     var body: some View {
+        elderContent
+            .confirmationDialog(
+                "这次不吃？",
+                isPresented: Binding(
+                    get: { taskPendingSkip != nil },
+                    set: { if !$0 { taskPendingSkip = nil } }
+                )
+            ) {
+                Button("确认这次不吃", role: .destructive) {
+                    if let taskPendingSkip {
+                        actions.skip(taskPendingSkip)
+                        self.taskPendingSkip = nil
+                    }
+                }
+                Button("取消", role: .cancel) { taskPendingSkip = nil }
+            } message: {
+                Text("只记录本次未服用，不会改变用药计划。")
+            }
+    }
+
+    private var elderContent: some View {
         GeometryReader { geometry in
             ScrollViewReader { scrollProxy in
                 ScrollView {
@@ -796,7 +821,11 @@ struct ElderTodayScreen: View {
                                 .frame(maxWidth: .infinity)
                         }
                         if let successFeedback {
-                            ElderDoseSuccessFeedback(message: successFeedback)
+                            ElderDoseSuccessFeedback(
+                                feedback: successFeedback,
+                                currentTime: currentTime,
+                                undo: { taskID in actions.undoSuccess(taskID) }
+                            )
                                 .transition(.opacity)
                                 .accessibilityFocused($accessibilityFocus, equals: .success)
                         }
@@ -860,7 +889,7 @@ struct ElderTodayScreen: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(colorScheme, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
+            ToolbarItem(placement: .topBarTrailing) {
                 Button(action: actions.switchToCompleteMode) {
                     if dynamicTypeSize.isAccessibilitySize {
                         Image(systemName: "arrow.backward")
@@ -871,11 +900,24 @@ struct ElderTodayScreen: View {
                 .accessibilityLabel("完整模式")
                 .accessibilityIdentifier(AppAccessibilityID.elderSwitchToComplete)
             }
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarLeading) {
                 Button(action: actions.openSettings) {
                     Label("设置", systemImage: "gearshape")
                 }
                 .accessibilityIdentifier(AppAccessibilityID.elderOpenSettings)
+                Menu {
+                    if let task = snapshot.currentTask {
+                        Button("这次不吃", systemImage: "minus.circle") {
+                            taskPendingSkip = task
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .disabled(snapshot.currentTask == nil || !inFlightDoseKeys.isEmpty)
+                .accessibilityLabel("更多操作")
+                .accessibilityHint("展开后可选择这次不吃")
+                .accessibilityIdentifier("elder.moreActions")
             }
         }
         .task {
@@ -952,9 +994,9 @@ struct ElderTodayScreen: View {
         } message: {
             Text("帮助号码：\(helpConfirmationPhone?.storageValue ?? "")")
         }
-        .onChange(of: successFeedback) { _, message in
-            guard let message else { return }
-            UIAccessibility.post(notification: .announcement, argument: message)
+        .onChange(of: successFeedback) { _, feedback in
+            guard let feedback else { return }
+            UIAccessibility.post(notification: .announcement, argument: feedback.message)
             DispatchQueue.main.async {
                 accessibilityFocus = .success
             }
@@ -1246,51 +1288,6 @@ private struct ElderMedicationPhotoPreview: Identifiable {
 private enum ElderAccessibilityFocus: Hashable {
     case confirmation
     case success
-}
-
-private struct ElderDoseSuccessFeedback: View {
-    @Environment(\.colorScheme) private var colorScheme
-    let message: String
-
-    var body: some View {
-        Label(message, systemImage: "checkmark.circle.fill")
-            .font(.headline.weight(.semibold))
-            .foregroundStyle(ElderDoseActionTone.completion.foregroundColor(for: colorScheme))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .background(ElderDoseActionTone.completion.foregroundColor(for: colorScheme).opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("elder.feedback.success")
-    }
-}
-
-enum ElderDoseActionProminence: Equatable {
-    case primary
-    case secondary
-    case tertiary
-
-    var font: Font {
-        switch self {
-        case .primary:
-            return .title2.bold()
-        case .secondary:
-            return .title3.bold()
-        case .tertiary:
-            return .title3.weight(.semibold)
-        }
-    }
-
-    var minimumHeight: CGFloat {
-        switch self {
-        case .primary:
-            return 76
-        case .secondary:
-            return 68
-        case .tertiary:
-            return 60
-        }
-    }
 }
 
 private struct ElderDoseActionButton: View {
