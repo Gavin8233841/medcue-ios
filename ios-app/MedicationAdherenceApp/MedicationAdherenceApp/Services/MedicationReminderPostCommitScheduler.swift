@@ -131,8 +131,8 @@ private actor MedicationReminderPostCommitScheduler {
 
     private func scheduleNotification(for entry: MedicationReminderPostCommitEntry) async {
         let content = notificationContent(
-            title: "该服药了",
-            body: "\(entry.medicationName) · \(entry.doseText)",
+            title: MedicationSystemSurfacePrivacyPolicy.reminderTitle,
+            body: MedicationSystemSurfacePrivacyPolicy.reminderBody,
             entry: entry,
             reminderKind: nil
         )
@@ -158,8 +158,8 @@ private actor MedicationReminderPostCommitScheduler {
             return
         }
         let content = notificationContent(
-            title: "仍未确认服药",
-            body: "\(entry.medicationName) · 请在 App 内确认已服用、稍后或忽略",
+            title: MedicationSystemSurfacePrivacyPolicy.escalationTitle,
+            body: MedicationSystemSurfacePrivacyPolicy.reminderBody,
             entry: entry,
             reminderKind: "escalation"
         )
@@ -228,11 +228,12 @@ private actor MedicationReminderPostCommitScheduler {
                 guard AlarmManager.shared.authorizationState == .authorized else {
                     return false
                 }
-                let baseTitle = "\(entry.medicationName) · \(entry.doseText)"
-                let displayTitle = titlePrefix.map { "\($0)：\(baseTitle)" } ?? baseTitle
+                let displayTitle = titlePrefix == nil
+                    ? MedicationSystemSurfacePrivacyPolicy.reminderTitle
+                    : MedicationSystemSurfacePrivacyPolicy.escalationTitle
                 let title = LocalizedStringResource(stringLiteral: displayTitle)
                 let stopButton = AlarmButton(
-                    text: titlePrefix == nil ? "完成" : "打开 App 确认",
+                    text: titlePrefix == nil ? "停止闹钟" : "打开 App 确认",
                     textColor: .white,
                     systemImageName: "checkmark"
                 )

@@ -1,8 +1,29 @@
 import Foundation
 import Testing
+import UserNotifications
 @testable import MedicationAdherenceApp
 
 struct PlatformBehaviorTests {
+    @Test @MainActor
+    func systemReminderActionsRequireUnlockBeforeAnyDoseMutation() {
+        let actions = MedicationNotificationDelegate.reminderCategory().actions
+
+        #expect(actions.count == 3)
+        for action in actions {
+            #expect(action.options.contains(.authenticationRequired))
+        }
+    }
+
+    @Test
+    func liveActivityAttributesNeverContainMedicationDetails() {
+        let taskID = UUID()
+        let attributes = MedicationSystemSurfacePrivacyPolicy.activityAttributes(taskID: taskID)
+
+        #expect(attributes.taskID == taskID)
+        #expect(attributes.medicationName == MedicationSystemSurfacePrivacyPolicy.reminderTitle)
+        #expect(attributes.doseText.isEmpty)
+    }
+
     @Test
     func notificationPolicyRejectsDeniedAuthorization() {
         let disposition = MedicationNotificationPolicy.default.authorizationDisposition(

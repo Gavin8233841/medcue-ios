@@ -137,23 +137,6 @@ struct AppRootView: View {
             }
             await reconcileStartupReminders(after: .milliseconds(700))
         }
-        .onOpenURL { url in
-            guard !isRunningElderUIFixture else {
-                return
-            }
-            guard let request = MedicationReminderLiveActivityActionURL.request(from: url) else {
-                return
-            }
-            guard repairLegacyAutoSkipsIfNeeded() else {
-                return
-            }
-            activateTab(.today)
-            Task {
-                await MedicationReminderLiveActivityActionService(notificationService: notificationService)
-                    .handle(request, in: modelContext)
-                await consumeCompletedLiveActivityActions()
-            }
-        }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active, !shouldShowFirstLaunchSetup else {
                 return

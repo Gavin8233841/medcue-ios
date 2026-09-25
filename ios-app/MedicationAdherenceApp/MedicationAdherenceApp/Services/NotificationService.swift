@@ -272,8 +272,8 @@ final class NotificationService: ObservableObject {
         )
 
         let content = UNMutableNotificationContent()
-        content.title = "该服药了"
-        content.body = "\(payload.medicationName) · \(payload.doseText)"
+        content.title = MedicationSystemSurfacePrivacyPolicy.reminderTitle
+        content.body = MedicationSystemSurfacePrivacyPolicy.reminderBody
         content.sound = .default
         content.categoryIdentifier = MedicationNotificationDelegate.categoryIdentifier
         content.userInfo = [
@@ -328,9 +328,9 @@ final class NotificationService: ObservableObject {
                     medicationName: userFacingMedicationName(for: medication),
                     doseText: "\(task.doseValue.formatted()) \(task.doseUnit)"
                 )
-                let title = LocalizedStringResource(stringLiteral: "\(payload.medicationName) · \(payload.doseText)")
+                let title = LocalizedStringResource(stringLiteral: MedicationSystemSurfacePrivacyPolicy.reminderTitle)
                 let stopButton = AlarmButton(
-                    text: "完成",
+                    text: "停止闹钟",
                     textColor: .white,
                     systemImageName: "checkmark"
                 )
@@ -389,8 +389,8 @@ final class NotificationService: ObservableObject {
         }
 
         let content = UNMutableNotificationContent()
-        content.title = "仍未确认服药"
-        content.body = "\(userFacingMedicationName(for: medication)) · 请在 App 内确认已服用、稍后或忽略"
+        content.title = MedicationSystemSurfacePrivacyPolicy.escalationTitle
+        content.body = MedicationSystemSurfacePrivacyPolicy.reminderBody
         content.sound = .default
         content.categoryIdentifier = MedicationNotificationDelegate.categoryIdentifier
         content.userInfo = [
@@ -434,7 +434,7 @@ final class NotificationService: ObservableObject {
                 medicationName: userFacingMedicationName(for: medication),
                 doseText: "\(task.doseValue.formatted()) \(task.doseUnit)"
             )
-            let title = LocalizedStringResource(stringLiteral: "\(titlePrefix)：\(payload.medicationName) · \(payload.doseText)")
+            let title = LocalizedStringResource(stringLiteral: MedicationSystemSurfacePrivacyPolicy.escalationTitle)
             let stopButton = AlarmButton(
                 text: "打开 App 确认",
                 textColor: .white,
