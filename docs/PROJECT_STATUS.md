@@ -260,7 +260,8 @@ receives partial-failure feedback when its escalation is still schedulable;
 feedback describes only the requests that were actually arranged. The delivered
 readback catches a completed task's notification that fires during cancellation,
 and rechecks pending requests and AlarmKit state before deciding whether to
-block replacement or count occupied slots.
+block replacement or count occupied slots. The readback requires two stable
+clear rounds; unresolved requests after bounded retries retain a failure warning.
 When a candidate has only one free slot, its selected base delivery takes
 priority over its later escalation or a second base channel; the omitted
 escalation is reported as a partial result. If a selected base alarm then fails, an ordinary
@@ -292,12 +293,12 @@ test functions (40 unit, two UI), 47 test runs and zero failures on an iPhone
 17 Pro iOS 26.5 Simulator, covering
 request-budget ordering, delivery availability, partial add retry, cancellation
 readback, warning text in elder mode and existing reconciliation behavior.
-After the cleanup and budget fixes, four focused suites passed 41 tests with
+After the cleanup and budget fixes, four focused suites passed 42 tests with
 zero failures on the same Simulator, including crossing the base and escalation
 windows before and during queue execution, request-time selection and
 submission order across medications, delivered-notification cleanup and
-pending-to-delivered readback races, accurate partial-failure text, and
-preservation of an open task's displayed reminder.
+pending-to-delivered readback races including a late retry round, accurate
+partial-failure text, and preservation of an open task's displayed reminder.
 Full current-head CI remains pending.
 This is not exact-head CI, physical-device
 delivery, or a claim that the OS accepted or delivered every request. PR #94

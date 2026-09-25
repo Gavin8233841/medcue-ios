@@ -17,15 +17,17 @@ private final class ReminderReadbackTestState {
     var deliveredIDs: Set<String>
     var pendingReads = 0
     var removedDeliveredIDs: Set<String> = []
+    let fireOnPendingRead: Int
 
-    init(pendingIDs: Set<String>, deliveredIDs: Set<String>) {
+    init(pendingIDs: Set<String>, deliveredIDs: Set<String>, fireOnPendingRead: Int = 2) {
         self.pendingIDs = pendingIDs
         self.deliveredIDs = deliveredIDs
+        self.fireOnPendingRead = fireOnPendingRead
     }
 
     func readPendingIDs() async -> Set<String> {
         pendingReads += 1
-        if pendingReads == 2 {
+        if pendingReads == fireOnPendingRead {
             deliveredIDs.formUnion(pendingIDs)
             pendingIDs.removeAll()
         }
@@ -361,6 +363,31 @@ struct MedicationReminderPostCommitSchedulerTests {
         #expect(readback.remainingDeliveredIDs.isEmpty)
         #expect(state.removedDeliveredIDs == [completedID])
         #expect(state.deliveredIDs == [openID])
+    }
+
+    @Test @MainActor
+    func readbackCleansDeliveryThatAppearsInLateRetryRound() async {
+        let completedID = MedicationReminderSystemIdentifiers.baseNotification(for: UUID())
+        let state = ReminderReadbackTestState(
+            pendingIDs: [completedID], deliveredIDs: [], fireOnPendingRead: 7
+        )
+        let readback = await MedicationReminderNotificationReadback.converge(
+            targetedPendingIDs: [completedID],
+            readPendingIDs: { await state.readPendingIDs() },
+            readDeliveredIDs: { state.deliveredIDs },
+            unwantedDeliveredIDs: { $0 },
+            removePendingIDs: { _ in },
+            removeDeliveredIDs: { ids in
+                state.removedDeliveredIDs.formUnion(ids)
+                state.deliveredIDs.subtract(ids)
+            },
+            pause: { await Task.yield() }
+        )
+
+        #expect(state.pendingReads >= 8)
+        #expect(state.removedDeliveredIDs == [completedID])
+        #expect(readback.pendingIDs.isEmpty)
+        #expect(readback.remainingDeliveredIDs.isEmpty)
     }
 
     @Test

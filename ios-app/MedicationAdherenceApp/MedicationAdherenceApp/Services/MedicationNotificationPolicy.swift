@@ -12,19 +12,25 @@ enum MedicationReminderNotificationReadback {
         removeDeliveredIDs: @MainActor (Set<String>) -> Void,
         pause: @MainActor () async -> Void
     ) async -> (pendingIDs: Set<String>, remainingDeliveredIDs: Set<String>) {
-        var pendingIDs = await readPendingIDs()
-        var deliveredIDs = await readDeliveredIDs()
-        for _ in 0..<6 {
-            let remainingPendingIDs = targetedPendingIDs.intersection(pendingIDs)
-            let undesiredDeliveredIDs = unwantedDeliveredIDs(deliveredIDs)
-            if remainingPendingIDs.isEmpty && undesiredDeliveredIDs.isEmpty { break }
-            if !remainingPendingIDs.isEmpty { removePendingIDs(remainingPendingIDs) }
-            if !undesiredDeliveredIDs.isEmpty { removeDeliveredIDs(undesiredDeliveredIDs) }
-            await pause()
+        var pendingIDs: Set<String> = []
+        var deliveredIDs: Set<String> = []
+        var clearRounds = 0
+        for _ in 0..<8 {
             pendingIDs = await readPendingIDs()
             deliveredIDs = await readDeliveredIDs()
+            let remainingPendingIDs = targetedPendingIDs.intersection(pendingIDs)
+            let undesiredDeliveredIDs = unwantedDeliveredIDs(deliveredIDs)
+            if remainingPendingIDs.isEmpty && undesiredDeliveredIDs.isEmpty {
+                clearRounds += 1
+                if clearRounds == 2 { return (pendingIDs, []) }
+            } else {
+                clearRounds = 0
+                if !remainingPendingIDs.isEmpty { removePendingIDs(remainingPendingIDs) }
+                if !undesiredDeliveredIDs.isEmpty { removeDeliveredIDs(undesiredDeliveredIDs) }
+            }
+            await pause()
         }
-        // One final read reports any request that changed state during the last await.
+        // Exhaustion reports unresolved requests rather than claiming success.
         pendingIDs = await readPendingIDs()
         deliveredIDs = await readDeliveredIDs()
         return (pendingIDs, unwantedDeliveredIDs(deliveredIDs))
