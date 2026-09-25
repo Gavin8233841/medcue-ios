@@ -39,6 +39,20 @@ struct MedicationReminderPostCommitSnapshot: Sendable, Equatable {
     let cancelledTaskIDs: [UUID]
     let preservedDeliveredNotificationIDs: Set<String>
 
+    func preservedDeliveredNotificationIDs(at now: Date) -> Set<String> {
+        var identifiers = preservedDeliveredNotificationIDs
+        for entry in entries where entry.medicationIsActive && entry.taskIsOpen {
+            if entry.dueAt <= now {
+                identifiers.insert(MedicationReminderSystemIdentifiers.baseNotification(for: entry.taskID))
+            }
+            if entry.escalatesToAlarmWhenUnhandled,
+               DoseReminderPolicy.competitionDemo.escalationDueAt(for: entry.dueAt) <= now {
+                identifiers.insert(MedicationReminderSystemIdentifiers.escalationNotification(for: entry.taskID))
+            }
+        }
+        return identifiers
+    }
+
     init(
         entries: [MedicationReminderPostCommitEntry],
         cancelledTaskIDs: [UUID],

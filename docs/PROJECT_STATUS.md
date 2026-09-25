@@ -238,9 +238,10 @@ system scheduler. Its app policy of 60 counts pending notification and AlarmKit
 requests, including other medications, base alerts, alarm delivery and
 escalation. Post-commit iPhone entry points read a fresh committed global task
 snapshot and replan all medication reminders, so an earlier new dose can
-displace later requests across plans. Candidates are ordered by their next
-system request time and
-stable task ID. If the base time has passed but the five-minute escalation is
+displace later requests across plans. Base and escalation requests are budgeted
+by their actual due time across medications, with a stable task ID tie-breaker.
+A second base notification channel receives only spare capacity after the
+selected base and escalation requests. If the base time has passed but the five-minute escalation is
 still ahead, the open task remains eligible for escalation only. Replanning
 preserves its existing base notification or alarm while replacing the future
 escalation, and ranks it by the next actual request time.
@@ -249,9 +250,13 @@ before each add; if the base expires during an add attempt, its reserved slot
 can still carry the future escalation and the missed base is reported.
 Global cancellation reads both pending and delivered notifications. A delivered
 reminder for a completed task is removed, while a delivered base or escalation
-for an open overdue task remains available for action.
+for an open overdue task remains available for action. The preservation set is
+recomputed at cleanup time, including an open reminder that became due while
+its committed snapshot waited in the queue. If the entire remaining reminder
+window closes during cleanup, the task receives a persistent failure warning
+instead of a success outcome.
 When a candidate has only one free slot, its selected base delivery takes
-priority over escalation or a second base channel; the omitted escalation is
+priority over its later escalation or a second base channel; the omitted escalation is
 reported as a partial result. If a selected base alarm then fails, an ordinary
 notification can reuse that reserved request slot as a fallback.
 The policy is an app-side budget, not an assertion about an iOS system limit.
@@ -281,12 +286,10 @@ test functions (40 unit, two UI), 47 test runs and zero failures on an iPhone
 17 Pro iOS 26.5 Simulator, covering
 request-budget ordering, delivery availability, partial add retry, cancellation
 readback, warning text in elder mode and existing reconciliation behavior.
-After the time-boundary fix, the focused post-commit suite passed 16 tests with
-zero failures on the same Simulator, including the escalation window, a base
-time crossed during system waits, delivered-notification cleanup and preservation
-of an open task's displayed reminder.
-The focused startup-reconciliation suite also passed eight tests with zero
-failures after the delivered-notification change.
+After the cleanup and budget fixes, four focused suites passed 37 tests with
+zero failures on the same Simulator, including crossing the base and escalation
+windows, request-time ordering across medications, delivered-notification cleanup,
+and preservation of an open task's displayed reminder.
 Full current-head CI remains pending.
 This is not exact-head CI, physical-device
 delivery, or a claim that the OS accepted or delivered every request. PR #94

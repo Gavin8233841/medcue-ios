@@ -207,6 +207,18 @@ struct MedicationReminderCancellationTargets {
 }
 
 enum MedicationReminderRequestTiming {
+    static func missedWindow(
+        baseDueAt: Date,
+        escalationDueAt: Date,
+        initialNow: Date,
+        schedulingNow: Date,
+        wantsEscalation: Bool
+    ) -> Bool {
+        let wasFuture = baseDueAt > initialNow || (wantsEscalation && escalationDueAt > initialNow)
+        let stillFuture = baseDueAt > schedulingNow || (wantsEscalation && escalationDueAt > schedulingNow)
+        return wasFuture && !stillFuture
+    }
+
     static func reportExpiredBase(
         _ result: MedicationReminderSchedulingResult,
         expired: Bool
@@ -644,12 +656,10 @@ final class NotificationService: ObservableObject {
             }
             .filter { seenTaskIDs.insert($0.taskID).inserted }
         let affectedTaskIDs = Set(snapshot.entries.map(\.taskID) + snapshot.cancelledTaskIDs)
-        let preserveBaseForTaskIDs = Set(activeEntries.filter { $0.dueAt <= initialNow }.map(\.taskID))
         guard let cleanup = await removeExistingReminderRequests(
             for: affectedTaskIDs,
             pruneAllReminders: pruneExistingPrefixRequests,
-            preserveBaseForTaskIDs: preserveBaseForTaskIDs,
-            preservedDeliveredNotificationIDs: snapshot.preservedDeliveredNotificationIDs
+            snapshot: snapshot
         ) else {
             lastSystemOperationFailed = true
             let message = "提醒状态暂时无法核对，请稍后重试。"
@@ -694,7 +704,8 @@ final class NotificationService: ObservableObject {
                     wantsAlarm: $0.deliveryMethodRaw == StoredReminderDeliveryMethod.alarm.rawValue,
                     wantsEscalation: $0.escalatesToAlarmWhenUnhandled
                         && reminderPolicy.escalationDueAt(for: $0.dueAt) > schedulingNow,
-                    wantsBase: $0.dueAt > schedulingNow
+                    wantsBase: $0.dueAt > schedulingNow,
+                    escalationDueAt: reminderPolicy.escalationDueAt(for: $0.dueAt)
                 )
             },
             occupiedRequestCount: cleanup.occupiedRequestCount,
@@ -706,6 +717,20 @@ final class NotificationService: ObservableObject {
         for taskID in cleanup.blockedTaskIDs {
             if affectedTaskIDs.contains(taskID) {
                 results[taskID] = .unavailable(message: "旧提醒暂时无法取消，请稍后重试。")
+            }
+        }
+        for entry in activeEntries where !cleanup.blockedTaskIDs.contains(entry.taskID) {
+            if MedicationReminderRequestTiming.missedWindow(
+                baseDueAt: entry.dueAt,
+                escalationDueAt: reminderPolicy.escalationDueAt(for: entry.dueAt),
+                initialNow: initialNow,
+                schedulingNow: schedulingNow,
+                wantsEscalation: entry.escalatesToAlarmWhenUnhandled
+            ) {
+                results[entry.taskID] = .unavailable(
+                    message: "提醒时间在同步期间已过，未能安排；请查看用药记录。"
+                )
+                lastSystemOperationFailed = true
             }
         }
         for assignment in plan.assignments {
@@ -758,7 +783,7 @@ final class NotificationService: ObservableObject {
             alarmAvailable: alarmAvailable
         )
         guard !activeKinds.isEmpty else {
-            return (.unavailable(message: "提醒时间已过，请检查用药记录。"), false)
+            return (.unavailable(message: "提醒时间已过，请检查用药记录。"), true)
         }
         let baseExpiredBeforeAttempt = plannedBase && entry.dueAt <= currentNow
         let executor = MedicationReminderRequestExecutor(
@@ -814,6 +839,7 @@ final class NotificationService: ObservableObject {
                 expired: baseExpiredBeforeAttempt || expiredBaseEscalation != nil
             ),
             initialSystemFailed || !outcome.failedKinds.isEmpty
+                || baseExpiredBeforeAttempt || expiredBaseEscalation != nil
         )
     }
 
@@ -845,13 +871,16 @@ final class NotificationService: ObservableObject {
     private func removeExistingReminderRequests(
         for taskIDs: Set<UUID>,
         pruneAllReminders: Bool,
-        preserveBaseForTaskIDs: Set<UUID>,
-        preservedDeliveredNotificationIDs: Set<String>
+        snapshot: MedicationReminderPostCommitSnapshot
     ) async -> ReminderCleanupResult? {
         let center = UNUserNotificationCenter.current()
         let pendingBefore = await center.pendingNotificationRequests()
         let deliveredBefore = await center.deliveredNotifications()
         guard let alarmsBefore = try? pendingAlarmIDs() else { return nil }
+        let cleanupNow = Date()
+        let preserveBaseForTaskIDs = Set(snapshot.entries.filter {
+            $0.medicationIsActive && $0.taskIsOpen && $0.dueAt <= cleanupNow
+        }.map(\.taskID))
         let targets = MedicationReminderCancellationTargets(
             taskIDs: taskIDs,
             pendingNotificationIDs: Set(pendingBefore.map(\.identifier)),
@@ -859,7 +888,7 @@ final class NotificationService: ObservableObject {
             existingAlarmIDs: alarmsBefore,
             pruneAllReminders: pruneAllReminders,
             preserveBaseForTaskIDs: preserveBaseForTaskIDs,
-            preservedDeliveredNotificationIDs: preservedDeliveredNotificationIDs
+            preservedDeliveredNotificationIDs: snapshot.preservedDeliveredNotificationIDs(at: cleanupNow)
         )
         let notificationIDs = targets.notificationIDs
         if !notificationIDs.isEmpty {

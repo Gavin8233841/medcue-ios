@@ -1,4 +1,5 @@
 import Foundation
+import MedicationAdherenceCore
 
 enum MedicationNotificationAuthorizationStatus: Equatable, Sendable {
     case notDetermined
@@ -89,13 +90,23 @@ struct MedicationReminderRequestCandidate: Sendable, Equatable {
     let wantsAlarm: Bool
     let wantsEscalation: Bool
     let wantsBase: Bool
+    let escalationDueAt: Date
 
-    init(taskID: UUID, dueAt: Date, wantsAlarm: Bool, wantsEscalation: Bool, wantsBase: Bool = true) {
+    init(
+        taskID: UUID,
+        dueAt: Date,
+        wantsAlarm: Bool,
+        wantsEscalation: Bool,
+        wantsBase: Bool = true,
+        escalationDueAt: Date? = nil
+    ) {
         self.taskID = taskID
         self.dueAt = dueAt
         self.wantsAlarm = wantsAlarm
         self.wantsEscalation = wantsEscalation
         self.wantsBase = wantsBase
+        self.escalationDueAt = escalationDueAt ?? (wantsBase
+            ? DoseReminderPolicy.competitionDemo.escalationDueAt(for: dueAt) : dueAt)
     }
 }
 
@@ -117,59 +128,94 @@ extension MedicationNotificationPolicy {
         notificationAvailable: Bool,
         alarmAvailable: Bool
     ) -> MedicationReminderRequestPlan {
-        var remaining = max(0, maximumScheduledRequests - max(0, occupiedRequestCount))
-        var assigned: [MedicationReminderRequestAssignment] = []
-        var deferred: [UUID] = []
-        var unavailable: [UUID] = []
-        var seen: Set<UUID> = []
-        var reachedCapacity = false
-        for candidate in candidates.sorted(by: {
+        struct Event {
+            let taskID: UUID
+            let dueAt: Date
+            let kind: MedicationReminderRequestKind
+            let priority: Int
+        }
+        func eventOrder(_ lhs: Event, _ rhs: Event) -> Bool {
+            if lhs.dueAt != rhs.dueAt { return lhs.dueAt < rhs.dueAt }
+            if lhs.priority != rhs.priority { return lhs.priority < rhs.priority }
+            return lhs.taskID.uuidString < rhs.taskID.uuidString
+        }
+
+        var seenTaskIDs: Set<UUID> = []
+        let uniqueCandidates = candidates.sorted {
             $0.dueAt == $1.dueAt
                 ? $0.taskID.uuidString < $1.taskID.uuidString
                 : $0.dueAt < $1.dueAt
-        }) where seen.insert(candidate.taskID).inserted {
-            var kinds: [MedicationReminderRequestKind] = []
-            if candidate.wantsBase && notificationAvailable {
-                kinds.append(.baseNotification)
-            }
-            if candidate.wantsBase && candidate.wantsAlarm && alarmAvailable {
-                kinds.append(.baseAlarm)
-            }
-            if candidate.wantsEscalation {
-                if alarmAvailable {
-                    kinds.append(.escalationAlarm)
-                } else if notificationAvailable {
-                    kinds.append(.escalationNotification)
-                }
-            }
-            guard !kinds.isEmpty else {
+        }
+            .filter { seenTaskIDs.insert($0.taskID).inserted }
+        var requiredEvents: [Event] = []
+        var optionalEvents: [Event] = []
+        var unavailable: [UUID] = []
+        for candidate in uniqueCandidates {
+            if !candidate.wantsBase && !candidate.wantsEscalation {
                 unavailable.append(candidate.taskID)
                 continue
             }
-            guard !reachedCapacity && remaining > 0 else {
-                reachedCapacity = true
-                deferred.append(candidate.taskID)
-                continue
+            let baseKind: MedicationReminderRequestKind?
+            if candidate.wantsBase {
+                if candidate.wantsAlarm && alarmAvailable {
+                    baseKind = .baseAlarm
+                } else if notificationAvailable {
+                    baseKind = .baseNotification
+                } else {
+                    baseKind = nil
+                }
+                guard let baseKind else {
+                    unavailable.append(candidate.taskID)
+                    continue
+                }
+                requiredEvents.append(Event(
+                    taskID: candidate.taskID, dueAt: candidate.dueAt,
+                    kind: baseKind, priority: 0
+                ))
+                if baseKind == .baseAlarm && notificationAvailable {
+                    optionalEvents.append(Event(
+                        taskID: candidate.taskID, dueAt: candidate.dueAt,
+                        kind: .baseNotification, priority: 2
+                    ))
+                }
             }
-            if kinds.count > remaining {
-                // Preserve the selected base delivery before optional escalation
-                // and the second base channel when the request budget is tight.
-                var priority: [MedicationReminderRequestKind] = []
-                if candidate.wantsBase {
-                    priority.append(candidate.wantsAlarm && alarmAvailable ? .baseAlarm : .baseNotification)
+            if candidate.wantsEscalation {
+                let escalationKind: MedicationReminderRequestKind?
+                if alarmAvailable {
+                    escalationKind = .escalationAlarm
+                } else if notificationAvailable {
+                    escalationKind = .escalationNotification
+                } else {
+                    escalationKind = nil
                 }
-                if candidate.wantsEscalation {
-                    priority.append(alarmAvailable ? .escalationAlarm : .escalationNotification)
+                if let escalationKind {
+                    requiredEvents.append(Event(
+                        taskID: candidate.taskID, dueAt: candidate.escalationDueAt,
+                        kind: escalationKind, priority: 1
+                    ))
+                } else if !candidate.wantsBase {
+                    unavailable.append(candidate.taskID)
                 }
-                if candidate.wantsAlarm && notificationAvailable && alarmAvailable {
-                    priority.append(.baseNotification)
-                }
-                let selected = Set(priority.prefix(remaining))
-                kinds = kinds.filter { selected.contains($0) }
             }
-            remaining -= kinds.count
-            reachedCapacity = remaining == 0
-            assigned.append(MedicationReminderRequestAssignment(taskID: candidate.taskID, kinds: kinds))
+        }
+        let availableSlots = max(0, maximumScheduledRequests - max(0, occupiedRequestCount))
+        let selectedEvents = Array((requiredEvents.sorted(by: eventOrder)
+            + optionalEvents.sorted(by: eventOrder)).prefix(availableSlots))
+        let kindsByTaskID = Dictionary(grouping: selectedEvents, by: \.taskID)
+            .mapValues { Set($0.map(\.kind)) }
+        let kindOrder: [MedicationReminderRequestKind] = [
+            .baseNotification, .baseAlarm, .escalationNotification, .escalationAlarm
+        ]
+        let assigned = uniqueCandidates.compactMap { candidate -> MedicationReminderRequestAssignment? in
+            guard let selected = kindsByTaskID[candidate.taskID] else { return nil }
+            return MedicationReminderRequestAssignment(
+                taskID: candidate.taskID,
+                kinds: kindOrder.filter { selected.contains($0) }
+            )
+        }
+        let unavailableIDs = Set(unavailable)
+        let deferred = uniqueCandidates.map(\.taskID).filter {
+            !unavailableIDs.contains($0) && kindsByTaskID[$0] == nil
         }
         return MedicationReminderRequestPlan(
             assignments: assigned,
