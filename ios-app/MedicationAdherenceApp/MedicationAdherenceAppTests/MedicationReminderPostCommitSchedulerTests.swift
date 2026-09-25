@@ -267,6 +267,40 @@ struct MedicationReminderPostCommitSchedulerTests {
     }
 
     @Test @MainActor
+    func simultaneousBaseAlarmAndEscalationFailureReportsBoth() async {
+        let kinds: [MedicationReminderRequestKind] = [
+            .baseNotification, .baseAlarm, .escalationAlarm
+        ]
+        let outcome = await MedicationReminderRequestExecutor(
+            addBaseNotification: { true },
+            addBaseAlarm: { false },
+            addEscalationNotification: { false },
+            addEscalationAlarm: { false }
+        ).execute(kinds)
+        let message = outcome.schedulingResult(
+            wantsAlarm: true,
+            wantsEscalationAlarm: true,
+            plannedKinds: kinds
+        ).failureMessage
+        #expect(message?.contains("所选 iPhone 闹钟未安排") == true)
+        #expect(message?.contains("升级提醒未能安排") == true)
+
+        let unavailableEscalation = await MedicationReminderRequestExecutor(
+            addBaseNotification: { true },
+            addBaseAlarm: { false },
+            addEscalationNotification: { false },
+            addEscalationAlarm: { false }
+        ).execute([.baseNotification, .escalationNotification])
+        let unavailableMessage = unavailableEscalation.schedulingResult(
+            wantsAlarm: false,
+            wantsEscalationAlarm: true,
+            plannedKinds: [.baseNotification, .escalationNotification]
+        ).failureMessage
+        #expect(unavailableMessage?.contains("升级提醒未能安排") == true)
+        #expect(unavailableMessage?.contains("已改用普通通知") == false)
+    }
+
+    @Test @MainActor
     func unavailableAlarmPermissionReportsFallbackAsPartialResult() async {
         let candidate = MedicationReminderRequestCandidate(
             taskID: UUID(), dueAt: Date(timeIntervalSince1970: 2_000),

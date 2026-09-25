@@ -262,10 +262,11 @@ warning. Elder delay feedback shows the specific partial-result message.
 The shared path now uses a MainActor service; real-device save responsiveness
 after this change has not been measured and needs a device check before merge.
 
-Local candidate evidence: 38 focused hosted test functions, 43 test runs and
-zero failures on an iPhone 17 Pro iOS 26.5 Simulator, covering request-budget
-ordering, delivery availability, partial add retry, cancellation readback and
-existing reconciliation behavior. This is not exact-head CI, physical-device
+Local candidate evidence: 41 focused hosted test functions (39 unit, two UI),
+46 test runs and zero failures on an iPhone 17 Pro iOS 26.5 Simulator, covering
+request-budget ordering, delivery availability, partial add retry, cancellation
+readback, warning text in elder mode and existing reconciliation behavior.
+This is not exact-head CI, physical-device
 delivery, or a claim that the OS accepted or delivered every request. PR #94
 remains Draft pending final gates, independent review and parent/main
 integration; #17 owns the real notification and AlarmKit device matrix.

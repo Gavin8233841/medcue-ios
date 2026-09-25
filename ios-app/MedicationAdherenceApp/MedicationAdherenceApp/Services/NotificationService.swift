@@ -92,9 +92,6 @@ struct MedicationReminderRequestExecutionOutcome: Equatable {
         guard baseScheduled else {
             return .unavailable(message: "基础提醒未能安排，请稍后重试。")
         }
-        guard escalationScheduled else {
-            return .unavailable(message: "基础提醒已安排，升级提醒未能安排，请稍后重试。")
-        }
         var degradations: [String] = []
         if wantsAlarm && !plannedKinds.contains(.baseAlarm) {
             degradations.append("所选 iPhone 闹钟未安排，已改用普通通知；请检查闹钟权限")
@@ -104,7 +101,9 @@ struct MedicationReminderRequestExecutionOutcome: Equatable {
         if failedKinds.contains(.baseNotification) {
             degradations.append("普通通知未安排，iPhone 闹钟仍已安排")
         }
-        if wantsEscalationAlarm && plannedKinds.contains(.escalationNotification) {
+        if !escalationScheduled {
+            degradations.append("基础提醒已安排，升级提醒未能安排")
+        } else if wantsEscalationAlarm && plannedKinds.contains(.escalationNotification) {
             degradations.append("升级闹钟未安排，已改用普通通知；请检查闹钟权限")
         } else if usedEscalationNotificationFallback {
             degradations.append("升级闹钟未安排，已改用普通通知")
