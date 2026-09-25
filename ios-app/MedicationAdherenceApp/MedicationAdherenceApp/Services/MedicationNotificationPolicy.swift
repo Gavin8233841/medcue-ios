@@ -1,6 +1,36 @@
 import Foundation
 import MedicationAdherenceCore
 
+@MainActor
+enum MedicationReminderNotificationReadback {
+    static func converge(
+        targetedPendingIDs: Set<String>,
+        readPendingIDs: @MainActor () async -> Set<String>,
+        readDeliveredIDs: @MainActor () async -> Set<String>,
+        unwantedDeliveredIDs: @MainActor (Set<String>) -> Set<String>,
+        removePendingIDs: @MainActor (Set<String>) -> Void,
+        removeDeliveredIDs: @MainActor (Set<String>) -> Void,
+        pause: @MainActor () async -> Void
+    ) async -> (pendingIDs: Set<String>, remainingDeliveredIDs: Set<String>) {
+        var pendingIDs = await readPendingIDs()
+        var deliveredIDs = await readDeliveredIDs()
+        for _ in 0..<6 {
+            let remainingPendingIDs = targetedPendingIDs.intersection(pendingIDs)
+            let undesiredDeliveredIDs = unwantedDeliveredIDs(deliveredIDs)
+            if remainingPendingIDs.isEmpty && undesiredDeliveredIDs.isEmpty { break }
+            if !remainingPendingIDs.isEmpty { removePendingIDs(remainingPendingIDs) }
+            if !undesiredDeliveredIDs.isEmpty { removeDeliveredIDs(undesiredDeliveredIDs) }
+            await pause()
+            pendingIDs = await readPendingIDs()
+            deliveredIDs = await readDeliveredIDs()
+        }
+        // One final read reports any request that changed state during the last await.
+        pendingIDs = await readPendingIDs()
+        deliveredIDs = await readDeliveredIDs()
+        return (pendingIDs, unwantedDeliveredIDs(deliveredIDs))
+    }
+}
+
 enum MedicationNotificationAuthorizationStatus: Equatable, Sendable {
     case notDetermined
     case denied
