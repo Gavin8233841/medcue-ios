@@ -107,7 +107,7 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         // Inspect the selector without starting a download, consent change or AI request.
         scrollToHittable(runtime, in: app)
         runtime.tap()
-        XCTAssertFalse(cloudDescription.exists)
+        XCTAssertTrue(cloudDescription.waitForNonExistence(timeout: 5))
 
         app.tabBars.buttons.element(boundBy: 3).tap()
         let days = app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH %@", "records.week.day."))
