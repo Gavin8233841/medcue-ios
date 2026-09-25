@@ -107,7 +107,7 @@ patterns = {
     "posix-home-root": r"/(?:home)/",
     "posix-private-root": r"/(?:private)/",
     "posix-volumes-root": r"/(?:Volumes)/",
-    "windows-drive-root": r"(?<![A-Za-z0-9])[A-Za-z]:[\\/]",
+    "windows-drive-root": r"(?<![A-Za-z0-9+.-])[A-Za-z]:[\\/]",
 }
 pattern_ids = policy.get("absolutePathPatterns")
 if not isinstance(pattern_ids, list) or not pattern_ids or any(not isinstance(item, str) for item in pattern_ids):

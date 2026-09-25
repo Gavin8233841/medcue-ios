@@ -34,7 +34,9 @@ A target at either boundary or below it is rejected before the installer
 creates or verifies a hook.
 Git for Windows drive-letter paths are converted to native Git Bash paths with
 `cygpath` before the same boundary checks; an unavailable or invalid conversion
-fails closed.
+fails closed. An ancestor symlink that leads into a linked worktree's shared Git
+directory is also rejected after resolving the complete path. Path reads retain
+and reject trailing control characters before any normalization.
 
 ## Checks
 
@@ -44,7 +46,7 @@ fails closed.
 - `git diff --cached --check` blocks trailing whitespace and malformed staged
   patches.
 - Added staged lines are checked for common local-machine path roots and
-  Windows drive paths. HTTP and HTTPS URLs are allowed, but a real drive path
+  Windows drive paths. HTTP, HTTPS, and other valid URI schemes are allowed, but a real drive path
   elsewhere on the same line is still rejected. Use `<PROJECT_ROOT>` or another
   sanitized placeholder in committed examples. The tracked configuration
   stores symbolic rule IDs so the policy itself does not contain a machine

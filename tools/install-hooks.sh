@@ -22,16 +22,25 @@ fail() {
     exit 2
 }
 
+capture_path_line() {
+    local output
+    output="$("$@" && printf '\034')" || return 1
+    [[ "$output" == *$'\n'$'\034' ]] || return 1
+    CAPTURED_PATH="${output%$'\n'$'\034'}"
+    [[ "$CAPTURED_PATH" != *[[:cntrl:]]* ]]
+}
+
 normalize_git_path() {
-    local path="$1"
-    if [[ "$path" =~ ^[A-Za-z]:[/\\] ]]; then
+    NORMALIZED_GIT_PATH="$1"
+    [[ "$NORMALIZED_GIT_PATH" != *[[:cntrl:]]* ]] || fail 'Git path contains a control character'
+    if [[ "$NORMALIZED_GIT_PATH" =~ ^[A-Za-z]:[/\\] ]]; then
         command -v cygpath >/dev/null 2>&1 || fail 'Git returned a Windows drive path but cygpath is unavailable'
-        path="$(cygpath -u "$path")" || fail 'cannot normalize the Git hooks drive path'
-        [[ "$path" == /* ]] || fail 'normalized Git hooks drive path is not absolute'
-    elif [[ "$path" =~ ^[A-Za-z]: ]]; then
+        capture_path_line cygpath -u "$NORMALIZED_GIT_PATH" || fail 'cannot normalize the Git hooks drive path'
+        NORMALIZED_GIT_PATH="$CAPTURED_PATH"
+        [[ "$NORMALIZED_GIT_PATH" == /* ]] || fail 'normalized Git hooks drive path is not absolute'
+    elif [[ "$NORMALIZED_GIT_PATH" =~ ^[A-Za-z]: ]]; then
         fail 'refusing a drive-relative Git hooks path'
     fi
-    printf '%s\n' "$path"
 }
 
 CONFIGURED_HOOKS_PATH=''
@@ -50,7 +59,8 @@ if [[ ${#hooks_config_fields[@]} -eq 4 && "${hooks_config_fields[3]}" == 0 ]]; t
         local|worktree) ;;
         *) fail 'refusing core.hooksPath from global, system, command, or unknown scope; configure a repository-local or worktree-specific path explicitly' ;;
     esac
-    CONFIGURED_HOOKS_PATH="$(normalize_git_path "${hooks_config_fields[2]}")"
+    normalize_git_path "${hooks_config_fields[2]}"
+    CONFIGURED_HOOKS_PATH="$NORMALIZED_GIT_PATH"
     case "$CONFIGURED_HOOKS_PATH" in
         *[[:cntrl:]]*)
             fail 'Git hooks path contains a control character'
@@ -59,16 +69,21 @@ if [[ ${#hooks_config_fields[@]} -eq 4 && "${hooks_config_fields[3]}" == 0 ]]; t
 elif [[ ${#hooks_config_fields[@]} -ne 1 || "${hooks_config_fields[0]}" != 1 ]]; then
     fail 'cannot verify the effective Git hooks path configuration scope'
 fi
-if ! HOOKS_PATH="$(git -C "$ROOT_DIR" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)"; then
+if ! capture_path_line git -C "$ROOT_DIR" rev-parse --path-format=absolute --git-path hooks 2>/dev/null; then
     fail "Git hooks path is disabled or cannot be resolved for $ROOT_DIR"
 fi
-if ! REPO_GIT_DIR="$(git -C "$ROOT_DIR" rev-parse --path-format=absolute --git-dir 2>/dev/null)" ||
-    ! COMMON_GIT_DIR="$(git -C "$ROOT_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"; then
+normalize_git_path "$CAPTURED_PATH"
+HOOKS_PATH="$NORMALIZED_GIT_PATH"
+if ! capture_path_line git -C "$ROOT_DIR" rev-parse --path-format=absolute --git-dir 2>/dev/null; then
     fail "cannot resolve Git worktree directories for $ROOT_DIR"
 fi
-HOOKS_PATH="$(normalize_git_path "$HOOKS_PATH")"
-REPO_GIT_DIR="$(normalize_git_path "$REPO_GIT_DIR")"
-COMMON_GIT_DIR="$(normalize_git_path "$COMMON_GIT_DIR")"
+normalize_git_path "$CAPTURED_PATH"
+REPO_GIT_DIR="$NORMALIZED_GIT_PATH"
+if ! capture_path_line git -C "$ROOT_DIR" rev-parse --path-format=absolute --git-common-dir 2>/dev/null; then
+    fail "cannot resolve Git worktree directories for $ROOT_DIR"
+fi
+normalize_git_path "$CAPTURED_PATH"
+COMMON_GIT_DIR="$NORMALIZED_GIT_PATH"
 
 case "$HOOKS_PATH" in
     ''|.|./|"$ROOT_DIR")
@@ -119,6 +134,12 @@ reject_symlink_components() {
             if ! resolved="$(cd "$current" 2>/dev/null && pwd -P)"; then
                 fail "Git hooks path contains an unresolvable symbolic-link component: $current"
             fi
+            if [[ "$resolved" == "$ROOT_DIR" ]]; then
+                fail "Git hooks path is disabled or resolves to the repository root through a symbolic-link component: $current"
+            fi
+            if [[ "$resolved" == "$COMMON_GIT_DIR" ]]; then
+                fail "Git hooks path contains a symbolic-link component at the shared Git boundary: $current"
+            fi
             if [[ "$ROOT_DIR" != "$resolved"/* && "$COMMON_GIT_DIR" != "$resolved"/* ]]; then
                 fail "Git hooks path contains a symbolic-link component: $current"
             fi
@@ -129,6 +150,14 @@ reject_symlink_components() {
             physical_current="$physical_current/$component"
         fi
     done
+
+    # Ancestor aliases can be safe, but their appended components must not
+    # enter the shared Git directory of a linked worktree.
+    if [[ "$REPO_GIT_DIR" != "$COMMON_GIT_DIR" &&
+        ( "$physical_current" == "$COMMON_GIT_DIR" ||
+          "$physical_current" == "$COMMON_GIT_DIR"/* ) ]]; then
+        fail "Git hooks path resolves inside the shared Git directory: $path"
+    fi
 }
 
 if [[ -n "$CONFIGURED_HOOKS_PATH" ]]; then
@@ -137,8 +166,11 @@ if [[ -n "$CONFIGURED_HOOKS_PATH" ]]; then
         *) CONFIGURED_HOOKS_DIR="$ROOT_DIR/$CONFIGURED_HOOKS_PATH" ;;
     esac
     reject_symlink_components "$CONFIGURED_HOOKS_DIR"
+else
+    # Git may render an explicit aliased path differently; the raw configured
+    # path was checked above, so scan the effective path only by default.
+    reject_symlink_components "$HOOK_DIR"
 fi
-reject_symlink_components "$HOOK_DIR"
 
 if [[ "$REPO_GIT_DIR" != "$COMMON_GIT_DIR" && ( "$HOOKS_PATH" == "$COMMON_GIT_DIR" || "$HOOKS_PATH" == "$COMMON_GIT_DIR"/* ) ]]; then
     fail "refusing a hooks path inside the shared Git directory for a linked worktree: $HOOKS_PATH; configure a worktree-specific core.hooksPath"

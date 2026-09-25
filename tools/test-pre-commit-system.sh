@@ -66,7 +66,8 @@ run_fixture_boundary_tests() (
     local absolute_hooks absolute_hook_path linked_fixture shared_custom_hooks textconv_script textconv_marker fake_local_path
     local symlink_hooks symlink_target absolute_symlink_hooks absolute_symlink_target fake_bin
     local python_fallback_bin crlf_site windows_bin windows_hooks windows_drive_hooks real_git
-    local external_hooks_parent external_hooks_link conflict_sha hardlink_hooks hardlink_target
+    local external_hooks_parent external_hooks_link ancestor_hooks_parent ancestor_hooks_link ancestor_hooks_path
+    local fixture_name conflict_sha hardlink_hooks hardlink_target
     local synthetic_marker fixture_output ambient_global ambient_system scope_hooks type_blob
     temp_root="${TMPDIR:-/tmp}"
     fixture="$(mktemp -d "$temp_root/medcue-precommit-fixture.XXXXXX")"
@@ -120,6 +121,21 @@ run_fixture_boundary_tests() (
     [[ ! -e "$fixture/.git/hooks/pre-commit" ]] || fail 'linked-worktree installer created a shared hook'
     printf '[PASS] installer rejects the common hooks directory for linked worktrees\n'
 
+    git -C "$fixture" config core.hooksPath "$fixture/.newline-hooks"$'\n'
+    if output="$(cd /tmp && "$fixture/tools/install-hooks.sh" --check 2>&1)"; then
+        fail 'hooks path with trailing newline unexpectedly passed installer --check'
+    fi
+    if ! printf '%s\n' "$output" | grep -Fq -- 'control character'; then
+        printf '%s\n' "$output" >&2
+        fail 'trailing newline hooks path rejection was not explicit'
+    fi
+    if output="$(cd /tmp && "$fixture/tools/install-hooks.sh" 2>&1)"; then
+        fail 'hooks path with trailing newline unexpectedly installed'
+    fi
+    [[ ! -e "$fixture/.newline-hooks/pre-commit" ]] || fail 'trailing newline hooks path wrote to a different directory'
+    git -C "$fixture" config --unset-all core.hooksPath
+    printf '[PASS] installer rejects a hooks path with a trailing newline\n'
+
     shared_custom_hooks="$fixture_physical/.git/custom-hooks"
     git -C "$linked_fixture" config core.hooksPath "$shared_custom_hooks"
     [[ ! -e "$shared_custom_hooks" ]] || fail 'fixture shared custom hooks directory unexpectedly exists before check'
@@ -151,6 +167,27 @@ run_fixture_boundary_tests() (
     [[ ! -e "$fixture_physical/.git/pre-commit" ]] || fail 'external common-Git symlink installer wrote a shared hook'
     git -C "$fixture" config --unset-all core.hooksPath || true
     printf '[PASS] installer rejects an external symlink to the common Git directory\n'
+
+    ancestor_hooks_parent="$(mktemp -d "$temp_root/medcue-precommit-ancestor-hooks.XXXXXX")"
+    ancestor_hooks_link="$ancestor_hooks_parent/link-to-temp-root"
+    ln -s "$temp_root" "$ancestor_hooks_link"
+    fixture_name="${fixture##*/}"
+    ancestor_hooks_path="$ancestor_hooks_link/$fixture_name/.git/hooks"
+    git -C "$linked_fixture" config core.hooksPath "$ancestor_hooks_path"
+    if output="$(cd /tmp && "$linked_fixture/tools/install-hooks.sh" --check 2>&1)"; then
+        fail 'ancestor symlink with appended common-Git path unexpectedly passed installer --check'
+    fi
+    if ! printf '%s\n' "$output" | grep -Fq -- 'resolves inside the shared Git directory'; then
+        printf '%s\n' "$output" >&2
+        fail 'ancestor symlink final physical-path rejection was not explicit'
+    fi
+    if output="$(cd /tmp && "$linked_fixture/tools/install-hooks.sh" 2>&1)"; then
+        fail 'ancestor symlink with appended common-Git path unexpectedly installed'
+    fi
+    [[ ! -e "$fixture_physical/.git/hooks/pre-commit" ]] || fail 'ancestor symlink installer wrote into the shared Git hooks directory'
+    printf '[PASS] installer rejects an ancestor symlink that resolves into the shared Git directory\n'
+    git -C "$linked_fixture" config --unset-all core.hooksPath || true
+    git -C "$fixture" config --unset-all core.hooksPath || true
 
     fixture_reset_index() {
         GIT_INDEX_FILE="$fixture_index" git -C "$fixture" read-tree HEAD
@@ -315,6 +352,11 @@ PY
     printf 'const endpoints = ["http://127.0.0.1", "https://127.0.0.1:8787/v1"];\n' >"$fixture/tools/fixture-url.js"
     fixture_stage tools/fixture-url.js
     fixture_expect_success 'HTTP and HTTPS URLs are not drive paths'
+
+    fixture_reset_index
+    printf 'const schemes = ["x-y:/resource", "x.y:/resource", "x+y:/resource"];\n' >"$fixture/tools/fixture-other-schemes.js"
+    fixture_stage tools/fixture-other-schemes.js
+    fixture_expect_success 'legal URI schemes are not drive paths'
 
     fixture_reset_index
     printf 'const local = "%s";\n' "$(printf '%s%s' C ':/Synthetic/fixture.txt')" >"$fixture/tools/fixture-drive.js"
@@ -525,7 +567,11 @@ PY
     cat >"$windows_bin/git" <<'SH'
 #!/usr/bin/env bash
 if [[ $# -eq 6 && "$3" == rev-parse && "$5" == --git-path && "$6" == hooks ]]; then
-    printf '%s%s\n' D ':/hooks'
+    if [[ "${MEDCUE_TEST_TRAILING_LF:-}" == 1 ]]; then
+        printf '%s%s\n\n' D ':/hooks'
+    else
+        printf '%s%s\n' D ':/hooks'
+    fi
 else
     exec "$MEDCUE_TEST_REAL_GIT" "$@"
 fi
@@ -552,6 +598,14 @@ SH
     fi
     [[ -f "$windows_hooks/pre-commit" ]] || fail 'normalized Windows drive hook was not installed'
     [[ ! -e "$fixture/$windows_drive_hooks/pre-commit" ]] || fail 'installer used a repository-relative D: path'
+    if output="$(cd /tmp && PATH="$windows_bin:$PATH" MEDCUE_TEST_TRAILING_LF=1 MEDCUE_TEST_REAL_GIT="$real_git" MEDCUE_TEST_WINDOWS_HOOKS="$windows_hooks" "$fixture/tools/install-hooks.sh" --check 2>&1)"; then
+        fail 'Git hooks path output with trailing newline unexpectedly passed --check'
+    fi
+    if ! printf '%s\n' "$output" | grep -Fq -- 'cannot be resolved'; then
+        printf '%s\n' "$output" >&2
+        fail 'trailing newline Git output rejection was not explicit'
+    fi
+    printf '[PASS] installer rejects trailing newline in Git hooks path output\n'
     printf '%s\n' '#!/bin/sh' 'printf "%s\\n" relative-hooks' >"$windows_bin/cygpath"
     chmod +x "$windows_bin/cygpath"
     if output="$(cd /tmp && PATH="$windows_bin:$PATH" MEDCUE_TEST_REAL_GIT="$real_git" MEDCUE_TEST_WINDOWS_HOOKS="$windows_hooks" "$fixture/tools/install-hooks.sh" --check 2>&1)"; then
