@@ -200,6 +200,71 @@ struct MedicationReminderPostCommitSchedulerTests {
         #expect(targets.alarmIDs.contains(obsoleteTask))
     }
 
+    @Test @MainActor
+    func baseTimeCrossingDuringSystemWaitStillSchedulesEscalation() async {
+        let beforeWait = Date(timeIntervalSince1970: 1_000)
+        let baseAt = beforeWait.addingTimeInterval(1)
+        let escalationAt = baseAt.addingTimeInterval(300)
+        let planned: [MedicationReminderRequestKind] = [.baseNotification, .escalationAlarm]
+        let before = MedicationReminderRequestTiming.kindsStillDue(
+            from: planned, baseDueAt: baseAt, escalationDueAt: escalationAt,
+            now: beforeWait, wantsEscalation: true,
+            notificationAvailable: true, alarmAvailable: true
+        )
+        #expect(before == planned)
+
+        let afterWait = beforeWait.addingTimeInterval(2)
+        let after = MedicationReminderRequestTiming.kindsStillDue(
+            from: planned, baseDueAt: baseAt, escalationDueAt: escalationAt,
+            now: afterWait, wantsEscalation: true,
+            notificationAvailable: true, alarmAvailable: true
+        )
+        #expect(after == [.escalationAlarm])
+        let reservedBaseOnly = MedicationReminderRequestTiming.kindsStillDue(
+            from: [.baseNotification], baseDueAt: baseAt, escalationDueAt: escalationAt,
+            now: afterWait, wantsEscalation: true,
+            notificationAvailable: true, alarmAvailable: true
+        )
+        #expect(reservedBaseOnly == [.escalationAlarm])
+        let outcome = await MedicationReminderRequestExecutor(
+            addBaseNotification: { Issue.record("Expired base must not be added"); return false },
+            addBaseAlarm: { Issue.record("Expired base must not be added"); return false },
+            addEscalationNotification: { Issue.record("Alarm succeeds without fallback"); return false },
+            addEscalationAlarm: { true }
+        ).execute(after)
+        #expect(outcome.schedulingResult(
+            wantsAlarm: false, wantsEscalationAlarm: true, plannedKinds: after
+        ) == .scheduled)
+
+        let crossingExecutor = MedicationReminderRequestExecutor(
+            addBaseNotification: { false },
+            addBaseAlarm: { Issue.record("Unplanned base alarm must not be added"); return false },
+            addEscalationNotification: { Issue.record("Alarm succeeds without fallback"); return false },
+            addEscalationAlarm: { true }
+        )
+        let initialAttempt = await crossingExecutor.execute(planned)
+        #expect(!initialAttempt.baseScheduled && !initialAttempt.escalationScheduled)
+        let retryKind = MedicationReminderRequestTiming.escalationKindAfterFailedBase(
+            from: planned, baseDueAt: baseAt, escalationDueAt: escalationAt,
+            now: afterWait, wantsEscalation: true,
+            notificationAvailable: true, alarmAvailable: true
+        )
+        #expect(retryKind == .escalationAlarm)
+        if let retryKind {
+            let retried = await crossingExecutor.execute([retryKind])
+            #expect(retried.schedulingResult(
+                wantsAlarm: false, wantsEscalationAlarm: true, plannedKinds: [retryKind]
+            ) == .scheduled)
+        }
+
+        let afterEscalation = MedicationReminderRequestTiming.kindsStillDue(
+            from: planned, baseDueAt: baseAt, escalationDueAt: escalationAt,
+            now: escalationAt, wantsEscalation: false,
+            notificationAvailable: true, alarmAvailable: true
+        )
+        #expect(afterEscalation.isEmpty)
+    }
+
     @Test
     func actualRequestBudgetCountsOtherPlansAndEveryDeliverySurface() {
         let now = Date(timeIntervalSince1970: 1_000)

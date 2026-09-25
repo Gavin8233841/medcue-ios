@@ -197,6 +197,61 @@ struct MedicationReminderCancellationTargets {
     }
 }
 
+enum MedicationReminderRequestTiming {
+    static func kindsStillDue(
+        from plannedKinds: [MedicationReminderRequestKind],
+        baseDueAt: Date,
+        escalationDueAt: Date,
+        now: Date,
+        wantsEscalation: Bool,
+        notificationAvailable: Bool,
+        alarmAvailable: Bool
+    ) -> [MedicationReminderRequestKind] {
+        var activeKinds = plannedKinds.filter { kind in
+            switch kind {
+            case .baseNotification, .baseAlarm: return baseDueAt > now
+            case .escalationNotification, .escalationAlarm: return escalationDueAt > now
+            }
+        }
+        if baseDueAt <= now,
+           wantsEscalation,
+           escalationDueAt > now,
+           activeKinds.isEmpty,
+           plannedKinds.contains(where: { $0 == .baseNotification || $0 == .baseAlarm }) {
+            // Reuse the slot reserved for a base request that expired while the queue was busy.
+            if alarmAvailable {
+                activeKinds = [.escalationAlarm]
+            } else if notificationAvailable {
+                activeKinds = [.escalationNotification]
+            }
+        }
+        return activeKinds
+    }
+
+    static func escalationKindAfterFailedBase(
+        from plannedKinds: [MedicationReminderRequestKind],
+        baseDueAt: Date,
+        escalationDueAt: Date,
+        now: Date,
+        wantsEscalation: Bool,
+        notificationAvailable: Bool,
+        alarmAvailable: Bool
+    ) -> MedicationReminderRequestKind? {
+        let plannedBase = plannedKinds.contains(.baseNotification) || plannedKinds.contains(.baseAlarm)
+        guard plannedBase, baseDueAt <= now, wantsEscalation, escalationDueAt > now else {
+            return nil
+        }
+        if let plannedEscalation = plannedKinds.first(where: {
+            $0 == .escalationAlarm || $0 == .escalationNotification
+        }) {
+            return plannedEscalation
+        }
+        if alarmAvailable { return .escalationAlarm }
+        if notificationAvailable { return .escalationNotification }
+        return nil
+    }
+}
+
 @MainActor
 struct MedicationReminderRequestExecutor {
     let addBaseNotification: @MainActor () async -> Bool
@@ -538,13 +593,13 @@ final class NotificationService: ObservableObject {
         var warningState = pruneExistingPrefixRequests
             ? MedicationReminderSyncWarningState()
             : loadReminderSyncWarningState()
-        let now = Date()
+        let initialNow = Date()
         var seenTaskIDs: Set<UUID> = []
         let activeEntries = snapshot.entries
             .filter {
                 $0.medicationIsActive && $0.taskIsOpen
-                    && ($0.dueAt > now || ($0.escalatesToAlarmWhenUnhandled
-                        && reminderPolicy.escalationDueAt(for: $0.dueAt) > now))
+                    && ($0.dueAt > initialNow || ($0.escalatesToAlarmWhenUnhandled
+                        && reminderPolicy.escalationDueAt(for: $0.dueAt) > initialNow))
             }
             .sorted {
                 $0.dueAt == $1.dueAt
@@ -553,7 +608,7 @@ final class NotificationService: ObservableObject {
             }
             .filter { seenTaskIDs.insert($0.taskID).inserted }
         let affectedTaskIDs = Set(snapshot.entries.map(\.taskID) + snapshot.cancelledTaskIDs)
-        let preserveBaseForTaskIDs = Set(activeEntries.filter { $0.dueAt <= now }.map(\.taskID))
+        let preserveBaseForTaskIDs = Set(activeEntries.filter { $0.dueAt <= initialNow }.map(\.taskID))
         guard let cleanup = await removeExistingReminderRequests(
             for: affectedTaskIDs,
             pruneAllReminders: pruneExistingPrefixRequests,
@@ -587,19 +642,22 @@ final class NotificationService: ObservableObject {
             notificationAvailable = await ensureNotificationAuthorizationForScheduling()
         }
         let alarmAvailable = hasAlarmAuthorization
+        let schedulingNow = Date()
         let schedulableEntries = activeEntries.filter {
             !cleanup.blockedTaskIDs.contains($0.taskID)
+                && ($0.dueAt > schedulingNow || ($0.escalatesToAlarmWhenUnhandled
+                    && reminderPolicy.escalationDueAt(for: $0.dueAt) > schedulingNow))
         }
         let plan = notificationPolicy.requestPlan(
             candidates: schedulableEntries.map {
                 MedicationReminderRequestCandidate(
                     taskID: $0.taskID,
-                    dueAt: $0.dueAt > now
+                    dueAt: $0.dueAt > schedulingNow
                         ? $0.dueAt : reminderPolicy.escalationDueAt(for: $0.dueAt),
                     wantsAlarm: $0.deliveryMethodRaw == StoredReminderDeliveryMethod.alarm.rawValue,
                     wantsEscalation: $0.escalatesToAlarmWhenUnhandled
-                        && reminderPolicy.escalationDueAt(for: $0.dueAt) > now,
-                    wantsBase: $0.dueAt > now
+                        && reminderPolicy.escalationDueAt(for: $0.dueAt) > schedulingNow,
+                    wantsBase: $0.dueAt > schedulingNow
                 )
             },
             occupiedRequestCount: cleanup.occupiedRequestCount,
@@ -618,8 +676,8 @@ final class NotificationService: ObservableObject {
             let attempt = await scheduleAssignedReminder(
                 entry,
                 kinds: assignment.kinds,
-                wantsEscalation: entry.escalatesToAlarmWhenUnhandled
-                    && reminderPolicy.escalationDueAt(for: entry.dueAt) > now
+                notificationAvailable: notificationAvailable,
+                alarmAvailable: alarmAvailable
             )
             results[entry.taskID] = attempt.result
             if attempt.systemFailed {
@@ -646,10 +704,25 @@ final class NotificationService: ObservableObject {
     private func scheduleAssignedReminder(
         _ entry: MedicationReminderPostCommitEntry,
         kinds: [MedicationReminderRequestKind],
-        wantsEscalation: Bool
+        notificationAvailable: Bool,
+        alarmAvailable: Bool
     ) async -> (result: MedicationReminderSchedulingResult, systemFailed: Bool) {
         let escalationAt = reminderPolicy.escalationDueAt(for: entry.dueAt)
-        let outcome = await MedicationReminderRequestExecutor(
+        let currentNow = Date()
+        let wantsEscalation = entry.escalatesToAlarmWhenUnhandled && escalationAt > currentNow
+        let activeKinds = MedicationReminderRequestTiming.kindsStillDue(
+            from: kinds,
+            baseDueAt: entry.dueAt,
+            escalationDueAt: escalationAt,
+            now: currentNow,
+            wantsEscalation: wantsEscalation,
+            notificationAvailable: notificationAvailable,
+            alarmAvailable: alarmAvailable
+        )
+        guard !activeKinds.isEmpty else {
+            return (.unavailable(message: "提醒时间已过，请检查用药记录。"), false)
+        }
+        let executor = MedicationReminderRequestExecutor(
             addBaseNotification: {
                 await self.scheduleNotificationReminder(for: entry, refreshPendingCount: false) == .scheduled
             },
@@ -672,15 +745,36 @@ final class NotificationService: ObservableObject {
                 #endif
                 return false
             }
-        ).execute(kinds)
+        )
+        var executedKinds = activeKinds
+        var outcome = await executor.execute(activeKinds)
+        let initialSystemFailed = !outcome.failedKinds.isEmpty
+        let expiredBaseEscalation = outcome.baseScheduled ? nil
+            : MedicationReminderRequestTiming.escalationKindAfterFailedBase(
+                from: activeKinds,
+                baseDueAt: entry.dueAt,
+                escalationDueAt: escalationAt,
+                now: Date(),
+                wantsEscalation: entry.escalatesToAlarmWhenUnhandled,
+                notificationAvailable: notificationAvailable,
+                alarmAvailable: alarmAvailable
+            )
+        if let expiredBaseEscalation {
+            executedKinds = [expiredBaseEscalation]
+            outcome = await executor.execute(executedKinds)
+        }
         let wantsAlarm = entry.deliveryMethodRaw == StoredReminderDeliveryMethod.alarm.rawValue
+        var result = outcome.schedulingResult(
+            wantsAlarm: wantsAlarm,
+            wantsEscalationAlarm: entry.escalatesToAlarmWhenUnhandled && escalationAt > Date(),
+            plannedKinds: executedKinds
+        )
+        if expiredBaseEscalation != nil && result == .scheduled {
+            result = .unavailable(message: "基础提醒时间已过，已安排升级提醒；请查看用药记录。")
+        }
         return (
-            outcome.schedulingResult(
-                wantsAlarm: wantsAlarm,
-                wantsEscalationAlarm: wantsEscalation,
-                plannedKinds: kinds
-            ),
-            !outcome.failedKinds.isEmpty
+            result,
+            initialSystemFailed || !outcome.failedKinds.isEmpty
         )
     }
 
@@ -916,6 +1010,7 @@ final class NotificationService: ObservableObject {
         guard await ensureNotificationAuthorizationForScheduling() else {
             return false
         }
+        guard escalationAt > Date() else { return false }
 
         let content = UNMutableNotificationContent()
         content.title = "仍未确认服药"

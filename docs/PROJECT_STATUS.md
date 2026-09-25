@@ -243,6 +243,9 @@ stable task ID. If the base time has passed but the five-minute escalation is
 still ahead, the open task remains eligible for escalation only. Replanning
 preserves its existing base notification or alarm while replacing the future
 escalation, and ranks it by the next actual request time.
+The scheduler rechecks both times after cancellation and permission waits and
+before each add; if the base expires during an add attempt, its reserved slot
+can still carry the future escalation and the missed base is reported.
 When a candidate has only one free slot, its selected base delivery takes
 priority over escalation or a second base channel; the omitted escalation is
 reported as a partial result. If a selected base alarm then fails, an ordinary
@@ -274,9 +277,10 @@ test functions (40 unit, two UI), 47 test runs and zero failures on an iPhone
 17 Pro iOS 26.5 Simulator, covering
 request-budget ordering, delivery availability, partial add retry, cancellation
 readback, warning text in elder mode and existing reconciliation behavior.
-After the fix, the focused post-commit suite passed 15 tests with zero failures
-on the same Simulator, including the escalation window and preservation of a
-presenting base request. Full current-head CI remains pending.
+After the time-boundary fix, the focused post-commit suite passed 16 tests with
+zero failures on the same Simulator, including the escalation window, a base
+time crossed during system waits and preservation of a presenting base request.
+Full current-head CI remains pending.
 This is not exact-head CI, physical-device
 delivery, or a claim that the OS accepted or delivered every request. PR #94
 remains Draft pending final gates, independent review and parent/main
