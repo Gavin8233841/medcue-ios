@@ -179,7 +179,8 @@ struct MedicationReminderCancellationTargets {
         existingAlarmIDs: Set<UUID>,
         pruneAllReminders: Bool,
         preserveBaseForTaskIDs: Set<UUID>,
-        preservedDeliveredNotificationIDs: Set<String> = []
+        preservedDeliveredNotificationIDs: Set<String> = [],
+        replacePreviouslyDisplayedContent: Bool = false
     ) {
         var notifications = Set(taskIDs.flatMap {
             [MedicationReminderSystemIdentifiers.baseNotification(for: $0),
@@ -195,11 +196,13 @@ struct MedicationReminderCancellationTargets {
             // AlarmKit is currently used only for medication reminders in this app.
             alarms.formUnion(existingAlarmIDs)
         }
-        notifications.subtract(preserveBaseForTaskIDs.map {
-            MedicationReminderSystemIdentifiers.baseNotification(for: $0)
-        })
-        alarms.subtract(preserveBaseForTaskIDs)
-        deliveredToRemove.subtract(preservedDeliveredNotificationIDs)
+        if !replacePreviouslyDisplayedContent {
+            notifications.subtract(preserveBaseForTaskIDs.map {
+                MedicationReminderSystemIdentifiers.baseNotification(for: $0)
+            })
+            alarms.subtract(preserveBaseForTaskIDs)
+            deliveredToRemove.subtract(preservedDeliveredNotificationIDs)
+        }
         notificationIDs = notifications
         deliveredNotificationIDsToRemove = deliveredToRemove
         alarmIDs = alarms
@@ -358,6 +361,7 @@ struct MedicationReminderRequestExecutor {
 final class NotificationService: ObservableObject {
     static let reminderNotificationUnavailableMessageKey = "reminderNotificationUnavailableMessage"
     static let reminderSystemSyncMessageKey = "reminderSystemSyncMessage"
+    private static let systemSurfacePrivacyMigrationKey = "systemSurfacePrivacyV1Applied"
     private static let reminderSystemSyncMessagesByTaskKey = "reminderSystemSyncMessagesByTask"
     private static let reminderSystemSyncGlobalMessageKey = "reminderSystemSyncGlobalMessage"
 
@@ -642,10 +646,13 @@ final class NotificationService: ObservableObject {
             }
             .filter { seenTaskIDs.insert($0.taskID).inserted }
         let affectedTaskIDs = Set(snapshot.entries.map(\.taskID) + snapshot.cancelledTaskIDs)
+        let replacePreviouslyDisplayedContent = pruneExistingPrefixRequests
+            && !defaults.bool(forKey: Self.systemSurfacePrivacyMigrationKey)
         guard let cleanup = await removeExistingReminderRequests(
             for: affectedTaskIDs,
             pruneAllReminders: pruneExistingPrefixRequests,
-            snapshot: snapshot
+            snapshot: snapshot,
+            replacePreviouslyDisplayedContent: replacePreviouslyDisplayedContent
         ) else {
             lastSystemOperationFailed = true
             let message = "提醒状态暂时无法核对，请稍后重试。"
@@ -668,6 +675,9 @@ final class NotificationService: ObservableObject {
             })
         }
         lastSystemOperationFailed = cleanup.failed
+        if replacePreviouslyDisplayedContent && !cleanup.failed && !cleanup.hasUnattributedFailure {
+            defaults.set(true, forKey: Self.systemSurfacePrivacyMigrationKey)
+        }
         let notificationAvailable: Bool
         let beforeAuthorizationNow = Date()
         if !activeEntries.contains(where: {
@@ -956,7 +966,8 @@ final class NotificationService: ObservableObject {
     private func removeExistingReminderRequests(
         for taskIDs: Set<UUID>,
         pruneAllReminders: Bool,
-        snapshot: MedicationReminderPostCommitSnapshot
+        snapshot: MedicationReminderPostCommitSnapshot,
+        replacePreviouslyDisplayedContent: Bool
     ) async -> ReminderCleanupResult? {
         let center = UNUserNotificationCenter.current()
         let pendingBefore = await center.pendingNotificationRequests()
@@ -973,7 +984,8 @@ final class NotificationService: ObservableObject {
             existingAlarmIDs: alarmsBefore,
             pruneAllReminders: pruneAllReminders,
             preserveBaseForTaskIDs: preserveBaseForTaskIDs,
-            preservedDeliveredNotificationIDs: snapshot.preservedDeliveredNotificationIDs(at: cleanupNow)
+            preservedDeliveredNotificationIDs: snapshot.preservedDeliveredNotificationIDs(at: cleanupNow),
+            replacePreviouslyDisplayedContent: replacePreviouslyDisplayedContent
         )
         let notificationIDs = targets.notificationIDs
         if !notificationIDs.isEmpty {
@@ -1020,7 +1032,8 @@ final class NotificationService: ObservableObject {
                     existingAlarmIDs: [],
                     pruneAllReminders: pruneAllReminders,
                     preserveBaseForTaskIDs: preserveBaseForTaskIDs,
-                    preservedDeliveredNotificationIDs: snapshot.preservedDeliveredNotificationIDs(at: Date())
+                    preservedDeliveredNotificationIDs: snapshot.preservedDeliveredNotificationIDs(at: Date()),
+                    replacePreviouslyDisplayedContent: replacePreviouslyDisplayedContent
                 ).deliveredNotificationIDsToRemove.intersection(deliveredIDs)
             },
             removePendingIDs: { ids in

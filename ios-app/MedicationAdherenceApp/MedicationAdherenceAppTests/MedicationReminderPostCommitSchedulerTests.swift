@@ -317,6 +317,31 @@ struct MedicationReminderPostCommitSchedulerTests {
     }
 
     @Test
+    func privacyMigrationRemovesLegacyContentEvenForOpenDueTasks() {
+        let openTask = UUID()
+        let openID = MedicationReminderSystemIdentifiers.baseNotification(for: openTask)
+        let escalationID = MedicationReminderSystemIdentifiers.escalationNotification(for: openTask)
+        let targets = MedicationReminderCancellationTargets(
+            taskIDs: [openTask],
+            pendingNotificationIDs: [openID, escalationID, "unrelated.notification"],
+            deliveredNotificationIDs: [openID, escalationID, "unrelated.notification"],
+            existingAlarmIDs: [openTask],
+            pruneAllReminders: true,
+            preserveBaseForTaskIDs: [openTask],
+            preservedDeliveredNotificationIDs: [openID],
+            replacePreviouslyDisplayedContent: true
+        )
+
+        #expect(targets.notificationIDs.contains(openID))
+        #expect(targets.notificationIDs.contains(escalationID))
+        #expect(targets.deliveredNotificationIDsToRemove.contains(openID))
+        #expect(targets.deliveredNotificationIDsToRemove.contains(escalationID))
+        #expect(targets.alarmIDs.contains(openTask))
+        #expect(!targets.notificationIDs.contains("unrelated.notification"))
+        #expect(!targets.deliveredNotificationIDsToRemove.contains("unrelated.notification"))
+    }
+
+    @Test
     func globalCleanupCatchesCompletedNotificationDeliveredDuringReadback() {
         let completedTask = UUID()
         let openTask = UUID()
