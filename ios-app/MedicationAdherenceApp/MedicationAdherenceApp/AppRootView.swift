@@ -437,6 +437,9 @@ struct AppRootView: View {
         } else if outcome == .scheduleFailed {
             didScheduleStartupReminderReconcile = false
             reminderReconciliationFailureMessage = "提醒时间暂时无法计算，现有提醒保持不变。请稍后重试。"
+        } else if outcome == .systemFailed {
+            didScheduleStartupReminderReconcile = false
+            reminderReconciliationFailureMessage = "部分提醒未能同步到系统，请稍后重试。"
         }
     }
 

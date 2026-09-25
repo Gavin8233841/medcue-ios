@@ -230,3 +230,30 @@ to exact-revision CI rather than duplicating the whole UI/build matrix locally.
 Final quick, review and CI evidence is recorded in the Issue/PR. This candidate
 is not integrated main or physical-device delivery evidence. Issue #82 B still
 owns actual-request budgets, partial failures and recovery.
+
+## Issue #82 B Candidate: Actual Request Budget and Recovery (2026-09-25)
+
+The iPhone post-commit and NotificationService paths now share one serialized
+system scheduler. Its app policy of 60 counts pending notification and AlarmKit
+requests, including other medications, base alerts, alarm delivery and
+escalation. Global reconciliation considers all plans; a local update reserves
+other pending requests. Candidates are ordered by due time and stable task ID.
+The policy is an app-side budget, not an assertion about an iOS system limit.
+
+Cancellation is read back before replacement. A request that remains pending
+blocks its own replacement; an AlarmKit read failure or unresolved cancellation
+is reported rather than hidden. Base and escalation additions return distinct
+failure outcomes, and an AlarmKit escalation failure can use a notification
+within its reserved slot. A full startup reconciliation or the startup retry
+alert can recover after partial success, using stable request identifiers.
+The Today and Settings warning surfaces disclose an incomplete system update.
+The shared path now uses a MainActor service; real-device save responsiveness
+after this change has not been measured and needs a device check before merge.
+
+Local candidate evidence: 33 focused hosted test functions, 38 test runs and
+zero failures on an iPhone 17 Pro iOS 26.5 Simulator, covering request-budget
+ordering, delivery availability, partial add retry, cancellation readback and
+existing reconciliation behavior. This is not exact-head CI, physical-device
+delivery, or a claim that the OS accepted or delivered every request. PR #94
+remains Draft pending final gates, independent review and parent/main
+integration; #17 owns the real notification and AlarmKit device matrix.

@@ -724,7 +724,7 @@ struct SettingsView: View {
         guard let detailText = notificationUnavailableDetailText else {
             return baseText
         }
-        return "\(baseText) · 普通提醒需检查：\(detailText)"
+        return "\(baseText) · 提醒需检查：\(detailText)"
     }
 
     private var notificationUnavailableDetailText: String? {

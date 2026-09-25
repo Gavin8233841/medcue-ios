@@ -17,24 +17,9 @@ enum MedicationNotificationAuthorizationDisposition: Equatable, Sendable {
 }
 
 struct MedicationNotificationPolicy: Equatable, Sendable {
-    let maximumScheduledEntries: Int
+    let maximumScheduledRequests: Int
 
-    static let `default` = MedicationNotificationPolicy(maximumScheduledEntries: 60)
-
-    func nearTermEntries<Element>(from entries: [Element]) -> ArraySlice<Element> {
-        entries.prefix(max(0, maximumScheduledEntries))
-    }
-
-    func boundedUniqueEntries<Element, ID: Hashable>(
-        from entries: [Element],
-        identifiedBy keyPath: KeyPath<Element, ID>
-    ) -> [Element] {
-        var seen: Set<ID> = []
-        let uniqueEntries = entries.filter { entry in
-            seen.insert(entry[keyPath: keyPath]).inserted
-        }
-        return Array(nearTermEntries(from: uniqueEntries))
-    }
+    static let `default` = MedicationNotificationPolicy(maximumScheduledRequests: 60)
 
     func triggerDateComponents(for date: Date, calendar: Calendar) -> DateComponents {
         var components = calendar.dateComponents(
@@ -84,5 +69,85 @@ struct MedicationNotificationPolicy: Equatable, Sendable {
         case .unknown:
             "普通提醒不可用：通知权限状态未知，请前往系统设置检查。"
         }
+    }
+}
+
+// The limit is an app scheduling policy, not a claim about an OS delivery limit.
+// A dose can occupy multiple system requests: a notification, an optional
+// AlarmKit alarm, and an escalation request.
+enum MedicationReminderRequestKind: Sendable, Equatable {
+    case baseNotification
+    case baseAlarm
+    case escalationNotification
+    case escalationAlarm
+}
+
+struct MedicationReminderRequestCandidate: Sendable, Equatable {
+    let taskID: UUID
+    let dueAt: Date
+    let wantsAlarm: Bool
+    let wantsEscalation: Bool
+}
+
+struct MedicationReminderRequestAssignment: Sendable, Equatable {
+    let taskID: UUID
+    let kinds: [MedicationReminderRequestKind]
+}
+
+struct MedicationReminderRequestPlan: Sendable, Equatable {
+    let assignments: [MedicationReminderRequestAssignment]
+    let deferredTaskIDs: [UUID]
+    let unavailableTaskIDs: [UUID]
+}
+
+extension MedicationNotificationPolicy {
+    func requestPlan(
+        candidates: [MedicationReminderRequestCandidate],
+        occupiedRequestCount: Int,
+        notificationAvailable: Bool,
+        alarmAvailable: Bool
+    ) -> MedicationReminderRequestPlan {
+        var remaining = max(0, maximumScheduledRequests - max(0, occupiedRequestCount))
+        var assigned: [MedicationReminderRequestAssignment] = []
+        var deferred: [UUID] = []
+        var unavailable: [UUID] = []
+        var seen: Set<UUID> = []
+        var reachedCapacity = false
+        for candidate in candidates.sorted(by: {
+            $0.dueAt == $1.dueAt
+                ? $0.taskID.uuidString < $1.taskID.uuidString
+                : $0.dueAt < $1.dueAt
+        }) where seen.insert(candidate.taskID).inserted {
+            var kinds: [MedicationReminderRequestKind] = []
+            if notificationAvailable {
+                kinds.append(.baseNotification)
+            }
+            if candidate.wantsAlarm && alarmAvailable {
+                kinds.append(.baseAlarm)
+            }
+            guard !kinds.isEmpty else {
+                unavailable.append(candidate.taskID)
+                continue
+            }
+            if candidate.wantsEscalation {
+                if alarmAvailable {
+                    kinds.append(.escalationAlarm)
+                } else if notificationAvailable {
+                    kinds.append(.escalationNotification)
+                }
+            }
+            guard !reachedCapacity && kinds.count <= remaining else {
+                reachedCapacity = true
+                deferred.append(candidate.taskID)
+                continue
+            }
+            remaining -= kinds.count
+            assigned.append(MedicationReminderRequestAssignment(taskID: candidate.taskID, kinds: kinds))
+        }
+        return MedicationReminderRequestPlan(
+            assignments: assigned,
+            deferredTaskIDs: deferred,
+            unavailableTaskIDs: unavailable
+        )
     }
 }

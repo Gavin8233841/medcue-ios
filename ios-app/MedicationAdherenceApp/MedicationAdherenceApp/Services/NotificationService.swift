@@ -22,6 +22,7 @@ enum MedicationReminderReconciliationOutcome: Sendable, Equatable {
     case readFailed(MedicationReminderReconciliationReadStage)
     case scheduleFailed
     case saveFailed
+    case systemFailed
 }
 
 @MainActor
@@ -49,6 +50,72 @@ struct MedicationNotificationRequestScheduler {
     }
 }
 
+enum MedicationReminderRequestExecutionOutcome: Equatable {
+    case scheduled
+    case baseFailed
+    case escalationFailed
+}
+
+enum MedicationReminderSystemIdentifiers {
+    static func baseNotification(for taskID: UUID) -> String {
+        "dose.\(taskID.uuidString)"
+    }
+
+    static func escalationNotification(for taskID: UUID) -> String {
+        "dose.escalation.\(taskID.uuidString)"
+    }
+
+    static func escalationAlarm(for taskID: UUID) -> UUID {
+        var rawUUID = taskID.uuid
+        rawUUID.0 ^= 0x80
+        return UUID(uuid: rawUUID)
+    }
+}
+
+enum MedicationReminderCancellationReadback {
+    static func blockedTaskIDs(
+        among taskIDs: Set<UUID>,
+        remainingNotificationIDs: Set<String>,
+        remainingAlarmIDs: Set<UUID>
+    ) -> Set<UUID> {
+        Set(taskIDs.filter {
+            remainingNotificationIDs.contains(MedicationReminderSystemIdentifiers.baseNotification(for: $0))
+                || remainingNotificationIDs.contains(MedicationReminderSystemIdentifiers.escalationNotification(for: $0))
+                || remainingAlarmIDs.contains($0)
+                || remainingAlarmIDs.contains(MedicationReminderSystemIdentifiers.escalationAlarm(for: $0))
+        })
+    }
+}
+
+@MainActor
+struct MedicationReminderRequestExecutor {
+    let addBaseNotification: @MainActor () async -> Bool
+    let addBaseAlarm: @MainActor () async -> Bool
+    let addEscalationNotification: @MainActor () async -> Bool
+    let addEscalationAlarm: @MainActor () async -> Bool
+
+    func execute(_ kinds: [MedicationReminderRequestKind]) async -> MedicationReminderRequestExecutionOutcome {
+        var baseScheduled = false
+        if kinds.contains(.baseNotification) {
+            baseScheduled = await addBaseNotification()
+        }
+        if kinds.contains(.baseAlarm) {
+            let alarmScheduled = await addBaseAlarm()
+            baseScheduled = baseScheduled || alarmScheduled
+        }
+        guard baseScheduled else { return .baseFailed }
+
+        if kinds.contains(.escalationAlarm) {
+            if await addEscalationAlarm() { return .scheduled }
+            return await addEscalationNotification() ? .scheduled : .escalationFailed
+        }
+        if kinds.contains(.escalationNotification) {
+            return await addEscalationNotification() ? .scheduled : .escalationFailed
+        }
+        return .scheduled
+    }
+}
+
 @MainActor
 final class NotificationService: ObservableObject {
     static let reminderNotificationUnavailableMessageKey = "reminderNotificationUnavailableMessage"
@@ -66,6 +133,7 @@ final class NotificationService: ObservableObject {
     private let reconciliationSaveOperation: (ModelContext) throws -> Void
     private let reconciliationSystemEffects: MedicationReminderReconciliationSystemEffects?
     private let reminderOperationQueue: ReminderOperationQueue
+    private var lastSystemOperationFailed = false
 
     init(
         reminderTaskCoordinator: MedicationReminderTaskCoordinator? = nil,
@@ -143,21 +211,28 @@ final class NotificationService: ObservableObject {
         }
 
         let snapshot = MedicationReminderPostCommitSnapshot(batches: batches)
+        lastReminderReconciliationOutcome = nil
         let operation = reminderOperationQueue.enqueue { @MainActor [self, snapshot] in
             if let reconciliationSystemEffects {
                 reconciliationSystemEffects.cancelReminders(snapshot.cancelledTaskIDs)
                 await reconciliationSystemEffects.scheduleReminderSnapshot(snapshot, true)
                 await reconciliationSystemEffects.refreshPendingReminderCount()
             } else {
-                cancelRemindersImmediately(for: snapshot.cancelledTaskIDs)
                 _ = await scheduleReminderSnapshotImmediately(
                     snapshot,
                     pruneExistingPrefixRequests: true
                 )
                 await refreshPendingReminderCount()
+                if lastSystemOperationFailed {
+                    lastReminderReconciliationOutcome = .systemFailed
+                    return
+                }
             }
         }
         await operation.value
+        if lastReminderReconciliationOutcome == .systemFailed {
+            return .systemFailed
+        }
         lastReminderReconciliationOutcome = .committed
         return .committed
     }
@@ -204,30 +279,16 @@ final class NotificationService: ObservableObject {
         _ entry: MedicationReminderPostCommitEntry,
         refreshPendingCount: Bool
     ) async -> MedicationReminderSchedulingResult {
-        guard entry.medicationIsActive else {
-            cancelReminderImmediately(for: entry.taskID)
-            authorizationMessage = "药物已归档或中断，未安排提醒"
-            if refreshPendingCount {
-                await refreshPendingReminderCount()
-            }
-            return .unavailable(message: "药品已停用，提醒未安排。")
-        }
-        cancelReminderImmediately(for: entry.taskID)
-        var result = await scheduleNotificationReminder(
-            for: entry,
+        let snapshot = MedicationReminderPostCommitSnapshot(
+            entries: [entry],
+            cancelledTaskIDs: []
+        )
+        let results = await scheduleReminderSnapshotImmediately(
+            snapshot,
             refreshPendingCount: refreshPendingCount
         )
-        if entry.deliveryMethodRaw == StoredReminderDeliveryMethod.alarm.rawValue,
-           entry.dueAt > Date(),
-           await scheduleAlarmReminder(for: entry) {
-            result = .scheduled
-        }
-        if entry.escalatesToAlarmWhenUnhandled {
-            await scheduleEscalationAlarmIfNeeded(for: entry)
-        } else {
-            cancelEscalationAlarmReminder(for: entry.taskID)
-        }
-        return result
+        return results[entry.taskID]
+            ?? .unavailable(message: "提醒未安排，请检查通知或闹钟权限后重试。")
     }
 
     func scheduleReminders(
@@ -255,7 +316,6 @@ final class NotificationService: ObservableObject {
         pruneExistingPrefixRequests: Bool = false
     ) -> Task<[UUID: MedicationReminderSchedulingResult], Never> {
         reminderOperationQueue.enqueue { @MainActor [self, snapshot] in
-            cancelRemindersImmediately(for: snapshot.cancelledTaskIDs)
             return await scheduleReminderSnapshotImmediately(
                 snapshot,
                 pruneExistingPrefixRequests: pruneExistingPrefixRequests
@@ -293,96 +353,247 @@ final class NotificationService: ObservableObject {
 
     private func scheduleReminderSnapshotImmediately(
         _ snapshot: MedicationReminderPostCommitSnapshot,
-        pruneExistingPrefixRequests: Bool = false
+        pruneExistingPrefixRequests: Bool = false,
+        refreshPendingCount: Bool = true
     ) async -> [UUID: MedicationReminderSchedulingResult] {
-        let sortedEntries = snapshot.entries
-            .filter { $0.medicationIsActive && $0.taskIsOpen && $0.dueAt > Date() }
-            .sorted { $0.dueAt < $1.dueAt }
-        let nearTermEntries = notificationPolicy.boundedUniqueEntries(
-            from: sortedEntries,
-            identifiedBy: \.taskID
+        lastSystemOperationFailed = false
+        let previousWarning = defaults.string(forKey: Self.reminderNotificationUnavailableMessageKey)
+        let now = Date()
+        var seenTaskIDs: Set<UUID> = []
+        let activeEntries = snapshot.entries
+            .filter { $0.medicationIsActive && $0.taskIsOpen && $0.dueAt > now }
+            .sorted {
+                $0.dueAt == $1.dueAt
+                    ? $0.taskID.uuidString < $1.taskID.uuidString
+                    : $0.dueAt < $1.dueAt
+            }
+            .filter { seenTaskIDs.insert($0.taskID).inserted }
+        let affectedTaskIDs = Set(snapshot.entries.map(\.taskID) + snapshot.cancelledTaskIDs)
+        guard let cleanup = await removeExistingReminderRequests(
+            for: affectedTaskIDs,
+            pruneAllReminders: pruneExistingPrefixRequests
+        ) else {
+            lastSystemOperationFailed = true
+            updateNotificationUnavailableMessage("提醒状态暂时无法核对，请稍后重试。")
+            if refreshPendingCount {
+                await refreshPendingReminderCount()
+            }
+            return Dictionary(uniqueKeysWithValues: activeEntries.map {
+                ($0.taskID, .unavailable(message: "提醒状态暂时无法核对，请稍后重试。"))
+            })
+        }
+        lastSystemOperationFailed = cleanup.failed
+        let notificationAvailable: Bool
+        if activeEntries.isEmpty {
+            notificationAvailable = false
+        } else {
+            notificationAvailable = await ensureNotificationAuthorizationForScheduling()
+        }
+        let alarmAvailable = hasAlarmAuthorization
+        let schedulableEntries = activeEntries.filter {
+            !cleanup.blockedTaskIDs.contains($0.taskID)
+        }
+        let plan = notificationPolicy.requestPlan(
+            candidates: schedulableEntries.map {
+                MedicationReminderRequestCandidate(
+                    taskID: $0.taskID,
+                    dueAt: $0.dueAt,
+                    wantsAlarm: $0.deliveryMethodRaw == StoredReminderDeliveryMethod.alarm.rawValue,
+                    wantsEscalation: $0.escalatesToAlarmWhenUnhandled
+                        && reminderPolicy.escalationDueAt(for: $0.dueAt) > now
+                )
+            },
+            occupiedRequestCount: cleanup.occupiedRequestCount,
+            notificationAvailable: notificationAvailable,
+            alarmAvailable: alarmAvailable
         )
-        let overflowTaskIDs = sortedEntries
-            .dropFirst(notificationPolicy.maximumScheduledEntries)
-            .map(\.taskID)
-
-        cancelRemindersImmediately(for: overflowTaskIDs)
-        if pruneExistingPrefixRequests {
-            await cancelScheduledNotificationRequests(except: Set(nearTermEntries.map { notificationIdentifier(for: $0.taskID) }))
-        }
-
+        let entriesByID = Dictionary(uniqueKeysWithValues: schedulableEntries.map { ($0.taskID, $0) })
         var results: [UUID: MedicationReminderSchedulingResult] = [:]
-        for entry in nearTermEntries {
-            results[entry.taskID] = await scheduleReminderImmediately(
-                entry,
-                refreshPendingCount: false
-            )
+        for taskID in cleanup.blockedTaskIDs {
+            if affectedTaskIDs.contains(taskID) {
+                results[taskID] = .unavailable(message: "旧提醒暂时无法取消，请稍后重试。")
+            }
         }
-        await refreshPendingReminderCount()
+        for assignment in plan.assignments {
+            guard let entry = entriesByID[assignment.taskID] else { continue }
+            let result = await scheduleAssignedReminder(entry, kinds: assignment.kinds)
+            results[entry.taskID] = result
+            if result.failureMessage != nil {
+                lastSystemOperationFailed = true
+            }
+        }
+        for taskID in plan.deferredTaskIDs {
+            results[taskID] = .unavailable(message: "近期提醒已达到本机排程预算，请稍后刷新。")
+        }
+        for taskID in plan.unavailableTaskIDs {
+            results[taskID] = .unavailable(message: "提醒未安排，请检查通知或闹钟权限。")
+        }
+        if lastSystemOperationFailed {
+            updateNotificationUnavailableMessage("部分提醒未能同步到系统；重新打开 App 后会重试。")
+        } else if !plan.unavailableTaskIDs.isEmpty {
+            updateNotificationUnavailableMessage("部分提醒未安排，请检查通知或闹钟权限。")
+        } else if !plan.deferredTaskIDs.isEmpty {
+            updateNotificationUnavailableMessage("近期提醒已达到本机排程预算；打开 App 后会继续安排较早的待办提醒。")
+        } else {
+            updateNotificationUnavailableMessage(pruneExistingPrefixRequests ? nil : previousWarning)
+        }
+        if refreshPendingCount {
+            await refreshPendingReminderCount()
+        }
         return results
+    }
+
+    private func scheduleAssignedReminder(
+        _ entry: MedicationReminderPostCommitEntry,
+        kinds: [MedicationReminderRequestKind]
+    ) async -> MedicationReminderSchedulingResult {
+        let escalationAt = reminderPolicy.escalationDueAt(for: entry.dueAt)
+        let outcome = await MedicationReminderRequestExecutor(
+            addBaseNotification: {
+                await self.scheduleNotificationReminder(for: entry, refreshPendingCount: false) == .scheduled
+            },
+            addBaseAlarm: {
+                await self.scheduleAlarmReminder(for: entry)
+            },
+            addEscalationNotification: {
+                await self.scheduleEscalationNotification(for: entry, escalationAt: escalationAt)
+            },
+            addEscalationAlarm: {
+                #if canImport(AlarmKit)
+                if #available(iOS 26.0, *) {
+                    return await self.scheduleAlarmReminder(
+                        for: entry,
+                        alarmID: self.escalationAlarmID(for: entry.taskID),
+                        dueAt: escalationAt,
+                        titlePrefix: "仍未确认"
+                    )
+                }
+                #endif
+                return false
+            }
+        ).execute(kinds)
+        switch outcome {
+        case .scheduled:
+            return .scheduled
+        case .baseFailed:
+            return .unavailable(message: "基础提醒未能安排，请稍后重试。")
+        case .escalationFailed:
+            return .unavailable(message: "基础提醒已安排，升级提醒未能安排，请稍后重试。")
+        }
     }
 
     @discardableResult
     func cancelReminders(for taskIDs: [UUID]) -> Task<Void, Never> {
         reminderOperationQueue.enqueue { @MainActor [self, taskIDs] in
-            cancelRemindersImmediately(for: taskIDs)
+            _ = await scheduleReminderSnapshotImmediately(
+                MedicationReminderPostCommitSnapshot(entries: [], cancelledTaskIDs: taskIDs)
+            )
         }
     }
 
     @discardableResult
     func cancelReminder(for taskID: UUID) -> Task<Void, Never> {
         reminderOperationQueue.enqueue { @MainActor [self, taskID] in
-            cancelReminderImmediately(for: taskID)
+            _ = await scheduleReminderSnapshotImmediately(
+                MedicationReminderPostCommitSnapshot(entries: [], cancelledTaskIDs: [taskID])
+            )
         }
     }
 
-    private func cancelRemindersImmediately(for taskIDs: [UUID]) {
-        taskIDs.forEach { cancelReminderImmediately(for: $0) }
+    private struct ReminderCleanupResult {
+        let occupiedRequestCount: Int
+        let blockedTaskIDs: Set<UUID>
+        let failed: Bool
     }
 
-    private func cancelReminderImmediately(for taskID: UUID) {
-        let identifier = notificationIdentifier(for: taskID)
-        let escalationIdentifier = escalationAlarmNotificationIdentifier(for: taskID)
-        let notificationIdentifiers = [identifier, escalationIdentifier]
-        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: notificationIdentifiers)
-        UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: notificationIdentifiers)
-        cancelAlarmReminder(for: taskID)
-        cancelEscalationAlarmReminder(for: taskID)
-    }
+    private func removeExistingReminderRequests(
+        for taskIDs: Set<UUID>,
+        pruneAllReminders: Bool
+    ) async -> ReminderCleanupResult? {
+        let center = UNUserNotificationCenter.current()
+        let pendingBefore = await center.pendingNotificationRequests()
+        guard let alarmsBefore = try? pendingAlarmIDs() else { return nil }
 
-    private func cancelScheduledNotificationRequests(except identifiersToKeep: Set<String>) async {
-        let pendingRequests = await UNUserNotificationCenter.current().pendingNotificationRequests()
-        let staleIdentifiers = pendingRequests
-            .map(\.identifier)
-            .filter { $0.hasPrefix(notificationIdentifierPrefix) && !identifiersToKeep.contains($0) }
-        guard !staleIdentifiers.isEmpty else {
-            return
+        var notificationIDs = Set(taskIDs.flatMap {
+            [notificationIdentifier(for: $0), escalationAlarmNotificationIdentifier(for: $0)]
+        })
+        if pruneAllReminders {
+            notificationIDs.formUnion(pendingBefore.map(\.identifier).filter {
+                $0.hasPrefix(notificationIdentifierPrefix)
+            })
         }
-        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: staleIdentifiers)
-        staleIdentifiers
-            .compactMap(taskIDFromNotificationIdentifier)
-            .forEach { taskID in
-                cancelReminderImmediately(for: taskID)
+        if !notificationIDs.isEmpty {
+            let identifiers = notificationIDs.sorted()
+            center.removePendingNotificationRequests(withIdentifiers: identifiers)
+            center.removeDeliveredNotifications(withIdentifiers: identifiers)
+        }
+
+        var alarmIDs = Set(taskIDs.flatMap { [$0, escalationAlarmID(for: $0)] })
+        if pruneAllReminders {
+            // The app currently creates only medication alarms in AlarmKit.
+            alarmIDs.formUnion(alarmsBefore)
+        }
+        #if canImport(AlarmKit)
+        if #available(iOS 26.0, *) {
+            for id in alarmIDs.intersection(alarmsBefore).sorted(by: {
+                $0.uuidString < $1.uuidString
+            }) {
+                do {
+                    try AlarmManager.shared.cancel(id: id)
+                } catch {
+                    // The readback below distinguishes a race with a fired alarm
+                    // from a cancellation that actually left a stale alarm.
+                }
+                // Keep the existing alert-stopping behavior for alarms that
+                // are already presenting while the user records an action.
+                try? AlarmManager.shared.stop(id: id)
             }
-    }
-
-    private func cancelAlarmReminder(for taskID: UUID) {
-        #if canImport(AlarmKit)
-        if #available(iOS 26.0, *) {
-            try? AlarmManager.shared.cancel(id: taskID)
-            try? AlarmManager.shared.stop(id: taskID)
         }
         #endif
+
+        var pendingAfter = await center.pendingNotificationRequests()
+        for _ in 0..<5 where pendingAfter.contains(where: { notificationIDs.contains($0.identifier) }) {
+            try? await Task.sleep(for: .milliseconds(80))
+            pendingAfter = await center.pendingNotificationRequests()
+        }
+        guard let alarmsAfter = try? pendingAlarmIDs() else { return nil }
+        let remainingNotificationIDs = notificationIDs.intersection(pendingAfter.map(\.identifier))
+        let remainingAlarmIDs = alarmIDs.intersection(alarmsAfter)
+        let blockedTaskIDs = MedicationReminderCancellationReadback.blockedTaskIDs(
+            among: taskIDs,
+            remainingNotificationIDs: remainingNotificationIDs,
+            remainingAlarmIDs: remainingAlarmIDs
+        )
+        return ReminderCleanupResult(
+            occupiedRequestCount: pendingAfter.count + alarmsAfter.count,
+            blockedTaskIDs: blockedTaskIDs,
+            failed: !remainingNotificationIDs.isEmpty || !remainingAlarmIDs.isEmpty
+        )
     }
 
-    private func cancelEscalationAlarmReminder(for taskID: UUID) {
+    private var hasAlarmAuthorization: Bool {
         #if canImport(AlarmKit)
         if #available(iOS 26.0, *) {
-            let escalationID = escalationAlarmID(for: taskID)
-            try? AlarmManager.shared.cancel(id: escalationID)
-            try? AlarmManager.shared.stop(id: escalationID)
+            return AlarmManager.shared.authorizationState == .authorized
         }
         #endif
+        return false
+    }
+
+    private func pendingAlarmIDs() throws -> Set<UUID> {
+        #if canImport(AlarmKit)
+        if #available(iOS 26.0, *) {
+            do {
+                return Set(try AlarmManager.shared.alarms.map(\.id))
+            } catch {
+                guard AlarmManager.shared.authorizationState != .authorized else {
+                    throw error
+                }
+                return []
+            }
+        }
+        #endif
+        return []
     }
 
     private func scheduleNotificationReminder(
@@ -495,35 +706,12 @@ final class NotificationService: ObservableObject {
         return false
     }
 
-    private func scheduleEscalationAlarmIfNeeded(for entry: MedicationReminderPostCommitEntry) async {
-        guard entry.taskIsOpen else {
-            return
-        }
-        let escalationAt = reminderPolicy.escalationDueAt(for: entry.dueAt)
-        guard escalationAt > Date() else {
-            return
-        }
-        #if canImport(AlarmKit)
-        if #available(iOS 26.0, *) {
-            if await scheduleAlarmReminder(
-                for: entry,
-                alarmID: escalationAlarmID(for: entry.taskID),
-                dueAt: escalationAt,
-                titlePrefix: "仍未确认"
-            ) {
-                return
-            }
-        }
-        #endif
-        await scheduleEscalationNotification(for: entry, escalationAt: escalationAt)
-    }
-
     private func scheduleEscalationNotification(
         for entry: MedicationReminderPostCommitEntry,
         escalationAt: Date
-    ) async {
+    ) async -> Bool {
         guard await ensureNotificationAuthorizationForScheduling() else {
-            return
+            return false
         }
 
         let content = UNMutableNotificationContent()
@@ -546,8 +734,10 @@ final class NotificationService: ObservableObject {
         do {
             try await UNUserNotificationCenter.current().add(request)
             updateNotificationUnavailableMessage(nil)
+            return true
         } catch {
             updateNotificationUnavailableMessage("普通提醒不可用：升级提醒暂时无法安排，请稍后重试。")
+            return false
         }
     }
 
@@ -600,29 +790,15 @@ final class NotificationService: ObservableObject {
     #endif
 
     private func notificationIdentifier(for taskID: UUID) -> String {
-        "\(notificationIdentifierPrefix)\(taskID.uuidString)"
+        MedicationReminderSystemIdentifiers.baseNotification(for: taskID)
     }
 
     private func escalationAlarmNotificationIdentifier(for taskID: UUID) -> String {
-        "\(escalationAlarmIdentifierPrefix)\(taskID.uuidString)"
+        MedicationReminderSystemIdentifiers.escalationNotification(for: taskID)
     }
 
     private func escalationAlarmID(for taskID: UUID) -> UUID {
-        var rawUUID = taskID.uuid
-        rawUUID.0 ^= 0x80
-        return UUID(uuid: rawUUID)
-    }
-
-    private func taskIDFromNotificationIdentifier(_ identifier: String) -> UUID? {
-        if identifier.hasPrefix(escalationAlarmIdentifierPrefix) {
-            let rawValue = String(identifier.dropFirst(escalationAlarmIdentifierPrefix.count))
-            return UUID(uuidString: rawValue)
-        }
-        guard identifier.hasPrefix(notificationIdentifierPrefix) else {
-            return nil
-        }
-        let rawValue = String(identifier.dropFirst(notificationIdentifierPrefix.count))
-        return UUID(uuidString: rawValue)
+        MedicationReminderSystemIdentifiers.escalationAlarm(for: taskID)
     }
 
     private func isBaseNotificationIdentifier(_ identifier: String) -> Bool {
