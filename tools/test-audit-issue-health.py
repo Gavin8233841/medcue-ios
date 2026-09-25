@@ -368,6 +368,32 @@ body:
         with self.assertRaisesRegex(audit.AuditError, "unsupported validations mapping"):
             audit.parse_issue_form(malformed, "flow.yml")
 
+    def test_parse_form_reads_valid_spaced_mapping_keys(self) -> None:
+        form_text = synthetic_form_text().replace(
+            "    validations:\n      required: true",
+            "    validations :\n      required : true",
+            1,
+        )
+        form = audit.parse_issue_form(form_text, "spaced.yml")
+        self.assertTrue(form.fields[0].required)
+
+    def test_parse_form_rejects_unsupported_validation_indentation(self) -> None:
+        malformed = synthetic_form_text().replace(
+            "      required: true", "        required: true", 1
+        )
+        with self.assertRaisesRegex(audit.AuditError, "unsupported validations entry"):
+            audit.parse_issue_form(malformed, "indented.yml")
+
+    def test_parse_form_rejects_quoted_validation_keys(self) -> None:
+        for original, replacement, expected in (
+            ("    validations:", '    "validations":', "unsupported body property"),
+            ("      required: true", '      "required": true', "unsupported validations entry"),
+        ):
+            with self.subTest(replacement=replacement):
+                malformed = synthetic_form_text().replace(original, replacement, 1)
+                with self.assertRaisesRegex(audit.AuditError, expected):
+                    audit.parse_issue_form(malformed, "quoted.yml")
+
     def test_form_sections_treat_github_no_response_marker_as_missing(self) -> None:
         sections = audit.extract_form_sections(
             "### Required\n\nA value\n\n### Optional\n\n<!-- hidden -->\n_No response_"

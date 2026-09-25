@@ -347,7 +347,7 @@ def parse_issue_form(text: str, path: str) -> IssueForm:
         required_seen = False
         section = ""
         for line in item_lines:
-            property_match = re.match(r"^    ([A-Za-z0-9_-]+):\s*(.*)$", line)
+            property_match = re.match(r"^    ([A-Za-z0-9_-]+)\s*:\s*(.*)$", line)
             if property_match:
                 key, value = property_match.groups()
                 if key == "type":
@@ -365,14 +365,16 @@ def parse_issue_form(text: str, path: str) -> IssueForm:
                     continue
                 section = ""
                 continue
+            if re.match(r"^    \S", line) and not line.lstrip().startswith("#"):
+                raise AuditError(f"Issue Form has unsupported body property: {path}")
             if section == "attributes":
-                label_match = re.match(r"^      label:\s*(.*)$", line)
+                label_match = re.match(r"^      label\s*:\s*(.*)$", line)
                 if label_match:
                     if label:
                         raise AuditError(f"Issue Form body item repeats label: {path}")
                     label = yaml_scalar(label_match.group(1)).strip()
             elif section == "validations":
-                required_match = re.match(r"^      required:\s*(.*)$", line)
+                required_match = re.match(r"^      required\s*:\s*(.*)$", line)
                 if required_match:
                     if required_seen:
                         raise AuditError(f"Issue Form body item repeats required: {path}")
@@ -381,6 +383,8 @@ def parse_issue_form(text: str, path: str) -> IssueForm:
                         raise AuditError(f"Issue Form has invalid required value: {path}")
                     required = scalar == "true"
                     required_seen = True
+                elif line.strip() and not line.lstrip().startswith("#"):
+                    raise AuditError(f"Issue Form has unsupported validations entry: {path}")
 
         if field_type not in {"markdown", "input", "textarea", "dropdown", "checkboxes"}:
             raise AuditError(f"Issue Form has missing or unsupported body item type: {path}")
