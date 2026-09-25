@@ -15,6 +15,9 @@ struct MedicationAdherenceApp: App {
     @AppStorage("appColorSchemePreference") private var appColorSchemePreference = AppColorSchemePreference.system.rawValue
 
     init() {
+        // Recover owned reports left behind when the previous process ended.
+        VisitSummaryPDFLifecycle.production().sweepExpiredFiles()
+
         let isPersistentStoreAvailable: Bool
         do {
             #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
