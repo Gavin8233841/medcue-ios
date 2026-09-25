@@ -13,7 +13,7 @@
 - [x] 成功发布的报告可读，并具有必需的完整文件保护等级
   - **实现**: `publish(data:to:)` 使用 `.completeFileProtection` 选项原子写入
   - **实现**: 写入后验证 `FileProtectionType.complete`，失败则删除文件并抛出错误
-  - **测试**: `testPublishWithProtection` 验证文件保护级别
+  - **测试**: `testPublishWithProtection` 在 Simulator 验证可读性和生命周期；Simulator 不返回文件保护属性，真机保护等级仍待 #17 验证
 
 - [x] 保护或最终化失败被报告为导出失败，且不留下任何部分或完整的报告
   - **实现**: `publish()` 保护验证失败时删除文件并抛出 `protectionVerificationFailed`
@@ -52,7 +52,8 @@
 ### ⚠️ 待精确提交验证
 
 - [ ] 完整原生验证门禁在 Pull Request 修订版本上通过
-  - **需要**: 在当前 HEAD 完成聚焦测试、完整 `tools/verify-native.sh` 与 CI
+  - **已有**: iPhone 17 Pro Simulator 聚焦测试 21/21 通过；当前提交的非构建门禁通过
+  - **需要**: 等待当前 HEAD 的完整原生 CI
 
 - [ ] Simulator 分享完成与取消的界面检查
   - **需要**: 观察活动完成前文件仍在，活动返回后自有临时文件被清理
@@ -76,4 +77,4 @@
 
 ### 当前下一步
 
-在 macOS 上运行聚焦测试及完整门禁，修正失败后提交精确 HEAD；运行 Simulator 分享与预览检查，并在 PR #60 记录实际结果。物理设备文件保护行为仍属 #17 发布证据边界。
+等待当前 HEAD 的完整 CI；运行 Simulator 分享与预览界面检查，并在 PR #60 记录实际结果。物理设备文件保护行为仍属 #17 发布证据边界。
