@@ -207,6 +207,12 @@ struct MedicationReminderCancellationTargets {
 }
 
 enum MedicationReminderRequestTiming {
+    static func hasIncompleteResult(
+        _ results: [UUID: MedicationReminderSchedulingResult]
+    ) -> Bool {
+        results.values.contains { $0.failureMessage != nil }
+    }
+
     static func missedBaseWhileQueued(
         baseDueAt: Date,
         escalationDueAt: Date,
@@ -747,6 +753,8 @@ final class NotificationService: ObservableObject {
             )
             lastSystemOperationFailed = true
         }
+        lastSystemOperationFailed = lastSystemOperationFailed
+            || MedicationReminderRequestTiming.hasIncompleteResult(results)
         warningState.replace(affectedTaskIDs: affectedTaskIDs, results: results)
         if cleanup.hasUnattributedFailure {
             warningState.globalMessage = "部分旧提醒未能从系统取消，请稍后重试。"

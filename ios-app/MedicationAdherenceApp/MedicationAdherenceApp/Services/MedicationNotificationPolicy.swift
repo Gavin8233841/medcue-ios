@@ -284,7 +284,7 @@ extension MedicationNotificationPolicy {
         }
         return MedicationReminderRequestPlan(
             assignments: assigned,
-            orderedRequests: selectedEvents.map {
+            orderedRequests: selectedEvents.sorted(by: eventOrder).map {
                 MedicationReminderPlannedRequest(
                     taskID: $0.taskID, dueAt: $0.dueAt, kind: $0.kind,
                     isOptional: $0.priority == 2

@@ -241,7 +241,8 @@ snapshot and replan all medication reminders, so an earlier new dose can
 displace later requests across plans. Base and escalation requests are budgeted
 by their actual due time across medications, with a stable task ID tie-breaker.
 A second base notification channel receives only spare capacity after the
-selected base and escalation requests. If the base time has passed but the
+selected base and escalation requests, then runs at its own due time among all
+selected requests. If the base time has passed but the
 five-minute escalation is still ahead, the open task remains eligible for
 escalation only. Replanning
 preserves its existing base notification or alarm while replacing the future
@@ -275,6 +276,8 @@ failure outcomes, and an AlarmKit escalation failure can use a notification
 within its reserved slot. A full startup reconciliation or the startup retry
 alert can recover after partial success, using stable request identifiers.
 The Today and Settings warning surfaces disclose an incomplete system update.
+Startup reconciliation also reports an incomplete outcome when budget or
+permission leaves a task unarranged, keeping the retry alert available.
 System sync warnings use a separate key from notification authorization warnings,
 so a permission refresh cannot erase an unresolved scheduling failure. If an
 AlarmKit add fails or alarm authorization is unavailable, an ordinary-notification
@@ -293,12 +296,13 @@ test functions (40 unit, two UI), 47 test runs and zero failures on an iPhone
 17 Pro iOS 26.5 Simulator, covering
 request-budget ordering, delivery availability, partial add retry, cancellation
 readback, warning text in elder mode and existing reconciliation behavior.
-After the cleanup and budget fixes, four focused suites passed 42 tests with
+After the cleanup and budget fixes, four focused suites passed 44 tests with
 zero failures on the same Simulator, including crossing the base and escalation
 windows before and during queue execution, request-time selection and
 submission order across medications, delivered-notification cleanup and
 pending-to-delivered readback races including a late retry round, accurate
-partial-failure text, and preservation of an open task's displayed reminder.
+partial-failure and startup-retry outcomes, and preservation of an open task's
+displayed reminder.
 Full current-head CI remains pending.
 This is not exact-head CI, physical-device
 delivery, or a claim that the OS accepted or delivered every request. PR #94

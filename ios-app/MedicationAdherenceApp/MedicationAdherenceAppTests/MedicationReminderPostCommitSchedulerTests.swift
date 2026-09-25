@@ -555,6 +555,33 @@ struct MedicationReminderPostCommitSchedulerTests {
     }
 
     @Test
+    func selectedOptionalBaseNotificationRunsAtItsActualDueTime() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let first = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let second = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+        let plan = MedicationNotificationPolicy(maximumScheduledRequests: 4).requestPlan(
+            candidates: [
+                MedicationReminderRequestCandidate(
+                    taskID: first, dueAt: start.addingTimeInterval(60),
+                    wantsAlarm: true, wantsEscalation: true,
+                    escalationDueAt: start.addingTimeInterval(360)
+                ),
+                MedicationReminderRequestCandidate(
+                    taskID: second, dueAt: start.addingTimeInterval(120),
+                    wantsAlarm: false, wantsEscalation: false
+                )
+            ], occupiedRequestCount: 0,
+            notificationAvailable: true, alarmAvailable: true
+        )
+
+        #expect(plan.assignments.flatMap(\.kinds).count == 4)
+        #expect(plan.orderedRequests.map(\.taskID) == [first, first, second, first])
+        #expect(plan.orderedRequests.map(\.kind) == [
+            .baseAlarm, .baseNotification, .baseNotification, .escalationAlarm
+        ])
+    }
+
+    @Test
     func queuedCleanupReportsMissedEscalationWindow() {
         let dueAt = Date(timeIntervalSince1970: 1_000)
         let escalationAt = dueAt.addingTimeInterval(300)
@@ -570,6 +597,19 @@ struct MedicationReminderPostCommitSchedulerTests {
             schedulingNow: escalationAt.addingTimeInterval(-1),
             wantsEscalation: true
         ))
+    }
+
+    @Test
+    func incompleteBudgetOrPermissionResultRequiresSystemRetry() {
+        let taskID = UUID()
+        #expect(!MedicationReminderRequestTiming.hasIncompleteResult([:]))
+        #expect(!MedicationReminderRequestTiming.hasIncompleteResult([taskID: .scheduled]))
+        #expect(MedicationReminderRequestTiming.hasIncompleteResult([
+            taskID: .unavailable(message: "近期提醒已达到本机排程预算，请稍后刷新。")
+        ]))
+        #expect(MedicationReminderRequestTiming.hasIncompleteResult([
+            taskID: .unavailable(message: "所选 iPhone 闹钟未安排，已改用普通通知。")
+        ]))
     }
 
     @Test
