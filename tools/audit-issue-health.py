@@ -386,7 +386,7 @@ def parse_issue_form(text: str, path: str) -> IssueForm:
                 elif line.strip() and not line.lstrip().startswith("#"):
                     raise AuditError(f"Issue Form has unsupported validations entry: {path}")
 
-        if field_type not in {"markdown", "input", "textarea", "dropdown", "checkboxes"}:
+        if field_type not in {"markdown", "input", "textarea", "dropdown"}:
             raise AuditError(f"Issue Form has missing or unsupported body item type: {path}")
         if field_type == "markdown":
             continue
@@ -591,12 +591,30 @@ def classify_title(title: str, form_prefixes: Sequence[str]) -> str:
 
 
 def extract_form_sections(body: str) -> dict[str, tuple[str, ...]]:
-    headings = list(re.finditer(r"(?m)^###\s+(.+?)\s*$", body))
+    headings: list[tuple[int, int, str]] = []
+    fence_character = ""
+    fence_length = 0
+    offset = 0
+    for line in body.splitlines(keepends=True):
+        content = line.rstrip("\r\n")
+        fence = re.match(r"^ {0,3}(`{3,}|~{3,})", content)
+        if fence_character:
+            if re.fullmatch(
+                rf" {{0,3}}{re.escape(fence_character)}{{{fence_length},}}[ \t]*",
+                content,
+            ):
+                fence_character = ""
+        elif fence:
+            fence_character = fence.group(1)[0]
+            fence_length = len(fence.group(1))
+        else:
+            heading = re.match(r"^###\s+(.+?)\s*$", content)
+            if heading:
+                headings.append((offset, offset + len(content), heading.group(1).strip()))
+        offset += len(line)
     sections: dict[str, list[str]] = {}
-    for index, heading in enumerate(headings):
-        start = heading.end()
-        end = headings[index + 1].start() if index + 1 < len(headings) else len(body)
-        label = heading.group(1).strip()
+    for index, (_, start, label) in enumerate(headings):
+        end = headings[index + 1][0] if index + 1 < len(headings) else len(body)
         sections.setdefault(label, []).append(body[start:end].strip())
     return {label: tuple(values) for label, values in sections.items()}
 

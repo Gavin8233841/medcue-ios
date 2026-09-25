@@ -394,6 +394,11 @@ body:
                 with self.assertRaisesRegex(audit.AuditError, expected):
                     audit.parse_issue_form(malformed, "quoted.yml")
 
+    def test_parse_form_rejects_checkbox_semantics_not_supported_by_audit(self) -> None:
+        malformed = synthetic_form_text().replace("type: textarea", "type: checkboxes", 1)
+        with self.assertRaisesRegex(audit.AuditError, "unsupported body item type"):
+            audit.parse_issue_form(malformed, "checkboxes.yml")
+
     def test_form_sections_treat_github_no_response_marker_as_missing(self) -> None:
         sections = audit.extract_form_sections(
             "### Required\n\nA value\n\n### Optional\n\n<!-- hidden -->\n_No response_"
@@ -402,6 +407,15 @@ body:
         self.assertFalse(audit.response_present(sections["Optional"]))
         self.assertFalse(audit.response_present(()))
         self.assertTrue(audit.response_present(("N/A",)))
+
+    def test_form_sections_ignore_headings_inside_fenced_code(self) -> None:
+        body = (
+            "### User impact\n\n_No response_\n\n### Optional notes\n\nExample:\n"
+            "```md\n### User impact\nFilled in another context\n```\n"
+        )
+        sections = audit.extract_form_sections(body)
+        self.assertEqual(sections["User impact"], ("_No response_",))
+        self.assertFalse(audit.response_present(sections["User impact"]))
 
 
 class ClassificationTests(unittest.TestCase):
@@ -491,6 +505,17 @@ class AnalysisAndReportTests(unittest.TestCase):
         self.assertEqual(result["open_issue_comment_count"], 1)
         self.assertEqual(result["pr_comment_count"], 1)
         self.assertEqual(result["without_milestone"], (2, 4, 5, 6))
+
+    def test_analysis_does_not_accept_a_fenced_heading_as_required_response(self) -> None:
+        snapshot = synthetic_snapshot()
+        body = (
+            "### User impact\n\n_No response_\n\n### Optional notes\n\nExample:\n"
+            "```md\n### User impact\nFilled in another context\n```\n"
+        )
+        first_issue = {**snapshot.issues[0], "body": body}
+        snapshot = replace(snapshot, issues=(first_issue, *snapshot.issues[1:]))
+        result = audit.analyze(snapshot)
+        self.assertEqual(result["forms"][0]["fields"][0]["missing"], (1,))
 
     def test_blockers_report_closed_missing_unnamed_and_cycles(self) -> None:
         result = audit.analyze(synthetic_snapshot())
