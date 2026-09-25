@@ -56,6 +56,20 @@ struct MedicationReminderRequestExecutionOutcome: Equatable {
     let failedKinds: [MedicationReminderRequestKind]
     let usedEscalationNotificationFallback: Bool
 
+    func selectedAlarmMissing(
+        wantsAlarm: Bool,
+        wantsEscalationAlarm: Bool,
+        plannedKinds: [MedicationReminderRequestKind]
+    ) -> Bool {
+        let baseMissing = wantsAlarm && (
+            !plannedKinds.contains(.baseAlarm) || failedKinds.contains(.baseAlarm)
+        )
+        let escalationMissing = wantsEscalationAlarm && (
+            plannedKinds.contains(.escalationNotification) || failedKinds.contains(.escalationAlarm)
+        )
+        return baseMissing || escalationMissing
+    }
+
     func schedulingResult(
         wantsAlarm: Bool,
         wantsEscalationAlarm: Bool,
@@ -482,7 +496,7 @@ final class NotificationService: ObservableObject {
         )
         let entriesByID = Dictionary(uniqueKeysWithValues: schedulableEntries.map { ($0.taskID, $0) })
         var results: [UUID: MedicationReminderSchedulingResult] = [:]
-        var missingSelectedAlarmAuthorization = false
+        var selectedAlarmMissing = false
         for taskID in cleanup.blockedTaskIDs {
             if affectedTaskIDs.contains(taskID) {
                 results[taskID] = .unavailable(message: "旧提醒暂时无法取消，请稍后重试。")
@@ -490,15 +504,10 @@ final class NotificationService: ObservableObject {
         }
         for assignment in plan.assignments {
             guard let entry = entriesByID[assignment.taskID] else { continue }
-            if (entry.deliveryMethodRaw == StoredReminderDeliveryMethod.alarm.rawValue
-                && !assignment.kinds.contains(.baseAlarm))
-                || (entry.escalatesToAlarmWhenUnhandled
-                && assignment.kinds.contains(.escalationNotification)) {
-                missingSelectedAlarmAuthorization = true
-            }
-            let result = await scheduleAssignedReminder(entry, kinds: assignment.kinds)
-            results[entry.taskID] = result
-            if result.failureMessage != nil {
+            let attempt = await scheduleAssignedReminder(entry, kinds: assignment.kinds)
+            results[entry.taskID] = attempt.result
+            selectedAlarmMissing = selectedAlarmMissing || attempt.selectedAlarmMissing
+            if attempt.result.failureMessage != nil {
                 lastSystemOperationFailed = true
             }
         }
@@ -509,8 +518,8 @@ final class NotificationService: ObservableObject {
             results[taskID] = .unavailable(message: "提醒未安排，请检查通知或闹钟权限。")
         }
         if lastSystemOperationFailed {
-            let permissionHint = missingSelectedAlarmAuthorization ? "所选 iPhone 闹钟未安排，请检查闹钟权限；" : ""
-            updateReminderSystemSyncMessage("部分提醒未能同步到系统；\(permissionHint)下次启动 App 后会重试。")
+            let alarmHint = selectedAlarmMissing ? "所选 iPhone 闹钟未安排，请检查闹钟权限或稍后重试；" : ""
+            updateReminderSystemSyncMessage("部分提醒未能同步到系统；\(alarmHint)下次启动 App 后会重试。")
         } else if !plan.unavailableTaskIDs.isEmpty {
             updateReminderSystemSyncMessage("部分提醒未安排，请检查通知或闹钟权限。")
         } else if !plan.deferredTaskIDs.isEmpty {
@@ -527,7 +536,7 @@ final class NotificationService: ObservableObject {
     private func scheduleAssignedReminder(
         _ entry: MedicationReminderPostCommitEntry,
         kinds: [MedicationReminderRequestKind]
-    ) async -> MedicationReminderSchedulingResult {
+    ) async -> (result: MedicationReminderSchedulingResult, selectedAlarmMissing: Bool) {
         let escalationAt = reminderPolicy.escalationDueAt(for: entry.dueAt)
         let outcome = await MedicationReminderRequestExecutor(
             addBaseNotification: {
@@ -553,10 +562,18 @@ final class NotificationService: ObservableObject {
                 return false
             }
         ).execute(kinds)
-        return outcome.schedulingResult(
-            wantsAlarm: entry.deliveryMethodRaw == StoredReminderDeliveryMethod.alarm.rawValue,
-            wantsEscalationAlarm: entry.escalatesToAlarmWhenUnhandled,
-            plannedKinds: kinds
+        let wantsAlarm = entry.deliveryMethodRaw == StoredReminderDeliveryMethod.alarm.rawValue
+        return (
+            outcome.schedulingResult(
+                wantsAlarm: wantsAlarm,
+                wantsEscalationAlarm: entry.escalatesToAlarmWhenUnhandled,
+                plannedKinds: kinds
+            ),
+            outcome.selectedAlarmMissing(
+                wantsAlarm: wantsAlarm,
+                wantsEscalationAlarm: entry.escalatesToAlarmWhenUnhandled,
+                plannedKinds: kinds
+            )
         )
     }
 

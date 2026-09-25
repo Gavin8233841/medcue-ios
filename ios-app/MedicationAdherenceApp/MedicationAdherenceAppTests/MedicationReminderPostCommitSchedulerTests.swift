@@ -171,6 +171,11 @@ struct MedicationReminderPostCommitSchedulerTests {
         #expect(retried.baseScheduled && retried.escalationScheduled)
         #expect(retried.failedKinds == [.escalationAlarm])
         #expect(retried.usedEscalationNotificationFallback)
+        #expect(retried.selectedAlarmMissing(
+            wantsAlarm: false,
+            wantsEscalationAlarm: true,
+            plannedKinds: kinds
+        ))
         #expect(state.installed == ["dose.stable-task", "dose.escalation.stable-task"])
         #expect(state.alarmAttempts == 2)
     }
@@ -208,6 +213,11 @@ struct MedicationReminderPostCommitSchedulerTests {
         let outcome = await executor.execute([.baseNotification, .baseAlarm])
         #expect(outcome.baseScheduled && outcome.escalationScheduled)
         #expect(outcome.failedKinds == [.baseAlarm])
+        #expect(outcome.selectedAlarmMissing(
+            wantsAlarm: true,
+            wantsEscalationAlarm: false,
+            plannedKinds: [.baseNotification, .baseAlarm]
+        ))
         let result = outcome.schedulingResult(
             wantsAlarm: true,
             wantsEscalationAlarm: false,
@@ -241,6 +251,11 @@ struct MedicationReminderPostCommitSchedulerTests {
         #expect(result.failureMessage?.contains("所选 iPhone 闹钟未安排") == true)
         #expect(result.failureMessage?.contains("升级闹钟未安排") == true)
         #expect(result.failureMessage?.contains("闹钟权限") == true)
+        #expect(outcome.selectedAlarmMissing(
+            wantsAlarm: true,
+            wantsEscalationAlarm: true,
+            plannedKinds: kinds
+        ))
     }
 
     @Test @MainActor

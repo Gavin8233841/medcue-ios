@@ -250,7 +250,9 @@ The Today and Settings warning surfaces disclose an incomplete system update.
 System sync warnings use a separate key from notification authorization warnings,
 so a permission refresh cannot erase an unresolved scheduling failure. If an
 AlarmKit add fails or alarm authorization is unavailable, an ordinary-notification
-fallback is reported as a partial result and remains eligible for retry.
+fallback is reported as a partial result and remains eligible for retry. The
+persistent warning names the missing selected alarm for both cases, including
+batch paths that do not display individual scheduling results.
 The shared path now uses a MainActor service; real-device save responsiveness
 after this change has not been measured and needs a device check before merge.
 
