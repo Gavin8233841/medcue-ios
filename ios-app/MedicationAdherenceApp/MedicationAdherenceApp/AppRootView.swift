@@ -767,6 +767,7 @@ private struct ElderUITestStoreInspectionView: View {
                 Text(String(fixture.saveAttemptCount)).accessibilityIdentifier("elder.test.store.save-attempts")
                 Text(String(fixture.scheduleAttemptCount)).accessibilityIdentifier("elder.test.store.schedule-attempts")
                 ForEach(Array(tasks.enumerated()), id: \.element.id) { index, task in
+                    Text(task.id.uuidString).accessibilityIdentifier("elder.test.store.task.\(index).id")
                     Text(task.statusRaw).accessibilityIdentifier("elder.test.store.task.\(index).status")
                     Text(String(Int(task.dueAt.timeIntervalSince(fixture.now))))
                         .accessibilityIdentifier("elder.test.store.task.\(index).due-offset")
