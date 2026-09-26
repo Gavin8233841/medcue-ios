@@ -19,6 +19,18 @@ struct LocalMedicalResponsePolicy: Sendable {
         let prompt: String
         private var parser = LocalLLMStreamParser()
 
+        init(
+            policy: LocalMedicalResponsePolicy,
+            request: MedicalAIRequest,
+            answerPlan: LocalMedicalAnswerPlan,
+            prompt: String
+        ) {
+            self.policy = policy
+            self.request = request
+            self.answerPlan = answerPlan
+            self.prompt = prompt
+        }
+
         mutating func consume(_ delta: String) -> [LocalLLMGenerationEvent] {
             parser.consume(delta)
         }
