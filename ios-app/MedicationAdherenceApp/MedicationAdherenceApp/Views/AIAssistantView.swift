@@ -18,7 +18,6 @@ struct AIAssistantView: View {
     @Environment(\.clearPendingMedicationAIQuestion) private var clearPendingMedicationAIQuestion
     @StateObject private var configurationStore = SecureAIConfigurationStore()
     @StateObject private var localModelStore = LocalMedicalModelStore()
-    @StateObject private var weatherMedicationService = WeatherMedicationService()
     @AppStorage("hasAcceptedMedicalAIDisclaimer") private var hasAcceptedMedicalAIDisclaimer = false
     @AppStorage("hasAcknowledgedThirdPartyMedicalAgent") private var hasAcknowledgedThirdPartyMedicalAgent = false
     @AppStorage("hasPurgedPreProviderDemoMessagesV4") private var hasPurgedPreProviderDemoMessages = false
@@ -133,7 +132,7 @@ struct AIAssistantView: View {
             handleActiveTabChange: handleActiveTabChange,
             beginImageRecognition: beginImageRecognition,
             applyPendingQuestion: applyPendingQuestionIfNeeded,
-            refreshEnvironment: refreshEnvironment,
+            refreshEnvironment: {},
             acceptThirdPartyNotice: acceptThirdPartyNotice,
             saveConsent: saveConsent,
             revokeConsent: revokeConsent,
@@ -150,13 +149,6 @@ struct AIAssistantView: View {
             cancelImageRecognition()
         }
         prepareAssistantSessionIfVisible()
-    }
-
-    private func refreshEnvironment() async {
-        guard activeAppTab == nil || activeAppTab == .assistant else {
-            return
-        }
-        await weatherMedicationService.refresh(medications: medications)
     }
 
     private func acceptThirdPartyNotice() {
@@ -926,7 +918,7 @@ struct AIAssistantView: View {
     private func environmentInsightsForAI(userMessage: String) -> [MedicalAIEnvironmentInsight] {
         MedicalAIEnvironmentContextBuilder().insights(
             userMessage: userMessage,
-            weatherHints: weatherMedicationService.hints,
+            weatherHints: [],
             medications: medications
         )
     }

@@ -3,6 +3,18 @@
 Latest full coordination audit: 2026-09-22; targeted update: 2026-09-26 (#33)
 Verified source checkpoint for this update: `main@74fb171088a80c38872c51fcae85c05721dc10f0`
 
+## 2026-09-27 Competition/Beta capability scope (#4)
+
+The product owner chose to hide unverified Apple sign-in, automatic iCloud
+backup, and WeatherKit entry points for the current competition/Beta build.
+The account page now explains that medication data remains on this iPhone and
+must not be assumed backed up or recoverable. Existing local account/backup
+preferences remain stored but no longer imply success in the interface.
+Today and the AI assistant no longer instantiate the weather service or request
+location. The dormant weather adapter and location purpose string remain in
+source; re-enabling them requires entitlement, privacy, account, and runtime
+evidence. This is a source-scope update, not backup, restore, or device proof.
+
 ## 2026-09-26 GitHub Topics completion (#33)
 
 The public repository description remains Chinese-first with an English

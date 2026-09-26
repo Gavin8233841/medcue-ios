@@ -388,18 +388,16 @@ struct AccountHeaderRow: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private var isAccessibilitySize: Bool { dynamicTypeSize.isAccessibilitySize }
 
-    @AppStorage("wantsICloudBackup") private var wantsICloudBackup = false
-
     var body: some View {
         (isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 14)) : AnyLayout(HStackLayout(spacing: 14))) {
-            Image(systemName: wantsICloudBackup ? "externaldrive.badge.checkmark" : "externaldrive.fill")
+            Image(systemName: "iphone")
                 .font(.system(size: 28))
                 .foregroundStyle(.blue)
                 .frame(width: 48, height: 48)
             VStack(alignment: .leading, spacing: 4) {
                 Text("本机数据")
                     .font(.headline)
-                Text(statusText)
+                Text("提醒、记录和药品资料保存在这台 iPhone")
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("profile.local-data.summary")
                     .font(.subheadline)
@@ -408,13 +406,6 @@ struct AccountHeaderRow: View {
             if !isAccessibilitySize { Spacer() }
         }
         .padding(.vertical, 8)
-    }
-
-    private var statusText: String {
-        if wantsICloudBackup {
-            return "已记录备份偏好，数据仍由你主动管理"
-        }
-        return "提醒、记录和药品资料保存在这台 iPhone"
     }
 }
 
