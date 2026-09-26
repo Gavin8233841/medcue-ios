@@ -2,6 +2,106 @@ import Foundation
 import MedicationAdherenceCore
 
 struct LocalMedicalResponsePolicy: Sendable {
+    func start(for request: MedicalAIRequest) -> Session {
+        let answerPlan = localAnswerPlan(for: request)
+        return Session(
+            policy: self,
+            request: request,
+            answerPlan: answerPlan,
+            prompt: buildLocalPrompt(for: request, answerPlan: answerPlan)
+        )
+    }
+
+    struct Session {
+        let policy: LocalMedicalResponsePolicy
+        let request: MedicalAIRequest
+        let answerPlan: LocalMedicalAnswerPlan
+        let prompt: String
+        private var parser = LocalLLMStreamParser()
+
+        init(
+            policy: LocalMedicalResponsePolicy,
+            request: MedicalAIRequest,
+            answerPlan: LocalMedicalAnswerPlan,
+            prompt: String
+        ) {
+            self.policy = policy
+            self.request = request
+            self.answerPlan = answerPlan
+            self.prompt = prompt
+        }
+
+        mutating func consume(_ delta: String) -> [LocalLLMGenerationEvent] {
+            parser.consume(delta)
+        }
+
+        mutating func finish() -> (events: [LocalLLMGenerationEvent], thinking: String, answer: String) {
+            parser.finish()
+        }
+
+        func resolve(
+            _ generatedMessage: String,
+            additionalThinking: String,
+            runtime: any LocalMedicalGenerating,
+            modelURL: URL,
+            repairMaxTokens: Int
+        ) async throws -> ResolvedResponse {
+            try Task.checkCancellation()
+            let processedMessage = policy.postprocessLocalResponse(generatedMessage, request: request)
+            let answer = policy.formalAnswerText(from: processedMessage)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let initialThinking = Self.combinedThinking(
+                additionalThinking,
+                policy.reasoningText(from: processedMessage)
+            )
+            let needsRepair = answer.isEmpty
+                || policy.isLowQualityLocalResponse(answer, request: request)
+                || policy.isOffTopicLocalResponse(answer, answerPlan: answerPlan)
+            guard needsRepair else {
+                return ResolvedResponse(answer: answer, thinking: initialThinking)
+            }
+
+            let repairedMessage = try await runtime.generateResponse(
+                prompt: policy.buildRepairPrompt(for: request, answerPlan: answerPlan),
+                modelURL: modelURL,
+                maxTokens: repairMaxTokens
+            )
+            try Task.checkCancellation()
+            let repairedProcessed = policy.postprocessLocalResponse(repairedMessage, request: request)
+            let repairedAnswer = policy.formalAnswerText(from: repairedProcessed)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !repairedAnswer.isEmpty,
+                  !policy.isLowQualityLocalResponse(repairedAnswer, request: request),
+                  !policy.isOffTopicLocalResponse(repairedAnswer, answerPlan: answerPlan) else {
+                throw LocalMedicalAIError.unstableResponse
+            }
+            return ResolvedResponse(
+                answer: repairedAnswer,
+                thinking: Self.combinedThinking(
+                    initialThinking,
+                    policy.reasoningText(from: repairedProcessed)
+                )
+            )
+        }
+
+        struct ResolvedResponse {
+            let answer: String
+            let thinking: String
+
+            var persistedMessage: String {
+                guard !thinking.isEmpty else { return answer }
+                return "\(answer)\(MedicalAIResponseFinalizer.reasoningSeparator)\(thinking)"
+            }
+        }
+
+        private static func combinedThinking(_ values: String...) -> String {
+            values
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n\n")
+        }
+    }
+
     func buildLocalPrompt(for request: MedicalAIRequest, answerPlan: LocalMedicalAnswerPlan) -> String {
         if answerPlan.focus.contains("今日用药注意事项") {
             return buildTodayFocusPrompt(for: request, answerPlan: answerPlan)
@@ -102,7 +202,7 @@ struct LocalMedicalResponsePolicy: Sendable {
         guard !cleaned.isEmpty, !combinedThinking.isEmpty else {
             return cleaned
         }
-        return "\(cleaned)\(LocalMedicalAIClient.localReasoningSeparator)\(combinedThinking)"
+        return "\(cleaned)\(MedicalAIResponseFinalizer.reasoningSeparator)\(combinedThinking)"
     }
 
     private func splitImplicitReasoning(from value: String) -> (thinking: String, answer: String) {
@@ -245,18 +345,18 @@ struct LocalMedicalResponsePolicy: Sendable {
 
     func formalAnswerText(from message: String) -> String {
         message
-            .components(separatedBy: LocalMedicalAIClient.localReasoningSeparator)
+            .components(separatedBy: MedicalAIResponseFinalizer.reasoningSeparator)
             .first?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
     func reasoningText(from message: String) -> String {
-        let components = message.components(separatedBy: LocalMedicalAIClient.localReasoningSeparator)
+        let components = message.components(separatedBy: MedicalAIResponseFinalizer.reasoningSeparator)
         guard components.count > 1 else {
             return ""
         }
         return components.dropFirst()
-            .joined(separator: LocalMedicalAIClient.localReasoningSeparator)
+            .joined(separator: MedicalAIResponseFinalizer.reasoningSeparator)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
