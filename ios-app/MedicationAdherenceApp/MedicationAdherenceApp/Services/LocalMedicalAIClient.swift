@@ -20,18 +20,17 @@ struct LocalMedicalAIClient: MedicalAIClient {
     }
 
     func respond(to request: MedicalAIRequest) async throws -> MedicalAIResponse {
-        let answerPlan = responsePolicy.localAnswerPlan(for: request)
-        let prompt = responsePolicy.buildLocalPrompt(for: request, answerPlan: answerPlan)
+        let session = responsePolicy.start(for: request)
         let generatedMessage = try await runtime.generateResponse(
-            prompt: prompt,
+            prompt: session.prompt,
             modelURL: modelURL,
             maxTokens: MedicalAIExecutionPolicy.default.singleResponseTokenLimit
         )
-        let resolved = try await resolveGeneratedResponse(
+        let resolved = try await session.resolve(
             generatedMessage,
             additionalThinking: "",
-            request: request,
-            answerPlan: answerPlan,
+            runtime: runtime,
+            modelURL: modelURL,
             repairMaxTokens: 220
         )
         return MedicalAIResponse(
@@ -54,15 +53,13 @@ struct LocalMedicalAIClient: MedicalAIClient {
                 }
 
                 do {
-                    let answerPlan = responsePolicy.localAnswerPlan(for: request)
-                    let prompt = responsePolicy.buildLocalPrompt(for: request, answerPlan: answerPlan)
-                    var parser = LocalLLMStreamParser()
+                    var session = responsePolicy.start(for: request)
                     try Task.checkCancellation()
                     try await emit(.generationStarted)
                     try await emit(.modelLoading)
                     // Own cancellation before any runtime preparation can suspend.
                     let generation = runtime.generateResponseStream(
-                        prompt: prompt,
+                        prompt: session.prompt,
                         modelURL: modelURL,
                         maxTokens: MedicalAIExecutionPolicy.default.streamingResponseTokenLimit
                     )
@@ -72,20 +69,20 @@ struct LocalMedicalAIClient: MedicalAIClient {
                     try await emit(.prefillStarted)
                     for try await delta in generation.stream {
                         try Task.checkCancellation()
-                        for event in parser.consume(delta) {
+                        for event in session.consume(delta) {
                             try await emit(event)
                         }
                     }
                     try Task.checkCancellation()
-                    let completed = parser.finish()
+                    let completed = session.finish()
                     for event in completed.events {
                         try await emit(event)
                     }
-                    let resolved = try await resolveGeneratedResponse(
+                    let resolved = try await session.resolve(
                         completed.answer,
                         additionalThinking: completed.thinking,
-                        request: request,
-                        answerPlan: answerPlan,
+                        runtime: runtime,
+                        modelURL: modelURL,
                         repairMaxTokens: MedicalAIExecutionPolicy.default.repairTokenLimit
                     )
                     try Task.checkCancellation()
@@ -112,58 +109,6 @@ struct LocalMedicalAIClient: MedicalAIClient {
             }
         }
     }
-
-    private func resolveGeneratedResponse(
-        _ generatedMessage: String,
-        additionalThinking: String,
-        request: MedicalAIRequest,
-        answerPlan: LocalMedicalAnswerPlan,
-        repairMaxTokens: Int
-    ) async throws -> LocalMedicalResolvedResponse {
-        try Task.checkCancellation()
-        let processedMessage = responsePolicy.postprocessLocalResponse(generatedMessage, request: request)
-        let answer = responsePolicy.formalAnswerText(from: processedMessage)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let initialThinking = combinedThinking(
-            additionalThinking,
-            responsePolicy.reasoningText(from: processedMessage)
-        )
-        let needsRepair = answer.isEmpty
-            || responsePolicy.isLowQualityLocalResponse(answer, request: request)
-            || responsePolicy.isOffTopicLocalResponse(answer, answerPlan: answerPlan)
-        guard needsRepair else {
-            return LocalMedicalResolvedResponse(answer: answer, thinking: initialThinking)
-        }
-
-        let repairedMessage = try await runtime.generateResponse(
-            prompt: responsePolicy.buildRepairPrompt(for: request, answerPlan: answerPlan),
-            modelURL: modelURL,
-            maxTokens: repairMaxTokens
-        )
-        try Task.checkCancellation()
-        let repairedProcessedMessage = responsePolicy.postprocessLocalResponse(repairedMessage, request: request)
-        let repairedAnswer = responsePolicy.formalAnswerText(from: repairedProcessedMessage)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !repairedAnswer.isEmpty,
-              !responsePolicy.isLowQualityLocalResponse(repairedAnswer, request: request),
-              !responsePolicy.isOffTopicLocalResponse(repairedAnswer, answerPlan: answerPlan) else {
-            throw LocalMedicalAIError.unstableResponse
-        }
-        return LocalMedicalResolvedResponse(
-            answer: repairedAnswer,
-            thinking: combinedThinking(
-                initialThinking,
-                responsePolicy.reasoningText(from: repairedProcessedMessage)
-            )
-        )
-    }
-
-    private func combinedThinking(_ values: String...) -> String {
-        values
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n\n")
-    }
 }
 
 struct LocalMedicalAnswerPlan {
@@ -171,16 +116,6 @@ struct LocalMedicalAnswerPlan {
     let factSummary: String
     let factGuidance: String
     let requiredFragments: [String]
-}
-
-private struct LocalMedicalResolvedResponse {
-    let answer: String
-    let thinking: String
-
-    var persistedMessage: String {
-        guard !thinking.isEmpty else { return answer }
-        return "\(answer)\(LocalMedicalAIClient.localReasoningSeparator)\(thinking)"
-    }
 }
 
 enum LocalMedicalAIError: LocalizedError {

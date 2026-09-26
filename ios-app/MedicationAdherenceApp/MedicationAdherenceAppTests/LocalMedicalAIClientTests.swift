@@ -44,6 +44,57 @@ struct LocalMedicalAIClientTests {
     }
 
     @Test
+    func streamingResponseRepairsPromptEchoBeforeCompletion() async throws {
+        let runtime = StubLocalMedicalRuntime(
+            outputs: ["<answer>今天可以核对提醒并及时记录处理情况。</answer>"],
+            streamDeltas: ["<answer>当前任务：", "复述提示词</answer>"]
+        )
+        let client = LocalMedicalAIClient(
+            modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"),
+            runtime: runtime
+        )
+
+        var completedAnswers: [String] = []
+        for try await event in client.streamResponse(to: Self.request()) {
+            if case let .generationCompleted(answer, _) = event {
+                completedAnswers.append(answer)
+            }
+        }
+
+        #expect(completedAnswers == ["今天可以核对提醒并及时记录处理情况。"])
+        #expect(await runtime.callCount == 1)
+    }
+
+    @Test
+    func streamingFailedRepairNeverCompletesAResponse() async {
+        let runtime = StubLocalMedicalRuntime(
+            outputs: ["<answer>当前任务：仍然复述提示词</answer>"],
+            streamDeltas: ["<answer>当前任务：复述提示词</answer>"]
+        )
+        let client = LocalMedicalAIClient(
+            modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"),
+            runtime: runtime
+        )
+
+        var completed = false
+        do {
+            for try await event in client.streamResponse(to: Self.request()) {
+                if case .generationCompleted = event {
+                    completed = true
+                }
+            }
+            Issue.record("Expected unstable response rejection")
+        } catch let error as LocalMedicalAIError {
+            #expect(error.diagnosticSummary == LocalMedicalAIError.unstableResponse.diagnosticSummary)
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        #expect(!completed)
+        #expect(await runtime.callCount == 1)
+    }
+
+    @Test
     func callerCancellationStopsGenerationBeforeAResponseIsReturned() async {
         let runtime = StubLocalMedicalRuntime(
             outputs: ["<answer>今天可以核对提醒并及时记录处理情况。</answer>"],
@@ -83,11 +134,13 @@ struct LocalMedicalAIClientTests {
 
 private actor StubLocalMedicalRuntime: LocalMedicalGenerating {
     private var outputs: [String]
+    nonisolated let streamDeltas: [String]
     private let delay: Duration?
     private(set) var callCount = 0
 
-    init(outputs: [String], delay: Duration? = nil) {
+    init(outputs: [String], streamDeltas: [String] = [], delay: Duration? = nil) {
         self.outputs = outputs
+        self.streamDeltas = streamDeltas
         self.delay = delay
     }
 
@@ -108,6 +161,9 @@ private actor StubLocalMedicalRuntime: LocalMedicalGenerating {
         maxTokens: Int
     ) -> LocalMedicalGenerationStream {
         let (stream, continuation) = AsyncThrowingStream<String, Error>.makeStream()
+        for delta in streamDeltas {
+            continuation.yield(delta)
+        }
         continuation.finish()
         return LocalMedicalGenerationStream(stream: stream) {}
     }
