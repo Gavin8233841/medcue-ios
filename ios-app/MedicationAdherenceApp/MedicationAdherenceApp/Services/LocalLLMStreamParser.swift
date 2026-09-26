@@ -13,18 +13,15 @@ enum LocalLLMGenerationEvent {
 }
 
 struct LocalLLMStreamParser {
-    enum Section {
-        case undecided
-        case thinking
-        case answer
-    }
-
     private var buffer = ""
     private var emittedThinkingCount = 0
     private var emittedAnswerCount = 0
     private var hasStartedThinking = false
     private var hasStartedAnswer = false
-    private var section: Section = .undecided
+
+    static func parseComplete(_ text: String) -> (thinking: String, answer: String) {
+        Self().parse(text, isFinal: true)
+    }
 
     mutating func consume(_ rawDelta: String) -> [LocalLLMGenerationEvent] {
         buffer += sanitizedRenderableText(rawDelta)
@@ -82,9 +79,6 @@ struct LocalLLMStreamParser {
         if !implicit.thinking.isEmpty {
             return implicit
         }
-        if isFinal {
-            return ("", trimmed)
-        }
         return ("", trimmed)
     }
 
@@ -95,7 +89,7 @@ struct LocalLLMStreamParser {
         }
         let tail = String(sanitized[tagStart...]).lowercased()
         let controlTags = [
-            "<think>", "</think>",
+            "<think>", "</think>", "<thought>", "</thought>",
             "<answer>", "</answer>",
             "<final>", "</final>",
             "<|im_start|>", "<|im_end|>"
@@ -108,19 +102,24 @@ struct LocalLLMStreamParser {
 
     private func parseTagged(_ text: String, isFinal: Bool) -> (thinking: String, answer: String)? {
         let lowercased = text.lowercased()
-        let thinkStartTag = "<think>"
-        let thinkEndTag = "</think>"
+        let thinkingTags = [("<think>", "</think>"), ("<thought>", "</thought>")]
         let answerStartTags = ["<answer>", "<final>"]
         let answerEndTags = ["</answer>", "</final>"]
 
-        if let thinkStart = lowercased.range(of: thinkStartTag) {
+        let firstThinkingTag = thinkingTags.compactMap { startTag, endTag in
+            lowercased.range(of: startTag).map { (start: $0, endTag: endTag) }
+        }.min { $0.start.lowerBound < $1.start.lowerBound }
+        if let thinkStart = firstThinkingTag?.start,
+           let thinkEndTag = firstThinkingTag?.endTag {
             let thinkingStartIndex = thinkStart.upperBound
             if let thinkEnd = lowercased.range(of: thinkEndTag, range: thinkingStartIndex..<lowercased.endIndex) {
                 let thinking = cleanupVisibleText(String(text[thinkingStartIndex..<thinkEnd.lowerBound]))
                 let afterThink = String(text[thinkEnd.upperBound...])
-                let answer = taggedAnswer(in: afterThink, startTags: answerStartTags, endTags: answerEndTags)
-                    ?? cleanupVisibleText(afterThink)
-                return (thinking, answer)
+                let remainder = parseTagged(afterThink, isFinal: isFinal)
+                let combinedThinking = [thinking, remainder?.thinking ?? ""]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: "\n\n")
+                return (combinedThinking, remainder?.answer ?? cleanupVisibleText(afterThink))
             }
             let thinking = cleanupVisibleText(String(text[thinkingStartIndex...]))
             return (thinking, isFinal ? "" : "")
@@ -152,7 +151,7 @@ struct LocalLLMStreamParser {
     }
 
     private func parseWeakSeparators(_ text: String) -> (thinking: String, answer: String)? {
-        let markers = ["答案：", "回答：", "最终回答：", "Answer:"]
+        let markers = ["正式回答：", "最终回答：", "答案：", "回答：", "Answer:"]
         for marker in markers {
             guard let range = text.range(of: marker) else {
                 continue
@@ -171,6 +170,8 @@ struct LocalLLMStreamParser {
         sanitizedRenderableText(text)
             .replacingOccurrences(of: "<think>", with: "")
             .replacingOccurrences(of: "</think>", with: "")
+            .replacingOccurrences(of: "<thought>", with: "")
+            .replacingOccurrences(of: "</thought>", with: "")
             .replacingOccurrences(of: "<answer>", with: "")
             .replacingOccurrences(of: "</answer>", with: "")
             .replacingOccurrences(of: "<final>", with: "")
