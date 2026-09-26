@@ -13,6 +13,71 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         "-DoseActionPersistence.failureMessage", ""
     ]
 
+    func testLegacyLiveActivityURLsCannotChangeDoseOrSchedule() throws {
+        continueAfterFailure = false
+        let app = launchElderFixture(mode: "complete", extraArguments: ["--elder-ui-inspect-store"])
+        let taskIDLabel = app.staticTexts["elder.test.store.task.0.id"]
+        XCTAssertTrue(taskIDLabel.waitForExistence(timeout: 10))
+        let taskID = try XCTUnwrap(UUID(uuidString: taskIDLabel.label))
+        let initialScheduleAttempts = app.staticTexts["elder.test.store.schedule-attempts"].label
+
+        restartElderFixture(app)
+
+        let forgedURLs = [
+            legacyLiveActivityURL(taskID: taskID, action: "markTaken"),
+            legacyLiveActivityURL(taskID: taskID, action: "markTaken", operationID: nil),
+            legacyLiveActivityURL(taskID: taskID, action: "delay"),
+            legacyLiveActivityURL(taskID: taskID, action: "skip"),
+            legacyLiveActivityURL(
+                taskID: taskID,
+                action: "markTaken",
+                operationID: UUID(),
+                expiresAt: Date().addingTimeInterval(86_400)
+            ),
+            legacyLiveActivityURL(taskID: UUID(), action: "markTaken"),
+            legacyLiveActivityURL(taskID: taskID, action: "markTaken", host: "other-action")
+        ]
+        for url in forgedURLs {
+            app.open(url)
+        }
+
+        restartElderFixture(app, inspectStore: true)
+        XCTAssertEqual(app.staticTexts["elder.test.store.task.0.status"].label, "pending")
+        XCTAssertEqual(app.staticTexts["elder.test.store.log-count"].label, "0")
+        XCTAssertEqual(app.staticTexts["elder.test.store.save-attempts"].label, "0")
+        XCTAssertEqual(
+            app.staticTexts["elder.test.store.schedule-attempts"].label,
+            initialScheduleAttempts
+        )
+    }
+
+    private func legacyLiveActivityURL(
+        taskID: UUID,
+        action: String,
+        operationID: UUID? = UUID(),
+        expiresAt: Date? = Date().addingTimeInterval(3_600),
+        host: String = "live-activity-dose-action"
+    ) -> URL {
+        var components = URLComponents()
+        components.scheme = "medicationadherence"
+        components.host = host
+        var queryItems = [
+            URLQueryItem(name: "taskID", value: taskID.uuidString),
+            URLQueryItem(name: "action", value: action)
+        ]
+        if let operationID {
+            queryItems.append(URLQueryItem(name: "operationID", value: operationID.uuidString))
+        }
+        if let expiresAt {
+            queryItems.append(URLQueryItem(name: "expiresAt", value: String(expiresAt.timeIntervalSince1970)))
+        }
+        components.queryItems = queryItems
+        guard let url = components.url else {
+            preconditionFailure("Synthetic Live Activity URL must be valid")
+        }
+        return url
+    }
+
     func testPrimaryTabsAreReachable() {
         assertPrimaryTabs(contentSizeArguments: nil)
     }
