@@ -2,6 +2,41 @@ import XCTest
 
 @MainActor
 final class MedicationAdherenceAppUITests: XCTestCase {
+    func testRecoveryRetryResumesOriginalPersistentStore() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--medcue-simulate-initial-store-open-failure",
+            "--medcue-recovery-isolated-test-store"
+        ]
+        app.launch()
+
+        let retry = app.buttons["重试读取原记录"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["现有记录没有被删除或重建。此页面不能新增或修改用药记录。"].exists)
+        retry.tap()
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: retry)
+        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 15), .completed)
+    }
+
+    func testRecoveryRetryFailureStaysOnReadOnlyPage() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--medcue-simulate-initial-store-open-failure",
+            "--medcue-simulate-retry-store-open-failure"
+        ]
+        app.launch()
+
+        let retry = app.buttons["重试读取原记录"]
+        XCTAssertTrue(retry.waitForExistence(timeout: 10))
+        retry.tap()
+        XCTAssertTrue(app.staticTexts["recovery.status"].waitForExistence(timeout: 5))
+        XCTAssertTrue(retry.exists)
+        XCTAssertFalse(app.tabBars.firstMatch.exists)
+        XCTAssertTrue(app.buttons["导出脱敏诊断信息"].exists)
+    }
+
     private let regularContentSizeArguments = [
         "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"
     ]

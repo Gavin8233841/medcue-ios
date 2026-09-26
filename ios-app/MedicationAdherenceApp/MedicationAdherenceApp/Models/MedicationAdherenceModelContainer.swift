@@ -6,6 +6,10 @@ enum MedicationAdherenceModelContainer {
         Schema(versionedSchema: MedicationAdherenceSchemaV2.self)
     }
 
+    static var defaultStoreURL: URL {
+        ModelConfiguration(schema: schema, isStoredInMemoryOnly: false).url
+    }
+
     static func make(isStoredInMemoryOnly: Bool = false) throws -> ModelContainer {
         let configuration = ModelConfiguration(
             schema: schema,
