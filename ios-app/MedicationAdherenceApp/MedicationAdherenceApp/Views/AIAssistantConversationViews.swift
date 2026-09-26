@@ -54,14 +54,6 @@ struct AIQuickActionsSection: View {
             requestText: "请只基于 App 内授权共享的服药记录，说明近期忽略或稍后趋势，并给出提醒建议。"
         ),
         AIQuickAction(
-            title: "天气与不适",
-            subtitle: "环境、症状、提醒",
-            iconName: "cloud.sun",
-            tint: .teal,
-            displayText: "看看今天环境变化需要注意什么",
-            requestText: "请只基于 App 内授权共享的今日天气或环境提示，以及今天服药记录，用两三句说明环境变化下记录用药时应留意什么。若没有天气或环境事实，请直接说明本地记录不足。"
-        ),
-        AIQuickAction(
             title: "药盒与库存",
             subtitle: "编号、余量、提醒",
             iconName: "shippingbox.fill",
@@ -128,7 +120,7 @@ struct AIQuickActionsSection: View {
     ]
 
     private var compactActions: [AIQuickAction] {
-        ["忽略与稍后趋势", "天气与不适", "药盒与库存", "复诊沟通重点"].compactMap { title in
+        ["忽略与稍后趋势", "药盒与库存", "复诊沟通重点"].compactMap { title in
             Self.actions.first { $0.title == title }
         }
     }

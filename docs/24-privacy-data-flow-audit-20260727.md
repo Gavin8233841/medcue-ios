@@ -6,16 +6,17 @@
 | --- | --- | --- | --- | --- | --- |
 | 相机与照片 | 用户主动选择照片或打开相机；相机使用 `NSCameraUsageDescription` | 图片数据交给 Vision 文本/条码识别；药品照片仅在用户保存后写入 SwiftData；识别任务可取消且旧结果被 generation gate 拒绝 | PhotosPicker/UIImagePickerController 由系统提供选择界面 | 图片本身不由 Vision pipeline 上传。智能体图片问题会先在设备上 OCR，只有用户再次发送且选择在线智能体时，识别出的文字才进入在线请求 | 本地识别边界已由代码和测试固定 |
 | HealthKit | 用户主动请求 Apple 健康读取授权；使用 `NSHealthShareUsageDescription` 与 HealthKit entitlement | 读取最近 56 天授权范围内的生命体征，形成内存趋势摘要和本地复诊资料；当前 `MedicalAIRequest` 不包含 HealthKit 样本 | 通过 HealthKit 系统框架读取 | 当前代码不把 HealthKit 样本加入在线 AI 请求 | 若未来启动 App Store 分发，再核验 collected data 答案 |
-| 位置与天气 | 用户主动允许使用位置；使用 `NSLocationWhenInUseUsageDescription` | 只请求约 3 公里精度的单次位置；WeatherKit 结果转为温度、湿度、降水、紫外线、风速和天气描述，再在设备上生成用药环境提示 | 原始位置交给 CoreLocation/WeatherKit 系统服务 | 在线智能体仅在问题需要天气语境时接收派生的环境提示；当前请求构造不包含经纬度 | WeatherKit 属 Apple 系统服务；在线 provider 只接收派生摘要 |
+| 位置与天气 | 当前竞赛/Beta 隐藏天气入口，不主动请求位置；`NSLocationWhenInUseUsageDescription` 与未接线的 WeatherKit 适配器仍保留在源码中 | 当前可达的 Today/智能体路径不创建天气服务，也不读取实时天气；人工输入的天气问题只能使用本机已有药品信息形成保守答复 | 当前可达路径不调用 CoreLocation/WeatherKit | 当前可达路径不会生成实时天气摘要供在线智能体发送 | 若今后启用天气功能，须先完成 entitlement、权限、账号与设备验证，并重新核对数据流 |
 | 药品资料、计划、库存、记录、风险与说明书 | 用户在 App 内录入、导入或确认 | SwiftData 本地存储；写入通过应用层 command 提交与回滚；Watch 只接收当天所需的精简快照 | App Group 保存 Watch 快照，WatchConnectivity 在配对设备间同步 | 仅当用户授权具体 AI scope 并发送问题时，相应快照才进入在线请求；端点受 allowlist 与禁止重定向策略约束 | 本地与在线边界已有授权模型和回归测试 |
 | AI 对话 | 用户接受提示、选择共享范围并主动发送 | 用户消息、最终 assistant/system 消息写入 SwiftData；最终响应只在安全 Guard 和提交成功后显示；中断请求会被标记为未完成 | 无跨设备自动同步 | 在线模式默认经 HTTPS Token Broker 转发至受控上游；客户端只发送已授权 prompt 和 request ID，不持有供应商主密钥；Broker 的进程内幂等缓存会暂存完整 prompt 与 answer，当前过期清理依赖同 key 再次读取且没有容量上限 | Broker 已完成非医疗请求与真机 Beta 联调；缓存主动过期、容量边界及无内容日志由 [Issue #23](https://github.com/Gavin8233841/medcue-ios/issues/23) 跟踪；商业生产身份控制另行增强 |
 | 本地模型 | 用户主动下载并选择离线智能体 | GGUF 保存到 Application Support，先校验大小和 SHA-256；prompt、生成、质量修复和 Guard 均在设备内完成 | Background Assets/URLSession 负责下载传输 | 模型文件从固定下载地址获取；推理内容不上传 | GGUF 被 Git、Release 断言和最终打包规则排除 |
+| 账号与备份 | 当前竞赛/Beta 只展示本机数据说明，不提供 Apple 登录或 iCloud 备份开关 | 既有 `appleAccountLocalUserID`、`wantsICloudBackup` 偏好保留但不再被 UI 读取，不能作为登录或备份成功证据；用药记录仍在本机 SwiftData | 当前版本不通过此入口同步或恢复记录 | 无此入口的云端备份 | 更换、抹掉或丢失设备前不得声称已备份或可恢复 |
 | 偏好与运行状态 | App 功能使用过程中写入 | UserDefaults 保存授权完成状态、UI 偏好、失败提示和 Watch 快照；SwiftData 保存业务记录 | App Group 中的 Watch 快照可供 Watch/Widget 读取 | 不因 UserDefaults 本身产生云端上传 | `PrivacyInfo.xcprivacy` 声明 UserDefaults required-reason API |
 | 复诊摘要 PDF 临时文件 | 用户主动生成复诊沟通 PDF | PDF 临时文件存储于 `FileManager.temporaryDirectory/medcue-visit-summaries/`，写入请求 `NSFileProtectionComplete`，真机上无法验证该等级时拒绝导出并删除文件；文件名为不透明 UUID，不泄漏用户信息或时间戳 | 用户通过系统 UIActivityViewController/QLPreviewController 分享或预览；分享目标由用户选择，框架由系统提供 | 分享行为由用户主动触发；PDF 内容包含用户授权范围内的药品、服药记录、健康信号等复诊资料 | 临时文件在预览或分享活动结束、取消、替换、页面重置或退出后清理；活动使用期间延后删除。超过 1 小时的自有文件在应用下次启动、打开复诊资料页面或生成前清扫，进程终止后不保证恰好一小时自动删除。用户选择的外部分享目的地不受 MedCue 临时文件清理控制；文件保护与清理边界由 [Issue #15](https://github.com/Gavin8233841/medcue-ios/issues/15) 跟踪，验证结果以 PR #60 的精确修订为准 |
 
 ## 三类声明必须分开
 
-1. `Info.plist` 权限用途：解释相机、位置、HealthKit、AlarmKit 为什么在用户触发后被请求。
+1. `Info.plist` 权限用途：解释相机、HealthKit、AlarmKit 为什么在用户触发后被请求。位置用途字符串目前为未启用天气路径保留，不能据此声称当前版本会请求位置。
 2. `PrivacyInfo.xcprivacy`：声明 required-reason API。当前清单声明 UserDefaults 的 `1C8F.1` 与 `CA92.1`，并由主 App、Watch App、Watch Widget 三个 target 复制到各自 bundle。
 3. App Store Connect collected data：仅在未来启动 App Store 分发时进入发布门；是否收集、是否关联身份、是否用于追踪等答案只能在发布后台核验。本仓库没有后台截图或导出，不得提前写成已完成。
 

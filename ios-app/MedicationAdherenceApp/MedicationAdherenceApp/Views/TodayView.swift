@@ -71,7 +71,6 @@ private struct TodayContentView: View {
     @AppStorage(DoseActionPersistence.failureMessageDefaultsKey) private var externalDosePersistenceErrorMessage = ""
     @StateObject private var notificationService = NotificationService()
     @StateObject private var liveActivityService = MedicationLiveActivityService()
-    @StateObject private var weatherMedicationService = WeatherMedicationService()
     @State private var taskPendingArchive: StoredDoseTask?
     @State private var showingArchiveConfirmation = false
     @State private var showingHandledTasks = false
@@ -194,22 +193,6 @@ private struct TodayContentView: View {
         currentDoseProjection.completionRateSnapshot
     }
 
-    private var weatherMedicationSignature: String {
-        medications
-            .filter { $0.lifecycleStatus == .active }
-            .map { medication in
-                [
-                    medication.id.uuidString,
-                    userFacingMedicationName(for: medication),
-                    medication.genericName,
-                    medication.form,
-                    medication.notes
-                ].joined(separator: "::")
-            }
-            .sorted()
-            .joined(separator: "|")
-    }
-
     private var reminderWarningMessage: String {
         [reminderSystemSyncMessage, reminderNotificationUnavailableMessage]
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -286,12 +269,12 @@ private struct TodayContentView: View {
                 reopeningHandledDoseKeys: doseInteraction.reopeningHandledDoseKeys,
                 recentlyReopenedDoseKeys: doseInteraction.recentlyReopenedDoseKeys,
                 doseMigrationSnapshot: doseInteraction.doseMigrationSnapshot,
-                weatherHints: weatherMedicationService.hints,
-                weatherStatusText: weatherMedicationService.statusText,
-                isWeatherLoading: weatherMedicationService.isLoading,
-                shouldShowWeatherAuthorization: weatherMedicationService.shouldShowAuthorizationButton,
+                weatherHints: [],
+                weatherStatusText: "",
+                isWeatherLoading: false,
+                shouldShowWeatherAuthorization: false,
                 doseUndoBanner: doseUndoBanner,
-                weatherMedicationSignature: weatherMedicationSignature,
+                weatherMedicationSignature: "beta-disabled",
                 showingHandledTasks: $showingHandledTasks,
                 taskPendingArchive: $taskPendingArchive,
                 showingArchiveConfirmation: $showingArchiveConfirmation,
@@ -325,15 +308,7 @@ private struct TodayContentView: View {
                     switchToElderMode: {
                         appExperienceModeRaw = AppExperienceMode.elder.rawValue
                     },
-                    requestWeatherRefresh: { requestAuthorization in
-                        // The isolated UI fixture must not query real location
-                        // or weather services while exercising the complete view.
-                        guard systemSurfaceAdapter == nil else { return false }
-                        return await weatherMedicationService.refresh(
-                            medications: medications,
-                            requestAuthorization: requestAuthorization
-                        )
-                    },
+                    requestWeatherRefresh: { _ in false },
                     initialLoad: initialTodayLoad,
                     timerTick: refreshTodayTimer,
                     becameActive: todayBecameActive,
