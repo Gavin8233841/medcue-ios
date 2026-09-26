@@ -12,27 +12,35 @@ import ActivityKit
 struct MedicationAdherenceApp: App {
     private let modelContainer: ModelContainer
     private let persistenceStartupFailure: PersistenceStartupFailure?
+    private let storeAccess: PersistenceStoreAccess
+    @State private var recoveredModelContainer: ModelContainer?
     @AppStorage("appColorSchemePreference") private var appColorSchemePreference = AppColorSchemePreference.system.rawValue
 
     init() {
         // Recover owned reports left behind when the previous process ended.
         VisitSummaryPDFLifecycle.production().sweepExpiredFiles()
 
-        let isPersistentStoreAvailable: Bool
+        let storeAccess = PersistenceStoreAccess()
+        self.storeAccess = storeAccess
         do {
+            #if DEBUG && targetEnvironment(simulator)
+            if ProcessInfo.processInfo.arguments.contains("--medcue-simulate-initial-store-open-failure") {
+                throw PersistenceStartupTestError.simulatedFailure
+            }
+            #endif
             #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
             let fixture = try ElderUITestFixture.loadIfRequested()
             ElderUITestFixture.active = fixture
             if let fixture {
                 modelContainer = fixture.modelContainer
             } else {
-                modelContainer = try MedicationAdherenceModelContainer.make()
+                modelContainer = try PersistencePrimaryStoreOpener.make()
             }
             #else
-            modelContainer = try MedicationAdherenceModelContainer.make()
+            modelContainer = try PersistencePrimaryStoreOpener.make()
             #endif
             persistenceStartupFailure = nil
-            isPersistentStoreAvailable = true
+            storeAccess.install(modelContainer)
             #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
             if fixture == nil {
                 MedicationNotificationDelegate.shared.install(modelContainer: modelContainer)
@@ -44,13 +52,11 @@ struct MedicationAdherenceApp: App {
             do {
                 modelContainer = try MedicationAdherenceModelContainer.make(isStoredInMemoryOnly: true)
                 persistenceStartupFailure = PersistenceStartupFailure()
-                isPersistentStoreAvailable = false
             } catch {
                 preconditionFailure("MedicationAdherence schema could not create a recovery container")
             }
         }
 
-        let intentModelContainer = modelContainer
         #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
         let allowsExternalActions = ElderUITestFixture.active == nil
         #else
@@ -58,7 +64,7 @@ struct MedicationAdherenceApp: App {
         #endif
         AppDependencyManager.shared.add(
             dependency: MedicationReminderLiveActivityIntentExecutor { request, occurredAt in
-                guard isPersistentStoreAvailable && allowsExternalActions else {
+                guard let activeContainer = storeAccess.current(), allowsExternalActions else {
                     return .saveFailed
                 }
                 return await MedicationReminderLiveActivityActionService(
@@ -66,7 +72,7 @@ struct MedicationAdherenceApp: App {
                 ).executeIntentMarkTaken(
                     request,
                     occurredAt: occurredAt,
-                    in: intentModelContainer.mainContext
+                    in: activeContainer.mainContext
                 )
             }
         )
@@ -75,8 +81,13 @@ struct MedicationAdherenceApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                if persistenceStartupFailure != nil {
-                    PersistenceRecoveryView()
+                if persistenceStartupFailure != nil && recoveredModelContainer == nil {
+                    PersistenceRecoveryView {
+                        let reopened = try PersistencePrimaryStoreOpener.make()
+                        MedicationNotificationDelegate.shared.install(modelContainer: reopened)
+                        storeAccess.install(reopened)
+                        recoveredModelContainer = reopened
+                    }
                 } else {
                     AppRootView()
                         #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
@@ -93,22 +104,154 @@ struct MedicationAdherenceApp: App {
             }
             .preferredColorScheme(AppColorSchemePreference(rawValue: appColorSchemePreference)?.colorScheme)
         }
-        .modelContainer(modelContainer)
+        .modelContainer(recoveredModelContainer ?? modelContainer)
     }
 }
 
 private struct PersistenceStartupFailure {}
 
-private struct PersistenceRecoveryView: View {
-    var body: some View {
-        ContentUnavailableView {
-            Label("暂时无法读取用药记录", systemImage: "externaldrive.badge.exclamationmark")
-        } description: {
-            Text("App 没有删除或重建现有数据。请先重新启动 App；如果仍然出现此页面，请保留当前设备数据并联系开发团队协助恢复。")
+private enum PersistencePrimaryStoreOpener {
+    static func make() throws -> ModelContainer {
+        #if DEBUG && targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--medcue-simulate-retry-store-open-failure") {
+            throw PersistenceStartupTestError.simulatedFailure
         }
-        .padding(24)
-        .accessibilityElement(children: .combine)
+        if ProcessInfo.processInfo.arguments.contains("--medcue-recovery-isolated-test-store") {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("medcue-recovery-ui-synthetic.store")
+            return try MedicationAdherenceModelContainer.make(storeURL: url)
+        }
+        #endif
+        return try MedicationAdherenceModelContainer.make()
     }
+}
+
+#if DEBUG && targetEnvironment(simulator)
+private enum PersistenceStartupTestError: Error {
+    case simulatedFailure
+}
+#endif
+
+private final class PersistenceStoreAccess: @unchecked Sendable {
+    private let lock = NSLock()
+    private var container: ModelContainer?
+
+    func install(_ container: ModelContainer) {
+        lock.lock()
+        self.container = container
+        lock.unlock()
+    }
+
+    func current() -> ModelContainer? {
+        lock.lock()
+        defer { lock.unlock() }
+        return container
+    }
+}
+
+private struct PersistenceRecoveryView: View {
+    let onRetry: () throws -> Void
+    @State private var failureStage = "initial"
+    @State private var statusMessage = ""
+    @State private var isExporting = false
+    @State private var shareURLs: [URL] = []
+    @State private var showingShareSheet = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Label("暂时无法打开本机用药记录", systemImage: "externaldrive.badge.exclamationmark")
+                    .font(.title2.bold())
+                Text("现有记录没有被删除或重建。此页面不能新增或修改用药记录。")
+                Button("重试读取原记录") {
+                    do {
+                        try onRetry()
+                    } catch {
+                        failureStage = "retry"
+                        statusMessage = "仍无法打开原记录。请保留当前设备数据，可再次重试或保存诊断信息。"
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("导出脱敏诊断信息") {
+                    exportDiagnostic()
+                }
+                .disabled(isExporting)
+
+                Button("保存敏感原始副本") {
+                    exportSensitiveCopy()
+                }
+                .disabled(isExporting)
+
+                Text("原始副本包含完整用药等私人数据，仅供后续人工分析。目前没有经过测试的应用内导入恢复功能，副本不保证可恢复。主动分享到其他位置后，该位置的保护不受本 App 控制。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Text("全新开始暂不可用：需要先有经过测试的恢复路径，避免清空唯一记录。")
+                    .font(.footnote)
+
+                if isExporting {
+                    ProgressView("正在准备文件")
+                }
+                if !statusMessage.isEmpty {
+                    Text(statusMessage)
+                        .accessibilityIdentifier("recovery.status")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(24)
+        }
+        .sheet(isPresented: $showingShareSheet) {
+            PersistenceRecoveryShareSheet(urls: shareURLs)
+        }
+    }
+
+    private func exportDiagnostic() {
+        isExporting = true
+        statusMessage = ""
+        let stage = failureStage
+        Task {
+            do {
+                let output = try await Task.detached {
+                    try PersistenceRecoveryExport.production().makeDiagnostic(stage: stage)
+                }.value
+                shareURLs = [output]
+                showingShareSheet = true
+                statusMessage = "诊断文件已准备好；只包含版本、系统版本、失败类别与生成时间。"
+            } catch {
+                statusMessage = "诊断文件未能生成。原始记录保持不变，请稍后重试。"
+            }
+            isExporting = false
+        }
+    }
+
+    private func exportSensitiveCopy() {
+        isExporting = true
+        statusMessage = ""
+        Task {
+            do {
+                let outputs = try await Task.detached {
+                    try PersistenceRecoveryExport.production().makeSensitiveCopy()
+                }.value
+                shareURLs = outputs
+                showingShareSheet = true
+                statusMessage = "已生成受保护的原始副本；应用内不提供导入恢复。"
+            } catch {
+                statusMessage = "原始副本未能完成或验证。原始记录保持不变，请稍后重试。"
+            }
+            isExporting = false
+        }
+    }
+}
+
+private struct PersistenceRecoveryShareSheet: UIViewControllerRepresentable {
+    let urls: [URL]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: urls, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
 #if DEBUG
