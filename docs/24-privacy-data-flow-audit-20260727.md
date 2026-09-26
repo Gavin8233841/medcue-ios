@@ -25,3 +25,7 @@
 - Token Broker 商业生产增强：当前 Broker 已完成部署、契约测试、非医疗健康检查和真机 Beta 验证；App Attest/DeviceCheck、用户与设备绑定、短时令牌和按主体配额仍需后续发布阶段补齐。
 - App Store Connect 隐私答案：当前不阻塞竞赛或受控真机 Beta；若未来启动 App Store 分发，需要发布者账户权限核对实际提交值。
 - 真机权限矩阵：相机、HealthKit、位置、通知、AlarmKit、Live Activity、Watch 重连与后台行为仍需真实设备覆盖；Simulator 结果不能替代。
+
+## 2026-09-25 补充：iPhone 系统提醒展示
+
+本轮产品隐私决策见 [ADR-0003](adr/0003-iphone-system-reminder-privacy.md)：受控设备 Beta 默认且仅使用通用系统提醒，不把药名、剂量或具体完成详情交给锁屏通知、AlarmKit、实时活动和灵动岛；通知写入操作要求解锁，实时活动不直接写入。iOS 通知预览由系统和用户控制，应用不声称可覆盖系统设置。当前 #14 的 Simulator/CI 与旧版已送达内容迁移仍须按精确提交验收；#17 保留真实设备发布证据。

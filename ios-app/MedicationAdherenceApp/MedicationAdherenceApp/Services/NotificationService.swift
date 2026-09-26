@@ -167,45 +167,6 @@ enum MedicationReminderCancellationReadback {
     }
 }
 
-struct MedicationReminderCancellationTargets {
-    let notificationIDs: Set<String>
-    let deliveredNotificationIDsToRemove: Set<String>
-    let alarmIDs: Set<UUID>
-
-    init(
-        taskIDs: Set<UUID>,
-        pendingNotificationIDs: Set<String>,
-        deliveredNotificationIDs: Set<String> = [],
-        existingAlarmIDs: Set<UUID>,
-        pruneAllReminders: Bool,
-        preserveBaseForTaskIDs: Set<UUID>,
-        preservedDeliveredNotificationIDs: Set<String> = []
-    ) {
-        var notifications = Set(taskIDs.flatMap {
-            [MedicationReminderSystemIdentifiers.baseNotification(for: $0),
-             MedicationReminderSystemIdentifiers.escalationNotification(for: $0)]
-        })
-        var alarms = Set(taskIDs.flatMap {
-            [$0, MedicationReminderSystemIdentifiers.escalationAlarm(for: $0)]
-        })
-        var deliveredToRemove = notifications
-        if pruneAllReminders {
-            notifications.formUnion(pendingNotificationIDs.filter { $0.hasPrefix("dose.") })
-            deliveredToRemove.formUnion(deliveredNotificationIDs.filter { $0.hasPrefix("dose.") })
-            // AlarmKit is currently used only for medication reminders in this app.
-            alarms.formUnion(existingAlarmIDs)
-        }
-        notifications.subtract(preserveBaseForTaskIDs.map {
-            MedicationReminderSystemIdentifiers.baseNotification(for: $0)
-        })
-        alarms.subtract(preserveBaseForTaskIDs)
-        deliveredToRemove.subtract(preservedDeliveredNotificationIDs)
-        notificationIDs = notifications
-        deliveredNotificationIDsToRemove = deliveredToRemove
-        alarmIDs = alarms
-    }
-}
-
 enum MedicationReminderRequestTiming {
     static func hasIncompleteResult(
         _ results: [UUID: MedicationReminderSchedulingResult]
@@ -358,6 +319,7 @@ struct MedicationReminderRequestExecutor {
 final class NotificationService: ObservableObject {
     static let reminderNotificationUnavailableMessageKey = "reminderNotificationUnavailableMessage"
     static let reminderSystemSyncMessageKey = "reminderSystemSyncMessage"
+    private static let systemSurfacePrivacyMigrationKey = "systemSurfacePrivacyV1Applied"
     private static let reminderSystemSyncMessagesByTaskKey = "reminderSystemSyncMessagesByTask"
     private static let reminderSystemSyncGlobalMessageKey = "reminderSystemSyncGlobalMessage"
 
@@ -642,10 +604,13 @@ final class NotificationService: ObservableObject {
             }
             .filter { seenTaskIDs.insert($0.taskID).inserted }
         let affectedTaskIDs = Set(snapshot.entries.map(\.taskID) + snapshot.cancelledTaskIDs)
+        let replacePreviouslyDisplayedContent = pruneExistingPrefixRequests
+            && !defaults.bool(forKey: Self.systemSurfacePrivacyMigrationKey)
         guard let cleanup = await removeExistingReminderRequests(
             for: affectedTaskIDs,
             pruneAllReminders: pruneExistingPrefixRequests,
-            snapshot: snapshot
+            snapshot: snapshot,
+            replacePreviouslyDisplayedContent: replacePreviouslyDisplayedContent
         ) else {
             lastSystemOperationFailed = true
             let message = "提醒状态暂时无法核对，请稍后重试。"
@@ -668,6 +633,9 @@ final class NotificationService: ObservableObject {
             })
         }
         lastSystemOperationFailed = cleanup.failed
+        if replacePreviouslyDisplayedContent && !cleanup.failed && !cleanup.hasUnattributedFailure {
+            defaults.set(true, forKey: Self.systemSurfacePrivacyMigrationKey)
+        }
         let notificationAvailable: Bool
         let beforeAuthorizationNow = Date()
         if !activeEntries.contains(where: {
@@ -956,7 +924,8 @@ final class NotificationService: ObservableObject {
     private func removeExistingReminderRequests(
         for taskIDs: Set<UUID>,
         pruneAllReminders: Bool,
-        snapshot: MedicationReminderPostCommitSnapshot
+        snapshot: MedicationReminderPostCommitSnapshot,
+        replacePreviouslyDisplayedContent: Bool
     ) async -> ReminderCleanupResult? {
         let center = UNUserNotificationCenter.current()
         let pendingBefore = await center.pendingNotificationRequests()
@@ -973,7 +942,8 @@ final class NotificationService: ObservableObject {
             existingAlarmIDs: alarmsBefore,
             pruneAllReminders: pruneAllReminders,
             preserveBaseForTaskIDs: preserveBaseForTaskIDs,
-            preservedDeliveredNotificationIDs: snapshot.preservedDeliveredNotificationIDs(at: cleanupNow)
+            preservedDeliveredNotificationIDs: snapshot.preservedDeliveredNotificationIDs(at: cleanupNow),
+            replacePreviouslyDisplayedContent: replacePreviouslyDisplayedContent
         )
         let notificationIDs = targets.notificationIDs
         if !notificationIDs.isEmpty {
@@ -1020,7 +990,8 @@ final class NotificationService: ObservableObject {
                     existingAlarmIDs: [],
                     pruneAllReminders: pruneAllReminders,
                     preserveBaseForTaskIDs: preserveBaseForTaskIDs,
-                    preservedDeliveredNotificationIDs: snapshot.preservedDeliveredNotificationIDs(at: Date())
+                    preservedDeliveredNotificationIDs: snapshot.preservedDeliveredNotificationIDs(at: Date()),
+                    replacePreviouslyDisplayedContent: replacePreviouslyDisplayedContent
                 ).deliveredNotificationIDsToRemove.intersection(deliveredIDs)
             },
             removePendingIDs: { ids in
@@ -1102,8 +1073,8 @@ final class NotificationService: ObservableObject {
         )
 
         let content = UNMutableNotificationContent()
-        content.title = "该服药了"
-        content.body = "\(payload.medicationName) · \(payload.doseText)"
+        content.title = MedicationSystemSurfacePrivacyPolicy.reminderTitle
+        content.body = MedicationSystemSurfacePrivacyPolicy.reminderBody
         content.sound = .default
         content.categoryIdentifier = MedicationNotificationDelegate.categoryIdentifier
         content.userInfo = [
@@ -1160,9 +1131,9 @@ final class NotificationService: ObservableObject {
                     medicationName: entry.medicationName,
                     doseText: entry.doseText
                 )
-                let title = LocalizedStringResource(stringLiteral: "\(payload.medicationName) · \(payload.doseText)")
+                let title = LocalizedStringResource(stringLiteral: MedicationSystemSurfacePrivacyPolicy.reminderTitle)
                 let stopButton = AlarmButton(
-                    text: "完成",
+                    text: "停止闹钟",
                     textColor: .white,
                     systemImageName: "checkmark"
                 )
@@ -1203,8 +1174,8 @@ final class NotificationService: ObservableObject {
         guard escalationAt > Date() else { return false }
 
         let content = UNMutableNotificationContent()
-        content.title = "仍未确认服药"
-        content.body = "\(entry.medicationName) · 请在 App 内确认已服用、稍后或忽略"
+        content.title = MedicationSystemSurfacePrivacyPolicy.escalationTitle
+        content.body = MedicationSystemSurfacePrivacyPolicy.reminderBody
         content.sound = .default
         content.categoryIdentifier = MedicationNotificationDelegate.categoryIdentifier
         content.userInfo = [
@@ -1250,7 +1221,7 @@ final class NotificationService: ObservableObject {
                 medicationName: entry.medicationName,
                 doseText: entry.doseText
             )
-            let title = LocalizedStringResource(stringLiteral: "\(titlePrefix)：\(payload.medicationName) · \(payload.doseText)")
+            let title = LocalizedStringResource(stringLiteral: MedicationSystemSurfacePrivacyPolicy.escalationTitle)
             let stopButton = AlarmButton(
                 text: "打开 App 确认",
                 textColor: .white,

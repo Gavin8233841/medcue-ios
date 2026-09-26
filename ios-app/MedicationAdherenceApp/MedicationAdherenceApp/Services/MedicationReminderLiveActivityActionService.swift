@@ -140,21 +140,10 @@ struct MedicationReminderLiveActivityActionService {
         guard #available(iOS 16.2, *) else {
             return
         }
-        // Compatibility recovery for activities created before the iOS 17
-        // LiveActivityIntent transaction path. New intents commit directly.
+        // Legacy completed activities are presentation state, not proof that
+        // the device owner authenticated or that a dose was taken.
         for activity in Activity<MedicationReminderActivityAttributes>.activities where activity.content.state.isCompleted {
-            await handle(
-                MedicationReminderLiveActivityActionRequest(
-                    taskID: activity.attributes.taskID,
-                    action: .markTaken,
-                    operationID: activity.attributes.actionOperationID ?? activity.attributes.taskID,
-                    expiresAt: activity.content.state.dueAt.addingTimeInterval(
-                        MedicationLiveActivityPolicy.default.staleWindow
-                    )
-                ),
-                in: modelContext,
-                occurredAt: activity.content.state.completedAt ?? Date()
-            )
+            await activity.end(activity.content, dismissalPolicy: .immediate)
         }
         #endif
     }
