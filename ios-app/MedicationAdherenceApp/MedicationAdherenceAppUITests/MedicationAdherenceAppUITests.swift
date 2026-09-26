@@ -498,6 +498,26 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         XCTAssertEqual(app.staticTexts["elder.test.store.schedule-attempts"].label, "1")
     }
 
+    func testElderScheduledDelayCanUndoToOriginalPendingTime() {
+        continueAfterFailure = false
+        let app = launchElderFixture()
+        tapElderAction("elder.action.delay", in: app)
+        assertCurrentTask("布洛芬", status: "稍后提醒", in: app)
+
+        let undo = app.buttons["elder.feedback.undo"]
+        XCTAssertTrue(undo.waitForExistence(timeout: 5))
+        undo.tap()
+
+        assertCurrentTask("布洛芬", status: "未确认", in: app)
+        XCTAssertFalse(app.descendants(matching: .any)["elder.feedback.success"].exists)
+        let warning = app.descendants(matching: .any)["elder.reminder.warning"]
+        XCTAssertTrue(warning.waitForExistence(timeout: 5))
+        XCTAssertTrue(warning.label.contains("原提醒时间已过"))
+        assertStoredState(in: app, statuses: ["pending"], logCount: 1, saveAttempts: 1)
+        XCTAssertEqual(app.staticTexts["elder.test.store.task.0.due-offset"].label, "-300")
+        XCTAssertEqual(app.staticTexts["elder.test.store.schedule-attempts"].label, "1")
+    }
+
     func testElderReminderFailureDoesNotClaimReminderSuccess() {
         continueAfterFailure = false
         let app = launchElderFixture(extraArguments: ["--elder-ui-reminder-unavailable"])

@@ -619,7 +619,7 @@ struct ElderDoseSuccessFeedback: View {
         VStack(alignment: .leading, spacing: 12) {
             Label(feedback.message, systemImage: "checkmark.circle.fill")
             if feedback.canUndo(at: currentTime), let taskID = feedback.taskID {
-                Button("10 分钟内撤销，恢复为待处理") { undo(taskID) }
+                Button("10 分钟内撤销本次操作") { undo(taskID) }
                     .buttonStyle(.bordered)
                     .accessibilityIdentifier("elder.feedback.undo")
             }

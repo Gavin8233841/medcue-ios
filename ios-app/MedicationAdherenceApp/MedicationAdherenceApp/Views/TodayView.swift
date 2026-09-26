@@ -574,8 +574,8 @@ private struct TodayContentView: View {
                     elderReminderUnavailableMessage = ""
                     elderDoseSuccessFeedback = ElderDoseSuccessState(
                         message: "已设置 \(delayDurationText)后提醒",
-                        taskID: nil,
-                        undoExpiresAt: nil
+                        taskID: task.recordedAt == nil ? nil : task.id,
+                        undoExpiresAt: task.recordedAt?.addingTimeInterval(DoseActionTransitionPlanner.undoWindow)
                     )
                 case .reminder(.unavailable(let message)):
                     elderDoseSuccessFeedback = nil
@@ -866,6 +866,11 @@ private struct TodayContentView: View {
     }
 
     private func performReopenTransition(_ task: StoredDoseTask, restore: @escaping () -> Void) {
+        if task.status == .delayed {
+            resetDoseTransitionState(animated: false)
+            restore()
+            return
+        }
         let migrationSnapshot = doseMigrationSnapshotForReopen(task)
         let doseKey = logicalDoseKey(for: task)
         resetDoseTransitionState(animated: false)
@@ -915,7 +920,10 @@ private struct TodayContentView: View {
               feedback.canUndo(at: occurredAt),
               !elderActionInProgress, !elderReminderSyncInProgress,
               let task = tasks.first(where: { $0.id == taskID }),
-              task.status == .taken || task.status == .skipped else {
+              task.status == .taken || task.status == .skipped || task.status == .delayed,
+              let recordedAt = task.recordedAt,
+              let deadline = feedback.undoExpiresAt,
+              abs(deadline.timeIntervalSince(recordedAt.addingTimeInterval(DoseActionTransitionPlanner.undoWindow))) < 1 else {
             return
         }
         undoOrReopen(task, at: occurredAt) {
@@ -928,33 +936,54 @@ private struct TodayContentView: View {
         at occurredAt: Date? = nil,
         onCommit: (() -> Void)? = nil
     ) {
+        let wasDelayed = task.status == .delayed
         performReopenTransition(task) {
             let previousCompletionSnapshot = currentCompletionRateSnapshot
-            prepareReopenedTaskHighlightIfNeeded(task)
+            if !wasDelayed {
+                prepareReopenedTaskHighlightIfNeeded(task)
+            }
             var outcome: DoseReopenCommandOutcome?
             updateDoseState(animated: false) {
-                outcome = DoseReopenCommand(modelContext: modelContext).perform(
-                    taskID: task.id,
-                    at: occurredAt ?? now()
-                )
+                let command = DoseReopenCommand(modelContext: modelContext)
+                outcome = wasDelayed
+                    ? command.undoRecentDelay(taskID: task.id, at: occurredAt ?? now())
+                    : command.perform(taskID: task.id, at: occurredAt ?? now())
             }
             guard case let .committed(commit) = outcome else {
-                dosePersistenceErrorMessage = DoseActionPersistenceError.saveFailed.userMessage
+                dosePersistenceErrorMessage = outcome == .saveFailed
+                    ? DoseActionPersistenceError.saveFailed.userMessage
+                    : DoseActionPersistenceError.taskClosed.userMessage
                 resetDoseTransitionState(animated: false)
                 return
             }
             onCommit?()
+            if wasDelayed {
+                elderOperationID = UUID()
+            }
             let committedTaskIDs = Set(commit.taskIDs)
             let group = tasks.filter { committedTaskIDs.contains($0.id) }
             let nextCompletionSnapshot = currentCompletionRateSnapshot
             presentCompletionRateFeedbackIfNeeded(from: previousCompletionSnapshot, to: nextCompletionSnapshot)
-            showDoseUndoBanner(for: task, rollbackToken: commit.rollbackToken)
-            clearReopenedTaskHighlightAfterDelay(task)
+            if !wasDelayed {
+                showDoseUndoBanner(for: task, rollbackToken: commit.rollbackToken)
+                clearReopenedTaskHighlightAfterDelay(task)
+            }
             let systemSurfaceSync = systemSurfaceSynchronizer.beginSynchronize(
                 .reopened(group, primaryTaskID: task.id)
             )
+            let operationID = elderOperationID
             performDeferredSystemSurfaceSync {
-                _ = await systemSurfaceSync.value
+                let result = await systemSurfaceSync.value
+                if wasDelayed, presentation == .elder, operationID == elderOperationID {
+                    switch result {
+                    case .reminder(.unavailable(let message)):
+                        elderReminderUnavailableMessage = "已撤销稍后提醒；\(message)"
+                    case .completed where task.dueAt <= now():
+                        elderReminderUnavailableMessage = "已撤销稍后提醒；原提醒时间已过，请在应用内确认本次用药。"
+                    case .reminder(.scheduled), .completed:
+                        elderReminderUnavailableMessage = ""
+                    }
+                }
                 scheduleLiveActivityRefresh(after: 0.35)
             }
         }
