@@ -205,11 +205,45 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
             ])
         ]
 
-        return checks.compactMap { flag, phrases in
+        var flags = checks.compactMap { flag, phrases in
             treatmentDecisionStatements.contains { statement in
                 phrases.contains { statement.text.contains($0) }
             } ? flag : nil
         }
+        for statement in treatmentDecisionStatements.map(\.text) where !isCurrentDoseDescription(statement) {
+            let lowercased = statement.lowercased()
+            let hasDoseQuantity = lowercased.range(
+                of: #"(?:[0-9]+(?:\.[0-9]+)?|[一二两三四五六七八九十半])\s*(?:片|粒|丸|毫克|mg|毫升|ml|tablets?|capsules?)"#,
+                options: .regularExpression
+            ) != nil
+            let hasMedicationAction = [
+                "服用", "吃", "每天", "每日", "每次", "一日", "一天", "剂量", "用量",
+                "改为", "改成", "调到", "take", "tablet", "capsule"
+            ].contains { lowercased.contains($0) }
+            if hasDoseQuantity && hasMedicationAction && !flags.contains("dose-change") {
+                flags.append("dose-change")
+            }
+
+            let hasFrequencyQuantity = lowercased.range(
+                of: #"(?:[0-9]+|[一二两三四五六七八九十])\s*(?:次|times?)"#,
+                options: .regularExpression
+            ) != nil
+            let hasFrequencyAction = ["每天", "每日", "一日", "服用", "用药", "daily", "per day"].contains {
+                lowercased.contains($0)
+            }
+            if hasFrequencyQuantity && hasFrequencyAction && !flags.contains("frequency-change") {
+                flags.append("frequency-change")
+            }
+        }
+        return flags
+    }
+
+    private func isCurrentDoseDescription(_ statement: String) -> Bool {
+        let trimmed = statement.trimmingCharacters(in: .whitespaces)
+        let descriptionPrefixes = ["患者目前", "患者当前", "用户目前", "用户当前", "我目前", "我现在", "目前", "当前"]
+        let actionMarkers = ["建议", "应", "可以", "必须", "改为", "改成", "调整", "增加", "减少", "加倍", "翻倍"]
+        return descriptionPrefixes.contains { trimmed.hasPrefix($0) }
+            && !actionMarkers.contains { trimmed.contains($0) }
     }
 
     private func isConditionalRiskDescription(_ statement: String) -> Bool {
@@ -244,9 +278,15 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
                 return false
             }
         }
-        let laterAdvice = ["但建议", "但可以", "不过建议", "不过可以", "随后建议"]
+        let laterAdvice = ["但建议", "但可以", "不过建议", "不过可以", "随后建议", "并建议", "然后建议", "接着建议"]
         if laterAdvice.contains(where: { statement.contains($0) }) {
             return false
+        }
+        let lowercased = statement.trimmingCharacters(in: .whitespaces).lowercased()
+        if lowercased.hasPrefix("do not take ")
+            && !lowercased.contains(" but take ")
+            && !lowercased.contains(" then take ") {
+            return true
         }
         let markers = [
             "不要自行", "不应自行", "请勿自行", "不得擅自",

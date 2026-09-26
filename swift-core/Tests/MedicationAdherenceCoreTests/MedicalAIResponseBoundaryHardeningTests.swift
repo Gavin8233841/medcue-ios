@@ -94,3 +94,33 @@ import Testing
     #expect(review.flags.contains("stop-medication"))
     #expect(!review.displayMessage.contains("应停止使用"))
 }
+
+@Test func medicalAIResponseBoundaryBlocksUnverifiedConcreteDoseInstructions() {
+    let cases = [
+        "说明书提示：每天服用 2 片。",
+        "请每次服用 10 mg。",
+        "每天 take 2 tablets。",
+        "Take 2 tablets twice daily.",
+        "每天服用 3 次。",
+        "不要自行停药并建议每天服用 2 片。",
+        "患者目前每天服用 2 片并建议改为每天 3 片。"
+    ]
+
+    for message in cases {
+        let review = MedicalAIResponseBoundaryGuard().review(message)
+        #expect(review.blockedActionableInstruction, "Unblocked instruction: \(message)")
+        #expect(!review.displayMessage.contains(message), "Displayed instruction: \(message)")
+    }
+}
+
+@Test func medicalAIResponseBoundaryKeepsCurrentDoseHistoryAndReferral() {
+    for message in [
+        "患者目前每天服用 2 片，具体用量请向医生核对。",
+        "是否需要每天服用 2 片，应由医生判断。",
+        "Do not take 2 tablets without checking with a clinician."
+    ] {
+        let review = MedicalAIResponseBoundaryGuard().review(message)
+        #expect(!review.blockedActionableInstruction, "Blocked description: \(message)")
+        #expect(review.displayMessage.contains(message))
+    }
+}
