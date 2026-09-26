@@ -63,6 +63,17 @@ struct MedicalAIRequestOrchestratorTests {
     }
 
     @Test
+    func finalizerKeepsConcreteDoseInstructionOutOfDisplayAndPersistence() throws {
+        let finalized = try MedicalAIResponseFinalizer().finalize(
+            answer: "说明书提示：每天服用 2 片。"
+        )
+
+        #expect(finalized.boundaryBlockedAction)
+        #expect(!finalized.displayMessage.contains("每天服用 2 片"))
+        #expect(finalized.persistedMessage == finalized.displayMessage)
+    }
+
+    @Test
     func mismatchedResponseRequestIDIsRejected() async {
         let request = Self.request()
         let wrongResponse = MedicalAIResponse(
