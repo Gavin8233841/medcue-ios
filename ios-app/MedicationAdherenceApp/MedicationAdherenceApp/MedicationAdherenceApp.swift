@@ -339,7 +339,14 @@ private enum LocalMedicalModelSmokeTestRunner {
         }
 
         let repeatCount = smokeRepeatCount()
-        let succeeded = await performSmokeRequests(modelURL: modelURL, repeatCount: repeatCount)
+        var succeeded = await performSmokeRequests(modelURL: modelURL, repeatCount: repeatCount)
+        if succeeded && ProcessInfo.processInfo.environment["LOCAL_MODEL_SMOKE_CANCEL_PROBE"] == "1" {
+            if await performCancellationProbe(modelURL: modelURL) {
+                succeeded = await performSmokeRequest(modelURL: modelURL, index: repeatCount + 1)
+            } else {
+                succeeded = false
+            }
+        }
         finish(succeeded ? 0 : 1)
     }
 
@@ -397,6 +404,64 @@ private enum LocalMedicalModelSmokeTestRunner {
         }
     }
 
+    @MainActor
+    private static func performCancellationProbe(modelURL: URL) async -> Bool {
+        let runtime = LocalMedicalModelRuntime.shared
+        let generation = runtime.generateResponseStream(
+            prompt: "请写一段至少一千字的合成文字，用于验证本机推理取消，不涉及个人用药信息。",
+            modelURL: modelURL,
+            maxTokens: 512
+        )
+        let firstToken = AsyncStream<Void>.makeStream()
+        let state = LocalModelCancellationProbeState()
+        let collector = Task {
+            do {
+                for try await delta in generation.stream where !delta.isEmpty {
+                    firstToken.continuation.yield(())
+                }
+            } catch {
+                // Cancellation is the expected end of this probe.
+            }
+            await state.markFinished()
+            firstToken.continuation.finish()
+        }
+        let firstTokenTimeout = Task {
+            do {
+                try await Task.sleep(for: .seconds(45))
+            } catch {
+                return
+            }
+            generation.cancel()
+            firstToken.continuation.finish()
+        }
+        var tokenIterator = firstToken.stream.makeAsyncIterator()
+        let observedToken = await tokenIterator.next() != nil
+        firstTokenTimeout.cancel()
+        let completedBeforeCancel = await state.isFinished
+        let cancellationStartedAt = Date()
+        generation.cancel()
+
+        // The runtime actor is occupied by synchronous native generation. This
+        // read can return only after its native context has exited and freed.
+        let cancellationTimeout = Task.detached {
+            do {
+                try await Task.sleep(for: .seconds(15))
+            } catch {
+                return
+            }
+            print("[LocalMedicalModel-Smoke] failure cancellation-stalled")
+            fflush(stdout)
+            Darwin.exit(1)
+        }
+        _ = await runtime.isReady
+        cancellationTimeout.cancel()
+        await collector.value
+        let elapsed = Date().timeIntervalSince(cancellationStartedAt)
+        let passed = observedToken && !completedBeforeCancel && elapsed <= 5
+        print("[LocalMedicalModel-Smoke] cancellation observedToken=\(observedToken) activeBeforeCancel=\(!completedBeforeCancel) releaseSeconds=\(String(format: "%.3f", elapsed)) passed=\(passed)")
+        return passed
+    }
+
     private static func smokePrompt(for index: Int) -> String {
         let prompts = [
             "请用一句话回复离线智能体本机推理测试。",
@@ -426,4 +491,12 @@ private enum LocalMedicalModelSmokeTestRunner {
 }
 
 private struct LocalMedicalModelSmokeTimeoutError: Error {}
+
+private actor LocalModelCancellationProbeState {
+    private(set) var isFinished = false
+
+    func markFinished() {
+        isFinished = true
+    }
+}
 #endif

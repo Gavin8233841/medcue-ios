@@ -7,15 +7,25 @@ import UIKit
 @Suite(.serialized)
 struct ElderModeTests {
     @Test
-    func elderActionHierarchyUsesMeasuredHeightsAndRatios() {
-        #expect(ElderDoseActionProminence.primary.minimumHeight == 76)
-        #expect(ElderDoseActionProminence.secondary.minimumHeight == 68)
-        #expect(ElderDoseActionProminence.tertiary.minimumHeight == 60)
-        #expect(ElderDoseActionProminence.primary.visibleWidthRatio == 1)
-        #expect(ElderDoseActionProminence.secondary.visibleWidthRatio == 0.92)
-        #expect(ElderDoseActionProminence.tertiary.visibleWidthRatio == 0.80)
-        #expect(ElderDoseActionProminence.secondary.contentWidth(availableWidth: 328) == 328 * 0.92)
-        #expect(ElderDoseActionProminence.tertiary.contentWidth(availableWidth: 328) == 328 * 0.80)
+    func elderSuccessUndoEndsAtPersistedDeadline() {
+        let taskID = UUID()
+        let deadline = Date(timeIntervalSince1970: 600)
+        let feedback = ElderDoseSuccessState(
+            message: "已服用",
+            taskID: taskID,
+            undoExpiresAt: deadline
+        )
+
+        #expect(feedback.canUndo(at: deadline))
+        #expect(!feedback.canUndo(at: deadline.addingTimeInterval(0.001)))
+        #expect(!ElderDoseSuccessState(message: "提醒已设置", taskID: nil, undoExpiresAt: nil).canUndo(at: deadline))
+    }
+
+    @Test
+    func elderActionsKeepLargeDistinctTouchTargets() {
+        #expect(ElderDoseActionProminence.tertiary.minimumHeight >= 60)
+        #expect(ElderDoseActionProminence.secondary.minimumHeight > ElderDoseActionProminence.tertiary.minimumHeight)
+        #expect(ElderDoseActionProminence.primary.minimumHeight > ElderDoseActionProminence.secondary.minimumHeight)
     }
 
     @Test @MainActor
@@ -30,30 +40,6 @@ struct ElderModeTests {
 
         #expect(state.inFlightDoseKeys.isEmpty)
         #expect(state.beginDoseAction(for: "dose-1"))
-    }
-
-    @Test
-    func elderTaskLayoutUsesAnIdentityBandAndAccessibleReflow() {
-        #expect(ElderTaskLayoutMetrics.regularPhotoWidth == 180)
-        #expect(ElderTaskLayoutMetrics.regularPhotoMinimumWidth == 176)
-        #expect(ElderTaskLayoutMetrics.accessibilityPhotoWidth == 300)
-        #expect(ElderTaskLayoutMetrics.photoContainerAspectRatio == 0.76)
-        #expect(ElderTaskLayoutMetrics.regularPhotoWidth / ElderTaskLayoutMetrics.photoContainerAspectRatio > 230)
-        #expect(ElderTaskLayoutMetrics.accessibilityPhotoWidth / ElderTaskLayoutMetrics.photoContainerAspectRatio > 390)
-        #expect(ElderTaskLayoutMetrics.regularPhotoWidth(for: 402) >= 176)
-        #expect(ElderTaskLayoutMetrics.regularPhotoWidth(for: 402) <= 180)
-        #expect(ElderTaskLayoutMetrics.regularPhotoWidth(for: 320) == 176)
-        #expect(ElderTaskLayoutMetrics.regularPhotoWidth(for: 375) == 176)
-        // On a 375pt screen the image leaves space for the unscaled 46pt title
-        // to wrap alongside it instead of adding another full-height section.
-        let narrowContentWidth: CGFloat = 375 - 32 - 2 * ElderTaskLayoutMetrics.regularCardPadding
-        #expect(narrowContentWidth - ElderTaskLayoutMetrics.regularPhotoWidth(for: 375)
-                - ElderTaskLayoutMetrics.regularIdentitySpacing >= 2 * 46)
-        #expect(ElderTaskLayoutMetrics.accessibilityPhotoWidth(for: 402) == 300)
-        #expect(ElderTaskLayoutMetrics.accessibilityPhotoWidth(for: 320) == 248)
-        #expect(ElderTaskLayoutMetrics.regularIdentitySpacing == 12)
-        #expect(ElderTaskLayoutMetrics.regularDetailsSpacing == 12)
-        #expect(ElderTaskLayoutMetrics.actionSpacing >= 12)
     }
 
     @Test

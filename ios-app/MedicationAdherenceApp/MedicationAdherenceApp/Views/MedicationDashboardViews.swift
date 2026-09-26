@@ -189,6 +189,9 @@ func isMedicationAddOptionEnabled(_ option: MedicationAddOption) -> Bool {
 }
 
 struct MedicationDashboardSummary: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var isAccessibilitySize: Bool { dynamicTypeSize.isAccessibilitySize }
+
     let medicationCount: Int
     let activeTaskCount: Int
     let stockCount: Int
@@ -213,11 +216,11 @@ struct MedicationDashboardSummary: View {
                 }
                 Spacer()
                 Image(systemName: "heart.text.square.fill")
-                    .font(.title)
+                    .font(.system(size: 24))
                     .foregroundStyle(.blue)
             }
 
-            LazyVGrid(columns: columns, spacing: 10) {
+            LazyVGrid(columns: isAccessibilitySize ? [GridItem(.flexible())] : columns, spacing: 10) {
                 Button {
                     selectedDestination = .overview
                 } label: {
@@ -297,6 +300,9 @@ enum MedicationDashboardDestination: Hashable, Identifiable {
 }
 
 struct MedicationMetricTile: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var isAccessibilitySize: Bool { dynamicTypeSize.isAccessibilitySize }
+
     let title: String
     let value: String
     var subtitle: String? = nil
@@ -307,26 +313,29 @@ struct MedicationMetricTile: View {
     var body: some View {
         let iconSize: CGFloat = compact ? 24 : 28
         let minHeight: CGFloat = compact ? 66 : 76
-        HStack(alignment: .center, spacing: 10) {
+        (isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))) {
             VStack(alignment: .leading, spacing: compact ? 5 : 7) {
                 HStack(spacing: 8) {
                     Image(systemName: iconName)
-                        .font(compact ? .subheadline.weight(.semibold) : .headline)
+                        .font(.system(size: compact ? 16 : 18, weight: .semibold))
                         .foregroundStyle(tint)
                         .frame(width: iconSize, height: iconSize)
                         .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
                     Text(title)
+                        .accessibilityIdentifier("medications.metric.title.\(title)")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.78)
+                        .lineLimit(isAccessibilitySize ? nil : 1)
+                        .minimumScaleFactor(isAccessibilitySize ? 1 : 0.78)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if let subtitle, !compact {
                     Text(subtitle)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.78)
+                        .lineLimit(isAccessibilitySize ? nil : 1)
+                        .minimumScaleFactor(isAccessibilitySize ? 1 : 0.78)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -335,8 +344,8 @@ struct MedicationMetricTile: View {
                 .font((compact ? Font.title2 : Font.title).weight(.bold))
                 .monospacedDigit()
                 .foregroundStyle(.primary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.68)
+                .lineLimit(isAccessibilitySize ? nil : 1)
+                .minimumScaleFactor(isAccessibilitySize ? 1 : 0.68)
                 .frame(minWidth: 36, alignment: .trailing)
         }
         .padding(compact ? 9 : 12)

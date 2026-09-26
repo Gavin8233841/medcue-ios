@@ -207,7 +207,9 @@ struct TodayScreen: View {
 
     private var timeline: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 22) {
+            // These bounded sections can grow while scrolling (inline confirmations).
+            // Resolve their heights together to keep AX scroll geometry stable.
+            VStack(alignment: .leading, spacing: 22) {
                 if snapshot.completionRateSnapshot.isComplete,
                    shouldShowCompletionCelebration {
                     CompletionCompleteCelebrationCard(
@@ -253,7 +255,7 @@ struct TodayScreen: View {
         Button(action: actions.switchToElderMode) {
             HStack(spacing: 14) {
                 Image(systemName: "checklist")
-                    .font(.title3.weight(.semibold))
+                    .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(.blue)
                     .frame(width: 42, height: 42)
                     .background(
@@ -269,7 +271,7 @@ struct TodayScreen: View {
                 Spacer(minLength: 8)
 
                 Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.tertiary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -377,7 +379,10 @@ struct TodayScreen: View {
     }
 
     private var openTimelineSection: some View {
-        todaySection("今日待处理") {
+        todaySection(
+            "今日待处理",
+            titleAccessibilityIdentifier: AppAccessibilityID.todayOpenTimeline
+        ) {
             if isOpenTimelineTemporarilyCollapsed {
                 OpenDoseSummaryRow(
                     count: snapshot.displayedOpenCount,
@@ -436,7 +441,6 @@ struct TodayScreen: View {
             prefersReducedMotion ? nil : .snappy(duration: 0.24, extraBounce: 0.02),
             value: recentlyReopenedDoseKeys
         )
-        .accessibilityIdentifier(AppAccessibilityID.todayOpenTimeline)
     }
 
     private var handledTimelineSection: some View {
@@ -604,13 +608,11 @@ struct TodayScreen: View {
 
     private func todaySection<Content: View>(
         _ title: String,
+        titleAccessibilityIdentifier: String? = nil,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            todaySectionTitle(title, accessibilityIdentifier: titleAccessibilityIdentifier)
 
             VStack(alignment: .leading, spacing: 10) {
                 content()
@@ -623,6 +625,23 @@ struct TodayScreen: View {
             )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func todaySectionTitle(
+        _ title: String,
+        accessibilityIdentifier: String?
+    ) -> some View {
+        let label = Text(title)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+        if let accessibilityIdentifier {
+            label.accessibilityIdentifier(accessibilityIdentifier)
+        } else {
+            label
+        }
     }
 
     private func openSystemNotificationSettings() {
@@ -669,6 +688,8 @@ struct ElderTodayScreenActions {
     let completionVerb: (StoredMedication?) -> String
     let markTaken: (StoredDoseTask) -> Void
     let delay: (StoredDoseTask) -> Void
+    let skip: (StoredDoseTask) -> Void
+    let undoSuccess: (UUID) -> Void
     let confirm: (StoredDoseTask) -> Void
     let cancelConfirmation: (StoredDoseTask) -> Void
     let requestHelp: () -> Void
@@ -689,9 +710,8 @@ struct ElderTodayScreen: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.medcueReduceMotionEnabled) private var reduceMotionEnabled
     @AccessibilityFocusState private var accessibilityFocus: ElderAccessibilityFocus?
-    @ScaledMetric(relativeTo: .largeTitle) private var elderTitlePointSize: CGFloat = 46
-    @ScaledMetric(relativeTo: .title2) private var elderDosePointSize: CGFloat = 26
-    @ScaledMetric(relativeTo: .title3) private var elderMetaPointSize: CGFloat = 22
+    @State private var medicationPhotoPreview: ElderMedicationPhotoPreview?
+    @ScaledMetric(relativeTo: .title2) private var elderTitlePointSize: CGFloat = 24
     let snapshot: ElderTodayRenderSnapshot
     let pendingDoseConfirmation: PendingDoseConfirmation?
     let pendingDoseFeedback: PendingDoseFeedback?
@@ -700,11 +720,13 @@ struct ElderTodayScreen: View {
     @Binding var helpOpeningErrorMessage: String?
     @Binding var helpMissingMessage: String?
     @Binding var helpConfirmationPhone: ElderHelpPhoneNumber?
-    @Binding var successFeedback: String?
+    @Binding var successFeedback: ElderDoseSuccessState?
+    let currentTime: Date
     let notificationUnavailableMessage: String
     let loadErrorMessage: String?
     let isLoading: Bool
     let actions: ElderTodayScreenActions
+    @State private var taskPendingSkip: StoredDoseTask?
     private let currentTaskRefreshTimer = Timer
         .publish(every: 1, on: .main, in: .common)
         .autoconnect()
@@ -752,50 +774,108 @@ struct ElderTodayScreen: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if let successFeedback {
-                        ElderDoseSuccessFeedback(message: successFeedback)
-                            .transition(.opacity)
-                            .accessibilityFocused($accessibilityFocus, equals: .success)
-                    }
-
-                    reminderWarning
-
-                    if isLoading && snapshot.currentTask == nil {
-                        ProgressView()
-                            .controlSize(.large)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 96)
-                            .accessibilityLabel("正在加载用药任务")
-                    } else if loadErrorMessage != nil {
-                        loadErrorState
-                    } else if let task = snapshot.currentTask {
-                        currentTaskCard(task, availableWidth: geometry.size.width)
-                        if snapshot.remainingOpenTaskCount > 0 {
-                            Text("还有 \(snapshot.remainingOpenTaskCount) 项待处理")
-                                .font(.headline)
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    } else {
-                        elderEmptyState
-                            .frame(maxWidth: .infinity)
+        elderContent
+            .confirmationDialog(
+                "这次不吃？",
+                isPresented: Binding(
+                    get: { taskPendingSkip != nil },
+                    set: { if !$0 { taskPendingSkip = nil } }
+                )
+            ) {
+                Button("确认这次不吃", role: .destructive) {
+                    if let taskPendingSkip {
+                        actions.skip(taskPendingSkip)
+                        self.taskPendingSkip = nil
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 28)
+                Button("取消", role: .cancel) { taskPendingSkip = nil }
+            } message: {
+                Text("只记录本次未服用，不会改变用药计划。")
             }
-            .accessibilityIdentifier("elder.scroll")
+    }
+
+    private var elderContent: some View {
+        GeometryReader { geometry in
+            ScrollViewReader { scrollProxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        if isLoading && snapshot.currentTask == nil {
+                            ProgressView()
+                                .controlSize(.large)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 96)
+                                .accessibilityLabel("正在加载用药任务")
+                        } else if loadErrorMessage != nil {
+                            loadErrorState
+                        } else if let task = snapshot.currentTask {
+                            currentTaskCard(task, availableWidth: geometry.size.width)
+                            if snapshot.remainingOpenTaskCount > 0 {
+                                Text("还有 \(snapshot.remainingOpenTaskCount) 项待处理")
+                                    .font(.headline)
+                                    .foregroundStyle(Color.primary.opacity(0.7))
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        } else {
+                            elderEmptyState
+                                .frame(maxWidth: .infinity)
+                        }
+                        if let successFeedback {
+                            ElderDoseSuccessFeedback(
+                                feedback: successFeedback,
+                                currentTime: currentTime,
+                                undo: { taskID in actions.undoSuccess(taskID) }
+                            )
+                                .transition(.opacity)
+                                .accessibilityFocused($accessibilityFocus, equals: .success)
+                        }
+                        reminderWarning
+                    }
+                    .id("elder.task.top")
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 28)
+                }
+                .accessibilityIdentifier("elder.scroll")
+                .onChange(of: snapshot.currentTask?.id) { _, _ in
+                    scrollProxy.scrollTo("elder.task.top", anchor: .top)
+                }
+            }
         }
         .background(Color(.systemGroupedBackground))
-        .safeAreaInset(edge: .top, spacing: 0) {
-            Color(.systemGroupedBackground)
-                .frame(height: 8)
-                .accessibilityHidden(true)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if loadErrorMessage == nil, let task = snapshot.currentTask {
+                taskActions(task)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 8)
+                    .background(Color(.systemGroupedBackground))
+                    .overlay(alignment: .top) { Divider() }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("elder.actions")
+            }
+        }
+        .sheet(item: $medicationPhotoPreview) { preview in
+            NavigationStack {
+                GeometryReader { geometry in
+                    ScrollView {
+                        ElderMedicationPhotoView(
+                            photoData: preview.data,
+                            medicationName: preview.medicationName,
+                            width: max(0, geometry.size.width - 40)
+                        )
+                        .padding(20)
+                    }
+                }
+                .navigationTitle(preview.medicationName ?? "药品照片")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("完成") { medicationPhotoPreview = nil }
+                            .accessibilityIdentifier("elder.photo.close")
+                    }
+                }
+            }
         }
         .transaction { transaction in
             if reduceMotionEnabled {
@@ -809,7 +889,7 @@ struct ElderTodayScreen: View {
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbarColorScheme(colorScheme, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
+            ToolbarItem(placement: .topBarTrailing) {
                 Button(action: actions.switchToCompleteMode) {
                     if dynamicTypeSize.isAccessibilitySize {
                         Image(systemName: "arrow.backward")
@@ -820,11 +900,24 @@ struct ElderTodayScreen: View {
                 .accessibilityLabel("完整模式")
                 .accessibilityIdentifier(AppAccessibilityID.elderSwitchToComplete)
             }
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarLeading) {
                 Button(action: actions.openSettings) {
-                    Label("同机设置", systemImage: "gearshape")
+                    Label("设置", systemImage: "gearshape")
                 }
                 .accessibilityIdentifier(AppAccessibilityID.elderOpenSettings)
+                Menu {
+                    if let task = snapshot.currentTask {
+                        Button("这次不吃", systemImage: "minus.circle") {
+                            taskPendingSkip = task
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .disabled(snapshot.currentTask == nil || !inFlightDoseKeys.isEmpty)
+                .accessibilityLabel("更多操作")
+                .accessibilityHint("展开后可选择这次不吃")
+                .accessibilityIdentifier("elder.moreActions")
             }
         }
         .task {
@@ -857,7 +950,7 @@ struct ElderTodayScreen: View {
             Text(dosePersistenceErrorMessage ?? DoseActionPersistenceError.saveFailed.userMessage)
         }
         .alert(
-            "未能打开电话确认界面",
+            "帮助暂不可用",
             isPresented: Binding(
                 get: { helpOpeningErrorMessage != nil },
                 set: { isPresented in
@@ -901,9 +994,9 @@ struct ElderTodayScreen: View {
         } message: {
             Text("帮助号码：\(helpConfirmationPhone?.storageValue ?? "")")
         }
-        .onChange(of: successFeedback) { _, message in
-            guard let message else { return }
-            UIAccessibility.post(notification: .announcement, argument: message)
+        .onChange(of: successFeedback) { _, feedback in
+            guard let feedback else { return }
+            UIAccessibility.post(notification: .announcement, argument: feedback.message)
             DispatchQueue.main.async {
                 accessibilityFocus = .success
             }
@@ -992,87 +1085,108 @@ struct ElderTodayScreen: View {
     }
 
     private func currentTaskCard(_ task: StoredDoseTask, availableWidth: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            taskIdentity(task, availableWidth: availableWidth)
-
-            Divider()
-                .padding(.horizontal, 4)
-
-            if let confirmationKind = activeConfirmation {
-                ElderDoseConfirmationPanel(
-                    kind: confirmationKind,
-                    completionVerb: actions.completionVerb(snapshot.currentMedication),
-                    confirm: { actions.confirm(task) },
-                    cancel: { actions.cancelConfirmation(task) }
-                )
-                .accessibilityFocused($accessibilityFocus, equals: .confirmation)
-            } else {
-                VStack(spacing: ElderTaskLayoutMetrics.actionSpacing) {
-                    ElderDoseActionButton(
-                        title: actions.completionVerb(snapshot.currentMedication),
-                        systemImage: "checkmark.circle.fill",
-                        tone: .completion,
-                        prominence: .primary,
-                        accessibilityIdentifier: AppAccessibilityID.elderMarkTaken,
-                        action: { actions.markTaken(task) }
-                    )
-                    ElderDoseActionButton(
-                        title: "\(DoseDelayPolicy.delayMinutes) 分钟后提醒",
-                        systemImage: "clock.arrow.circlepath",
-                        tone: .reminder,
-                        prominence: .secondary,
-                        accessibilityIdentifier: AppAccessibilityID.elderDelay,
-                        action: { actions.delay(task) }
-                    )
-                    ElderDoseActionButton(
-                        title: "需要帮助",
-                        systemImage: "phone.fill",
-                        tone: .help,
-                        prominence: .tertiary,
-                        accessibilityIdentifier: AppAccessibilityID.elderRequestHelp,
-                        action: actions.requestHelp
-                    )
-                }
-                .disabled(
-                    pendingDoseFeedback?.doseKey == actions.logicalDoseKey(task)
-                        || inFlightDoseKeys.contains(actions.logicalDoseKey(task))
-                )
+        taskIdentity(task, availableWidth: availableWidth)
+            .padding(isAccessibilityLayout ? ElderTaskLayoutMetrics.accessibilityCardPadding : ElderTaskLayoutMetrics.regularCardPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .stroke(Color.blue.opacity(0.16), lineWidth: 1)
             }
-        }
-        .padding(isAccessibilityLayout ? ElderTaskLayoutMetrics.accessibilityCardPadding : ElderTaskLayoutMetrics.regularCardPadding)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.blue.opacity(0.16), lineWidth: 1)
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(AppAccessibilityID.elderCurrentTask)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(AppAccessibilityID.elderCurrentTask)
     }
 
     @ViewBuilder
-    private func taskIdentity(_ task: StoredDoseTask, availableWidth: CGFloat) -> some View {
-        let photoWidth = medicationPhotoWidth(for: availableWidth)
-        if isAccessibilityLayout {
-            VStack(alignment: .center, spacing: ElderTaskLayoutMetrics.accessibilityIdentitySpacing) {
-                medicationPhoto(size: photoWidth)
-                taskDetails(task, centered: true)
-                taskSchedule(task, centered: true)
-            }
-            .frame(maxWidth: .infinity)
+    private func taskActions(_ task: StoredDoseTask) -> some View {
+        if let confirmationKind = activeConfirmation {
+            ElderDoseConfirmationPanel(
+                kind: confirmationKind,
+                completionVerb: actions.completionVerb(snapshot.currentMedication),
+                confirm: { actions.confirm(task) },
+                cancel: { actions.cancelConfirmation(task) }
+            )
+            .accessibilityFocused($accessibilityFocus, equals: .confirmation)
         } else {
-            // Share the recognition band even on short screens. Stacking a full-width
-            // portrait at regular text size pushes the primary action below the fold.
-            HStack(alignment: .center, spacing: ElderTaskLayoutMetrics.regularIdentitySpacing) {
-                medicationPhoto(size: photoWidth)
-                VStack(alignment: .leading, spacing: ElderTaskLayoutMetrics.regularDetailsSpacing) {
-                    taskDetails(task, centered: false)
-                    taskSchedule(task, centered: false)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(spacing: ElderTaskLayoutMetrics.actionSpacing) {
+                ElderDoseActionButton(
+                    title: actions.completionVerb(snapshot.currentMedication),
+                    systemImage: "checkmark.circle.fill",
+                    tone: .completion,
+                    prominence: .primary,
+                    accessibilityIdentifier: AppAccessibilityID.elderMarkTaken,
+                    action: { actions.markTaken(task) }
+                )
+                ElderDoseActionButton(
+                    title: "\(DoseDelayPolicy.delayMinutes) 分钟后",
+                    systemImage: "clock.arrow.circlepath",
+                    tone: .reminder,
+                    prominence: .secondary,
+                    accessibilityIdentifier: AppAccessibilityID.elderDelay,
+                    action: { actions.delay(task) }
+                )
+                .accessibilityLabel("\(DoseDelayPolicy.delayMinutes) 分钟后提醒")
+                ElderDoseActionButton(
+                    title: "需要帮助",
+                    systemImage: "phone.fill",
+                    tone: .help,
+                    prominence: .tertiary,
+                    accessibilityIdentifier: AppAccessibilityID.elderRequestHelp,
+                    action: actions.requestHelp
+                )
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .disabled(
+                pendingDoseFeedback?.doseKey == actions.logicalDoseKey(task)
+                    || inFlightDoseKeys.contains(actions.logicalDoseKey(task))
+            )
         }
+    }
+
+    private func taskIdentity(_ task: StoredDoseTask, availableWidth: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                taskDetails(task, centered: false, showsStatus: !isAccessibilityLayout)
+                Button {
+                    guard let data = snapshot.currentMedication?.photoData else { return }
+                    medicationPhotoPreview = ElderMedicationPhotoPreview(
+                        data: data,
+                        medicationName: snapshot.currentMedication.map(userFacingMedicationName(for:))
+                    )
+                } label: {
+                    medicationPhoto(size: medicationPhotoWidth(for: availableWidth))
+                        .overlay(alignment: .bottomTrailing) {
+                            if snapshot.currentMedication?.photoData != nil {
+                                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .padding(6)
+                                    .background(.regularMaterial, in: Circle())
+                                    .padding(4)
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+                .disabled(snapshot.currentMedication?.photoData == nil)
+                .accessibilityLabel(snapshot.currentMedication?.photoData == nil ? "尚未添加药品照片" : "查看药品照片")
+                .accessibilityHint(snapshot.currentMedication?.photoData == nil ? "" : "放大查看当前药品的照片")
+                .accessibilityIdentifier("elder.photo.open")
+            }
+            if isAccessibilityLayout {
+                doseText(task)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    taskStatus
+                    Spacer(minLength: 0)
+                    Text(AppFormatters.time.string(from: task.dueAt))
+                        .font(.body)
+                        .foregroundStyle(Color.primary.opacity(0.7))
+                        .fixedSize(horizontal: true, vertical: true)
+                }
+                .accessibilityElement(children: .combine)
+            } else {
+                taskSchedule(task, centered: false)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func medicationPhoto(size: CGFloat) -> some View {
@@ -1084,27 +1198,36 @@ struct ElderTodayScreen: View {
         .id(snapshot.currentMedication?.id)
     }
 
-    private func taskDetails(_ task: StoredDoseTask, centered: Bool) -> some View {
+    private func taskDetails(_ task: StoredDoseTask, centered: Bool, showsStatus: Bool = true) -> some View {
         VStack(alignment: centered ? .center : .leading, spacing: 8) {
             Text(snapshot.currentMedication.map(userFacingMedicationName(for:)) ?? "待核对药品")
                 .font(.system(size: elderTitlePointSize, weight: .bold))
                 .multilineTextAlignment(centered ? .center : .leading)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if let currentStatus = snapshot.currentStatus {
-                Text(currentStatus == .pendingBeforeDue && actions.completionVerb(snapshot.currentMedication) == "已使用"
-                     ? "待使用" : currentStatus.displayName)
-                    .font(.system(size: elderMetaPointSize, weight: .semibold))
-                    .foregroundStyle(ElderDoseActionTone.reminder.foregroundColor(for: colorScheme))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(ElderDoseActionTone.reminder.foregroundColor(for: colorScheme).opacity(0.12), in: Capsule())
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            if showsStatus { taskStatus }
 
         }
         .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
         .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private var taskStatus: some View {
+        if let currentStatus = snapshot.currentStatus {
+            let fullTitle = currentStatus == .pendingBeforeDue && actions.completionVerb(snapshot.currentMedication) == "已使用"
+                ? "待使用" : currentStatus.displayName
+            let compactTitle = currentStatus == .delayedBeforeDue ? "已延后"
+                : currentStatus == .delayedAtOrAfterDue ? "未确认" : fullTitle
+            Text(isAccessibilityLayout ? compactTitle : fullTitle)
+                .accessibilityLabel(fullTitle)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(ElderDoseActionTone.reminder.foregroundColor(for: colorScheme))
+                .padding(.horizontal, isAccessibilityLayout ? 4 : 10)
+                .padding(.vertical, isAccessibilityLayout ? 4 : 6)
+                .background(ElderDoseActionTone.reminder.foregroundColor(for: colorScheme).opacity(0.12), in: Capsule())
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func taskSchedule(_ task: StoredDoseTask, centered: Bool) -> some View {
@@ -1118,31 +1241,31 @@ struct ElderTodayScreen: View {
 
     private func doseText(_ task: StoredDoseTask) -> some View {
         Text("每次 \(task.doseValue.formatted()) \(localizedMedicationUnit(task.doseUnit))")
-            .font(.system(size: elderDosePointSize, weight: .semibold))
+            .font(.title3.weight(.semibold))
             .fixedSize(horizontal: false, vertical: true)
     }
 
     private func timeText(_ task: StoredDoseTask) -> some View {
         Label(AppFormatters.time.string(from: task.dueAt), systemImage: "clock")
-            .font(.system(size: elderDosePointSize, weight: .regular))
-            .foregroundStyle(.secondary)
+            .font(.body)
+            .foregroundStyle(Color.primary.opacity(0.7))
             .fixedSize(horizontal: false, vertical: true)
     }
 }
 
 enum ElderTaskLayoutMetrics {
-    // The regular recognition stage reserves roughly 54% of the card content width for a legible real photo.
-    static let regularPhotoWidth: CGFloat = 180
-    static let regularPhotoMinimumWidth: CGFloat = 176
-    static let accessibilityPhotoWidth: CGFloat = 300
+    // Keep recognition compact; the photo opens separately at full width.
+    static let regularPhotoWidth: CGFloat = 96
+    static let regularPhotoMinimumWidth: CGFloat = 64
+    static let accessibilityPhotoWidth: CGFloat = 64
     // Keep user-supplied portrait packaging from being narrowed by an overly wide frame.
     static let photoContainerAspectRatio: CGFloat = 0.76
     static let regularCardPadding: CGFloat = 18
-    static let accessibilityCardPadding: CGFloat = 20
+    static let accessibilityCardPadding: CGFloat = 16
     static let regularIdentitySpacing: CGFloat = 12
     static let regularDetailsSpacing: CGFloat = 12
     static let accessibilityIdentitySpacing: CGFloat = 16
-    static let actionSpacing: CGFloat = 12
+    static let actionSpacing: CGFloat = 8
 
     static func regularPhotoWidth(for availableWidth: CGFloat) -> CGFloat {
         let contentWidth = max(0, availableWidth - (2 * 16) - (2 * regularCardPadding))
@@ -1155,69 +1278,16 @@ enum ElderTaskLayoutMetrics {
     }
 }
 
+// Keep the selected photo stable if the current task changes while its sheet is open.
+private struct ElderMedicationPhotoPreview: Identifiable {
+    let id = UUID()
+    let data: Data
+    let medicationName: String?
+}
+
 private enum ElderAccessibilityFocus: Hashable {
     case confirmation
     case success
-}
-
-private struct ElderDoseSuccessFeedback: View {
-    @Environment(\.colorScheme) private var colorScheme
-    let message: String
-
-    var body: some View {
-        Label(message, systemImage: "checkmark.circle.fill")
-            .font(.headline.weight(.semibold))
-            .foregroundStyle(ElderDoseActionTone.completion.foregroundColor(for: colorScheme))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .background(ElderDoseActionTone.completion.foregroundColor(for: colorScheme).opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("elder.feedback.success")
-    }
-}
-
-enum ElderDoseActionProminence: Equatable {
-    case primary
-    case secondary
-    case tertiary
-
-    var font: Font {
-        switch self {
-        case .primary:
-            return .title2.bold()
-        case .secondary:
-            return .title3.bold()
-        case .tertiary:
-            return .title3.weight(.semibold)
-        }
-    }
-
-    var minimumHeight: CGFloat {
-        switch self {
-        case .primary:
-            return 76
-        case .secondary:
-            return 68
-        case .tertiary:
-            return 60
-        }
-    }
-
-    var visibleWidthRatio: CGFloat {
-        switch self {
-        case .primary:
-            return 1
-        case .secondary:
-            return 0.92
-        case .tertiary:
-            return 0.80
-        }
-    }
-
-    func contentWidth(availableWidth: CGFloat) -> CGFloat {
-        max(0, availableWidth * visibleWidthRatio)
-    }
 }
 
 private struct ElderDoseActionButton: View {
@@ -1233,22 +1303,16 @@ private struct ElderDoseActionButton: View {
 
     var body: some View {
         Button(action: action) {
-            ElderDoseActionLabelLayout(
-                visibleWidthRatio: dynamicTypeSize.isAccessibilitySize ? 1 : prominence.visibleWidthRatio,
-                minimumHeight: prominence.minimumHeight
-            ) {
-                actionLabel
-                    .font(prominence.font)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 10)
-                    .padding(.vertical, 16)
-                    .frame(minHeight: prominence.minimumHeight)
-                    .foregroundStyle(prominence == .primary ? Color.white : tone.foregroundColor(for: colorScheme))
-                    .background(actionBackground)
-            }
-            .frame(maxWidth: .infinity, minHeight: prominence.minimumHeight)
-            .contentShape(Rectangle())
+            actionLabel
+                .font(prominence.font)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(minHeight: prominence.minimumHeight)
+                .foregroundStyle(prominence == .primary ? Color.white : tone.foregroundColor(for: colorScheme))
+                .background(actionBackground)
+                .contentShape(Rectangle())
         }
         .buttonStyle(CompactDoseActionButtonStyle())
         .frame(maxWidth: .infinity, minHeight: prominence.minimumHeight)
@@ -1265,43 +1329,12 @@ private struct ElderDoseActionButton: View {
     @ViewBuilder
     private var actionLabel: some View {
         if dynamicTypeSize.isAccessibilitySize {
-            VStack(spacing: 6) {
-                Image(systemName: systemImage)
-                    .imageScale(.large)
-                    .accessibilityHidden(true)
-                Text(title)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text(title)
+                .fixedSize(horizontal: false, vertical: true)
         } else {
             Label(title, systemImage: systemImage)
                 .fixedSize(horizontal: false, vertical: true)
         }
-    }
-}
-
-private struct ElderDoseActionLabelLayout: Layout {
-    let visibleWidthRatio: CGFloat
-    let minimumHeight: CGFloat
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        guard let label = subviews.first else { return .zero }
-        let intrinsicWidth = label.sizeThatFits(.unspecified).width
-        let proposedWidth = proposal.width ?? intrinsicWidth
-        let availableWidth = proposedWidth.isFinite ? max(0, proposedWidth) : intrinsicWidth
-        let visibleWidth = availableWidth * visibleWidthRatio
-        let labelSize = label.sizeThatFits(ProposedViewSize(width: visibleWidth, height: nil))
-        // Text may wrap before Accessibility sizes too; its measured height defines the full-row hit region.
-        return CGSize(width: availableWidth, height: max(minimumHeight, labelSize.height))
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        guard let label = subviews.first else { return }
-        label.place(
-            at: CGPoint(x: bounds.midX, y: bounds.midY),
-            anchor: .center,
-            proposal: ProposedViewSize(width: bounds.width * visibleWidthRatio, height: bounds.height)
-        )
     }
 }
 

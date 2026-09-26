@@ -168,15 +168,16 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
             .split(whereSeparator: { "。！？；;\n".contains($0) })
             .flatMap { rawStatement -> [(text: String, isRiskDescription: Bool)] in
                 let statement = String(rawStatement)
-                let statementIsConditionalRiskDescription = isConditionalRiskDescription(statement)
-                return statement
-                    .split(whereSeparator: { "，,".contains($0) })
-                    .map { rawClause in
-                        let clause = String(rawClause)
-                        let isRiskDescription = containsSourceAttribution(clause)
-                            || statementIsConditionalRiskDescription
-                        return (clause, isRiskDescription)
-                    }
+                let clauses = statement.split(whereSeparator: { "，,".contains($0) })
+                let hasConditionalRiskPrefix = clauses.first.map {
+                    $0.contains("如已有") || $0.contains("如出现")
+                } ?? false
+                return clauses.enumerated().map { index, rawClause in
+                    let clause = String(rawClause)
+                    let isRiskDescription = isConditionalRiskDescription(clause)
+                        || (index > 0 && hasConditionalRiskPrefix && isRiskLimitClause(clause))
+                    return (clause, isRiskDescription)
+                }
             }
             .filter { !isNonActionableContext($0.text, isRiskDescription: $0.isRiskDescription) }
         let checks: [(String, [String])] = [
@@ -199,7 +200,8 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
             ("dose-change", [
                 "调整剂量为", "调整剂量", "剂量改为", "剂量增加到", "剂量减少到",
                 "增加剂量", "减少剂量", "加大剂量", "降低剂量", "加量至", "减量至",
-                "逐渐减量", "逐步减量", "渐减剂量", "递减剂量", "每次改为", "剂量加倍"
+                "逐渐减量", "逐步减量", "渐减剂量", "递减剂量", "每次改为", "剂量加倍",
+                "用量翻一番", "剂量翻倍", "加倍服用"
             ])
         ]
 
@@ -210,19 +212,22 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
         }
     }
 
-    private func containsSourceAttribution(_ statement: String) -> Bool {
-        let markers = [
-            "说明书提示", "说明书写明", "说明书原文",
-            "标签提示", "标签写明", "原文提示", "原文写明"
-        ]
-        return markers.contains { statement.contains($0) }
-    }
-
     private func isConditionalRiskDescription(_ statement: String) -> Bool {
         let conditions = ["如已有", "如出现"]
-        let riskLimits = ["应避免使用", "不应超过", "应停止使用"]
         return conditions.contains { statement.contains($0) }
-            && riskLimits.contains { statement.contains($0) }
+            && isRiskLimitClause(statement)
+    }
+
+    private func isRiskLimitClause(_ clause: String) -> Bool {
+        let riskLimits = ["应避免使用", "不应超过", "应停止使用"]
+        let professionalReferral = ["咨询医生", "咨询药师", "联系医生", "联系药师"]
+        let additionalDirections = [
+            "建议", "可以", "改为", "加倍", "翻倍", "翻一番",
+            "把", "每次", "每天", "每日", "换成", "改用", "换药"
+        ]
+        return riskLimits.contains { clause.contains($0) }
+            && (!clause.contains("应停止使用") || professionalReferral.contains { clause.contains($0) })
+            && !additionalDirections.contains { clause.contains($0) }
     }
 
     private func isNonActionableContext(
@@ -231,6 +236,17 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
     ) -> Bool {
         if isRiskDescription {
             return true
+        }
+        if let closingQuote = statement.lastIndex(of: "”") {
+            let followingText = statement[statement.index(after: closingQuote)...]
+            let actionIntroducers = ["建议", "可以", "应", "改为", "加倍"]
+            if actionIntroducers.contains(where: { followingText.contains($0) }) {
+                return false
+            }
+        }
+        let laterAdvice = ["但建议", "但可以", "不过建议", "不过可以", "随后建议"]
+        if laterAdvice.contains(where: { statement.contains($0) }) {
+            return false
         }
         let markers = [
             "不要自行", "不应自行", "请勿自行", "不得擅自",
