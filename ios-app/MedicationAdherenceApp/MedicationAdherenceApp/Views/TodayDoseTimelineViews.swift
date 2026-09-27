@@ -483,6 +483,7 @@ struct HandledDoseTaskRow: View {
             .foregroundStyle(.orange)
             .buttonStyle(.borderless)
             .accessibilityLabel("撤销\(medication.map(userFacingMedicationName(for:)) ?? "这条记录")")
+            .accessibilityIdentifier("today.timeline.handled.undo")
         }
         .padding(.vertical, 7)
         .contentShape(Rectangle())

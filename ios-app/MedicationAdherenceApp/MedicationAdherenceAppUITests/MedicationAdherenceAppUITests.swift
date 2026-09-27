@@ -71,7 +71,7 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         let confirm = app.buttons["已核对，保存"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         confirm.tap()
-        XCTAssertTrue(app.navigationBars["添加药品"].waitForNonExistence(timeout: 10))
+        XCTAssertTrue(save.waitForNonExistence(timeout: 10))
 
         let generatedTasks = assertJourneyStore(
             in: app, medications: 1, plans: 1, todayTasks: 1, logs: 0, status: "pending"
@@ -101,10 +101,10 @@ final class MedicationAdherenceAppUITests: XCTestCase {
             totalTasks: generatedTasks, todayTasks: 1, logs: 1, status: "taken"
         )
         restartElderFixture(app)
-        let handled = app.buttons["今日已处理"]
+        let handled = app.descendants(matching: .any)["today.timeline.handled.disclosure"]
         XCTAssertTrue(handled.waitForExistence(timeout: 10))
         handled.tap()
-        let undo = app.buttons["撤销合成旅程药品"]
+        let undo = app.buttons["today.timeline.handled.undo"]
         XCTAssertTrue(undo.waitForExistence(timeout: 5))
         undo.tap()
         XCTAssertTrue(take.waitForExistence(timeout: 10))
