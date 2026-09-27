@@ -729,7 +729,7 @@ jobs:
         if: ${{ failure() && matrix.test-suite == 'ios-ui' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: medcue-ui-failure-${{ github.sha }}
+          name: medcue-ui-failure-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: .codex-local/native-verification/ios-ui-tests/derived-data/Logs/Test/
           if-no-files-found: ignore
           retention-days: 3
