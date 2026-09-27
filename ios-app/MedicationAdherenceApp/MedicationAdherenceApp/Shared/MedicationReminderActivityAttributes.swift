@@ -43,12 +43,31 @@ struct MedicationReminderActivityAttributes: Codable, Hashable {
 #if canImport(ActivityKit)
 extension MedicationReminderActivityAttributes: ActivityAttributes {
     struct ContentState: Codable, Hashable {
+        enum Phase: String, Codable, Hashable {
+            case open
+            case completed
+        }
+
         var dueAt: Date
         var statusText: String
         var completedAt: Date?
+        /// Missing only when decoding an activity created before semantic phases existed.
+        var phase: Phase?
+
+        init(dueAt: Date, statusText: String, completedAt: Date?, phase: Phase) {
+            self.dueAt = dueAt
+            self.statusText = statusText
+            self.completedAt = completedAt
+            self.phase = phase
+        }
 
         var isCompleted: Bool {
-            completedAt != nil || statusText.contains("已完成") || statusText.contains("已处理")
+            if let phase {
+                return phase == .completed
+            }
+            // Older ActivityKit payloads had no phase. Read their Chinese
+            // marker without writing or reclassifying the stored payload.
+            return completedAt != nil || statusText.contains("已完成") || statusText.contains("已处理")
         }
     }
 }
