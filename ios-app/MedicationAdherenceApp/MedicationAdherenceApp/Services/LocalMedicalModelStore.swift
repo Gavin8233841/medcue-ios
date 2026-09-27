@@ -521,8 +521,9 @@ private final class LocalMedicalModelURLSessionDownloader: NSObject, URLSessionD
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 let configuration = URLSessionConfiguration.default
-                configuration.timeoutIntervalForRequest = 30
-                configuration.timeoutIntervalForResource = 30 * 60
+                let isAccelerated = sourceRequest.value(forHTTPHeaderField: "Authorization") != nil
+                configuration.timeoutIntervalForRequest = isAccelerated ? 60 : 30
+                configuration.timeoutIntervalForResource = isAccelerated ? 60 * 60 : 30 * 60
                 let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
                 let shouldStart = stateLock.withLock { state in
                     guard !state.isCancelled, state.continuation == nil else {
