@@ -87,6 +87,17 @@ import Testing
     #expect(!review.displayMessage.contains("建议停药"))
 }
 
+@Test func medicalAIResponseBoundaryDoesNotLetUnquotedQuestionMaskPersonalAdvice() {
+    for message in [
+        "你问是否可以停药我建议停药。",
+        "不要自行停药我建议改用另一种药。"
+    ] {
+        let review = MedicalAIResponseBoundaryGuard().review(message)
+        #expect(review.blockedActionableInstruction, "Unblocked advice: \(message)")
+        #expect(!review.displayMessage.contains(message))
+    }
+}
+
 @Test func medicalAIResponseBoundaryRequiresReferralForStopUseRiskText() {
     let message = "说明书提示如出现轻微不适应停止使用。"
     let review = MedicalAIResponseBoundaryGuard().review(message)
