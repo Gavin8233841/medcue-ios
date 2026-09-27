@@ -1,6 +1,20 @@
 # MedCue Project Status
 
 Latest full coordination audit: 2026-09-22; targeted update: 2026-09-27 (#28)
+
+## 2026-09-27 Private R2 model-delivery pilot (#28)
+
+The owner-authorized private Cloudflare R2 Standard bucket
+`medcue-model-pilot` now holds the pinned 265,307,040-byte GGUF. Public
+bucket access is disabled. Remote HEAD matched the expected byte count;
+first and last 1 MiB signed range requests returned HTTP 206 and matched the
+local corresponding bytes. Only 2 MiB was downloaded for this limited test;
+full remote hash, complete transfer speed, and in-app installation are still
+unverified. A 24-hour bucket-limited upload token was used and its local
+in-memory copies were cleared. The candidate Worker and app code add an
+optional access-code acceleration path, but the Worker is not deployed and
+the app default remains the upstream address. The exact acceptance boundary
+is in [the #28 runbook](ISSUE28_LOCAL_MODEL_ACCEPTANCE.md).
 Verified source checkpoint for the #4 update below: `main@74fb171088a80c38872c51fcae85c05721dc10f0`
 
 ## 2026-09-27 Local-model journey attempt (#28)

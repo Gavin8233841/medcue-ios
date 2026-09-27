@@ -61,6 +61,7 @@ ALLOWED_PREFIXES = (
     ".github/",
     "checklists/",
     "cloudfunctions/medcue-ai-broker/",
+    "cloudfunctions/medcue-model-delivery/",
     "coreai/",
     "docs/",
     "ios-app/",

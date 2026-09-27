@@ -48,6 +48,46 @@ struct LocalMedicalModelIntegrityTests {
         #expect(!FileManager.default.fileExists(atPath: try fixture.manager.modelURL().path))
     }
 
+    @Test
+    func accelerationCodeUsesPinnedMirrorWithoutExposingItInTheURL() throws {
+        let code = String(repeating: "a", count: 32)
+        let request = try LocalMedicalModelDownloadSource.request(accessCode: " \(code) ")
+
+        #expect(request.url == LocalMedicalModelDownloadSource.acceleratedURL)
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer \(code)")
+        #expect(request.url?.absoluteString.contains(code) == false)
+        #expect(LocalMedicalModelDownloadSource.allowsRedirect(
+            from: request,
+            to: URL(string: "https://other.example/model")
+        ) == false)
+    }
+
+    @Test
+    func standardDownloadRemainsAvailableAndBadCodesDoNotCreateRequests() throws {
+        let standard = try LocalMedicalModelDownloadSource.request(accessCode: nil)
+        #expect(standard.url == LocalAIModelManifest.miniCPM4.downloadURL)
+        #expect(standard.value(forHTTPHeaderField: "Authorization") == nil)
+        #expect(throws: URLError.self) {
+            try LocalMedicalModelDownloadSource.request(accessCode: "short")
+        }
+        #expect(LocalMedicalModelDownloadSource.allowsRedirect(
+            from: standard,
+            to: URL(string: "http://other.example/model")
+        ) == false)
+    }
+
+    @Test
+    func acceleratedDownloadExplainsRejectedAndThrottledRequests() {
+        let rejected = LocalMedicalModelDownloadSource.failureDetail(
+            for: LocalMedicalModelDownloadError.httpStatus(404), accelerated: true
+        )
+        let throttled = LocalMedicalModelDownloadSource.failureDetail(
+            for: LocalMedicalModelDownloadError.httpStatus(429), accelerated: true
+        )
+        #expect(rejected.contains("下载码"))
+        #expect(throttled.contains("频繁"))
+    }
+
     private func makeFixture(expectedSHA256: String) throws -> (
         manager: LocalAIModelManager,
         rootURL: URL,

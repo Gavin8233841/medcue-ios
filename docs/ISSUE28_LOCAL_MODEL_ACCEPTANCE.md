@@ -40,3 +40,25 @@ The Simulator showed the download confirmation, progress, and a 265.3 MB total. 
 | Official runtime archive digest and physical-device behavior | NOT VERIFIED |
 
 **Competition claim: not yet demonstrated through the install-to-first-response journey.** First select and verify a reliable model distribution endpoint and its cost/ownership, then repeat this matrix from a clean installation. Keep token-loop cancellation in #6, performance in #8, broader device behavior in #17, and general source-package provenance in #5.
+
+## 2026-09-27 private R2 pilot and app candidate
+
+The owner authorized a bounded Cloudflare R2 Standard pilot for this one
+model. The private `medcue-model-pilot` bucket has public access disabled.
+The verified local 265,307,040-byte GGUF was uploaded once through multipart
+S3; a remote object HEAD reported the same size. A one-hour signed URL
+returned HTTP 206 for the first and last 1 MiB, and both fragments matched
+the corresponding local bytes. This transferred only 2 MiB in the download
+check. A full remote SHA-256, whole-file download speed, and in-app install
+were **not** tested. The original upstream address remains the app default.
+
+Candidate app code offers a separate competition acceleration path requiring a
+shared 32-hex-character code entered by the tester for this download. A narrow Worker would
+read only the pinned object from private R2, reject missing codes, and throttle
+authorized requests. The code is not stored in source or the app package. The
+app still validates exact size and SHA-256 before installation. At this
+checkpoint the Worker is not deployed, and the accelerated app path has only
+local unit and dry-run configuration evidence. A successful limited-range
+Worker check and then the complete Simulator journey remain required before
+claiming an improved app download path; physical-device evidence remains
+separate.
