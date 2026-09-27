@@ -440,6 +440,7 @@ final class ElderUITestFixture {
         case future
         case multiple
         case empty
+        case journey
         case idleFollowup = "idle-followup"
         case midnight
         case helpMissing = "help-missing"
@@ -454,12 +455,14 @@ final class ElderUITestFixture {
     }
 
     let modelContainer: ModelContainer
+    let scenario: Scenario
     private let clockOrigin: Date
     private var clockStartsAtUptime: TimeInterval?
     var now: Date {
         guard let clockStartsAtUptime else { return clockOrigin }
         return clockOrigin.addingTimeInterval(max(0, ProcessInfo.processInfo.systemUptime - clockStartsAtUptime))
     }
+    var medicationCreationNow: Date? { scenario == .journey ? now : nil }
     let inspectsStore: Bool
     let usesBoldText: Bool
     let helpContactStore: any ElderHelpContactStoring
@@ -557,12 +560,16 @@ final class ElderUITestFixture {
         let components = scenario == .midnight
             ? DateComponents(year: 2026, month: 9, day: 5, hour: 23, minute: 59, second: 58)
             : DateComponents(year: 2026, month: 9, day: 5, hour: 12)
-        guard let date = calendar.date(from: components),
-              let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+        guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
               let fixtureDefaults = UserDefaults(suiteName: "medcue.elder-ui.\(session.uuidString)")
         else {
             throw Failure.invalidArguments
         }
+        let date = scenario == .journey
+            ? (fixtureDefaults.object(forKey: "journeyClockOrigin") as? Date
+                ?? calendar.date(bySettingHour: 12, minute: 0, second: 0, of: Date()))
+            : calendar.date(from: components)
+        guard let date else { throw Failure.invalidArguments }
         if let savedScenario = fixtureDefaults.string(forKey: "scenario"), savedScenario != scenario.rawValue {
             throw Failure.invalidArguments
         }
@@ -573,7 +580,11 @@ final class ElderUITestFixture {
         modelContainer = try MedicationAdherenceModelContainer.make(
             storeURL: directory.appendingPathComponent("fixture.store")
         )
+        self.scenario = scenario
         defaults = fixtureDefaults
+        if scenario == .journey && fixtureDefaults.object(forKey: "journeyClockOrigin") == nil {
+            fixtureDefaults.set(date, forKey: "journeyClockOrigin")
+        }
         // Seed a writable, test-owned preference domain. A launch-argument
         // override would mask subsequent mode changes and defeat this UI test.
         if fixtureDefaults.object(forKey: AppExperienceMode.storageKey) == nil {
@@ -589,10 +600,14 @@ final class ElderUITestFixture {
         helpOpener = ElderUITestHelpOpener(defaults: fixtureDefaults)
 
         let context = modelContainer.mainContext
-        // Even the no-task fixture contains a medication, so an empty task list
-        // after completion cannot be mistaken for a request to reseed on restart.
-        if try context.fetchCount(FetchDescriptor<StoredMedication>()) == 0 {
-            try seed(scenario: scenario, in: context)
+        // Seed each session once. The journey scenario intentionally starts with
+        // no medication and must remain empty across its first restart.
+        if fixtureDefaults.string(forKey: "scenario") == nil {
+            if scenario != .journey {
+                if try context.fetchCount(FetchDescriptor<StoredMedication>()) == 0 {
+                    try seed(scenario: scenario, in: context)
+                }
+            }
             fixtureDefaults.set(scenario.rawValue, forKey: "scenario")
         }
         if scenario == .idleFollowup || scenario == .midnight {
@@ -757,11 +772,18 @@ private struct ElderUITestStoreInspectionView: View {
 
     var body: some View {
         let context = fixture.modelContainer.mainContext
+        let medications = try? context.fetch(FetchDescriptor<StoredMedication>())
+        let plans = try? context.fetch(FetchDescriptor<StoredMedicationPlan>())
         let tasks = try? context.fetch(FetchDescriptor<StoredDoseTask>(sortBy: [SortDescriptor(\.dueAt)]))
         let logs = try? context.fetch(FetchDescriptor<StoredDoseActionLog>())
         VStack {
-            if let tasks, let logs {
+            if let medications, let plans, let tasks, let logs {
+                let today = Calendar.current.dateInterval(of: .day, for: fixture.now)
+                Text(String(medications.count)).accessibilityIdentifier("elder.test.store.medication-count")
+                Text(String(plans.count)).accessibilityIdentifier("elder.test.store.plan-count")
                 Text(String(tasks.count)).accessibilityIdentifier("elder.test.store.task-count")
+                Text(String(tasks.filter { today?.contains($0.dueAt) == true }.count))
+                    .accessibilityIdentifier("elder.test.store.today-task-count")
                 Text(String(logs.count)).accessibilityIdentifier("elder.test.store.log-count")
                 Text(String(fixture.helpAttemptCount)).accessibilityIdentifier("elder.test.store.help-attempts")
                 Text(String(fixture.saveAttemptCount)).accessibilityIdentifier("elder.test.store.save-attempts")

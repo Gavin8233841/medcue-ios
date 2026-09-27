@@ -58,10 +58,16 @@ struct AddMedicationView: View {
 
     init(option: MedicationAddOption) {
         self.option = option
+        #if DEBUG && targetEnvironment(simulator)
+        let now = ElderUITestFixture.active?.medicationCreationNow ?? Date()
+        #else
         let now = Date()
+        #endif
         _courseStartDate = State(initialValue: now)
         _courseEndDate = State(initialValue: Calendar.current.date(byAdding: .day, value: 30, to: now) ?? now)
-        _reminderTimes = State(initialValue: [defaultReminderDate(hour: 21, minute: 0)])
+        _reminderTimes = State(initialValue: [
+            Calendar.current.date(bySettingHour: 21, minute: 0, second: 0, of: now) ?? now
+        ])
         switch option.id {
         case .manual:
             _kind = State(initialValue: .overTheCounter)
@@ -73,6 +79,14 @@ struct AddMedicationView: View {
             _kind = State(initialValue: .unknown)
             _selectedPhotoSymbolName = State(initialValue: "pills.fill")
         }
+    }
+
+    private var usesSyntheticUITestStore: Bool {
+        #if DEBUG && targetEnvironment(simulator)
+        ElderUITestFixture.active != nil
+        #else
+        false
+        #endif
     }
 
     var body: some View {
@@ -540,6 +554,7 @@ struct AddMedicationView: View {
 
     @MainActor
     private func ensureReminderPermissionForSave() async -> Bool {
+        if usesSyntheticUITestStore { return true }
         switch reminderDeliveryMethod {
         case .notification:
             if await notificationService.hasUsableNotificationAuthorization() {
@@ -566,6 +581,7 @@ struct AddMedicationView: View {
 
     @MainActor
     private func ensureEscalationAlarmPermissionForSave() async -> Bool {
+        if usesSyntheticUITestStore { return true }
         guard escalatesToAlarmWhenUnhandled,
               reminderDeliveryMethod == .notification
         else {
@@ -634,7 +650,11 @@ struct AddMedicationView: View {
             barcodeValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : "条码信息：\(barcodeValue.trimmingCharacters(in: .whitespacesAndNewlines))"
         ].compactMap { $0 }
 
+        #if DEBUG && targetEnvironment(simulator)
+        let occurredAt = ElderUITestFixture.active?.medicationCreationNow ?? Date()
+        #else
         let occurredAt = Date()
+        #endif
         let outcome = MedicationCreationCommand(modelContext: modelContext).create(
             MedicationCreationInput(
                 displayName: displayName,
@@ -662,7 +682,9 @@ struct AddMedicationView: View {
         )
         switch outcome {
         case .committed:
-            MedicationReminderPostCommitDispatcher.dispatch(in: modelContext)
+            if !usesSyntheticUITestStore {
+                MedicationReminderPostCommitDispatcher.dispatch(in: modelContext)
+            }
             dismiss()
         case .rejected:
             visionStatusMessage = "药品未能保存，请检查药品名称后重试。"
