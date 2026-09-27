@@ -68,3 +68,38 @@ range behavior, not whole-file speed or integrity. A complete app download,
 installation, relaunch, and guarded response remain unverified on both
 Simulator and physical device. The competition install-to-first-response claim
 therefore remains not yet demonstrated.
+
+## 2026-09-28 clean Simulator journey on the R2 candidate
+
+At `713e1f78e1a7728b7d01fb6e410f1691f1171f13`, the dedicated clean
+iPhone 17 Pro / iOS 26.5 Simulator started without a model installed. The
+tester selected the optional accelerated path, entered the authorized code
+through the app, and started **one** full download. The UI showed progress and
+then reported the 265.3 MB model installed within approximately 45 seconds of
+the start. No automatic retry or second full transfer was made. Independent
+inspection of that Simulator's app container found a 265,307,040-byte GGUF
+whose SHA-256 matched the pinned manifest. After terminating and relaunching
+the app, the model still appeared installed and the tester explicitly selected
+the device-side runtime; cloud mode remained off.
+
+The tester saved an authorization with **all data-sharing scopes disabled** on
+this synthetic installation. The assistant then produced one device-side
+answer to a fictional, non-medication-specific question. The network remained
+available during this test, so this establishes local-runtime dispatch and a
+visible answer, but **does not establish a network-off response or absence of
+all network traffic**. No real medication data was used. Cloudflare's read-only
+bucket metrics rose from 5,242,880 to 270,549,920 downloaded bytes, a delta of
+exactly 265,307,040 bytes; these aggregates support one full object transfer
+but are not a per-request trace or a device speed measurement.
+
+| Boundary | Result |
+| --- | --- |
+| Clean launch, app download, pinned installed-file integrity | PASS on this Simulator and exact source revision |
+| Relaunch persistence and explicit device-side selection | PASS on this Simulator |
+| Device-side answer with zero shared scopes | PASS on this Simulator with network available |
+| Network-off guarded response and failure/retry journey | NOT VERIFIED |
+| Official llama archive digest and physical-device behavior | NOT VERIFIED |
+
+This is a successful Simulator install-to-first-answer demonstration, not a
+physical-device or fully offline acceptance. The older failure and pilot
+results above remain historical evidence for their stated revisions.

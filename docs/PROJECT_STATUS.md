@@ -1,8 +1,23 @@
 # MedCue Project Status
 
-Latest full coordination audit: 2026-09-22; targeted update: 2026-09-27 (#28)
+Latest full coordination audit: 2026-09-22; targeted update: 2026-09-28 (#28)
 
-## 2026-09-27 Private R2 model-delivery pilot (#28)
+## 2026-09-28 R2 install-to-first-answer Simulator result (#28)
+
+At PR #112 source `713e1f78e1a7728b7d01fb6e410f1691f1171f13`, one
+authorized complete in-app download from the private R2 Worker finished on a
+dedicated clean iPhone 17 Pro / iOS 26.5 Simulator. The installed GGUF measured
+265,307,040 bytes and matched the pinned SHA-256. The app recognized it after
+relaunch, selected the device-side runtime with cloud mode off, and displayed
+one device-side answer to a synthetic question with every sharing scope off.
+The network was still available during the answer. Read-only Cloudflare R2
+metrics increased by exactly 265,307,040 downloaded bytes after the single
+full transfer. This establishes the Simulator install-to-first-answer journey;
+network-off response, physical-device behavior, controlled failure/retry, and
+official llama archive provenance remain unverified. The result matrix is in
+[the #28 runbook](ISSUE28_LOCAL_MODEL_ACCEPTANCE.md). PR #112 remains Draft.
+
+## 2026-09-27 Private R2 model-delivery pilot (#28; historical checkpoint)
 
 The owner-authorized private Cloudflare R2 Standard bucket
 `medcue-model-pilot` now holds the pinned 265,307,040-byte GGUF. Public
