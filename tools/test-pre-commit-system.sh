@@ -463,6 +463,12 @@ PY
     fixture_expect_failure 'JavaScript syntax diagnostic is redacted' 'JavaScript syntax: tools/fixture-invalid.js'
 
     fixture_reset_index
+    mkdir -p "$fixture/cloudfunctions/medcue-model-delivery"
+    printf 'DOWNLOAD_TOKEN=%s\n' "$synthetic_marker" >"$fixture/cloudfunctions/medcue-model-delivery/.dev.vars"
+    fixture_stage cloudfunctions/medcue-model-delivery/.dev.vars
+    fixture_expect_failure 'Cloudflare local secret path is rejected' 'staged path is a local Cloudflare secret or cache'
+
+    fixture_reset_index
     printf 'trailing %s \n' "$synthetic_marker" >"$fixture/tools/fixture-whitespace.txt"
     fixture_stage tools/fixture-whitespace.txt
     fixture_expect_failure 'whitespace diagnostic is redacted' 'Rule staged-whitespace'

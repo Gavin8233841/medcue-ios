@@ -157,12 +157,13 @@ FORBIDDEN_COMPONENTS = {
     "deriveddata",
     "local storage",
     "node_modules",
+    ".wrangler",
     "outputs",
     "session storage",
     "xcuserdata",
 }
 FORBIDDEN_BASENAME = re.compile(
-    r"^(?:AISecrets\.plist|\.env(?:\..*)?|.*\.gguf)$", re.IGNORECASE
+    r"^(?:AISecrets\.plist|\.env(?:\..*)?|\.dev\.vars(?:\..*)?|.*\.gguf)$", re.IGNORECASE
 )
 HISTORICAL_IMAGE = re.compile(r"^IMG_[^/]+\.(?:png|jpe?g)$", re.IGNORECASE)
 APP_ICON_PREFIXES = (

@@ -57,6 +57,8 @@ and reject trailing control characters before any normalization.
   allowlist. The checked-in policy is cross-checked against the exact
   `tools/build-source-package.py` source-package policy, so drift fails the
   local check instead of silently changing the release boundary.
+- Cloudflare `.dev.vars*` secrets and `.wrangler` state are rejected by path,
+  even if staged explicitly inside an allowed Worker directory.
 - `syntaxExtensions` must keep at least one supported extension enabled
   (`.js`, `.mjs`, `.cjs`, or `.json`); staged files are parsed with Node.js
   only when their exact extension is enabled by that list.
