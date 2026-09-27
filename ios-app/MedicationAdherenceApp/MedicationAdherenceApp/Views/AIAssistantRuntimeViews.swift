@@ -212,6 +212,15 @@ struct AgentRuntimeSelectorBar: View {
                         }
                     )
 
+                    if status.availability == .failed {
+                        Text(status.detailText)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("assistant.local-model.download-error")
+                    }
+
                     Text("设备端模型会在这台 iPhone 上运行，本次输入默认留在设备上；Beta 版本回答可能不如云端智能体稳定。云端模式只有在你主动选择并开启后才会调用外部服务。")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
