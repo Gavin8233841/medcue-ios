@@ -1,7 +1,11 @@
 # MedCue Project Status
 
-Latest full coordination audit: 2026-09-22; targeted update: 2026-09-26 (#33)
-Verified source checkpoint for this update: `main@74fb171088a80c38872c51fcae85c05721dc10f0`
+Latest full coordination audit: 2026-09-22; targeted update: 2026-09-27 (#28)
+Verified source checkpoint for the #4 update below: `main@74fb171088a80c38872c51fcae85c05721dc10f0`
+
+## 2026-09-27 Local-model journey attempt (#28)
+
+At `main@ed67bf82cb582f482b87454ffa9012d239764b99`, a dedicated iPhone 17 Pro / iOS 26.5 Simulator installation with a locally supplied real llama runtime reached the in-app 265.3 MB download and displayed progress. The download failed below 1 MB and the app offered retry. An independent range request to the pinned upstream source received only 69 KB in about 41 seconds before timing out. The functional journey therefore has **not** reached installation, relaunch persistence, explicit local selection, or an offline guarded response. The runtime's official archive digest also remains unverified. The product owner authorized Simulator substitution for the functional Issue journey; no physical-device result is claimed. The exact steps, redacted result matrix, and remaining decision are in [the #28 runbook](ISSUE28_LOCAL_MODEL_ACCEPTANCE.md) and [Issue checkpoint](https://github.com/Gavin8233841/medcue-ios/issues/28#issuecomment-5853320437).
 
 ## 2026-09-27 Competition/Beta capability scope (#4)
 
