@@ -278,7 +278,10 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
                 return false
             }
         }
-        let laterAdvice = ["但建议", "但可以", "不过建议", "不过可以", "随后建议", "并建议", "然后建议", "接着建议"]
+        let laterAdvice = [
+            "但建议", "但可以", "不过建议", "不过可以", "随后建议", "并建议",
+            "然后建议", "接着建议", "我建议"
+        ]
         if laterAdvice.contains(where: { statement.contains($0) }) {
             return false
         }
