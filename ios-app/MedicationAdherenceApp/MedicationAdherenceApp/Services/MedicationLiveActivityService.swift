@@ -47,7 +47,8 @@ final class MedicationLiveActivityService: ObservableObject {
         let state = MedicationReminderActivityAttributes.ContentState(
             dueAt: task.dueAt,
             statusText: task.status == .delayed ? "稍后提醒" : "该服药了",
-            completedAt: nil
+            completedAt: nil,
+            phase: .open
         )
         do {
             _ = try Activity.request(
@@ -70,7 +71,8 @@ final class MedicationLiveActivityService: ObservableObject {
             let state = MedicationReminderActivityAttributes.ContentState(
                 dueAt: Date(),
                 statusText: MedicationSystemSurfacePrivacyPolicy.completedTitle,
-                completedAt: Date()
+                completedAt: Date(),
+                phase: .completed
             )
             await activity.end(
                 ActivityContent(state: state, staleDate: nil),
