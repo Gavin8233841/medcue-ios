@@ -53,12 +53,18 @@ check. A full remote SHA-256, whole-file download speed, and in-app install
 were **not** tested. The original upstream address remains the app default.
 
 Candidate app code offers a separate competition acceleration path requiring a
-shared 32-hex-character code entered by the tester for this download. A narrow Worker would
-read only the pinned object from private R2, reject missing codes, and throttle
-authorized requests. The code is not stored in source or the app package. The
-app still validates exact size and SHA-256 before installation. At this
-checkpoint the Worker is not deployed, and the accelerated app path has only
-local unit and dry-run configuration evidence. A successful limited-range
-Worker check and then the complete Simulator journey remain required before
-claiming an improved app download path; physical-device evidence remains
-separate.
+shared 32-hex-character code entered by the tester for this download. The
+deployed `medcue-model-delivery` Worker reads only the pinned object from
+private R2, rejects missing codes, and throttles authorized requests. Its code
+is stored as a Worker secret and is not in source or the app package. The app
+still validates exact size and SHA-256 before installation.
+
+Live Worker checks returned 404 for an unauthenticated HEAD and 200 for an
+authenticated HEAD with the expected 265,307,040-byte length. Authenticated
+first and last 1 KiB range requests returned 206 and matched the verified local
+file. Repeated probes transferred only 3 KiB of model body after the earlier
+2 MiB signed-URL checks. This establishes limited private distribution and
+range behavior, not whole-file speed or integrity. A complete app download,
+installation, relaunch, and guarded response remain unverified on both
+Simulator and physical device. The competition install-to-first-response claim
+therefore remains not yet demonstrated.

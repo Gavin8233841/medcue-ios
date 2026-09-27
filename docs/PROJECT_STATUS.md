@@ -11,10 +11,14 @@ first and last 1 MiB signed range requests returned HTTP 206 and matched the
 local corresponding bytes. Only 2 MiB was downloaded for this limited test;
 full remote hash, complete transfer speed, and in-app installation are still
 unverified. A 24-hour bucket-limited upload token was used and its local
-in-memory copies were cleared. The candidate Worker and app code add an
-optional access-code acceleration path, but the Worker is not deployed and
-the app default remains the upstream address. The exact acceptance boundary
-is in [the #28 runbook](ISSUE28_LOCAL_MODEL_ACCEPTANCE.md).
+in-memory copies were cleared. The optional access-code Worker
+`medcue-model-delivery` is now deployed with private R2 and rate-limit bindings
+and an encrypted Worker secret. Live unauthenticated HEAD returned 404;
+authenticated HEAD returned 200 with the expected size. First and last 1 KiB
+authorized ranges returned 206 and matched the local model, adding only 3 KiB
+of model-body traffic in repeated checks. The app default remains the upstream
+address. The complete in-app and physical-device journey has not been proven;
+the exact boundary is in [the #28 runbook](ISSUE28_LOCAL_MODEL_ACCEPTANCE.md).
 Verified source checkpoint for the #4 update below: `main@74fb171088a80c38872c51fcae85c05721dc10f0`
 
 ## 2026-09-27 Local-model journey attempt (#28)
