@@ -11,11 +11,23 @@ struct MedicalAIConfigurationSelection: Equatable, Sendable {
     let providerName: String
     let modelName: String
     let endpointURLString: String
+    let providerKindRaw: String?
+
+    var providerKind: MedicalAIProviderKind {
+        if let providerKindRaw, let kind = MedicalAIProviderKind(rawValue: providerKindRaw) {
+            return kind
+        }
+        return MedicalAIConfiguration.providerKind(
+            providerName: providerName,
+            endpointURLString: endpointURLString
+        )
+    }
 
     static func resolve(
         providerName: String?,
         modelName: String?,
-        endpointURLString: String?
+        endpointURLString: String?,
+        providerKindRaw: String? = nil
     ) -> MedicalAIConfigurationSelection {
         MedicalAIConfigurationSelection(
             providerName: resolved(
@@ -29,7 +41,8 @@ struct MedicalAIConfigurationSelection: Equatable, Sendable {
             endpointURLString: resolved(
                 endpointURLString,
                 fallback: MedicalAIConfiguration.brokerRespondEndpoint
-            )
+            ),
+            providerKindRaw: providerKindRaw
         )
     }
 
@@ -67,9 +80,13 @@ struct MedicalAIConfiguration: Equatable, Sendable {
     var modelName: String
     var endpointURLString: String
     var hasAPIKey: Bool
+    var providerKindRaw: String? = nil
 
     var providerKind: MedicalAIProviderKind {
-        Self.providerKind(providerName: providerName, endpointURLString: endpointURLString)
+        if let providerKindRaw, let kind = MedicalAIProviderKind(rawValue: providerKindRaw) {
+            return kind
+        }
+        return Self.providerKind(providerName: providerName, endpointURLString: endpointURLString)
     }
 
     var isReadyForDirectAPI: Bool {
@@ -97,6 +114,15 @@ struct MedicalAIConfiguration: Equatable, Sendable {
             return .doubao
         }
         return .baichuan
+    }
+
+    static func legacyDeclaredProviderKind(providerName: String) -> MedicalAIProviderKind? {
+        switch providerName.trimmingCharacters(in: .whitespacesAndNewlines) {
+        case brokerProviderName: .broker
+        case doubaoProviderName: .doubao
+        case baichuanProviderName: .baichuan
+        default: nil
+        }
     }
 }
 
@@ -194,15 +220,16 @@ struct MedicalAIEndpointPolicy: Sendable {
             throw MedicalAIEndpointPolicyError.unapprovedEndpoint
         }
 
-        let declaredProvider: MedicalAIProviderKind
-        switch configuration.providerName.trimmingCharacters(in: .whitespacesAndNewlines) {
-        case MedicalAIConfiguration.brokerProviderName:
-            declaredProvider = .broker
-        case MedicalAIConfiguration.doubaoProviderName:
-            declaredProvider = .doubao
-        case MedicalAIConfiguration.baichuanProviderName:
-            declaredProvider = .baichuan
-        default:
+        let declaredProvider: MedicalAIProviderKind?
+        if let raw = configuration.providerKindRaw {
+            declaredProvider = MedicalAIProviderKind(rawValue: raw)
+        } else {
+            // Existing installs persisted a Chinese provider label but no stable code.
+            declaredProvider = MedicalAIConfiguration.legacyDeclaredProviderKind(
+                providerName: configuration.providerName
+            )
+        }
+        guard let declaredProvider else {
             throw MedicalAIEndpointPolicyError.unsupportedProvider
         }
 
@@ -268,6 +295,7 @@ final class SecureAIConfigurationStore: ObservableObject {
 
     private let defaults = UserDefaults.standard
     private static let providerNameKey = "medicalAI.providerName"
+    private static let providerKindKey = "medicalAI.providerKind"
     private static let modelNameKey = "medicalAI.modelName"
     private static let endpointURLKey = "medicalAI.endpointURL"
     private static let keychainService = "com.gwyy.appcontest2026.medicationadherence.medical-ai"
@@ -283,16 +311,13 @@ final class SecureAIConfigurationStore: ObservableObject {
         let injectionSummary = Self.syncBestAvailableSecret(into: defaults)
 
         let selection = Self.configurationSelection(from: defaults)
-        let providerKind = MedicalAIConfiguration.providerKind(
-            providerName: selection.providerName,
-            endpointURLString: selection.endpointURLString
-        )
-        let keyLookup = Self.lookupAPIKey(for: providerKind)
+        let keyLookup = Self.lookupAPIKey(for: selection.providerKind)
         configuration = MedicalAIConfiguration(
             providerName: selection.providerName,
             modelName: selection.modelName,
             endpointURLString: selection.endpointURLString,
-            hasAPIKey: keyLookup.key != nil
+            hasAPIKey: keyLookup.key != nil,
+            providerKindRaw: selection.providerKindRaw
         )
         statusMessage = keyLookup.key != nil ? "医疗智能体已就绪；发送前仍会校验用户授权范围。" : "医疗智能体暂时不可用；不会外发用药数据。"
         Self.debugLog("init \(configuration.sanitizedDebugSummary) keySource=\(keyLookup.sourceDescription) injected=\(injectionSummary)")
@@ -302,27 +327,29 @@ final class SecureAIConfigurationStore: ObservableObject {
     func refreshInjectedSecretsIfAvailable() -> MedicalAIConfiguration {
         let injectionSummary = Self.syncBestAvailableSecret(into: defaults)
         let selection = Self.configurationSelection(from: defaults)
-        let providerKind = MedicalAIConfiguration.providerKind(
-            providerName: selection.providerName,
-            endpointURLString: selection.endpointURLString
-        )
-        let keyLookup = Self.lookupAPIKey(for: providerKind)
+        let keyLookup = Self.lookupAPIKey(for: selection.providerKind)
         reload(status: keyLookup.key == nil ? Self.unavailableUserMessage : "医疗智能体已就绪；发送前仍会校验用户授权范围。")
         Self.debugLog("refresh \(configuration.sanitizedDebugSummary) keySource=\(keyLookup.sourceDescription) injected=\(injectionSummary)")
         return configuration
     }
 
-    func save(providerName: String, modelName: String, endpointURLString: String, apiKey: String) {
+    func save(
+        providerKind: MedicalAIProviderKind,
+        providerName: String,
+        modelName: String,
+        endpointURLString: String,
+        apiKey: String
+    ) {
         let trimmedProvider = providerName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedModel = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedEndpoint = endpointURLString.trimmingCharacters(in: .whitespacesAndNewlines)
         defaults.set(trimmedProvider, forKey: Self.providerNameKey)
+        defaults.set(providerKind.rawValue, forKey: Self.providerKindKey)
         defaults.set(trimmedModel, forKey: Self.modelNameKey)
         defaults.set(trimmedEndpoint, forKey: Self.endpointURLKey)
 
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedKey.isEmpty {
-            let providerKind = MedicalAIConfiguration.providerKind(providerName: trimmedProvider, endpointURLString: trimmedEndpoint)
             let status = Self.writeKeychainValue(
                 trimmedKey,
                 service: Self.keychainService,
@@ -411,6 +438,7 @@ final class SecureAIConfigurationStore: ObservableObject {
 
     func clearAll() {
         defaults.removeObject(forKey: Self.providerNameKey)
+        defaults.removeObject(forKey: Self.providerKindKey)
         defaults.removeObject(forKey: Self.modelNameKey)
         defaults.removeObject(forKey: Self.endpointURLKey)
         Self.deleteKeychainValue(service: Self.keychainService, account: Self.keychainAccount(for: .broker))
@@ -422,16 +450,13 @@ final class SecureAIConfigurationStore: ObservableObject {
 
     private func reload(status: String) {
         let selection = Self.configurationSelection(from: defaults)
-        let providerKind = MedicalAIConfiguration.providerKind(
-            providerName: selection.providerName,
-            endpointURLString: selection.endpointURLString
-        )
-        let keyLookup = Self.lookupAPIKey(for: providerKind)
+        let keyLookup = Self.lookupAPIKey(for: selection.providerKind)
         configuration = MedicalAIConfiguration(
             providerName: selection.providerName,
             modelName: selection.modelName,
             endpointURLString: selection.endpointURLString,
-            hasAPIKey: keyLookup.key != nil
+            hasAPIKey: keyLookup.key != nil,
+            providerKindRaw: selection.providerKindRaw
         )
         statusMessage = status
         Self.debugLog("reload \(configuration.sanitizedDebugSummary) keySource=\(keyLookup.sourceDescription)")
@@ -443,7 +468,8 @@ final class SecureAIConfigurationStore: ObservableObject {
         MedicalAIConfigurationSelection.resolve(
             providerName: defaults.string(forKey: providerNameKey),
             modelName: defaults.string(forKey: modelNameKey),
-            endpointURLString: defaults.string(forKey: endpointURLKey)
+            endpointURLString: defaults.string(forKey: endpointURLKey),
+            providerKindRaw: defaults.string(forKey: providerKindKey)
         )
     }
 
@@ -515,6 +541,7 @@ final class SecureAIConfigurationStore: ObservableObject {
                 account: keychainAccount(for: .broker)
             )
             defaults.set(MedicalAIConfiguration.brokerProviderName, forKey: providerNameKey)
+            defaults.set(MedicalAIProviderKind.broker.rawValue, forKey: providerKindKey)
             defaults.set(MedicalAIConfiguration.brokerDefaultModelName, forKey: modelNameKey)
             defaults.set(MedicalAIConfiguration.brokerRespondEndpoint, forKey: endpointURLKey)
             return "\(injectedBrokerTokenEnvironmentName) source=\(injectionSourceDescription(for: injectedBrokerTokenEnvironmentName)) keychainStatus=\(securityStatusDescription(status))"
@@ -528,6 +555,7 @@ final class SecureAIConfigurationStore: ObservableObject {
                 account: keychainAccount(for: .doubao)
             )
             defaults.set(MedicalAIConfiguration.doubaoProviderName, forKey: providerNameKey)
+            defaults.set(MedicalAIProviderKind.doubao.rawValue, forKey: providerKindKey)
             defaults.set(MedicalAIConfiguration.doubaoDefaultModelName, forKey: modelNameKey)
             defaults.set(MedicalAIConfiguration.doubaoResponsesEndpoint, forKey: endpointURLKey)
             return "\(injectedArkAPIKeyEnvironmentName) source=\(injectionSourceDescription(for: injectedArkAPIKeyEnvironmentName)) keychainStatus=\(securityStatusDescription(status))"
@@ -541,6 +569,7 @@ final class SecureAIConfigurationStore: ObservableObject {
                 account: keychainAccount(for: .baichuan)
             )
             defaults.set(MedicalAIConfiguration.baichuanProviderName, forKey: providerNameKey)
+            defaults.set(MedicalAIProviderKind.baichuan.rawValue, forKey: providerKindKey)
             defaults.set(MedicalAIConfiguration.baichuanDefaultModelName, forKey: modelNameKey)
             defaults.set(MedicalAIConfiguration.baichuanChatEndpoint, forKey: endpointURLKey)
             return "\(injectedAPIKeyEnvironmentName) source=\(injectionSourceDescription(for: injectedAPIKeyEnvironmentName)) keychainStatus=\(securityStatusDescription(status))"
