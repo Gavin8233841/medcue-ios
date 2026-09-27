@@ -331,6 +331,7 @@ struct AddMedicationView: View {
                         showingSaveConfirmation = true
                     }
                     .disabled(!canSave || isSaveFlowActive)
+                    .accessibilityIdentifier("medication.creation.save")
                 }
             }
             .onAppear {

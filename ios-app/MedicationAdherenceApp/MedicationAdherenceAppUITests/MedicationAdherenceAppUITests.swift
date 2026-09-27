@@ -65,7 +65,7 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         name.typeText("成旅程药品")
         XCTAssertEqual(name.value as? String, "合成旅程药品")
 
-        let save = app.navigationBars["添加药品"].buttons["保存"]
+        let save = app.buttons["medication.creation.save"]
         XCTAssertTrue(save.waitForExistence(timeout: 5))
         save.tap()
         let confirm = app.buttons["已核对，保存"]
