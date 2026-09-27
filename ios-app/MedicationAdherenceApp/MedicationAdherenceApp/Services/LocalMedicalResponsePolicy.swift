@@ -181,110 +181,17 @@ struct LocalMedicalResponsePolicy: Sendable {
 
     func postprocessLocalResponse(_ value: String, request: MedicalAIRequest) -> String {
         let stoppedValue = cutAtStopMarkers(value)
-        let thinking = [
-            taggedContent(named: "think", in: stoppedValue),
-            taggedContent(named: "thought", in: stoppedValue)
-        ]
-        .compactMap { $0 }
-        .map(cleanReasoningText)
-        .filter { !$0.isEmpty }
-        .joined(separator: "\n\n")
-        let withoutThinking = removingTaggedBlock(named: "thought", from: removingTaggedBlock(named: "think", from: stoppedValue))
-        let finalCandidate = taggedContent(named: "final", in: withoutThinking)
-            ?? textAfterFinalMarker(in: withoutThinking)
-            ?? withoutThinking
-        let implicit = splitImplicitReasoning(from: finalCandidate)
-        let cleaned = cleanFinalAnswerText(implicit.answer, request: request)
-        let combinedThinking = [thinking, implicit.thinking]
-            .map(cleanReasoningText)
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n\n")
-        guard !cleaned.isEmpty, !combinedThinking.isEmpty else {
+        let parsed = LocalLLMStreamParser.parseComplete(stoppedValue)
+        let cleaned = cleanFinalAnswerText(parsed.answer, request: request)
+        let thinking = cleanReasoningText(parsed.thinking)
+        guard !cleaned.isEmpty, !thinking.isEmpty else {
             return cleaned
         }
-        return "\(cleaned)\(MedicalAIResponseFinalizer.reasoningSeparator)\(combinedThinking)"
-    }
-
-    private func splitImplicitReasoning(from value: String) -> (thinking: String, answer: String) {
-        let cleaned = value
-            .replacingOccurrences(of: "\n", with: " ")
-            .split(whereSeparator: { $0.isWhitespace })
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let separators = CharacterSet(charactersIn: "。！？!?")
-        var sentences: [String] = []
-        var current = ""
-        for scalar in cleaned.unicodeScalars {
-            current.unicodeScalars.append(scalar)
-            if separators.contains(scalar) {
-                let sentence = current.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !sentence.isEmpty {
-                    sentences.append(sentence)
-                }
-                current = ""
-            }
-        }
-        let tail = current.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !tail.isEmpty {
-            sentences.append(tail)
-        }
-        guard sentences.count > 1 else {
-            return ("", cleaned)
-        }
-        var reasoningSentences: [String] = []
-        var answerSentences: [String] = []
-        var isStillReasoningPrefix = true
-        for sentence in sentences {
-            if isStillReasoningPrefix, isImplicitReasoningSentence(sentence) {
-                reasoningSentences.append(sentence)
-            } else {
-                isStillReasoningPrefix = false
-                answerSentences.append(sentence)
-            }
-        }
-        guard !reasoningSentences.isEmpty, !answerSentences.isEmpty else {
-            return ("", cleaned)
-        }
-        return (
-            reasoningSentences.joined(separator: " "),
-            answerSentences.joined(separator: " ")
-        )
-    }
-
-    private func isImplicitReasoningSentence(_ sentence: String) -> Bool {
-        let markers = [
-            "用户的问题",
-            "用户想要",
-            "我需要",
-            "我将",
-            "我会",
-            "我可以",
-            "我要",
-            "来回答用户",
-            "回答用户的问题",
-            "没有提供具体",
-            "可以根据用户",
-            "根据用户给出",
-            "来推断"
-        ]
-        return markers.contains { sentence.contains($0) }
+        return "\(cleaned)\(MedicalAIResponseFinalizer.reasoningSeparator)\(thinking)"
     }
 
     private func cleanFinalAnswerText(_ value: String, request: MedicalAIRequest) -> String {
         let cleaned = value
-            .replacingOccurrences(of: "<|im_start|>", with: "")
-            .replacingOccurrences(of: "<|im_end|>", with: "")
-            .replacingOccurrences(of: "</s>", with: "")
-            .replacingOccurrences(of: "<final>", with: "")
-            .replacingOccurrences(of: "</final>", with: "")
-            .replacingOccurrences(of: "<answer>", with: "")
-            .replacingOccurrences(of: "</answer>", with: "")
-            .replacingOccurrences(of: "<thought>", with: "")
-            .replacingOccurrences(of: "</thought>", with: "")
-            .replacingOccurrences(of: "<think>", with: "")
-            .replacingOccurrences(of: "</think>", with: "")
-            .replacingOccurrences(of: "最终回答：", with: "")
-            .replacingOccurrences(of: "正式回答：", with: "")
             .replacingOccurrences(of: "根据用户提供的信息，", with: "")
             .replacingOccurrences(of: "根据用户提供的信息：", with: "")
             .replacingOccurrences(of: "根据您提供的信息，", with: "")
@@ -335,9 +242,6 @@ struct LocalMedicalResponsePolicy: Sendable {
 
     private func cleanReasoningText(_ value: String) -> String {
         value
-            .replacingOccurrences(of: "<|im_start|>", with: "")
-            .replacingOccurrences(of: "<|im_end|>", with: "")
-            .replacingOccurrences(of: "</s>", with: "")
             .split(whereSeparator: { $0.isWhitespace })
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1004,11 +908,6 @@ struct LocalMedicalResponsePolicy: Sendable {
         return text.isEmpty ? nil : text
     }
 
-    private func removingTaggedBlock(named tagName: String, from text: String) -> String {
-        let pattern = #"<\#(tagName)>[\s\S]*?</\#(tagName)>"#
-        return text.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
-    }
-
     private func cutAtStopMarkers(_ text: String) -> String {
         let markers = [
             "<|im_end|>",
@@ -1041,33 +940,6 @@ struct LocalMedicalResponsePolicy: Sendable {
             return text
         }
         return String(text[..<earliestRange.lowerBound])
-    }
-
-    private func taggedContent(named tagName: String, in text: String) -> String? {
-        let pattern = #"<\#(tagName)>([\s\S]*?)</\#(tagName)>"#
-        guard let range = text.range(of: pattern, options: .regularExpression) else {
-            return nil
-        }
-        let taggedText = String(text[range])
-        return taggedText
-            .replacingOccurrences(of: "<\(tagName)>", with: "")
-            .replacingOccurrences(of: "</\(tagName)>", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func textAfterFinalMarker(in text: String) -> String? {
-        let markers = [
-            "正式回答：",
-            "最终回答：",
-            "回答："
-        ]
-        for marker in markers {
-            guard let range = text.range(of: marker) else {
-                continue
-            }
-            return String(text[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return nil
     }
 
     private func isGenericRiskTitle(_ title: String) -> Bool {
