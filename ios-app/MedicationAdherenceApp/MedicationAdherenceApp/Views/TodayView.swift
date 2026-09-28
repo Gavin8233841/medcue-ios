@@ -69,6 +69,7 @@ private struct TodayContentView: View {
     @AppStorage(NotificationService.reminderNotificationUnavailableMessageKey) private var reminderNotificationUnavailableMessage = ""
     @AppStorage(NotificationService.reminderSystemSyncMessageKey) private var reminderSystemSyncMessage = ""
     @AppStorage(DoseActionPersistence.failureMessageDefaultsKey) private var externalDosePersistenceErrorMessage = ""
+    @AppStorage(DoseActionFailureNotice.codeDefaultsKey) private var externalDosePersistenceFailureCode = ""
     @StateObject private var notificationService = NotificationService()
     @StateObject private var liveActivityService = MedicationLiveActivityService()
     @State private var taskPendingArchive: StoredDoseTask?
@@ -432,10 +433,13 @@ private struct TodayContentView: View {
     }
 
     private func consumeExternalDosePersistenceFailure() {
-        let message = externalDosePersistenceErrorMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !message.isEmpty else { return }
+        guard let message = DoseActionFailureNotice.displayedMessage(
+            code: externalDosePersistenceFailureCode,
+            legacyMessage: externalDosePersistenceErrorMessage
+        ) else { return }
         dosePersistenceErrorMessage = message
         externalDosePersistenceErrorMessage = ""
+        externalDosePersistenceFailureCode = ""
     }
 
     private func medication(for task: StoredDoseTask) -> StoredMedication? {

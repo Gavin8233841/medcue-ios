@@ -7,6 +7,40 @@ import Testing
 @Suite(.serialized)
 struct DoseActionPersistenceTests {
     @Test @MainActor
+    func externalSaveFailureUsesStableCodeAndKeepsLegacyReaderCompatible() throws {
+        let suite = "DoseActionFailureNoticeTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        DoseActionFailureNotice.recordSaveFailure(in: defaults)
+        let code = try #require(defaults.string(forKey: DoseActionFailureNotice.codeDefaultsKey))
+        let legacy = try #require(defaults.string(forKey: DoseActionPersistence.failureMessageDefaultsKey))
+        #expect(code == DoseActionPersistenceError.saveFailed.rawValue)
+        #expect(legacy == DoseActionPersistenceError.saveFailed.userMessage)
+        #expect(DoseActionFailureNotice.displayedMessage(code: code, legacyMessage: "旧文案")
+                == DoseActionPersistenceError.saveFailed.userMessage)
+
+        defaults.removeObject(forKey: DoseActionPersistence.failureMessageDefaultsKey)
+        #expect(DoseActionFailureNotice.displayedMessage(
+            code: code,
+            legacyMessage: defaults.string(forKey: DoseActionPersistence.failureMessageDefaultsKey) ?? ""
+        ) == nil)
+
+        DoseActionFailureNotice.recordSaveFailure(in: defaults)
+        DoseActionFailureNotice.clear(in: defaults)
+        #expect(defaults.string(forKey: DoseActionFailureNotice.codeDefaultsKey) == nil)
+        #expect(defaults.string(forKey: DoseActionPersistence.failureMessageDefaultsKey) == nil)
+    }
+
+    @Test @MainActor
+    func externalSaveFailureReadsOldMessageAndUnknownCodeSafely() {
+        let oldMessage = "旧版保存失败提示"
+        #expect(DoseActionFailureNotice.displayedMessage(code: "", legacyMessage: oldMessage) == oldMessage)
+        #expect(DoseActionFailureNotice.displayedMessage(code: "future-code", legacyMessage: oldMessage) == oldMessage)
+        #expect(DoseActionFailureNotice.displayedMessage(code: "future-code", legacyMessage: "  ") == nil)
+    }
+
+    @Test @MainActor
     func transitionPlannerFreezesSharedDoseActionSemantics() {
         let plannedDueAt = Date(timeIntervalSince1970: 1_700_000_000)
         let secondaryDueAt = plannedDueAt.addingTimeInterval(20)

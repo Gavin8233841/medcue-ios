@@ -156,18 +156,15 @@ struct MedicationReminderLiveActivityActionService {
         let outcome = command.execute(request, occurredAt: occurredAt, in: modelContext)
         switch outcome {
         case .committed:
-            UserDefaults.standard.removeObject(forKey: DoseActionPersistence.failureMessageDefaultsKey)
+            DoseActionFailureNotice.clear()
             await synchronizeCommittedIntentAction(in: modelContext)
             return .committed
         case .alreadyCommitted:
-            UserDefaults.standard.removeObject(forKey: DoseActionPersistence.failureMessageDefaultsKey)
+            DoseActionFailureNotice.clear()
             await synchronizeCommittedIntentAction(in: modelContext)
             return .alreadyCommitted
         case .saveFailed:
-            UserDefaults.standard.set(
-                DoseActionPersistenceError.saveFailed.userMessage,
-                forKey: DoseActionPersistence.failureMessageDefaultsKey
-            )
+            DoseActionFailureNotice.recordSaveFailure()
             return .saveFailed
         case .rejected:
             return .rejected
@@ -208,14 +205,11 @@ struct MedicationReminderLiveActivityActionService {
             let outcome = command.execute(request, occurredAt: occurredAt, in: modelContext)
             guard outcome.isCommitted else {
                 if outcome == .saveFailed {
-                    UserDefaults.standard.set(
-                        DoseActionPersistenceError.saveFailed.userMessage,
-                        forKey: DoseActionPersistence.failureMessageDefaultsKey
-                    )
+                    DoseActionFailureNotice.recordSaveFailure()
                 }
                 return
             }
-            UserDefaults.standard.removeObject(forKey: DoseActionPersistence.failureMessageDefaultsKey)
+            DoseActionFailureNotice.clear()
             let reminderSync = notificationService.beginApplyCommittedReminderState(in: modelContext)
             _ = await reminderSync.value
             for groupTask in openTaskGroup {
@@ -227,7 +221,7 @@ struct MedicationReminderLiveActivityActionService {
                 reportSaveFailureIfNeeded(outcome)
                 return
             }
-            UserDefaults.standard.removeObject(forKey: DoseActionPersistence.failureMessageDefaultsKey)
+            DoseActionFailureNotice.clear()
             _ = await notificationService.beginApplyCommittedReminderState(in: modelContext).value
             for groupTask in openTaskGroup {
                 await liveActivityService.end(for: groupTask.id)
@@ -238,7 +232,7 @@ struct MedicationReminderLiveActivityActionService {
                 reportSaveFailureIfNeeded(outcome)
                 return
             }
-            UserDefaults.standard.removeObject(forKey: DoseActionPersistence.failureMessageDefaultsKey)
+            DoseActionFailureNotice.clear()
             let reminderSync = notificationService.beginApplyCommittedReminderState(in: modelContext)
             _ = await reminderSync.value
             for groupTask in openTaskGroup {
@@ -253,10 +247,7 @@ struct MedicationReminderLiveActivityActionService {
         _ outcome: MedicationReminderLiveActivityActionCommandOutcome
     ) {
         if outcome == .saveFailed {
-            UserDefaults.standard.set(
-                DoseActionPersistenceError.saveFailed.userMessage,
-                forKey: DoseActionPersistence.failureMessageDefaultsKey
-            )
+            DoseActionFailureNotice.recordSaveFailure()
         }
     }
 
