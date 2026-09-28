@@ -45,6 +45,7 @@ struct AIConversationVisibilityProjection {
 }
 
 struct AIQuickActionsSection: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let isDisabled: Bool
     let prefersLocalResponses: Bool
     let send: (AIOutgoingMessage?) -> Void
@@ -178,7 +179,7 @@ struct AIQuickActionsSection: View {
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
                 .accessibilityLabel("快捷咨询问题")
-            } else {
+            } else if !dynamicTypeSize.isAccessibilitySize {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(compactActions) { action in
