@@ -324,7 +324,7 @@ struct MedicalAIPrivacyView: View {
                     ConsentScopeRow(title: "说明书摘要", isEnabled: activeConsent.sharesDrugLabels)
                     ConsentScopeRow(title: "导入识别内容", isEnabled: activeConsent.sharesImportDraft)
                 } else {
-                    Text("设备端模型会在本机整理授权数据；云端智能体只有在你主动选择并确认授权后才会连接外部服务。")
+                    Text("设备端模型会在本机整理授权数据；云端智能体仅在你确认授权并主动发送咨询后才会连接外部服务。")
                         .foregroundStyle(.secondary)
                 }
             }
