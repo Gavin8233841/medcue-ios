@@ -218,7 +218,8 @@ final class MedicationWatchSnapshotCenter: NSObject, ObservableObject, WCSession
                 [
                     item.id.uuidString,
                     String(Int(item.dueAt.timeIntervalSince1970)),
-                    item.status.rawValue
+                    item.status.rawValue,
+                    item.reminderPresentationKey(privacyMode: snapshot.privacyMode)
                 ].joined(separator: ":")
             }
             .joined(separator: ",")
@@ -569,7 +570,7 @@ private final class MedicationWatchReminderScheduler {
                     item.id.uuidString,
                     String(item.dueAt.timeIntervalSince1970),
                     item.status.rawValue,
-                    privacyMode ? "private" : "visible"
+                    item.reminderPresentationKey(privacyMode: privacyMode)
                 ].joined(separator: "|")
             }
             .joined(separator: "#")

@@ -61,8 +61,23 @@ struct MedicationWatchDoseItem: Codable, Identifiable, Hashable, Sendable {
         else {
             return doseText
         }
-        let number = doseValue.formatted(.number.precision(.fractionLength(0...2)).locale(locale))
+        let number = Self.doseValueText(doseValue, locale: locale)
         return "\(number) \(unit.displayName(value: doseValue, locale: locale))"
+    }
+
+    static func doseValueText(_ value: Double, locale: Locale) -> String {
+        // Double.description uses the shortest round-trippable decimal. Fixed
+        // fractional precision can display a different dose (for example 0.625).
+        let raw = String(value)
+        let compact = raw.hasSuffix(".0") ? String(raw.dropLast(2)) : raw
+        return compact.replacingOccurrences(of: ".", with: locale.decimalSeparator ?? ".")
+    }
+
+    func reminderPresentationKey(privacyMode: Bool, locale: Locale = .current) -> String {
+        guard !privacyMode else { return "private" }
+        return [medicationName, displayDoseText(locale: locale), status.displayText]
+            .map { "\($0.utf8.count):\($0)" }
+            .joined()
     }
 
     var timeText: String {

@@ -148,6 +148,35 @@ struct PlatformBehaviorTests {
         var unknownUnit = item
         unknownUnit.doseUnitCode = "unknown"
         #expect(unknownUnit.displayDoseText(locale: Locale(identifier: "en_US")) == "1.5 片")
+
+        var preciseDose = item
+        preciseDose.doseValue = 0.625
+        preciseDose.doseUnitCode = "milliliter"
+        #expect(preciseDose.displayDoseText(locale: Locale(identifier: "zh_Hans_CN")) == "0.625 毫升")
+        #expect(preciseDose.displayDoseText(locale: Locale(identifier: "en_US")) == "0.625 mL")
+        #expect(preciseDose.displayDoseText(locale: Locale(identifier: "de_DE")) == "0,625 毫升")
+    }
+
+    @Test
+    func watchReminderPresentationKeyChangesWithVisibleDoseAndLocale() {
+        let original = MedicationWatchDoseItem(
+            id: UUID(), medicationName: "合成药品", doseText: "0.625 毫升",
+            doseValue: 0.625, doseUnitCode: "milliliter",
+            dueAt: Date(timeIntervalSince1970: 1_800_000_000), status: .pending
+        )
+        var changedDose = original
+        changedDose.doseValue = 0.75
+        var changedUnit = original
+        changedUnit.doseUnitCode = "drop"
+        let chinese = Locale(identifier: "zh_Hans_CN")
+        #expect(original.reminderPresentationKey(privacyMode: false, locale: chinese)
+                != changedDose.reminderPresentationKey(privacyMode: false, locale: chinese))
+        #expect(original.reminderPresentationKey(privacyMode: false, locale: chinese)
+                != changedUnit.reminderPresentationKey(privacyMode: false, locale: chinese))
+        #expect(original.reminderPresentationKey(privacyMode: false, locale: chinese)
+                != original.reminderPresentationKey(privacyMode: false, locale: Locale(identifier: "en_US")))
+        #expect(original.reminderPresentationKey(privacyMode: true, locale: chinese)
+                == changedDose.reminderPresentationKey(privacyMode: true, locale: chinese))
     }
 
     @Test
@@ -185,8 +214,8 @@ struct PlatformBehaviorTests {
         let task = StoredDoseTask(
             medicationID: medication.id,
             dueAt: Date().addingTimeInterval(600),
-            doseValue: 1.5,
-            doseUnit: "tablets"
+            doseValue: 0.625,
+            doseUnit: "ml"
         )
         let snapshot = MedicationWatchSnapshotPublisher().makeSnapshot(
             tasks: [task], medications: [medication], privacyMode: true
@@ -194,10 +223,10 @@ struct PlatformBehaviorTests {
         let item = try #require(snapshot.items.first)
         #expect(snapshot.items.count == 1)
         #expect(snapshot.privacyMode)
-        #expect(item.doseValue == 1.5)
-        #expect(item.doseUnitCode == DoseUnitKind.tablet.rawValue)
-        #expect(item.doseText == "1.5 tablets")
-        #expect(task.doseValue == 1.5)
-        #expect(task.doseUnit == "tablets")
+        #expect(item.doseValue == 0.625)
+        #expect(item.doseUnitCode == DoseUnitKind.milliliter.rawValue)
+        #expect(item.doseText == "0.625 ml")
+        #expect(task.doseValue == 0.625)
+        #expect(task.doseUnit == "ml")
     }
 }

@@ -63,10 +63,7 @@ struct MedicationWatchSnapshotPublisher {
     }
 
     private func doseText(for task: StoredDoseTask) -> String {
-        let value = task.doseValue
-        let valueText = value.rounded(.towardZero) == value
-            ? String(Int(value))
-            : value.formatted(.number.precision(.fractionLength(0...2)))
+        let valueText = MedicationWatchDoseItem.doseValueText(task.doseValue, locale: .current)
         return "\(valueText) \(task.doseUnit)"
     }
 }
