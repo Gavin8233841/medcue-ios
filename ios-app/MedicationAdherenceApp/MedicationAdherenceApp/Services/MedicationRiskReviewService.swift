@@ -40,10 +40,11 @@ enum MedicationRiskReviewService {
             let sourceTitle = card.evidence?.sourceTitle ?? label.sourceTitle
             let sourceExcerpt = card.evidence?.excerpt ?? ""
             let detectionSignature = StoredRiskCard.makeDetectionSignature(
+                id: storedID,
                 medicationID: medication.id,
                 kindRaw: card.kind.rawValue,
-                title: card.title,
-                message: card.message,
+                sourceKindRaw: StoredRiskSourceKind.drugLabel.rawValue,
+                sourceTitle: sourceTitle,
                 sourceExcerpt: sourceExcerpt
             )
             let severityRaw = StoredRiskCard.inferredSeverityRaw(
@@ -57,7 +58,7 @@ enum MedicationRiskReviewService {
 
             if let existingCard = existing.first(where: { $0.id == storedID }) {
                 let wasResolved = existingCard.isResolved || existingCard.isArchived
-                let shouldMarkUnread = existingCard.detectionSignature != detectionSignature
+                let shouldMarkUnread = existingCard.semanticDetectionSignature != detectionSignature
                     || existingCard.severityRaw != severityRaw
                     || existingCard.displayPriority != card.displayPriority
                     || existingCard.requiresProfessionalReview != card.requiresProfessionalReview

@@ -597,11 +597,12 @@ final class StoredRiskCard {
             sourceExcerpt: sourceExcerpt,
             requiresProfessionalReview: requiresProfessionalReview
         )
-        self.sourceKindRaw = sourceKindRaw ?? StoredRiskCard.inferredSourceKindRaw(
+        let resolvedSourceKindRaw = sourceKindRaw ?? StoredRiskCard.inferredSourceKindRaw(
             kindRaw: kindRaw,
             sourceTitle: sourceTitle,
             sourceExcerpt: sourceExcerpt
         )
+        self.sourceKindRaw = resolvedSourceKindRaw
         self.displayPriority = displayPriority
         self.title = title
         self.message = message
@@ -609,10 +610,11 @@ final class StoredRiskCard {
         self.sourceExcerpt = sourceExcerpt
         self.detectionSignature = detectionSignature.isEmpty
             ? StoredRiskCard.makeDetectionSignature(
+                id: id,
                 medicationID: medicationID,
                 kindRaw: kindRaw,
-                title: title,
-                message: message,
+                sourceKindRaw: resolvedSourceKindRaw,
+                sourceTitle: sourceTitle,
                 sourceExcerpt: sourceExcerpt
             )
             : detectionSignature
@@ -729,20 +731,39 @@ final class StoredRiskCard {
     }
 
     static func makeDetectionSignature(
+        id: String,
         medicationID: UUID,
         kindRaw: String,
-        title: String,
-        message: String,
+        sourceKindRaw: String,
+        sourceTitle: String,
         sourceExcerpt: String
     ) -> String {
-        let normalizedText = [kindRaw, title, message, sourceExcerpt]
-            .joined(separator: "|")
-            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+        let fields = [
+            id, medicationID.uuidString, kindRaw, sourceKindRaw,
+            normalizedDetectionEvidence(sourceTitle), normalizedDetectionEvidence(sourceExcerpt)
+        ]
+        return "semantic-v1|" + fields.map { "\($0.utf8.count):\($0)" }.joined()
+    }
+
+    private static func normalizedDetectionEvidence(_ value: String) -> String {
+        value
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "en_US_POSIX"))
             .lowercased()
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
             .joined(separator: " ")
-        return "\(medicationID.uuidString)|\(normalizedText)"
+    }
+
+    // Compare persisted evidence instead of the legacy text-based signature during a lazy upgrade.
+    var semanticDetectionSignature: String {
+        Self.makeDetectionSignature(
+            id: id,
+            medicationID: medicationID,
+            kindRaw: kindRaw,
+            sourceKindRaw: sourceKindRaw,
+            sourceTitle: sourceTitle,
+            sourceExcerpt: sourceExcerpt
+        )
     }
 }
 

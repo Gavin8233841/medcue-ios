@@ -679,11 +679,17 @@ enum DemoDataSeeder {
         storedCard.sourceExcerpt = card.evidence?.excerpt ?? ""
         storedCard.requiresProfessionalReview = card.requiresProfessionalReview
         storedCard.safetyNote = card.safetyNote
+        storedCard.sourceKindRaw = StoredRiskCard.inferredSourceKindRaw(
+            kindRaw: card.kind.rawValue,
+            sourceTitle: card.evidence?.sourceTitle ?? "",
+            sourceExcerpt: card.evidence?.excerpt ?? ""
+        )
         storedCard.detectionSignature = StoredRiskCard.makeDetectionSignature(
+            id: storedCard.id,
             medicationID: medicationID,
             kindRaw: card.kind.rawValue,
-            title: card.title,
-            message: card.message,
+            sourceKindRaw: storedCard.sourceKindRaw,
+            sourceTitle: card.evidence?.sourceTitle ?? "",
             sourceExcerpt: card.evidence?.excerpt ?? ""
         )
         storedCard.severityRaw = StoredRiskCard.inferredSeverityRaw(
@@ -693,11 +699,6 @@ enum DemoDataSeeder {
             message: card.message,
             sourceExcerpt: card.evidence?.excerpt ?? "",
             requiresProfessionalReview: card.requiresProfessionalReview
-        )
-        storedCard.sourceKindRaw = StoredRiskCard.inferredSourceKindRaw(
-            kindRaw: card.kind.rawValue,
-            sourceTitle: card.evidence?.sourceTitle ?? "",
-            sourceExcerpt: card.evidence?.excerpt ?? ""
         )
     }
 
@@ -838,11 +839,17 @@ enum DemoDataSeeder {
         card.safetyNote = sanitizedRequiredRiskText(card.safetyNote, fallback: defaultSafetyNote)
         card.reviewNote = sanitizedOptionalRiskText(card.reviewNote, fallback: "用户已复核并归档。")
         card.resolutionNote = sanitizedOptionalRiskText(card.resolutionNote, fallback: "相关风险已更新，请以当前说明书和医生或药师意见为准。")
+        card.sourceKindRaw = StoredRiskCard.inferredSourceKindRaw(
+            kindRaw: card.kindRaw,
+            sourceTitle: card.sourceTitle,
+            sourceExcerpt: card.sourceExcerpt
+        )
         card.detectionSignature = StoredRiskCard.makeDetectionSignature(
+            id: card.id,
             medicationID: card.medicationID,
             kindRaw: card.kindRaw,
-            title: card.title,
-            message: card.message,
+            sourceKindRaw: card.sourceKindRaw,
+            sourceTitle: card.sourceTitle,
             sourceExcerpt: card.sourceExcerpt
         )
         card.severityRaw = StoredRiskCard.inferredSeverityRaw(
@@ -852,11 +859,6 @@ enum DemoDataSeeder {
             message: card.message,
             sourceExcerpt: card.sourceExcerpt,
             requiresProfessionalReview: card.requiresProfessionalReview
-        )
-        card.sourceKindRaw = StoredRiskCard.inferredSourceKindRaw(
-            kindRaw: card.kindRaw,
-            sourceTitle: card.sourceTitle,
-            sourceExcerpt: card.sourceExcerpt
         )
     }
 

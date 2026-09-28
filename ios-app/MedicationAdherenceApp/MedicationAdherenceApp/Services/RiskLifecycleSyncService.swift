@@ -121,16 +121,17 @@ enum RiskLifecycleSyncService {
         for signal in signals {
             let id = storedID(namespace: namespace, signalID: signal.id)
             let detectionSignature = StoredRiskCard.makeDetectionSignature(
+                id: id,
                 medicationID: signal.medicationID,
                 kindRaw: signal.kind.rawValue,
-                title: signal.title,
-                message: signal.message,
+                sourceKindRaw: signal.sourceKind.rawValue,
+                sourceTitle: signal.sourceTitle,
                 sourceExcerpt: signal.sourceExcerpt
             )
 
             if let card = existingByID[id] {
                 let wasResolved = card.isResolved || card.isArchived
-                let shouldMarkUnread = card.detectionSignature != detectionSignature
+                let shouldMarkUnread = card.semanticDetectionSignature != detectionSignature
                     || card.severityRaw != signal.severity.rawValue
                     || card.displayPriority != signal.displayPriority
                     || card.requiresProfessionalReview != signal.requiresProfessionalReview

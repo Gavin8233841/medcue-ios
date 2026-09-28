@@ -63,6 +63,11 @@ struct RiskDisplayProjection {
 
     private static func duplicateKey(for card: StoredRiskCard) -> String {
         let medicationKey = card.medicationID.uuidString
+        if card.detectionSignature.hasPrefix("semantic-v1|") {
+            // Semantic detection includes card ID; display duplicates still use visible risk content.
+            let fields = [card.kindRaw, card.title, card.message, card.sourceExcerpt].map(normalized)
+            return "\(medicationKey)|semantic-content|" + fields.map { "\($0.utf8.count):\($0)" }.joined()
+        }
         let detectionSignature = normalized(card.detectionSignature)
         if !detectionSignature.isEmpty {
             return "\(medicationKey)|detection|\(detectionSignature)"
