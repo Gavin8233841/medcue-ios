@@ -63,6 +63,22 @@ struct RiskDisplayProjection {
 
     private static func duplicateKey(for card: StoredRiskCard) -> String {
         let medicationKey = card.medicationID.uuidString
+        if card.detectionSignature.hasPrefix("semantic-v1|")
+            || card.detectionSignature.hasPrefix("\(medicationKey)|") {
+            // Group auto-generated legacy and semantic signatures by the same display evidence.
+            let content = [
+                card.kindRaw, card.sourceKindRaw, card.sourceTitle,
+                card.title, card.message, card.sourceExcerpt
+            ]
+                .joined(separator: "|")
+                .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+                .lowercased()
+                .components(separatedBy: .whitespacesAndNewlines)
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            let readState = card.readAt == nil ? "unread" : "read"
+            return "\(medicationKey)|auto-content|\(readState)|\(content)"
+        }
         let detectionSignature = normalized(card.detectionSignature)
         if !detectionSignature.isEmpty {
             return "\(medicationKey)|detection|\(detectionSignature)"

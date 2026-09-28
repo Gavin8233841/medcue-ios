@@ -131,4 +131,37 @@ struct MedicalAIContextBuilderTests {
         #expect(snapshot.riskCards.isEmpty)
         #expect(snapshot.labelSummary == nil)
     }
+
+    @Test @MainActor
+    func environmentInsightsFollowMedicationProfileAuthorization() {
+        let localInsight = MedicalAIEnvironmentInsight(
+            title: "环境提示",
+            message: "含本机药名的环境说明",
+            sourceSummary: "本机药品",
+            severityText: "提示"
+        )
+        let builder = MedicalAIContextBuilder(
+            medications: [],
+            plans: [],
+            tasks: [],
+            riskCards: [],
+            labels: []
+        )
+
+        let deniedRequest = builder.makeRequest(
+            userMessage: "天气和用药有什么需要核对？",
+            consent: StoredAIConsent(sharesMedicationProfile: false),
+            environmentInsights: [localInsight],
+            localeIdentifier: "zh_CN"
+        )
+        let allowedRequest = builder.makeRequest(
+            userMessage: "天气和用药有什么需要核对？",
+            consent: StoredAIConsent(sharesMedicationProfile: true),
+            environmentInsights: [localInsight],
+            localeIdentifier: "zh_CN"
+        )
+
+        #expect(deniedRequest.environmentInsights.isEmpty)
+        #expect(allowedRequest.environmentInsights == [localInsight])
+    }
 }

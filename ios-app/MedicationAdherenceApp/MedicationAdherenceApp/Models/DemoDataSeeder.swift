@@ -679,7 +679,7 @@ enum DemoDataSeeder {
         storedCard.sourceExcerpt = card.evidence?.excerpt ?? ""
         storedCard.requiresProfessionalReview = card.requiresProfessionalReview
         storedCard.safetyNote = card.safetyNote
-        storedCard.detectionSignature = StoredRiskCard.makeDetectionSignature(
+        storedCard.detectionSignature = StoredRiskCard.makeLegacyDetectionSignature(
             medicationID: medicationID,
             kindRaw: card.kind.rawValue,
             title: card.title,
@@ -838,7 +838,7 @@ enum DemoDataSeeder {
         card.safetyNote = sanitizedRequiredRiskText(card.safetyNote, fallback: defaultSafetyNote)
         card.reviewNote = sanitizedOptionalRiskText(card.reviewNote, fallback: "用户已复核并归档。")
         card.resolutionNote = sanitizedOptionalRiskText(card.resolutionNote, fallback: "相关风险已更新，请以当前说明书和医生或药师意见为准。")
-        card.detectionSignature = StoredRiskCard.makeDetectionSignature(
+        card.detectionSignature = StoredRiskCard.makeLegacyDetectionSignature(
             medicationID: card.medicationID,
             kindRaw: card.kindRaw,
             title: card.title,
