@@ -1,4 +1,5 @@
 import Foundation
+import MedicationAdherenceCore
 import Testing
 import UserNotifications
 @testable import MedicationAdherenceApp
@@ -111,5 +112,92 @@ struct PlatformBehaviorTests {
         #expect(MedicationWatchSnapshot(generatedAt: now.addingTimeInterval(-86_400), items: [item], privacyMode: false).presentationState(now: now, calendar: calendar) == .stale)
         #expect(MedicationWatchSnapshot(generatedAt: now, items: [], privacyMode: false).presentationState(now: now, calendar: calendar) == .empty)
         #expect(MedicationWatchSnapshot(generatedAt: now, items: [item], privacyMode: true).presentationState(now: now, calendar: calendar) == .content(isPrivate: true))
+    }
+
+    @Test
+    func watchDosePayloadRendersLocallyAndKeepsLegacySnapshotReadable() throws {
+        let item = MedicationWatchDoseItem(
+            id: UUID(),
+            medicationName: "合成药品",
+            doseText: "1.5 片",
+            doseValue: 1.5,
+            doseUnitCode: "tablet",
+            dueAt: Date(timeIntervalSince1970: 1_800_000_000),
+            status: .pending
+        )
+        let snapshot = MedicationWatchSnapshot(generatedAt: item.dueAt, items: [item], privacyMode: false)
+        let decoded = try JSONDecoder().decode(MedicationWatchSnapshot.self, from: JSONEncoder().encode(snapshot))
+        let decodedItem = try #require(decoded.items.first)
+        #expect(decodedItem.doseValue == 1.5)
+        #expect(decodedItem.doseUnitCode == "tablet")
+        #expect(decodedItem.displayDoseText(locale: Locale(identifier: "zh_Hans_CN")) == "1.5 片")
+        #expect(decodedItem.displayDoseText(locale: Locale(identifier: "en_US")) == "1.5 tablets")
+        #expect(decodedItem.status == .pending)
+        #expect(decoded.privacyMode == false)
+
+        let legacyJSON = """
+        {"generatedAt":0,"items":[{"id":"\(item.id.uuidString)","medicationName":"合成药品","doseText":"旧记录 1 片","dueAt":0,"status":"pending"}],"privacyMode":true}
+        """.data(using: .utf8)!
+        let legacySnapshot = try JSONDecoder().decode(MedicationWatchSnapshot.self, from: legacyJSON)
+        let legacyItem = try #require(legacySnapshot.items.first)
+        #expect(legacySnapshot.privacyMode)
+        #expect(legacyItem.doseValue == nil)
+        #expect(legacyItem.doseUnitCode == nil)
+        #expect(legacyItem.displayDoseText(locale: Locale(identifier: "en_US")) == "旧记录 1 片")
+
+        var unknownUnit = item
+        unknownUnit.doseUnitCode = "unknown"
+        #expect(unknownUnit.displayDoseText(locale: Locale(identifier: "en_US")) == "1.5 片")
+    }
+
+    @Test
+    func watchDoseUnitCodesRenderEverySupportedUnitWithoutChangingStoredText() {
+        let units: [(DoseUnitKind, String, String)] = [
+            (.tablet, "片", "tablets"),
+            (.capsule, "粒", "capsules"),
+            (.bag, "袋", "sachets"),
+            (.drop, "滴", "drops"),
+            (.spray, "喷", "sprays"),
+            (.patch, "贴", "patches"),
+            (.ampoule, "支", "ampoules"),
+            (.pill, "丸", "pills"),
+            (.milliliter, "毫升", "mL")
+        ]
+        for (unit, chinese, english) in units {
+            let item = MedicationWatchDoseItem(
+                id: UUID(), medicationName: "合成药品", doseText: "legacy",
+                doseValue: 2, doseUnitCode: unit.rawValue,
+                dueAt: Date(timeIntervalSince1970: 1_800_000_000), status: .pending
+            )
+            #expect(item.displayDoseText(locale: Locale(identifier: "zh_Hans_CN")) == "2 \(chinese)")
+            #expect(item.displayDoseText(locale: Locale(identifier: "en_US")) == "2 \(english)")
+            #expect(item.doseText == "legacy")
+        }
+    }
+
+    @Test @MainActor
+    func watchSnapshotPublisherKeepsStoredDoseAndAddsStableUnitCode() throws {
+        let medication = StoredMedication(
+            displayName: "合成药品",
+            kind: .prescription,
+            inputSource: .manual
+        )
+        let task = StoredDoseTask(
+            medicationID: medication.id,
+            dueAt: Date().addingTimeInterval(600),
+            doseValue: 1.5,
+            doseUnit: "tablets"
+        )
+        let snapshot = MedicationWatchSnapshotPublisher().makeSnapshot(
+            tasks: [task], medications: [medication], privacyMode: true
+        )
+        let item = try #require(snapshot.items.first)
+        #expect(snapshot.items.count == 1)
+        #expect(snapshot.privacyMode)
+        #expect(item.doseValue == 1.5)
+        #expect(item.doseUnitCode == DoseUnitKind.tablet.rawValue)
+        #expect(item.doseText == "1.5 tablets")
+        #expect(task.doseValue == 1.5)
+        #expect(task.doseUnit == "tablets")
     }
 }

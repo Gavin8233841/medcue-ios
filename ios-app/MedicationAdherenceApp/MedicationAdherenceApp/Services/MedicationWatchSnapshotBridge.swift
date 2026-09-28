@@ -1,4 +1,5 @@
 import Foundation
+import MedicationAdherenceCore
 import SwiftData
 import SwiftUI
 import WatchConnectivity
@@ -13,7 +14,7 @@ struct MedicationWatchSnapshotPublisher {
         MedicationWatchConnectivityBridge.shared.send(snapshot)
     }
 
-    private func makeSnapshot(tasks: [StoredDoseTask], medications: [StoredMedication], privacyMode: Bool) -> MedicationWatchSnapshot {
+    func makeSnapshot(tasks: [StoredDoseTask], medications: [StoredMedication], privacyMode: Bool) -> MedicationWatchSnapshot {
         let calendar = Calendar.current
         let activeMedicationIDs = Set(
             medications
@@ -42,10 +43,13 @@ struct MedicationWatchSnapshotPublisher {
             .adherenceMeasurableTasks
 
         let items = deduplicatedTasks.map { task in
-            MedicationWatchDoseItem(
+            let normalizedUnit = NormalizedDoseUnit(rawUnit: task.doseUnit)
+            return MedicationWatchDoseItem(
                 id: task.id,
                 medicationName: medicationNames[task.medicationID] ?? "用药提醒",
                 doseText: doseText(for: task),
+                doseValue: task.doseValue,
+                doseUnitCode: normalizedUnit.kind == .unknown ? nil : normalizedUnit.kind.rawValue,
                 dueAt: task.dueAt,
                 status: MedicationWatchDoseStatus(storedStatus: task.status)
             )

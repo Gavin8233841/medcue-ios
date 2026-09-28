@@ -31,11 +31,73 @@ struct MedicationWatchDoseItem: Codable, Identifiable, Hashable, Sendable {
     var id: UUID
     var medicationName: String
     var doseText: String
+    var doseValue: Double?
+    var doseUnitCode: String?
     var dueAt: Date
     var status: MedicationWatchDoseStatus
 
+    init(
+        id: UUID,
+        medicationName: String,
+        doseText: String,
+        doseValue: Double? = nil,
+        doseUnitCode: String? = nil,
+        dueAt: Date,
+        status: MedicationWatchDoseStatus
+    ) {
+        self.id = id
+        self.medicationName = medicationName
+        self.doseText = doseText
+        self.doseValue = doseValue
+        self.doseUnitCode = doseUnitCode
+        self.dueAt = dueAt
+        self.status = status
+    }
+
+    func displayDoseText(locale: Locale = .current) -> String {
+        guard let doseValue, doseValue.isFinite,
+              let doseUnitCode,
+              let unit = MedicationWatchDoseUnit(rawValue: doseUnitCode)
+        else {
+            return doseText
+        }
+        let number = doseValue.formatted(.number.precision(.fractionLength(0...2)).locale(locale))
+        return "\(number) \(unit.displayName(value: doseValue, locale: locale))"
+    }
+
     var timeText: String {
         MedicationWatchSnapshotFormatters.timeString(from: dueAt)
+    }
+}
+
+private enum MedicationWatchDoseUnit: String {
+    case tablet, capsule, bag, drop, spray, patch, ampoule, pill, milliliter
+
+    func displayName(value: Double, locale: Locale) -> String {
+        if locale.language.languageCode?.identifier == "en" {
+            switch self {
+            case .tablet: return value == 1 ? "tablet" : "tablets"
+            case .capsule: return value == 1 ? "capsule" : "capsules"
+            case .bag: return value == 1 ? "sachet" : "sachets"
+            case .drop: return value == 1 ? "drop" : "drops"
+            case .spray: return value == 1 ? "spray" : "sprays"
+            case .patch: return value == 1 ? "patch" : "patches"
+            case .ampoule: return value == 1 ? "ampoule" : "ampoules"
+            case .pill: return value == 1 ? "pill" : "pills"
+            case .milliliter: return "mL"
+            }
+        }
+        switch self {
+        case .tablet: return "片"
+        case .capsule: return "粒"
+        case .bag: return "袋"
+        case .drop: return "滴"
+        case .spray: return "喷"
+        case .patch: return "贴"
+        case .ampoule: return "支"
+        case .pill: return "丸"
+        case .milliliter: return "毫升"
+        }
     }
 }
 

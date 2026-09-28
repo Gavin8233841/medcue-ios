@@ -81,7 +81,7 @@ struct MedicationWatchComplicationStatus: Equatable {
 
         if let item = snapshot.displayNextOpenItem(now: now, calendar: calendar) {
             let itemText = snapshot.privacyMode ? "用药" : item.medicationName
-            let accessibilityItemText = snapshot.privacyMode ? "用药提醒" : "\(item.medicationName)，\(item.doseText)"
+            let accessibilityItemText = snapshot.privacyMode ? "用药提醒" : "\(item.medicationName)，\(item.displayDoseText())"
             primaryText = item.timeText
 
             switch snapshot.timing(for: item, now: now) {

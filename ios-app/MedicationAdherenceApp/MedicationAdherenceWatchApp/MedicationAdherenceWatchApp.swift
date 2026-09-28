@@ -536,7 +536,7 @@ private final class MedicationWatchReminderScheduler {
     ) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
         content.title = privacyMode ? "用药提醒" : item.medicationName
-        content.body = privacyMode ? "现在该处理一项今日用药。" : "\(item.doseText) · \(item.status.displayText)"
+        content.body = privacyMode ? "现在该处理一项今日用药。" : "\(item.displayDoseText()) · \(item.status.displayText)"
         content.sound = .default
 
         let calendar = Calendar.current
