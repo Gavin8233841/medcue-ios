@@ -229,4 +229,42 @@ struct PlatformBehaviorTests {
         #expect(task.doseValue == 0.625)
         #expect(task.doseUnit == "ml")
     }
+
+    @Test @MainActor
+    func invalidStoredDoseDoesNotBlockOtherWatchTasks() throws {
+        let medication = StoredMedication(
+            displayName: "合成药品",
+            kind: .prescription,
+            inputSource: .manual
+        )
+        let dueAt = Date().addingTimeInterval(600)
+        let normal = StoredDoseTask(
+            medicationID: medication.id, dueAt: dueAt,
+            doseValue: 0.625, doseUnit: "ml"
+        )
+        let invalid = StoredDoseTask(
+            medicationID: medication.id, dueAt: dueAt.addingTimeInterval(600),
+            doseValue: .nan, doseUnit: "ml"
+        )
+        let infinite = StoredDoseTask(
+            medicationID: medication.id, dueAt: dueAt.addingTimeInterval(1_200),
+            doseValue: .infinity, doseUnit: "ml"
+        )
+        let snapshot = MedicationWatchSnapshotPublisher().makeSnapshot(
+            tasks: [normal, invalid, infinite], medications: [medication], privacyMode: false
+        )
+        let decoded = try JSONDecoder().decode(
+            MedicationWatchSnapshot.self, from: JSONEncoder().encode(snapshot)
+        )
+        #expect(decoded.items.count == 3)
+        #expect(decoded.items.first(where: { $0.id == normal.id })?.doseValue == 0.625)
+        for id in [invalid.id, infinite.id] {
+            let item = try #require(decoded.items.first(where: { $0.id == id }))
+            #expect(item.doseValue == nil)
+            #expect(item.doseUnitCode == nil)
+            #expect(item.displayDoseText(locale: Locale(identifier: "en_US")) == "剂量待核对")
+        }
+        #expect(invalid.doseValue.isNaN)
+        #expect(infinite.doseValue.isInfinite)
+    }
 }

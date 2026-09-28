@@ -44,12 +44,14 @@ struct MedicationWatchSnapshotPublisher {
 
         let items = deduplicatedTasks.map { task in
             let normalizedUnit = NormalizedDoseUnit(rawUnit: task.doseUnit)
+            let hasValidDose = task.doseValue.isFinite
             return MedicationWatchDoseItem(
                 id: task.id,
                 medicationName: medicationNames[task.medicationID] ?? "用药提醒",
-                doseText: doseText(for: task),
-                doseValue: task.doseValue,
-                doseUnitCode: normalizedUnit.kind == .unknown ? nil : normalizedUnit.kind.rawValue,
+                doseText: hasValidDose ? doseText(for: task) : "剂量待核对",
+                doseValue: hasValidDose ? task.doseValue : nil,
+                doseUnitCode: hasValidDose && normalizedUnit.kind != .unknown
+                    ? normalizedUnit.kind.rawValue : nil,
                 dueAt: task.dueAt,
                 status: MedicationWatchDoseStatus(storedStatus: task.status)
             )
