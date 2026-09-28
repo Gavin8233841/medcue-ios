@@ -83,7 +83,7 @@ struct AgentRuntimeSelectorBar: View {
         case .downloading:
             return "正在下载"
         case .ready:
-            return "使用离线模型"
+            return status.canUseForResponses ? "使用离线模型" : "暂不可用"
         case .failed:
             return "重新下载"
         }
@@ -184,6 +184,7 @@ struct AgentRuntimeSelectorBar: View {
                         statusBackgroundTint: onlineReadiness.canSend ? AIAssistantPalette.accent : .secondary,
                         isSelected: !prefersLocalResponses,
                         isEnabled: true,
+                        isActionAvailable: true,
                         actionTitle: onlineReadiness.canSend ? "使用" : "开启",
                         action: selectOnline
                     )
@@ -201,6 +202,7 @@ struct AgentRuntimeSelectorBar: View {
                         statusBackgroundTint: status.canUseForResponses ? AIAssistantPalette.accent : .secondary,
                         isSelected: prefersLocalResponses,
                         isEnabled: status.canUseForResponses,
+                        isActionAvailable: status.canUseForResponses || status.canStartDownload,
                         actionTitle: status.canUseForResponses ? "使用" : offlineButtonTitle,
                         action: {
                             if status.canUseForResponses {
@@ -211,7 +213,7 @@ struct AgentRuntimeSelectorBar: View {
                         }
                     )
 
-                    Text("设备端模型会在这台 iPhone 上运行，本次输入默认留在设备上；Beta 版本回答可能不如云端智能体稳定。云端模式只有在你主动选择并开启后才会调用外部服务。")
+                    Text("设备端模型会在这台 iPhone 上运行，本次输入默认留在设备上；Beta 版本回答可能不如云端智能体稳定。云端模式仅在你确认授权并主动发送咨询后才会调用外部服务。")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -237,6 +239,7 @@ struct RuntimeChoiceRow: View {
     let statusBackgroundTint: Color
     let isSelected: Bool
     let isEnabled: Bool
+    let isActionAvailable: Bool
     let actionTitle: String
     let action: () -> Void
 
@@ -288,17 +291,25 @@ struct RuntimeChoiceRow: View {
             if !isAccessibilitySize { Spacer(minLength: 8) }
 
             if isSelected {
-                Button(actionTitle, action: action)
-                    .font(.caption.weight(.semibold))
+                Button(action: action) {
+                    Text(actionTitle)
+                        .font(.caption.weight(.semibold))
+                        .frame(minHeight: 44)
+                }
                     .buttonStyle(.borderedProminent)
                     .tint(tint)
                     .controlSize(.small)
+                    .disabled(!isActionAvailable)
             } else {
-                Button(actionTitle, action: action)
-                    .font(.caption.weight(.semibold))
+                Button(action: action) {
+                    Text(actionTitle)
+                        .font(.caption.weight(.semibold))
+                        .frame(minHeight: 44)
+                }
                     .buttonStyle(.bordered)
                     .tint(.primary)
                     .controlSize(.small)
+                    .disabled(!isActionAvailable)
             }
         }
         .padding(12)

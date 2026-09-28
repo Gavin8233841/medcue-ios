@@ -159,6 +159,7 @@ struct AIQuickActionsSection: View {
                         .foregroundStyle(.secondary)
                         .rotationEffect(.degrees(isExpanded ? 0 : -90))
                 }
+                .frame(minHeight: 44)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -205,6 +206,7 @@ struct AIQuickActionsSection: View {
                                 .font(.subheadline.weight(.semibold))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 9)
+                                .frame(minHeight: 44)
                                 .background(Color(.secondarySystemGroupedBackground), in: Capsule())
                         }
                         .buttonStyle(.plain)
@@ -245,6 +247,7 @@ struct AIQuickActionChip: View {
                 .lineLimit(1)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
+                .frame(minHeight: 44)
                 .background(action.tint.opacity(0.10), in: Capsule())
                 .overlay(
                     Capsule()
