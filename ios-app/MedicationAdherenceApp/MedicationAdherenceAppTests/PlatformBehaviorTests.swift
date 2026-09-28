@@ -213,7 +213,7 @@ struct PlatformBehaviorTests {
         )
         let task = StoredDoseTask(
             medicationID: medication.id,
-            dueAt: Date().addingTimeInterval(600),
+            dueAt: Calendar.current.startOfDay(for: Date()).addingTimeInterval(12 * 60 * 60),
             doseValue: 0.625,
             doseUnit: "ml"
         )
@@ -237,7 +237,7 @@ struct PlatformBehaviorTests {
             kind: .prescription,
             inputSource: .manual
         )
-        let dueAt = Date().addingTimeInterval(600)
+        let dueAt = Calendar.current.startOfDay(for: Date()).addingTimeInterval(12 * 60 * 60)
         let normal = StoredDoseTask(
             medicationID: medication.id, dueAt: dueAt,
             doseValue: 0.625, doseUnit: "ml"
