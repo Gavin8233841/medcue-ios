@@ -15,6 +15,35 @@ diagnostic signals, not proof that a medication workflow is safe or complete.
 | Physical-device evidence | Notifications, Live Activities, permissions, Watch/Widget behavior, signing, lock state, performance, and memory |
 | Account/operations evidence | CloudBase deployment, App Store Connect, capabilities, provider retention, credentials, and rollback readiness |
 
+## Local Simulator Reuse And Retirement
+
+Use an existing compatible iOS Simulator for hosted and UI tests. On the
+current MedCue Mac, Issue #126 records the preferred reusable iOS device and
+iPhone/Watch pair; check `xcrun simctl list devices available` and
+`xcrun simctl list pairs` before selecting them. Pass the existing device's
+UDID through `VERIFY_NATIVE_IOS_TEST_DESTINATION` when the verification script
+would otherwise select or create a different device. Reuse a stable build-output
+namespace for the workline as well. A device name tied to an old Issue is not a
+reason to rename it or create a replacement.
+
+Do not create a Simulator for each new Issue. Create one only when the required
+model, operating-system version, Watch pairing, isolation, or regression
+comparison cannot be obtained from an existing suitable device. Record the
+reason, owner, expected retirement point, and storage impact in the Issue or
+Pull Request before creation. Use synthetic test data and preserve another
+task's active device, app container, and test evidence.
+
+Retire devices individually after their work is complete. Before each deletion,
+check the linked Issue and Pull Request, shutdown and process state, the app
+container for data that must survive, and screenshots, test results, logs, or
+other unique evidence. List the exact UDID and fully resolved device-directory
+path, the data-loss impact, and the recovery path for owner confirmation. Only
+then use `xcrun simctl delete <UDID>` for that one approved device; do not
+remove the CoreSimulator directory directly or erase every unavailable device.
+Check the device inventory and free space afterward. A deleted synthetic device
+can be recreated and the app reinstalled, but its unbacked app data cannot be
+recovered. Simulator results remain separate from physical-device acceptance.
+
 ## Risk-To-Test Map
 
 - Pure domain rule: start in Swift Core with boundary and counterexample tests.
