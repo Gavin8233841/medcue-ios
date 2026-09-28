@@ -33,9 +33,9 @@ enum AppPersistenceCommitter {
     }
 }
 
-enum DoseActionPersistenceError: Error, Equatable {
-    case saveFailed
-    case taskClosed
+enum DoseActionPersistenceError: String, Error, Equatable {
+    case saveFailed = "save-failed"
+    case taskClosed = "task-closed"
 
     var userMessage: String {
         switch self {
@@ -44,6 +44,37 @@ enum DoseActionPersistenceError: Error, Equatable {
         case .taskClosed:
             "这项用药已更新，请重新查看。"
         }
+    }
+}
+
+/// The legacy message remains a consumption signal for older app versions.
+/// A code without that signal was already consumed by an older version and
+/// must not be replayed after upgrading again.
+@MainActor
+enum DoseActionFailureNotice {
+    static let codeDefaultsKey = "DoseActionPersistence.failureCode"
+
+    static func recordSaveFailure(in defaults: UserDefaults = .standard) {
+        defaults.set(DoseActionPersistenceError.saveFailed.rawValue, forKey: codeDefaultsKey)
+        defaults.set(
+            DoseActionPersistenceError.saveFailed.userMessage,
+            forKey: DoseActionPersistence.failureMessageDefaultsKey
+        )
+    }
+
+    static func clear(in defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: codeDefaultsKey)
+        defaults.removeObject(forKey: DoseActionPersistence.failureMessageDefaultsKey)
+    }
+
+    static func displayedMessage(code: String, legacyMessage: String) -> String? {
+        guard !legacyMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        if let error = DoseActionPersistenceError(rawValue: code) {
+            return error.userMessage
+        }
+        return legacyMessage
     }
 }
 
