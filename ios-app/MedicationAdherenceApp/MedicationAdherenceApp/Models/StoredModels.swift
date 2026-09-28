@@ -609,12 +609,11 @@ final class StoredRiskCard {
         self.sourceTitle = sourceTitle
         self.sourceExcerpt = sourceExcerpt
         self.detectionSignature = detectionSignature.isEmpty
-            ? StoredRiskCard.makeDetectionSignature(
-                id: id,
+            ? StoredRiskCard.makeLegacyDetectionSignature(
                 medicationID: medicationID,
                 kindRaw: kindRaw,
-                sourceKindRaw: resolvedSourceKindRaw,
-                sourceTitle: sourceTitle,
+                title: title,
+                message: message,
                 sourceExcerpt: sourceExcerpt
             )
             : detectionSignature
@@ -730,7 +729,25 @@ final class StoredRiskCard {
         return StoredRiskSourceKind.localRule.rawValue
     }
 
-    static func makeDetectionSignature(
+    // Retain the previous on-disk format so an older binary can compare existing cards on rollback.
+    static func makeLegacyDetectionSignature(
+        medicationID: UUID,
+        kindRaw: String,
+        title: String,
+        message: String,
+        sourceExcerpt: String
+    ) -> String {
+        let normalizedText = [kindRaw, title, message, sourceExcerpt]
+            .joined(separator: "|")
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .lowercased()
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return "\(medicationID.uuidString)|\(normalizedText)"
+    }
+
+    static func makeSemanticDetectionSignature(
         id: String,
         medicationID: UUID,
         kindRaw: String,
@@ -754,9 +771,9 @@ final class StoredRiskCard {
             .joined(separator: " ")
     }
 
-    // Compare persisted evidence instead of the legacy text-based signature during a lazy upgrade.
+    // Compare persisted evidence without depending on the rollback-compatible legacy signature.
     var semanticDetectionSignature: String {
-        Self.makeDetectionSignature(
+        Self.makeSemanticDetectionSignature(
             id: id,
             medicationID: medicationID,
             kindRaw: kindRaw,

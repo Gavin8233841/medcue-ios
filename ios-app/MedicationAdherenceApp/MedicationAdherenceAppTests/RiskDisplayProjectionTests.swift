@@ -66,6 +66,8 @@ struct RiskDisplayProjectionTests {
             title: "警示",
             requiresProfessionalReview: false
         )
+        first.detectionSignature = first.semanticDetectionSignature
+        second.detectionSignature = second.semanticDetectionSignature
 
         let projection = RiskDisplayProjection(
             riskCards: [second, first],
@@ -88,6 +90,7 @@ struct RiskDisplayProjectionTests {
             id: "legacy", medicationID: medication.id, kind: .labelRisk,
             displayPriority: 30, sourceExcerpt: "同一来源", requiresProfessionalReview: true
         )
+        semantic.detectionSignature = semantic.semanticDetectionSignature
         legacy.detectionSignature = "\(medication.id.uuidString)|\(legacy.kindRaw.lowercased())|风险标题|风险内容|同一来源"
 
         let projection = RiskDisplayProjection(
@@ -110,6 +113,7 @@ struct RiskDisplayProjectionTests {
             id: "unread", medicationID: medication.id, kind: .labelRisk,
             displayPriority: 20, sourceExcerpt: "同一来源", requiresProfessionalReview: false
         )
+        unread.detectionSignature = unread.semanticDetectionSignature
         let otherSource = riskCard(
             id: "other-source", medicationID: medication.id, kind: .labelRisk,
             displayPriority: 30, sourceExcerpt: "同一来源", sourceTitle: "另一份说明书",

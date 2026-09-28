@@ -120,7 +120,7 @@ enum RiskLifecycleSyncService {
 
         for signal in signals {
             let id = storedID(namespace: namespace, signalID: signal.id)
-            let detectionSignature = StoredRiskCard.makeDetectionSignature(
+            let semanticSignature = StoredRiskCard.makeSemanticDetectionSignature(
                 id: id,
                 medicationID: signal.medicationID,
                 kindRaw: signal.kind.rawValue,
@@ -128,10 +128,17 @@ enum RiskLifecycleSyncService {
                 sourceTitle: signal.sourceTitle,
                 sourceExcerpt: signal.sourceExcerpt
             )
+            let legacySignature = StoredRiskCard.makeLegacyDetectionSignature(
+                medicationID: signal.medicationID,
+                kindRaw: signal.kind.rawValue,
+                title: signal.title,
+                message: signal.message,
+                sourceExcerpt: signal.sourceExcerpt
+            )
 
             if let card = existingByID[id] {
                 let wasResolved = card.isResolved || card.isArchived
-                let shouldMarkUnread = card.semanticDetectionSignature != detectionSignature
+                let shouldMarkUnread = card.semanticDetectionSignature != semanticSignature
                     || card.severityRaw != signal.severity.rawValue
                     || card.displayPriority != signal.displayPriority
                     || card.requiresProfessionalReview != signal.requiresProfessionalReview
@@ -145,7 +152,10 @@ enum RiskLifecycleSyncService {
                 card.message = signal.message
                 card.sourceTitle = signal.sourceTitle
                 card.sourceExcerpt = signal.sourceExcerpt
-                card.detectionSignature = detectionSignature
+                if shouldMarkUnread || card.detectionSignature.isEmpty
+                    || card.detectionSignature.hasPrefix("semantic-v1|") {
+                    card.detectionSignature = legacySignature
+                }
                 card.requiresProfessionalReview = signal.requiresProfessionalReview
                 card.safetyNote = signal.safetyNote
                 card.lastDetectedAt = now
@@ -176,7 +186,7 @@ enum RiskLifecycleSyncService {
                     message: signal.message,
                     sourceTitle: signal.sourceTitle,
                     sourceExcerpt: signal.sourceExcerpt,
-                    detectionSignature: detectionSignature,
+                    detectionSignature: legacySignature,
                     requiresProfessionalReview: signal.requiresProfessionalReview,
                     safetyNote: signal.safetyNote,
                     firstDetectedAt: now,

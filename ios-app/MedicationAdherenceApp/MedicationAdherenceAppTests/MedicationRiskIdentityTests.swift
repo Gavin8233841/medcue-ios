@@ -9,7 +9,7 @@ struct MedicationRiskIdentityTests {
     @Test
     func evidenceNormalizationDoesNotDependOnDeviceLocale() throws {
         let medicationID = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000020"))
-        let signature = StoredRiskCard.makeDetectionSignature(
+        let signature = StoredRiskCard.makeSemanticDetectionSignature(
             id: "synthetic-risk",
             medicationID: medicationID,
             kindRaw: RiskAssessmentCardKind.labelRisk.rawValue,
@@ -47,9 +47,25 @@ struct MedicationRiskIdentityTests {
         let riskID = try #require(created.createdIDs.first)
         let card = try #require(try context.fetch(FetchDescriptor<StoredRiskCard>()).first)
         let readAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let rollbackCompatibleSignature = card.detectionSignature
+        #expect(rollbackCompatibleSignature == "\(medicationID.uuidString)|labelrisk|合成风险提醒|请核对原始说明书。|稳定的合成 来源证据")
+        #expect(rollbackCompatibleSignature == StoredRiskCard.makeLegacyDetectionSignature(
+            medicationID: medicationID,
+            kindRaw: original.kind.rawValue,
+            title: original.title,
+            message: original.message,
+            sourceExcerpt: original.sourceExcerpt
+        ))
         card.readAt = readAt
-        card.detectionSignature = "legacy-visible-text-signature"
+        card.detectionSignature = card.semanticDetectionSignature
         try context.save()
+
+        let candidateUpgrade = RiskLifecycleSyncService.sync(
+            namespace: "synthetic", signals: [original], in: context
+        )
+        #expect(candidateUpgrade.updatedIDs.isEmpty)
+        #expect(card.readAt == readAt)
+        #expect(card.detectionSignature == rollbackCompatibleSignature)
 
         var translated = original
         translated.title = "Synthetic risk review"
@@ -62,7 +78,7 @@ struct MedicationRiskIdentityTests {
         #expect(presentationOnly.updatedIDs.isEmpty)
         #expect(card.readAt == readAt)
         #expect(card.title == translated.title)
-        #expect(card.detectionSignature.hasPrefix("semantic-v1|"))
+        #expect(card.detectionSignature == rollbackCompatibleSignature)
 
         translated.sourceExcerpt = "不同的合成来源证据"
         let evidenceChanged = RiskLifecycleSyncService.sync(
@@ -70,6 +86,7 @@ struct MedicationRiskIdentityTests {
         )
         #expect(evidenceChanged.updatedIDs == [riskID])
         #expect(card.readAt == nil)
+        #expect(card.detectionSignature != rollbackCompatibleSignature)
 
         card.readAt = readAt
         translated.severity = .critical
@@ -117,11 +134,11 @@ struct MedicationRiskIdentityTests {
         try context.save()
         let cards = try context.fetch(FetchDescriptor<StoredRiskCard>())
         let card = try #require(cards.first { !$0.sourceExcerpt.isEmpty })
+        let rollbackCompatibleSignature = card.detectionSignature
         let readAt = now.addingTimeInterval(60)
         card.readAt = readAt
         card.title = "Synthetic warning"
         card.message = "Consult the original label."
-        card.detectionSignature = "legacy-visible-text-signature"
         try context.save()
 
         let presentationOnly = try MedicationRiskReviewService.applyUserLabelRisks(
@@ -130,7 +147,7 @@ struct MedicationRiskIdentityTests {
         )
         #expect(!presentationOnly.updatedIDs.contains(card.id))
         #expect(card.readAt == readAt)
-        #expect(card.detectionSignature.hasPrefix("semantic-v1|"))
+        #expect(card.detectionSignature == rollbackCompatibleSignature)
         try context.save()
 
         card.sourceExcerpt = "不同的合成禁忌原文"
@@ -141,5 +158,6 @@ struct MedicationRiskIdentityTests {
         )
         #expect(evidenceChanged.updatedIDs.contains(card.id))
         #expect(card.readAt == nil)
+        #expect(card.detectionSignature == rollbackCompatibleSignature)
     }
 }

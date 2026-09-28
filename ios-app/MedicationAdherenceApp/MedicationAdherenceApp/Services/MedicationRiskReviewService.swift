@@ -39,12 +39,19 @@ enum MedicationRiskReviewService {
             activeStoredIDs.insert(storedID)
             let sourceTitle = card.evidence?.sourceTitle ?? label.sourceTitle
             let sourceExcerpt = card.evidence?.excerpt ?? ""
-            let detectionSignature = StoredRiskCard.makeDetectionSignature(
+            let semanticSignature = StoredRiskCard.makeSemanticDetectionSignature(
                 id: storedID,
                 medicationID: medication.id,
                 kindRaw: card.kind.rawValue,
                 sourceKindRaw: StoredRiskSourceKind.drugLabel.rawValue,
                 sourceTitle: sourceTitle,
+                sourceExcerpt: sourceExcerpt
+            )
+            let legacySignature = StoredRiskCard.makeLegacyDetectionSignature(
+                medicationID: medication.id,
+                kindRaw: card.kind.rawValue,
+                title: card.title,
+                message: card.message,
                 sourceExcerpt: sourceExcerpt
             )
             let severityRaw = StoredRiskCard.inferredSeverityRaw(
@@ -58,7 +65,7 @@ enum MedicationRiskReviewService {
 
             if let existingCard = existing.first(where: { $0.id == storedID }) {
                 let wasResolved = existingCard.isResolved || existingCard.isArchived
-                let shouldMarkUnread = existingCard.semanticDetectionSignature != detectionSignature
+                let shouldMarkUnread = existingCard.semanticDetectionSignature != semanticSignature
                     || existingCard.severityRaw != severityRaw
                     || existingCard.displayPriority != card.displayPriority
                     || existingCard.requiresProfessionalReview != card.requiresProfessionalReview
@@ -71,7 +78,10 @@ enum MedicationRiskReviewService {
                 existingCard.message = card.message
                 existingCard.sourceTitle = sourceTitle
                 existingCard.sourceExcerpt = sourceExcerpt
-                existingCard.detectionSignature = detectionSignature
+                if shouldMarkUnread || existingCard.detectionSignature.isEmpty
+                    || existingCard.detectionSignature.hasPrefix("semantic-v1|") {
+                    existingCard.detectionSignature = legacySignature
+                }
                 existingCard.requiresProfessionalReview = card.requiresProfessionalReview
                 existingCard.safetyNote = card.safetyNote
                 existingCard.lastDetectedAt = now
@@ -102,7 +112,7 @@ enum MedicationRiskReviewService {
                     message: card.message,
                     sourceTitle: sourceTitle,
                     sourceExcerpt: sourceExcerpt,
-                    detectionSignature: detectionSignature,
+                    detectionSignature: legacySignature,
                     requiresProfessionalReview: card.requiresProfessionalReview,
                     safetyNote: card.safetyNote,
                     firstDetectedAt: now,
