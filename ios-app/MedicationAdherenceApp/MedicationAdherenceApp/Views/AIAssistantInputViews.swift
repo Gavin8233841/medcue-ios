@@ -70,7 +70,7 @@ struct AIChatInputBar: View {
                 HStack(spacing: 10) {
                     imagePicker(tint: inputTint)
 
-                    Text(isEnabled ? "图片只在本机识别文字" : "请先查看使用说明")
+                    Text(isEnabled ? "原图本机识别；文字填入输入框，云端发送时会随提问提交" : "请先查看使用说明")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -106,7 +106,7 @@ struct AIChatInputBar: View {
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled || isSending || isReadingImage)
-        .accessibilityHint("选取后仅在本机识别文字，不会发送原图")
+        .accessibilityHint("原图仅在本机识别。识别文字会填入输入框；选择云端并发送时，文字会作为提问内容提交")
     }
 
     private func sendButton(tint: Color) -> some View {

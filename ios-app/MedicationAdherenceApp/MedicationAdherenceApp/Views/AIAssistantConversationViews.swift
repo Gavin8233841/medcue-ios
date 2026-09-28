@@ -411,6 +411,12 @@ struct AIMessageBubble: View {
         return parts.joined(separator: "，")
     }
 
+    private var copyText: String {
+        let displayedText = messageDisplayText(for: message)
+        guard message.role == .assistant else { return displayedText }
+        return displayedText + "\n\n" + Self.assistantSafetyNote
+    }
+
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             if message.role == .user {
@@ -456,9 +462,9 @@ struct AIMessageBubble: View {
                         .accessibilityHidden(true)
 
                     Button {
-                        UIPasteboard.general.string = messageDisplayText(for: message)
+                        UIPasteboard.general.string = copyText
                     } label: {
-                        Label("复制回答", systemImage: "doc.on.doc")
+                        Label("复制回答及提示", systemImage: "doc.on.doc")
                             .font(.caption.weight(.medium))
                             .foregroundStyle(.secondary)
                             .frame(minHeight: 44)
@@ -477,7 +483,7 @@ struct AIMessageBubble: View {
         .contentShape(Rectangle())
         .contextMenu {
             Button {
-                UIPasteboard.general.string = messageDisplayText(for: message)
+                UIPasteboard.general.string = copyText
             } label: {
                 Label("复制消息", systemImage: "doc.on.doc")
             }
@@ -492,7 +498,7 @@ struct AIMessageBubble: View {
         }
         .accessibilityHint("长按可归档此前对话")
         .accessibilityAction(named: "复制消息") {
-            UIPasteboard.general.string = messageDisplayText(for: message)
+            UIPasteboard.general.string = copyText
         }
         .accessibilityAction(named: "归档此前对话", archive)
     }
