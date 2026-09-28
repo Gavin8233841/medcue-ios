@@ -177,7 +177,7 @@ struct ThirdPartyMedicalAgentNoticeSheet: View {
     let accept: () -> Void
 
     private var responseSourceText: String {
-        "设备端模型在本机运行；云端智能体只有在你主动选择并开启后才会连接外部服务。"
+        "设备端模型在本机运行；云端智能体仅在你确认授权并主动发送咨询后才会连接外部服务。"
     }
 
     var body: some View {
