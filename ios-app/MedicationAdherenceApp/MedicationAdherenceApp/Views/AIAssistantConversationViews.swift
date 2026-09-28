@@ -242,6 +242,7 @@ struct AIQuickActionChip: View {
 }
 
 struct AIQuickActionButton: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let action: AIQuickAction
     let send: () -> Void
 
@@ -266,14 +267,16 @@ struct AIQuickActionButton: View {
                     Text(action.title)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
-                        .lineLimit(2)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(action.subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .frame(width: 168, alignment: .topLeading)
+            .frame(width: dynamicTypeSize.isAccessibilitySize ? 280 : 168, alignment: .topLeading)
             .frame(minHeight: 112, alignment: .topLeading)
             .padding(12)
             .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
