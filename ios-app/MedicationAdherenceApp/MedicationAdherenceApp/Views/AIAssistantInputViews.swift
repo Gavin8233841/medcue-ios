@@ -259,7 +259,7 @@ struct AIConsentSheet: View {
                 Section("授权说明") {
                     Text("勾选项只控制自动附加的 App 资料。你编辑并发送的提问文字，包括从图片识别后填入的文字，会提交给所选运行方式；关闭上方选项不会过滤提问文字。撤销后不会继续自动共享 App 资料。")
                         .foregroundStyle(.secondary)
-                    if consent?.sharesImportDraft == true {
+                    if consent?.isActive == true && consent?.sharesImportDraft == true {
                         Text("此前开启的导入识别草稿授权仍保留；当前聊天不会自动附加该草稿。")
                             .foregroundStyle(.secondary)
                     }
@@ -292,7 +292,7 @@ struct AIConsentSheet: View {
                             sharesDoseEvents: sharesDoseEvents,
                             sharesRiskCards: sharesRiskCards,
                             sharesDrugLabels: sharesDrugLabels,
-                            sharesImportDraft: consent?.sharesImportDraft ?? false
+                            sharesImportDraft: consent?.isActive == true && consent?.sharesImportDraft == true
                         ))
                         dismiss()
                     }
