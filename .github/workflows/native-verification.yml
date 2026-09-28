@@ -731,7 +731,10 @@ jobs:
         with:
           name: medcue-ui-failure-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: .codex-local/native-verification/ios-ui-tests/derived-data/Logs/Test/
-          if-no-files-found: ignore
+          # The verification root is hidden; upload-artifact v4 excludes it by default.
+          # This path is confined to synthetic CI UI results, never the fixture store.
+          include-hidden-files: true
+          if-no-files-found: error
           retention-days: 3
 
   aggregate:
