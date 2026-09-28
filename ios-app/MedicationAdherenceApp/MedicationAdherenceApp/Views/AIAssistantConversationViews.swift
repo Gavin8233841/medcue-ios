@@ -235,9 +235,13 @@ struct AIQuickActionChip: View {
 
     var body: some View {
         Button(action: send) {
-            Label(action.title, systemImage: action.iconName)
+            HStack(spacing: 8) {
+                Image(systemName: action.iconName)
+                    .foregroundStyle(action.tint)
+                Text(action.title)
+                    .foregroundStyle(.primary)
+            }
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(action.tint)
                 .lineLimit(1)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)

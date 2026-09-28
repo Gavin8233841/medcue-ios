@@ -127,7 +127,7 @@ struct AgentRuntimeSelectorBar: View {
                         if shouldUseCompactChip {
                             Text(prefersLocalResponses ? "端侧" : "云端")
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.primary)
                         } else {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(activeTitle)
@@ -148,6 +148,7 @@ struct AgentRuntimeSelectorBar: View {
                     }
                     .padding(.horizontal, shouldUseCompactChip ? 9 : 10)
                     .padding(.vertical, shouldUseCompactChip ? 7 : 8)
+                    .frame(minHeight: 44)
                     .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: isAccessibilitySize ? 16 : 20, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: isAccessibilitySize ? 16 : 20, style: .continuous)
@@ -163,7 +164,7 @@ struct AgentRuntimeSelectorBar: View {
                 if !shouldUseCompactChip {
                     Text(prefersLocalResponses ? "Beta" : onlineStatusText)
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(prefersLocalResponses || !onlineReadiness.canSend ? Color.secondary : AIAssistantPalette.accent)
+                        .foregroundStyle(.primary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(Color(.secondarySystemGroupedBackground), in: Capsule())
@@ -180,7 +181,7 @@ struct AgentRuntimeSelectorBar: View {
                         progressText: nil,
                         iconName: "network",
                         tint: AIAssistantPalette.accent,
-                        statusTint: onlineReadiness.canSend ? AIAssistantPalette.accent : .secondary,
+                        statusBackgroundTint: onlineReadiness.canSend ? AIAssistantPalette.accent : .secondary,
                         isSelected: !prefersLocalResponses,
                         isEnabled: true,
                         actionTitle: onlineReadiness.canSend ? "使用" : "开启",
@@ -197,7 +198,7 @@ struct AgentRuntimeSelectorBar: View {
                         progressText: status.fileSizeText ?? (status.availability == .downloading ? "正在连接下载源" : nil),
                         iconName: "iphone.gen3.radiowaves.left.and.right",
                         tint: AIAssistantPalette.accent,
-                        statusTint: status.canUseForResponses ? AIAssistantPalette.accent : .secondary,
+                        statusBackgroundTint: status.canUseForResponses ? AIAssistantPalette.accent : .secondary,
                         isSelected: prefersLocalResponses,
                         isEnabled: status.canUseForResponses,
                         actionTitle: status.canUseForResponses ? "使用" : offlineButtonTitle,
@@ -233,7 +234,7 @@ struct RuntimeChoiceRow: View {
     let progressText: String?
     let iconName: String
     let tint: Color
-    let statusTint: Color
+    let statusBackgroundTint: Color
     let isSelected: Bool
     let isEnabled: Bool
     let actionTitle: String
@@ -254,10 +255,10 @@ struct RuntimeChoiceRow: View {
                         .foregroundStyle(isEnabled ? .primary : .secondary)
                     Text(status)
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(statusTint)
+                        .foregroundStyle(.primary)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
-                        .background(statusTint.opacity(0.12), in: Capsule())
+                        .background(statusBackgroundTint.opacity(0.12), in: Capsule())
                 }
                 Text(subtitle)
                     .font(.caption)
@@ -296,7 +297,7 @@ struct RuntimeChoiceRow: View {
                 Button(actionTitle, action: action)
                     .font(.caption.weight(.semibold))
                     .buttonStyle(.bordered)
-                    .tint(tint)
+                    .tint(.primary)
                     .controlSize(.small)
             }
         }
@@ -306,7 +307,6 @@ struct RuntimeChoiceRow: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(isSelected ? tint.opacity(0.38) : Color.secondary.opacity(0.10), lineWidth: 1)
         )
-        .opacity(isEnabled || !isSelected ? 1 : 0.62)
     }
 }
 
