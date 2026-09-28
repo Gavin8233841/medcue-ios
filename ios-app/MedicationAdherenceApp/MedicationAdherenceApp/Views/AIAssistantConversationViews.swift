@@ -7,7 +7,7 @@ import UIKit
 
 enum AIAssistantPalette {
     static let accent = Color(red: 0.28, green: 0.48, blue: 0.62)
-    static let userBubble = Color(red: 0.22, green: 0.38, blue: 0.49)
+    static let userBubble = accent.opacity(0.14)
 }
 
 struct AIConversationVisibilityProjection {
@@ -139,18 +139,13 @@ struct AIQuickActionsSection: View {
                 }
             } label: {
                 HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("快捷咨询")
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-                        Text(isExpanded ? "向左滑动查看更多" : "常用问题")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    Text("快捷咨询")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
 
                     Spacer(minLength: 8)
 
-                    Text(isExpanded ? "收起" : "全部")
+                    Text(isExpanded ? "收起" : "查看全部")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
 
@@ -196,20 +191,6 @@ struct AIQuickActionsSection: View {
                             .disabled(isDisabled)
                             .opacity(isDisabled ? 0.55 : 1)
                         }
-
-                        Button {
-                            withAnimation(.snappy(duration: 0.24, extraBounce: 0.02)) {
-                                isExpanded = true
-                            }
-                        } label: {
-                            Label("更多", systemImage: "ellipsis")
-                                .font(.subheadline.weight(.semibold))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 9)
-                                .frame(minHeight: 44)
-                                .background(Color(.secondarySystemGroupedBackground), in: Capsule())
-                        }
-                        .buttonStyle(.plain)
                     }
                     .padding(.vertical, 2)
                     .padding(.trailing, 2)
@@ -309,27 +290,23 @@ struct AIQuickActionButton: View {
 
 struct AIEmptyConversationView: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .center, spacing: 12) {
             Image(systemName: "bubble.left.and.text.bubble.right")
-                .font(.title2.weight(.medium))
-                .foregroundStyle(AIAssistantPalette.accent)
-                .frame(width: 48, height: 48)
-                .background(AIAssistantPalette.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 16))
+                .font(.title2.weight(.regular))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
 
             Text("开始一次用药咨询")
                 .font(.headline)
             Text("可以询问已授权的用药记录、风险提醒或说明书摘要。重要用药决定请咨询医生或药师。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-        )
+        .padding(.horizontal, 22)
+        .padding(.vertical, 44)
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -449,14 +426,15 @@ struct AIMessageBubble: View {
 
                 Text(messageDisplayText(for: message))
                     .font(.body)
-                    .foregroundStyle(message.role == .user ? .white : .primary)
+                    .foregroundStyle(.primary)
+                    .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 13)
                     .background(bubbleBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(message.role == .user ? Color.clear : Color.primary.opacity(0.06), lineWidth: 1)
+                            .stroke(message.role == .user ? AIAssistantPalette.accent.opacity(0.12) : Color.primary.opacity(0.06), lineWidth: 1)
                     )
                     .accessibilityHidden(true)
 
