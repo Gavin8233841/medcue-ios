@@ -120,6 +120,21 @@ class SourcePackageTests(unittest.TestCase):
             check=False,
         )
 
+    def test_cloudflare_local_secret_file_is_never_packaged(self) -> None:
+        self.write("cloudfunctions/medcue-model-delivery/.dev.vars", "DOWNLOAD_TOKEN=" + "a" * 32 + "\n")
+        revision = self.commit()
+        result = self.run_builder(revision, self.temp / "cloudflare-secret")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("secret, environment, or model artifact", result.stderr)
+        self.assertNotIn("a" * 32, result.stderr)
+
+        self.assertIsNotNone(SOURCE_PACKAGE.forbidden_path(
+            "cloudfunctions/medcue-model-delivery/.DEV.VARS.preview"
+        ))
+        self.assertIsNotNone(SOURCE_PACKAGE.forbidden_path(
+            "cloudfunctions/medcue-model-delivery/.wrangler/state.json"
+        ))
+
     def test_reproducible_zip_manifest_and_non_overwrite(self) -> None:
         revision = command("git", "rev-parse", "HEAD", cwd=self.repo).stdout.strip()
         first = self.temp / "out-a"

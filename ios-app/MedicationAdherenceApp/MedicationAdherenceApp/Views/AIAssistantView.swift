@@ -139,6 +139,7 @@ struct AIAssistantView: View {
             deleteArchivedMessages: deleteArchivedMessages,
             deleteAllArchivedMessages: deleteAllArchivedMessages,
             requestLocalModelDownload: requestLocalModelDownload,
+            requestAcceleratedModelDownload: requestAcceleratedModelDownload,
             environmentRefreshSignature: environmentRefreshSignature
         )
     }
@@ -163,6 +164,12 @@ struct AIAssistantView: View {
     private func requestLocalModelDownload() {
         Task {
             await localModelStore.downloadModel()
+        }
+    }
+
+    private func requestAcceleratedModelDownload(_ accessCode: String) {
+        Task {
+            await localModelStore.downloadModel(accessCode: accessCode)
         }
     }
 

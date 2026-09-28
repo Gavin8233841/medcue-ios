@@ -40,3 +40,66 @@ The Simulator showed the download confirmation, progress, and a 265.3 MB total. 
 | Official runtime archive digest and physical-device behavior | NOT VERIFIED |
 
 **Competition claim: not yet demonstrated through the install-to-first-response journey.** First select and verify a reliable model distribution endpoint and its cost/ownership, then repeat this matrix from a clean installation. Keep token-loop cancellation in #6, performance in #8, broader device behavior in #17, and general source-package provenance in #5.
+
+## 2026-09-27 private R2 pilot and app candidate
+
+The owner authorized a bounded Cloudflare R2 Standard pilot for this one
+model. The private `medcue-model-pilot` bucket has public access disabled.
+The verified local 265,307,040-byte GGUF was uploaded once through multipart
+S3; a remote object HEAD reported the same size. A one-hour signed URL
+returned HTTP 206 for the first and last 1 MiB, and both fragments matched
+the corresponding local bytes. This transferred only 2 MiB in the download
+check. A full remote SHA-256, whole-file download speed, and in-app install
+were **not** tested. The original upstream address remains the app default.
+
+Candidate app code offers a separate competition acceleration path requiring a
+shared 32-hex-character code entered by the tester for this download. The
+deployed `medcue-model-delivery` Worker reads only the pinned object from
+private R2, rejects missing codes, and throttles authorized requests. Its code
+is stored as a Worker secret and is not in source or the app package. The app
+still validates exact size and SHA-256 before installation.
+
+Live Worker checks returned 404 for an unauthenticated HEAD and 200 for an
+authenticated HEAD with the expected 265,307,040-byte length. Authenticated
+first and last 1 KiB range requests returned 206 and matched the verified local
+file. Repeated probes transferred only 3 KiB of model body after the earlier
+2 MiB signed-URL checks. This establishes limited private distribution and
+range behavior, not whole-file speed or integrity. A complete app download,
+installation, relaunch, and guarded response remain unverified on both
+Simulator and physical device. The competition install-to-first-response claim
+therefore remains not yet demonstrated.
+
+## 2026-09-28 clean Simulator journey on the R2 candidate
+
+At `713e1f78e1a7728b7d01fb6e410f1691f1171f13`, the dedicated clean
+iPhone 17 Pro / iOS 26.5 Simulator started without a model installed. The
+tester selected the optional accelerated path, entered the authorized code
+through the app, and started **one** full download. The UI showed progress and
+then reported the 265.3 MB model installed within approximately 45 seconds of
+the start. No automatic retry or second full transfer was made. Independent
+inspection of that Simulator's app container found a 265,307,040-byte GGUF
+whose SHA-256 matched the pinned manifest. After terminating and relaunching
+the app, the model still appeared installed and the tester explicitly selected
+the device-side runtime; cloud mode remained off.
+
+The tester saved an authorization with **all data-sharing scopes disabled** on
+this synthetic installation. The assistant then produced one device-side
+answer to a fictional, non-medication-specific question. The network remained
+available during this test, so this establishes local-runtime dispatch and a
+visible answer, but **does not establish a network-off response or absence of
+all network traffic**. No real medication data was used. Cloudflare's read-only
+bucket metrics rose from 5,242,880 to 270,549,920 downloaded bytes, a delta of
+exactly 265,307,040 bytes; these aggregates support one full object transfer
+but are not a per-request trace or a device speed measurement.
+
+| Boundary | Result |
+| --- | --- |
+| Clean launch, app download, pinned installed-file integrity | PASS on this Simulator and exact source revision |
+| Relaunch persistence and explicit device-side selection | PASS on this Simulator |
+| Device-side answer with zero shared scopes | PASS on this Simulator with network available |
+| Network-off guarded response and failure/retry journey | NOT VERIFIED |
+| Official llama archive digest and physical-device behavior | NOT VERIFIED |
+
+This is a successful Simulator install-to-first-answer demonstration, not a
+physical-device or fully offline acceptance. The older failure and pilot
+results above remain historical evidence for their stated revisions.

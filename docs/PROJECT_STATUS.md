@@ -1,6 +1,39 @@
 # MedCue Project Status
 
-Latest full coordination audit: 2026-09-22; targeted update: 2026-09-27 (#28)
+Latest full coordination audit: 2026-09-22; targeted update: 2026-09-28 (#28)
+
+## 2026-09-28 R2 install-to-first-answer Simulator result (#28)
+
+At PR #112 source `713e1f78e1a7728b7d01fb6e410f1691f1171f13`, one
+authorized complete in-app download from the private R2 Worker finished on a
+dedicated clean iPhone 17 Pro / iOS 26.5 Simulator. The installed GGUF measured
+265,307,040 bytes and matched the pinned SHA-256. The app recognized it after
+relaunch, selected the device-side runtime with cloud mode off, and displayed
+one device-side answer to a synthetic question with every sharing scope off.
+The network was still available during the answer. Read-only Cloudflare R2
+metrics increased by exactly 265,307,040 downloaded bytes after the single
+full transfer. This establishes the Simulator install-to-first-answer journey;
+network-off response, physical-device behavior, controlled failure/retry, and
+official llama archive provenance remain unverified. The result matrix is in
+[the #28 runbook](ISSUE28_LOCAL_MODEL_ACCEPTANCE.md). PR #112 remains Draft.
+
+## 2026-09-27 Private R2 model-delivery pilot (#28; historical checkpoint)
+
+The owner-authorized private Cloudflare R2 Standard bucket
+`medcue-model-pilot` now holds the pinned 265,307,040-byte GGUF. Public
+bucket access is disabled. Remote HEAD matched the expected byte count;
+first and last 1 MiB signed range requests returned HTTP 206 and matched the
+local corresponding bytes. Only 2 MiB was downloaded for this limited test;
+full remote hash, complete transfer speed, and in-app installation are still
+unverified. A 24-hour bucket-limited upload token was used and its local
+in-memory copies were cleared. The optional access-code Worker
+`medcue-model-delivery` is now deployed with private R2 and rate-limit bindings
+and an encrypted Worker secret. Live unauthenticated HEAD returned 404;
+authenticated HEAD returned 200 with the expected size. First and last 1 KiB
+authorized ranges returned 206 and matched the local model, adding only 3 KiB
+of model-body traffic in repeated checks. The app default remains the upstream
+address. The complete in-app and physical-device journey has not been proven;
+the exact boundary is in [the #28 runbook](ISSUE28_LOCAL_MODEL_ACCEPTANCE.md).
 Verified source checkpoint for the #4 update below: `main@74fb171088a80c38872c51fcae85c05721dc10f0`
 
 ## 2026-09-27 Local-model journey attempt (#28)

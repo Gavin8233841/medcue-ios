@@ -44,6 +44,58 @@ struct LocalAIModelManifest: Equatable, Sendable {
     )
 }
 
+enum LocalMedicalModelDownloadSource {
+    static let acceleratedURL = URL(string: "https://medcue-model-delivery.guo8233841.workers.dev/v1/model/minicpm4-0.5b")!
+
+    static func isValidAccessCode(_ code: String) -> Bool {
+        let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.count == 32 && trimmed.utf8.allSatisfy { byte in
+            (48...57).contains(byte) || (97...102).contains(byte)
+        }
+    }
+
+    static func request(accessCode: String?) throws -> URLRequest {
+        guard let accessCode else {
+            return URLRequest(url: LocalAIModelManifest.miniCPM4.downloadURL)
+        }
+        let trimmed = accessCode.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isValidAccessCode(trimmed) else {
+            throw URLError(.userAuthenticationRequired)
+        }
+        var request = URLRequest(url: acceleratedURL)
+        request.setValue("Bearer \(trimmed)", forHTTPHeaderField: "Authorization")
+        return request
+    }
+
+    static func allowsRedirect(from sourceRequest: URLRequest, to destinationURL: URL?) -> Bool {
+        guard let destinationURL, destinationURL.scheme?.lowercased() == "https" else {
+            return false
+        }
+        if sourceRequest.value(forHTTPHeaderField: "Authorization") != nil {
+            return destinationURL.host == sourceRequest.url?.host
+        }
+        return true
+    }
+
+    static func failureDetail(for error: Error, accelerated: Bool) -> String {
+        if accelerated, let downloadError = error as? LocalMedicalModelDownloadError {
+            switch downloadError {
+            case .httpStatus(404):
+                return "下载码无效或已停用，请重新获取后重试。"
+            case .httpStatus(429):
+                return "下载请求过于频繁，请稍后重试。"
+            case .httpStatus(_):
+                return "加速下载服务暂不可用，请稍后重试或选择标准下载。"
+            }
+        }
+        return "下载未完成，请检查网络后重试。"
+    }
+}
+
+enum LocalMedicalModelDownloadError: Error {
+    case httpStatus(Int)
+}
+
 enum LocalAIModelInstallationStatus: Equatable, Sendable {
     case notInstalled
     case installed
@@ -280,17 +332,19 @@ struct LocalMedicalModelStatus: Equatable, Sendable {
         )
     }
 
-    static let failed = LocalMedicalModelStatus(
-        availability: .failed,
-        displayName: "下载未完成",
-        detailText: "请检查网络后重试。不下载也可继续使用在线智能体。",
-        fileSizeText: nil,
-        actionTitle: "重新下载",
-        canUseForResponses: false,
-        downloadProgress: nil,
-        downloadedBytes: nil,
-        expectedBytes: nil
-    )
+    static func failed(detailText: String) -> LocalMedicalModelStatus {
+        LocalMedicalModelStatus(
+            availability: .failed,
+            displayName: "下载未完成",
+            detailText: detailText,
+            fileSizeText: nil,
+            actionTitle: "重新下载",
+            canUseForResponses: false,
+            downloadProgress: nil,
+            downloadedBytes: nil,
+            expectedBytes: nil
+        )
+    }
 
     private static func downloadSizeText(downloadedBytes: Int64?, expectedBytes: Int64?) -> String? {
         guard let downloadedBytes else {
@@ -312,7 +366,6 @@ final class LocalMedicalModelStore: ObservableObject {
     nonisolated static let modelDisplayName = "MiniCPM4 0.5B 离线模型"
     nonisolated static let backgroundAssetsApplicationGroupIdentifier = "group.com.gwyy.appcontest2026.medicationadherence.watch"
     nonisolated private static let modelManager = LocalAIModelManager.miniCPM4
-    nonisolated private static let modelDownloadURL = manifest.downloadURL
 
     @Published private(set) var status: LocalMedicalModelStatus
 
@@ -331,7 +384,7 @@ final class LocalMedicalModelStore: ObservableObject {
         Self.readyModelURL()
     }
 
-    func downloadModel() async {
+    func downloadModel(accessCode: String? = nil) async {
         guard status.canStartDownload else {
             return
         }
@@ -347,7 +400,7 @@ final class LocalMedicalModelStore: ObservableObject {
                 try Self.modelManager.deleteModel()
             }
 
-            let temporaryURL = try await Self.downloadModelFile { [weak self] progress, downloadedBytes, expectedBytes in
+            let temporaryURL = try await Self.downloadModelFile(accessCode: accessCode) { [weak self] progress, downloadedBytes, expectedBytes in
                 Task { @MainActor in
                     guard let self, self.status.availability == .downloading else {
                         return
@@ -364,7 +417,10 @@ final class LocalMedicalModelStore: ObservableObject {
             }.value
             status = Self.resolveStatus()
         } catch {
-            status = .failed
+            status = .failed(detailText: LocalMedicalModelDownloadSource.failureDetail(
+                for: error,
+                accelerated: accessCode != nil
+            ))
         }
     }
 
@@ -400,16 +456,17 @@ final class LocalMedicalModelStore: ObservableObject {
     }
 
     private static func downloadModelFile(
+        accessCode: String?,
         progressHandler: @escaping @Sendable (_ progress: Double?, _ downloadedBytes: Int64, _ expectedBytes: Int64?) -> Void
     ) async throws -> URL {
         try await LocalMedicalModelURLSessionDownloader(
-            sourceURL: modelDownloadURL,
+            sourceRequest: try LocalMedicalModelDownloadSource.request(accessCode: accessCode),
             progressHandler: progressHandler
         ).download()
     }
 
     private static func remoteModelFileSize() async throws -> Int {
-        var request = URLRequest(url: modelDownloadURL)
+        var request = URLRequest(url: manifest.downloadURL)
         request.httpMethod = "HEAD"
         request.timeoutInterval = 12
         let (_, response) = try await URLSession.shared.data(for: request)
@@ -448,15 +505,15 @@ private final class LocalMedicalModelURLSessionDownloader: NSObject, URLSessionD
         var isCancelled = false
     }
 
-    private let sourceURL: URL
+    private let sourceRequest: URLRequest
     private let progressHandler: @Sendable (_ progress: Double?, _ downloadedBytes: Int64, _ expectedBytes: Int64?) -> Void
     private let stateLock = OSAllocatedUnfairLock(initialState: DownloadState())
 
     init(
-        sourceURL: URL,
+        sourceRequest: URLRequest,
         progressHandler: @escaping @Sendable (_ progress: Double?, _ downloadedBytes: Int64, _ expectedBytes: Int64?) -> Void
     ) {
-        self.sourceURL = sourceURL
+        self.sourceRequest = sourceRequest
         self.progressHandler = progressHandler
     }
 
@@ -464,8 +521,9 @@ private final class LocalMedicalModelURLSessionDownloader: NSObject, URLSessionD
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 let configuration = URLSessionConfiguration.default
-                configuration.timeoutIntervalForRequest = 30
-                configuration.timeoutIntervalForResource = 30 * 60
+                let isAccelerated = sourceRequest.value(forHTTPHeaderField: "Authorization") != nil
+                configuration.timeoutIntervalForRequest = isAccelerated ? 60 : 30
+                configuration.timeoutIntervalForResource = isAccelerated ? 60 * 60 : 30 * 60
                 let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
                 let shouldStart = stateLock.withLock { state in
                     guard !state.isCancelled, state.continuation == nil else {
@@ -480,7 +538,7 @@ private final class LocalMedicalModelURLSessionDownloader: NSObject, URLSessionD
                     continuation.resume(throwing: CancellationError())
                     return
                 }
-                session.downloadTask(with: sourceURL).resume()
+                session.downloadTask(with: sourceRequest).resume()
             }
         } onCancel: {
             cancelDownload()
@@ -505,10 +563,11 @@ private final class LocalMedicalModelURLSessionDownloader: NSObject, URLSessionD
         didFinishDownloadingTo location: URL
     ) {
         do {
-            guard let response = downloadTask.response as? HTTPURLResponse,
-                  (200..<300).contains(response.statusCode)
-            else {
+            guard let response = downloadTask.response as? HTTPURLResponse else {
                 throw URLError(.badServerResponse)
+            }
+            guard (200..<300).contains(response.statusCode) else {
+                throw LocalMedicalModelDownloadError.httpStatus(response.statusCode)
             }
             let temporaryDirectory = FileManager.default.temporaryDirectory
                 .appendingPathComponent("LocalMedicalModelDownloads", isDirectory: true)
@@ -533,7 +592,7 @@ private final class LocalMedicalModelURLSessionDownloader: NSObject, URLSessionD
         newRequest request: URLRequest,
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
-        guard request.url?.scheme?.lowercased() == "https" else {
+        guard LocalMedicalModelDownloadSource.allowsRedirect(from: sourceRequest, to: request.url) else {
             completionHandler(nil)
             return
         }

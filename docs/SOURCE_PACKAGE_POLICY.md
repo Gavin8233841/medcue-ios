@@ -53,6 +53,8 @@ Device/account evidence is excluded structurally: `.mobileprovision` files and
 `xcuserdata` directories are forbidden. The policy does not reject every
 UUID-shaped string because the source contains legitimate identifiers; no device
 identifier or account artifact is treated as package evidence.
+Cloudflare local `.dev.vars*` secrets and `.wrangler` state are also forbidden,
+even under the approved model-delivery Worker source directory.
 
 The repository intentionally omits `llama.xcframework`. The package records its
 upstream release and license status in the manifest and includes the source-only

@@ -7,6 +7,8 @@ xcuserdata/
 .DS_Store
 .env
 .env.local
+.dev.vars*
+.wrangler/
 AISecrets.plist
 **/AISecrets.plist
 *.log

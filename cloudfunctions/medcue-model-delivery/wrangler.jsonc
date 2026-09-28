@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json.schemastore.org/wrangler.json",
+  "name": "medcue-model-delivery",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-09-27",
+  "workers_dev": true,
+  "r2_buckets": [
+    {
+      "binding": "MODEL_BUCKET",
+      "bucket_name": "medcue-model-pilot"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "DOWNLOAD_LIMITER",
+      "namespace_id": "2801",
+      "simple": {
+        "limit": 6,
+        "period": 60
+      }
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.1
+  }
+}

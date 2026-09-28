@@ -381,8 +381,23 @@ quote_path() {
     LC_ALL=C printf '%q' "$1"
 }
 
+path_forbidden_secret() (
+    shopt -s nocasematch
+    case "$1" in
+        .dev.vars|.dev.vars.*|*/.dev.vars|*/.dev.vars.*|.wrangler|.wrangler/*|*/.wrangler|*/.wrangler/*)
+            return 0
+            ;;
+    esac
+    return 1
+)
+
 while IFS= read -r -d '' path; do
     display_path="$(quote_path "$path")"
+    if path_forbidden_secret "$path"; then
+        printf '[FAIL] staged path is a local Cloudflare secret or cache: %s\n' "$display_path" >&2
+        failures=$((failures + 1))
+        continue
+    fi
     if path_allowed "$path"; then
         printf '[PASS] allowlisted staged path: %s\n' "$display_path"
     else

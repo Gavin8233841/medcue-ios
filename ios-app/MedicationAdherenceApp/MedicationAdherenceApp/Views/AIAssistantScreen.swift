@@ -25,6 +25,8 @@ struct AIAssistantScreen: View {
     @Binding var showingArchivedMessages: Bool
     @Binding var showingRuntimePicker: Bool
     @Binding var showingLocalModelDownloadConfirmation: Bool
+    @State private var showingAcceleratedDownload = false
+    @State private var modelAccessCode = ""
     let storedConsent: StoredAIConsent?
     let sendMessage: (AIOutgoingMessage?) -> Void
     let selectOnlineRuntime: () -> Void
@@ -42,6 +44,7 @@ struct AIAssistantScreen: View {
     let deleteArchivedMessages: ([StoredAIChatMessage]) -> Void
     let deleteAllArchivedMessages: () -> Void
     let requestLocalModelDownload: () -> Void
+    let requestAcceleratedModelDownload: (String) -> Void
     let environmentRefreshSignature: String
 
     var body: some View {
@@ -110,10 +113,40 @@ struct AIAssistantScreen: View {
             isPresented: $showingLocalModelDownloadConfirmation,
             titleVisibility: .visible
         ) {
-            Button("开始下载约 265MB 模型", action: requestLocalModelDownload)
+            Button("标准下载约 265MB 模型", action: requestLocalModelDownload)
+            Button("使用加速下载码") { showingAcceleratedDownload = true }
             Button("取消", role: .cancel) {}
         } message: {
             Text("离线端侧模型为 Beta 版本，会在本机运行，不上传用药记录。下载完成后可在智能体页切换使用。")
+        }
+        .sheet(isPresented: $showingAcceleratedDownload, onDismiss: { modelAccessCode = "" }) {
+            NavigationStack {
+                Form {
+                    Section {
+                        SecureField("粘贴 32 位下载码", text: $modelAccessCode)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                    } footer: {
+                        Text("竞赛演示加速下载由 Cloudflare 提供，会传输下载码和网络连接信息，不上传用药记录。模型约 265MB，安装前仍会校验完整性。")
+                    }
+                }
+                .navigationTitle("加速下载")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("取消") { showingAcceleratedDownload = false }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("开始下载") {
+                            let code = modelAccessCode.trimmingCharacters(in: .whitespacesAndNewlines)
+                            showingAcceleratedDownload = false
+                            requestAcceleratedModelDownload(code)
+                            modelAccessCode = ""
+                        }
+                        .disabled(!LocalMedicalModelDownloadSource.isValidAccessCode(modelAccessCode))
+                    }
+                }
+            }
+            .presentationDetents([.medium])
         }
     }
 
