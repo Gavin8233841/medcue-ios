@@ -6,6 +6,70 @@ import Testing
 
 @Suite(.serialized)
 struct MedicationPlanCommandTests {
+    @Test
+    func planEditorKeepsStoredUnitSelectionWhileShowingItsLocalizedName() throws {
+        let milliliterOptions = planEditorDoseUnitOptions(preserving: "ml")
+        #expect(milliliterOptions.filter { $0.displayName == "毫升" }.map(\.id) == ["ml"])
+        #expect(milliliterOptions.map(\.id).contains("克"))
+        #expect(Set(milliliterOptions.map(\.id)).count == milliliterOptions.count)
+
+        let customOptions = planEditorDoseUnitOptions(preserving: "vial")
+        #expect(customOptions.first?.id == "vial")
+        #expect(customOptions.first?.displayName == "原记录：vial")
+    }
+
+    @Test @MainActor
+    func editingReminderTimePreservesLegacyUnitWithoutDoseChange() throws {
+        let fixture = try MedicationPlanFixture()
+        let (plan, _) = try fixture.insertExistingPlan(doseUnit: "ml")
+        let selectedUnit = try #require(
+            planEditorDoseUnitOptions(preserving: plan.doseUnit)
+                .first { $0.displayName == "毫升" }
+        ).id
+        let changedReminderTime = fixture.calendar.date(
+            bySettingHour: 7,
+            minute: 15,
+            second: 0,
+            of: fixture.courseStart
+        )!
+
+        let outcome = MedicationPlanCommand(
+            modelContext: fixture.context,
+            calendar: fixture.calendar,
+            referenceDate: fixture.courseStart
+        ).update(
+            MedicationPlanUpdate(
+                medicationID: fixture.medication.id,
+                planID: plan.id,
+                doseValue: plan.doseValue,
+                doseUnit: selectedUnit,
+                doseEffectiveFrom: fixture.courseStart,
+                doseChangeNote: "",
+                courseStartAt: fixture.courseStart,
+                courseEndAt: fixture.courseEnd,
+                reminderTimes: [changedReminderTime],
+                reminderDeliveryMethod: .notification,
+                escalatesToAlarmWhenUnhandled: true,
+                sourceNote: plan.sourceNote
+            )
+        )
+
+        guard case .committed = outcome else {
+            Issue.record("Expected reminder-only edit to commit")
+            return
+        }
+        let verificationContext = ModelContext(fixture.container)
+        let persistedPlan = try #require(
+            verificationContext.fetch(FetchDescriptor<StoredMedicationPlan>()).first
+        )
+        let persistedTasks = try verificationContext.fetch(FetchDescriptor<StoredDoseTask>())
+        #expect(persistedPlan.doseUnit == "ml")
+        #expect(persistedPlan.reminderTimesRaw == "07:15")
+        #expect(!persistedTasks.isEmpty)
+        #expect(persistedTasks.allSatisfy { $0.doseUnit == "ml" })
+        #expect(try verificationContext.fetch(FetchDescriptor<StoredMedicationDoseChange>()).isEmpty)
+    }
+
     @Test @MainActor
     func createsPlanAndReturnsCommittedReminderBatch() throws {
         let fixture = try MedicationPlanFixture()
@@ -331,7 +395,7 @@ private struct MedicationPlanFixture {
         try context.save()
     }
 
-    func insertExistingPlan() throws -> (StoredMedicationPlan, StoredDoseTask) {
+    func insertExistingPlan(doseUnit: String = "片") throws -> (StoredMedicationPlan, StoredDoseTask) {
         let reminderTime = calendar.date(
             bySettingHour: 8,
             minute: 30,
@@ -341,7 +405,7 @@ private struct MedicationPlanFixture {
         let plan = StoredMedicationPlan(
             medicationID: medication.id,
             doseValue: 1,
-            doseUnit: "片",
+            doseUnit: doseUnit,
             timingSummary: "每日 08:30",
             timeZonePolicy: .localClock,
             sourceNote: "原始备注",
@@ -356,7 +420,7 @@ private struct MedicationPlanFixture {
             planID: plan.id,
             dueAt: reminderTime,
             doseValue: 1,
-            doseUnit: "片"
+            doseUnit: doseUnit
         )
         context.insert(plan)
         context.insert(task)

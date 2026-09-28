@@ -13,6 +13,7 @@ struct PlanEditorView: View {
     let plan: StoredMedicationPlan?
     let tasks: [StoredDoseTask]
     let doseChanges: [StoredMedicationDoseChange]
+    private let originalDoseUnit: String
     @State private var doseValue: Double
     @State private var doseUnit: String
     @State private var doseEffectiveFrom: Date
@@ -44,7 +45,9 @@ struct PlanEditorView: View {
         let startDate = plan?.courseStartAt ?? planTasks.first?.dueAt ?? now
         let endDate = plan?.courseEndAt ?? Calendar.current.date(byAdding: .day, value: 30, to: startDate) ?? startDate
         _doseValue = State(initialValue: plan?.doseValue ?? planTasks.first?.doseValue ?? 1)
-        _doseUnit = State(initialValue: localizedMedicationUnit(plan?.doseUnit ?? planTasks.first?.doseUnit ?? "片"))
+        let storedDoseUnit = plan?.doseUnit ?? planTasks.first?.doseUnit ?? "片"
+        originalDoseUnit = storedDoseUnit
+        _doseUnit = State(initialValue: storedDoseUnit)
         _doseEffectiveFrom = State(initialValue: Calendar.current.startOfDay(for: plan == nil ? startDate : now))
         _doseChangeNote = State(initialValue: "")
         _courseStartDate = State(initialValue: startDate)
@@ -63,7 +66,12 @@ struct PlanEditorView: View {
                     Stepper(value: $doseValue, in: 0.5...20, step: 0.5) {
                         Text("每次 \(doseValue.formatted()) \(localizedMedicationUnit(doseUnit))")
                     }
-                    MedicationUnitPicker(title: "剂量单位", unit: $doseUnit)
+                    Picker("剂量单位", selection: $doseUnit) {
+                        ForEach(planEditorDoseUnitOptions(preserving: originalDoseUnit)) { option in
+                            Text(option.displayName).tag(option.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
                     DatePicker("剂量生效日期", selection: $doseEffectiveFrom, displayedComponents: .date)
                     Text("仅记录剂量变化时间，不生成医疗建议。")
                         .font(.footnote)
@@ -263,7 +271,7 @@ struct PlanEditorView: View {
                 medicationID: medication.id,
                 planID: plan?.id,
                 doseValue: doseValue,
-                doseUnit: localizedMedicationUnit(doseUnit),
+                doseUnit: doseUnit,
                 doseEffectiveFrom: doseEffectiveFrom,
                 doseChangeNote: doseChangeNote,
                 courseStartAt: courseStartDate,
@@ -291,6 +299,22 @@ struct PlanEditorView: View {
         }
     }
 
+}
+
+func planEditorDoseUnitOptions(preserving storedUnit: String) -> [MedicationDoseUnitOption] {
+    let displayedUnit = localizedMedicationUnit(storedUnit)
+    var options = MedicationDoseUnitOption.common.map { option in
+        option.displayName == displayedUnit
+            ? MedicationDoseUnitOption(id: storedUnit, displayName: option.displayName)
+            : option
+    }
+    if !storedUnit.isEmpty && !options.contains(where: { $0.id == storedUnit }) {
+        options.insert(
+            MedicationDoseUnitOption(id: storedUnit, displayName: "原记录：\(displayedUnit)"),
+            at: 0
+        )
+    }
+    return options
 }
 
 struct MedicationPresetTextField: View {
