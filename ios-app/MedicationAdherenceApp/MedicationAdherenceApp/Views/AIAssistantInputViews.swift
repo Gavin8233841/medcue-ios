@@ -250,17 +250,17 @@ struct AIConsentSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("共享范围") {
+                Section("自动附加的 App 资料") {
                     Toggle("药品名称、规格和来源", isOn: $sharesMedicationProfile)
                     Toggle("提醒计划", isOn: $sharesMedicationPlans)
                     Toggle("服药记录", isOn: $sharesDoseEvents)
                     Toggle("风险提醒", isOn: $sharesRiskCards)
                     Toggle("说明书摘要", isOn: $sharesDrugLabels)
-                    Toggle("拍照或条码识别内容", isOn: $sharesImportDraft)
+                    Toggle("导入识别草稿", isOn: $sharesImportDraft)
                 }
 
                 Section("授权说明") {
-                    Text("只有勾选的数据会用于本次咨询；撤销后不会继续共享。")
+                    Text("勾选项只控制自动附加的 App 资料。你编辑并发送的提问文字，包括从图片识别后填入的文字，会提交给所选运行方式；关闭上方选项不会过滤提问文字。撤销后不会继续自动共享 App 资料。")
                         .foregroundStyle(.secondary)
                 }
 
