@@ -51,6 +51,7 @@ struct AIConversationSendPlanner {
         var requestText = input.outgoingMessage.requestText
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if displayText == "帮我核对今日用药注意事项",
+           input.consent?.sharesMedicationProfile == true,
            !input.todayOpenMedicationNames.isEmpty {
             requestText += "\n今日待处理药品：\(input.todayOpenMedicationNames.prefix(4).joined(separator: "、"))。"
         }
