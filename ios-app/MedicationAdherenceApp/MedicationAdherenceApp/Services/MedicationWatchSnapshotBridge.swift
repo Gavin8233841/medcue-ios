@@ -14,8 +14,13 @@ struct MedicationWatchSnapshotPublisher {
         MedicationWatchConnectivityBridge.shared.send(snapshot)
     }
 
-    func makeSnapshot(tasks: [StoredDoseTask], medications: [StoredMedication], privacyMode: Bool) -> MedicationWatchSnapshot {
-        let calendar = Calendar.current
+    func makeSnapshot(
+        tasks: [StoredDoseTask],
+        medications: [StoredMedication],
+        privacyMode: Bool,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> MedicationWatchSnapshot {
         let activeMedicationIDs = Set(
             medications
                 .filter { $0.lifecycleStatus == .active }
@@ -34,11 +39,11 @@ struct MedicationWatchSnapshotPublisher {
                 guard activeMedicationIDs.contains(task.medicationID) else {
                     return false
                 }
-                if calendar.isDateInToday(task.dueAt) {
+                if calendar.isDate(task.dueAt, inSameDayAs: now) {
                     return true
                 }
                 return task.status == .delayed
-                    && task.recordedAt.map(calendar.isDateInToday) == true
+                    && task.recordedAt.map({ calendar.isDate($0, inSameDayAs: now) }) == true
             }
             .adherenceMeasurableTasks
 
@@ -58,7 +63,7 @@ struct MedicationWatchSnapshotPublisher {
         }
 
         return MedicationWatchSnapshot(
-            generatedAt: Date(),
+            generatedAt: now,
             items: items,
             privacyMode: privacyMode
         )

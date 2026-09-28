@@ -211,21 +211,23 @@ struct PlatformBehaviorTests {
             kind: .prescription,
             inputSource: .manual
         )
+        let dueAt = Calendar.current.startOfDay(for: Date(timeIntervalSince1970: 1_800_000_000))
+            .addingTimeInterval(12 * 60 * 60)
         let task = StoredDoseTask(
             medicationID: medication.id,
-            dueAt: Calendar.current.startOfDay(for: Date()).addingTimeInterval(12 * 60 * 60),
+            dueAt: dueAt,
             doseValue: 0.625,
             doseUnit: "ml"
         )
         let snapshot = MedicationWatchSnapshotPublisher().makeSnapshot(
-            tasks: [task], medications: [medication], privacyMode: true
+            tasks: [task], medications: [medication], privacyMode: true, now: dueAt
         )
         let item = try #require(snapshot.items.first)
         #expect(snapshot.items.count == 1)
         #expect(snapshot.privacyMode)
         #expect(item.doseValue == 0.625)
         #expect(item.doseUnitCode == DoseUnitKind.milliliter.rawValue)
-        #expect(item.doseText == "0.625 ml")
+        #expect(item.doseText == "0\(Locale.current.decimalSeparator ?? ".")625 ml")
         #expect(task.doseValue == 0.625)
         #expect(task.doseUnit == "ml")
     }
@@ -237,7 +239,8 @@ struct PlatformBehaviorTests {
             kind: .prescription,
             inputSource: .manual
         )
-        let dueAt = Calendar.current.startOfDay(for: Date()).addingTimeInterval(12 * 60 * 60)
+        let dueAt = Calendar.current.startOfDay(for: Date(timeIntervalSince1970: 1_800_000_000))
+            .addingTimeInterval(12 * 60 * 60)
         let normal = StoredDoseTask(
             medicationID: medication.id, dueAt: dueAt,
             doseValue: 0.625, doseUnit: "ml"
@@ -251,7 +254,8 @@ struct PlatformBehaviorTests {
             doseValue: .infinity, doseUnit: "ml"
         )
         let snapshot = MedicationWatchSnapshotPublisher().makeSnapshot(
-            tasks: [normal, invalid, infinite], medications: [medication], privacyMode: false
+            tasks: [normal, invalid, infinite], medications: [medication], privacyMode: false,
+            now: dueAt
         )
         let decoded = try JSONDecoder().decode(
             MedicationWatchSnapshot.self, from: JSONEncoder().encode(snapshot)
