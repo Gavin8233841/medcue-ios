@@ -1,4 +1,5 @@
 import Foundation
+import MedicationAdherenceCore
 import SwiftData
 import SwiftUI
 import WatchConnectivity
@@ -13,8 +14,13 @@ struct MedicationWatchSnapshotPublisher {
         MedicationWatchConnectivityBridge.shared.send(snapshot)
     }
 
-    private func makeSnapshot(tasks: [StoredDoseTask], medications: [StoredMedication], privacyMode: Bool) -> MedicationWatchSnapshot {
-        let calendar = Calendar.current
+    func makeSnapshot(
+        tasks: [StoredDoseTask],
+        medications: [StoredMedication],
+        privacyMode: Bool,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> MedicationWatchSnapshot {
         let activeMedicationIDs = Set(
             medications
                 .filter { $0.lifecycleStatus == .active }
@@ -33,36 +39,38 @@ struct MedicationWatchSnapshotPublisher {
                 guard activeMedicationIDs.contains(task.medicationID) else {
                     return false
                 }
-                if calendar.isDateInToday(task.dueAt) {
+                if calendar.isDate(task.dueAt, inSameDayAs: now) {
                     return true
                 }
                 return task.status == .delayed
-                    && task.recordedAt.map(calendar.isDateInToday) == true
+                    && task.recordedAt.map({ calendar.isDate($0, inSameDayAs: now) }) == true
             }
             .adherenceMeasurableTasks
 
         let items = deduplicatedTasks.map { task in
-            MedicationWatchDoseItem(
+            let normalizedUnit = NormalizedDoseUnit(rawUnit: task.doseUnit)
+            let hasValidDose = task.doseValue.isFinite
+            return MedicationWatchDoseItem(
                 id: task.id,
                 medicationName: medicationNames[task.medicationID] ?? "用药提醒",
-                doseText: doseText(for: task),
+                doseText: hasValidDose ? doseText(for: task) : "剂量待核对",
+                doseValue: hasValidDose ? task.doseValue : nil,
+                doseUnitCode: hasValidDose && normalizedUnit.kind != .unknown
+                    ? normalizedUnit.kind.rawValue : nil,
                 dueAt: task.dueAt,
                 status: MedicationWatchDoseStatus(storedStatus: task.status)
             )
         }
 
         return MedicationWatchSnapshot(
-            generatedAt: Date(),
+            generatedAt: now,
             items: items,
             privacyMode: privacyMode
         )
     }
 
     private func doseText(for task: StoredDoseTask) -> String {
-        let value = task.doseValue
-        let valueText = value.rounded(.towardZero) == value
-            ? String(Int(value))
-            : value.formatted(.number.precision(.fractionLength(0...2)))
+        let valueText = MedicationWatchDoseItem.doseValueText(task.doseValue, locale: .current)
         return "\(valueText) \(task.doseUnit)"
     }
 }

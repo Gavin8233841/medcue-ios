@@ -162,7 +162,7 @@ private struct WatchNextDoseCard: View {
                             Text(
                                 snapshot.privacyMode || (metrics.isCompact && dynamicTypeSize.isAccessibilitySize)
                                     ? nextDoseBadge.text
-                                    : "\(item.doseText) · \(nextDoseBadge.text)"
+                                    : "\(item.displayDoseText()) · \(nextDoseBadge.text)"
                             )
                                 .font(.caption2.weight(.semibold))
                                 .lineLimit(1)
@@ -315,7 +315,7 @@ private struct WatchNextDoseCard: View {
 
     private var accessibilityLabel: String {
         if let item = snapshot.displayNextOpenItem(now: now) {
-            let itemText = snapshot.privacyMode ? "下一次用药" : "\(item.medicationName)，\(item.doseText)"
+            let itemText = snapshot.privacyMode ? "下一次用药" : "\(item.medicationName)，\(item.displayDoseText())"
             return "今日用药，\(snapshot.displayCompletionText(now: now))。下一项，\(item.timeText)，\(itemText)，\(nextDoseBadge.text)"
         }
         if snapshot.requiresRefresh(now: now) {
@@ -768,12 +768,12 @@ private struct WatchDoseRow: View {
             return relativeTimingText
         }
         guard let relativeTimingText else {
-            return item.doseText
+            return item.displayDoseText()
         }
         if usesCompactDetail {
             return relativeTimingText
         }
-        return "\(item.doseText) · \(relativeTimingText)"
+        return "\(item.displayDoseText()) · \(relativeTimingText)"
     }
 
     private var usesCompactDetail: Bool {
@@ -811,7 +811,7 @@ private struct WatchDoseRow: View {
     }
 
     private var accessibilityLabel: String {
-        let itemText = privacyMode ? "用药提醒" : "\(item.medicationName)，\(item.doseText)"
+        let itemText = privacyMode ? "用药提醒" : "\(item.medicationName)，\(item.displayDoseText())"
         if let relativeTimingText {
             return "\(item.timeText)，\(itemText)，\(statusText)，\(relativeTimingText)"
         }

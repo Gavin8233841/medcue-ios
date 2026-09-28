@@ -218,7 +218,8 @@ final class MedicationWatchSnapshotCenter: NSObject, ObservableObject, WCSession
                 [
                     item.id.uuidString,
                     String(Int(item.dueAt.timeIntervalSince1970)),
-                    item.status.rawValue
+                    item.status.rawValue,
+                    item.reminderPresentationKey(privacyMode: snapshot.privacyMode)
                 ].joined(separator: ":")
             }
             .joined(separator: ",")
@@ -536,7 +537,7 @@ private final class MedicationWatchReminderScheduler {
     ) -> UNNotificationRequest {
         let content = UNMutableNotificationContent()
         content.title = privacyMode ? "用药提醒" : item.medicationName
-        content.body = privacyMode ? "现在该处理一项今日用药。" : "\(item.doseText) · \(item.status.displayText)"
+        content.body = privacyMode ? "现在该处理一项今日用药。" : "\(item.displayDoseText()) · \(item.status.displayText)"
         content.sound = .default
 
         let calendar = Calendar.current
@@ -569,7 +570,7 @@ private final class MedicationWatchReminderScheduler {
                     item.id.uuidString,
                     String(item.dueAt.timeIntervalSince1970),
                     item.status.rawValue,
-                    privacyMode ? "private" : "visible"
+                    item.reminderPresentationKey(privacyMode: privacyMode)
                 ].joined(separator: "|")
             }
             .joined(separator: "#")
