@@ -107,10 +107,7 @@ struct AgentRuntimeSelectorBar: View {
     }
 
     private var activeSubtitle: String {
-        if prefersLocalResponses {
-            return "在 iPhone 上本地推理"
-        }
-        return onlineReadiness.canSend ? "连接云端能力，适合复杂任务" : "云端服务尚未就绪，暂无法使用"
+        prefersLocalResponses ? "在 iPhone 上本地推理" : "连接云端能力，适合复杂任务"
     }
 
     private var shouldUseCompactChip: Bool {
@@ -178,9 +175,7 @@ struct AgentRuntimeSelectorBar: View {
                 VStack(spacing: 8) {
                     RuntimeChoiceRow(
                         title: "云端智能体",
-                        subtitle: onlineReadiness.canSend
-                            ? "连接云端能力，适合复杂问题和更长文本"
-                            : "云端服务尚未就绪，暂无法使用",
+                        subtitle: "连接云端能力，适合复杂问题和更长文本",
                         status: onlineStatusText,
                         progress: nil,
                         progressText: nil,
