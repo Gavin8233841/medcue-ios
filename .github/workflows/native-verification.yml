@@ -723,6 +723,20 @@ jobs:
           VERIFY_NATIVE_TEST_SUITE: ${{ matrix.test-suite }}
         run: tools/verify-native.sh
 
+      # This job starts from an empty CI simulator; the current UI suite uses
+      # synthetic test data. Keep failure evidence briefly; successful runs upload nothing.
+      - name: Preserve synthetic UI failure result
+        if: ${{ failure() && matrix.test-suite == 'ios-ui' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: medcue-ui-failure-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: .codex-local/native-verification/ios-ui-tests/derived-data/Logs/Test/
+          # The verification root is hidden; upload-artifact v4 excludes it by default.
+          # This path is confined to synthetic CI UI results, never the fixture store.
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 3
+
   aggregate:
     name: Native Verification (required result)
     if: ${{ always() }}

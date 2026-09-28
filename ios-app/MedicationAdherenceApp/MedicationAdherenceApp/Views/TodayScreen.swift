@@ -444,7 +444,7 @@ struct TodayScreen: View {
     }
 
     private var handledTimelineSection: some View {
-        todaySection("今日已处理") {
+        todaySection("今日已处理", titleAccessibilityIdentifier: AppAccessibilityID.todayHandledTimeline) {
             let isExpanded = handledDisclosureBinding.wrappedValue
             let value = "\(snapshot.displayedHandledCount) 条，\(snapshot.handledSummaryText)，\(isExpanded ? "已展开" : "已折叠")"
             Button {
@@ -475,6 +475,7 @@ struct TodayScreen: View {
             .accessibilityLabel("今日已处理")
             .accessibilityValue(value)
             .accessibilityHint(isExpanded ? "收起已处理记录" : "展开已处理记录")
+            .accessibilityIdentifier("today.timeline.handled.disclosure")
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 8) {
@@ -511,7 +512,6 @@ struct TodayScreen: View {
         )
         .animation(prefersReducedMotion ? nil : .easeInOut(duration: 0.18), value: reopeningHandledDoseKeys)
         .animation(prefersReducedMotion ? nil : .easeInOut(duration: 0.2), value: handledDropTargetPulse)
-        .accessibilityIdentifier(AppAccessibilityID.todayHandledTimeline)
     }
 
     @ViewBuilder

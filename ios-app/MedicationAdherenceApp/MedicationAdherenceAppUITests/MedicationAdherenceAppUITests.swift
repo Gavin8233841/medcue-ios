@@ -37,6 +37,84 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         XCTAssertTrue(app.buttons["导出脱敏诊断信息"].exists)
     }
 
+    func testCreatedMedicationPlanAndDoseUndoSurviveRestarts() {
+        continueAfterFailure = false
+        let app = launchElderFixture(scenario: "journey", mode: "complete")
+        assertJourneyStore(in: app, medications: 0, plans: 0, totalTasks: 0, todayTasks: 0, logs: 0)
+        restartElderFixture(app)
+
+        let medicationsTab = app.tabBars.buttons.element(boundBy: 1)
+        XCTAssertTrue(medicationsTab.waitForExistence(timeout: 10))
+        medicationsTab.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["tab.medications"].waitForExistence(timeout: 5))
+        let add = app.buttons["medication.add"]
+        XCTAssertTrue(add.waitForExistence(timeout: 10))
+        add.tap()
+        let manual = app.buttons["medication.add.manual"]
+        XCTAssertTrue(manual.waitForExistence(timeout: 5))
+        manual.tap()
+
+        let name = app.textFields["药品名称"]
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.tap()
+        name.typeText("合")
+        let continueInput = app.buttons["继续输入"]
+        XCTAssertTrue(continueInput.waitForExistence(timeout: 5))
+        continueInput.tap()
+        name.tap()
+        name.typeText("成旅程药品")
+        XCTAssertEqual(name.value as? String, "合成旅程药品")
+
+        let save = app.buttons["medication.creation.save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 5))
+        save.tap()
+        let confirm = app.buttons["已核对，保存"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+        confirm.tap()
+        XCTAssertTrue(save.waitForNonExistence(timeout: 10))
+
+        let generatedTasks = assertJourneyStore(
+            in: app, medications: 1, plans: 1, todayTasks: 1, logs: 0, status: "pending"
+        )
+        restartElderFixture(app)
+        let take = app.buttons["today.timeline.action.taken"]
+        XCTAssertTrue(take.waitForExistence(timeout: 15))
+        take.tap()
+        let confirmDose = app.buttons["today.timeline.confirmation.confirm"]
+        XCTAssertTrue(confirmDose.waitForExistence(timeout: 5))
+        let cancelDose = app.buttons["today.timeline.confirmation.cancel"]
+        XCTAssertTrue(cancelDose.waitForExistence(timeout: 5))
+        cancelDose.tap()
+        assertJourneyStore(
+            in: app, medications: 1, plans: 1,
+            totalTasks: generatedTasks, todayTasks: 1, logs: 0, status: "pending"
+        )
+        restartElderFixture(app)
+        XCTAssertTrue(take.waitForExistence(timeout: 10))
+        take.tap()
+        XCTAssertTrue(confirmDose.waitForExistence(timeout: 5))
+        confirmDose.tap()
+        XCTAssertTrue(take.waitForNonExistence(timeout: 10))
+
+        assertJourneyStore(
+            in: app, medications: 1, plans: 1,
+            totalTasks: generatedTasks, todayTasks: 1, logs: 1, status: "taken"
+        )
+        restartElderFixture(app)
+        let handled = app.descendants(matching: .any)["today.timeline.handled.disclosure"]
+        XCTAssertTrue(handled.waitForExistence(timeout: 10))
+        handled.tap()
+        let undo = app.buttons["today.timeline.handled.undo"]
+        XCTAssertTrue(undo.waitForExistence(timeout: 5))
+        undo.tap()
+        XCTAssertTrue(take.waitForExistence(timeout: 10))
+
+        assertJourneyStore(
+            in: app, medications: 1, plans: 1,
+            totalTasks: generatedTasks, todayTasks: 1, logs: 1, status: "pending"
+        )
+    }
+
     private let regularContentSizeArguments = [
         "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryL"
     ]
@@ -823,6 +901,31 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         }
         if inspectStore { app.launchArguments.append("--elder-ui-inspect-store") }
         app.launch()
+    }
+
+    @discardableResult
+    private func assertJourneyStore(
+        in app: XCUIApplication,
+        medications: Int,
+        plans: Int,
+        totalTasks: Int? = nil,
+        todayTasks: Int,
+        logs: Int,
+        status: String? = nil
+    ) -> Int {
+        restartElderFixture(app, inspectStore: true)
+        let medicationCount = app.staticTexts["elder.test.store.medication-count"]
+        XCTAssertTrue(medicationCount.waitForExistence(timeout: 10))
+        XCTAssertEqual(medicationCount.label, String(medications))
+        XCTAssertEqual(app.staticTexts["elder.test.store.plan-count"].label, String(plans))
+        let taskCount = Int(app.staticTexts["elder.test.store.task-count"].label) ?? -1
+        if let totalTasks { XCTAssertEqual(taskCount, totalTasks) }
+        XCTAssertEqual(app.staticTexts["elder.test.store.today-task-count"].label, String(todayTasks))
+        XCTAssertEqual(app.staticTexts["elder.test.store.log-count"].label, String(logs))
+        if let status {
+            XCTAssertEqual(app.staticTexts["elder.test.store.task.0.status"].label, status)
+        }
+        return taskCount
     }
 
     private func currentTaskText(containing text: String, in app: XCUIApplication) -> XCUIElement {
