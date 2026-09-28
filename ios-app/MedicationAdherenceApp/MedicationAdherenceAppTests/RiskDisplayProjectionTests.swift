@@ -76,6 +76,53 @@ struct RiskDisplayProjectionTests {
     }
 
     @Test
+    func projectionDeduplicatesMixedLegacyAndSemanticSignatures() {
+        let medication = StoredMedication(
+            displayName: "测试药品", kind: .prescription, inputSource: .manual
+        )
+        let semantic = riskCard(
+            id: "semantic", medicationID: medication.id, kind: .labelRisk,
+            displayPriority: 10, sourceExcerpt: "同一来源", requiresProfessionalReview: false
+        )
+        let legacy = riskCard(
+            id: "legacy", medicationID: medication.id, kind: .labelRisk,
+            displayPriority: 30, sourceExcerpt: "同一来源", requiresProfessionalReview: true
+        )
+        legacy.detectionSignature = "\(medication.id.uuidString)|\(legacy.kindRaw.lowercased())|风险标题|风险内容|同一来源"
+
+        let projection = RiskDisplayProjection(
+            riskCards: [semantic, legacy], medications: [medication]
+        )
+        #expect(projection.activeCards.map(\.id) == ["legacy"])
+    }
+
+    @Test
+    func projectionKeepsDistinctProvenanceAndUnreadStateVisible() {
+        let medication = StoredMedication(
+            displayName: "测试药品", kind: .prescription, inputSource: .manual
+        )
+        let read = riskCard(
+            id: "read", medicationID: medication.id, kind: .labelRisk,
+            displayPriority: 10, sourceExcerpt: "同一来源", requiresProfessionalReview: false
+        )
+        read.readAt = Date(timeIntervalSince1970: 1_800_000_000)
+        let unread = riskCard(
+            id: "unread", medicationID: medication.id, kind: .labelRisk,
+            displayPriority: 20, sourceExcerpt: "同一来源", requiresProfessionalReview: false
+        )
+        let otherSource = riskCard(
+            id: "other-source", medicationID: medication.id, kind: .labelRisk,
+            displayPriority: 30, sourceExcerpt: "同一来源", sourceTitle: "另一份说明书",
+            requiresProfessionalReview: false
+        )
+
+        let projection = RiskDisplayProjection(
+            riskCards: [otherSource, unread, read], medications: [medication]
+        )
+        #expect(projection.activeCards.map(\.id) == ["read", "unread", "other-source"])
+    }
+
+    @Test
     func projectionKeepsCardsWithDifferentDetectionSignatures() {
         let medication = StoredMedication(
             displayName: "测试药品",
@@ -201,6 +248,7 @@ struct RiskDisplayProjectionTests {
         kind: RiskAssessmentCardKind,
         displayPriority: Int,
         sourceExcerpt: String,
+        sourceTitle: String = "说明书",
         detectionSignature: String = "",
         title: String = "风险标题",
         message: String = "风险内容",
@@ -214,7 +262,7 @@ struct RiskDisplayProjectionTests {
             displayPriority: displayPriority,
             title: title,
             message: message,
-            sourceTitle: "说明书",
+            sourceTitle: sourceTitle,
             sourceExcerpt: sourceExcerpt,
             detectionSignature: detectionSignature,
             requiresProfessionalReview: requiresProfessionalReview,
