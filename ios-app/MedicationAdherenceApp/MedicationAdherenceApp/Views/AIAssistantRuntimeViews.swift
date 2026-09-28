@@ -110,12 +110,8 @@ struct AgentRuntimeSelectorBar: View {
         prefersLocalResponses ? "在 iPhone 上本地推理" : "连接云端能力，适合复杂任务"
     }
 
-    private var activeTint: Color {
-        prefersLocalResponses ? Color(red: 0.28, green: 0.56, blue: 0.48) : Color(red: 0.28, green: 0.48, blue: 0.62)
-    }
-
     private var shouldUseCompactChip: Bool {
-        hasUserSelectedRuntime && !isExpanded
+        hasUserSelectedRuntime || isExpanded
     }
 
     var body: some View {
@@ -125,9 +121,9 @@ struct AgentRuntimeSelectorBar: View {
                     HStack(spacing: 8) {
                         Image(systemName: prefersLocalResponses ? "iphone.gen3.radiowaves.left.and.right" : "network")
                             .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(activeTint)
+                            .foregroundStyle(AIAssistantPalette.accent)
                             .frame(width: shouldUseCompactChip ? 24 : 28, height: shouldUseCompactChip ? 24 : 28)
-                            .background(activeTint.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .background(AIAssistantPalette.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                         if shouldUseCompactChip {
                             Text(prefersLocalResponses ? "端侧" : "云端")
                                 .font(.caption.weight(.semibold))
@@ -152,9 +148,9 @@ struct AgentRuntimeSelectorBar: View {
                     }
                     .padding(.horizontal, shouldUseCompactChip ? 9 : 10)
                     .padding(.vertical, shouldUseCompactChip ? 7 : 8)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: isAccessibilitySize ? 16 : 100))
+                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: isAccessibilitySize ? 16 : 20, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: isAccessibilitySize ? 16 : 100)
+                        RoundedRectangle(cornerRadius: isAccessibilitySize ? 16 : 20, style: .continuous)
                             .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
                     )
                 }
@@ -167,7 +163,7 @@ struct AgentRuntimeSelectorBar: View {
                 if !shouldUseCompactChip {
                     Text(prefersLocalResponses ? "Beta" : onlineStatusText)
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(prefersLocalResponses ? Color.secondary : activeTint)
+                        .foregroundStyle(prefersLocalResponses || !onlineReadiness.canSend ? Color.secondary : AIAssistantPalette.accent)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(Color(.secondarySystemGroupedBackground), in: Capsule())
@@ -183,7 +179,8 @@ struct AgentRuntimeSelectorBar: View {
                         progress: nil,
                         progressText: nil,
                         iconName: "network",
-                        tint: .blue,
+                        tint: AIAssistantPalette.accent,
+                        statusTint: onlineReadiness.canSend ? AIAssistantPalette.accent : .secondary,
                         isSelected: !prefersLocalResponses,
                         isEnabled: true,
                         actionTitle: onlineReadiness.canSend ? "使用" : "开启",
@@ -199,7 +196,8 @@ struct AgentRuntimeSelectorBar: View {
                         progress: status.availability == .downloading ? (status.downloadProgress ?? 0.01) : status.downloadProgress,
                         progressText: status.fileSizeText ?? (status.availability == .downloading ? "正在连接下载源" : nil),
                         iconName: "iphone.gen3.radiowaves.left.and.right",
-                        tint: .green,
+                        tint: AIAssistantPalette.accent,
+                        statusTint: status.canUseForResponses ? AIAssistantPalette.accent : .secondary,
                         isSelected: prefersLocalResponses,
                         isEnabled: status.canUseForResponses,
                         actionTitle: status.canUseForResponses ? "使用" : offlineButtonTitle,
@@ -235,6 +233,7 @@ struct RuntimeChoiceRow: View {
     let progressText: String?
     let iconName: String
     let tint: Color
+    let statusTint: Color
     let isSelected: Bool
     let isEnabled: Bool
     let actionTitle: String
@@ -255,10 +254,10 @@ struct RuntimeChoiceRow: View {
                         .foregroundStyle(isEnabled ? .primary : .secondary)
                     Text(status)
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(isEnabled ? tint : .secondary)
+                        .foregroundStyle(statusTint)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
-                        .background((isEnabled ? tint : Color.secondary).opacity(0.12), in: Capsule())
+                        .background(statusTint.opacity(0.12), in: Capsule())
                 }
                 Text(subtitle)
                     .font(.caption)
@@ -291,19 +290,21 @@ struct RuntimeChoiceRow: View {
                 Button(actionTitle, action: action)
                     .font(.caption.weight(.semibold))
                     .buttonStyle(.borderedProminent)
+                    .tint(tint)
                     .controlSize(.small)
             } else {
                 Button(actionTitle, action: action)
                     .font(.caption.weight(.semibold))
                     .buttonStyle(.bordered)
+                    .tint(tint)
                     .controlSize(.small)
             }
         }
-        .padding(10)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+        .padding(12)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? tint.opacity(0.45) : Color.clear, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(isSelected ? tint.opacity(0.38) : Color.secondary.opacity(0.10), lineWidth: 1)
         )
         .opacity(isEnabled || !isSelected ? 1 : 0.62)
     }

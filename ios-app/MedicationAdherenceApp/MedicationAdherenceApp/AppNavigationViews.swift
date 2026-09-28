@@ -356,7 +356,10 @@ struct AppTabTopGradientOverlay: View {
     }
 
     private var overallOpacity: Double {
-        colorScheme == .dark ? 0.90 : 0.86
+        if tab == .assistant {
+            return colorScheme == .dark ? 0.52 : 0.50
+        }
+        return colorScheme == .dark ? 0.90 : 0.86
     }
 
     private var paletteColors: AppTabTopGradientPalette {
@@ -375,9 +378,9 @@ struct AppTabTopGradientOverlay: View {
             )
         case .assistant:
             AppTabTopGradientPalette(
-                leading: Color(red: 0.62, green: 0.54, blue: 0.98),
-                trailing: Color(red: 0.34, green: 0.82, blue: 0.90),
-                background: Color(red: 0.88, green: 0.88, blue: 0.98)
+                leading: Color(red: 0.54, green: 0.66, blue: 0.76),
+                trailing: Color(red: 0.70, green: 0.75, blue: 0.79),
+                background: Color(red: 0.91, green: 0.94, blue: 0.96)
             )
         case .records:
             AppTabTopGradientPalette(
