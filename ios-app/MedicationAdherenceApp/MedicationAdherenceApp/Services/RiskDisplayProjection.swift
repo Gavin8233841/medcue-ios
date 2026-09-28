@@ -65,8 +65,14 @@ struct RiskDisplayProjection {
         let medicationKey = card.medicationID.uuidString
         if card.detectionSignature.hasPrefix("semantic-v1|") {
             // Semantic detection includes card ID; display duplicates still use visible risk content.
-            let fields = [card.kindRaw, card.title, card.message, card.sourceExcerpt].map(normalized)
-            return "\(medicationKey)|semantic-content|" + fields.map { "\($0.utf8.count):\($0)" }.joined()
+            let content = [card.kindRaw, card.title, card.message, card.sourceExcerpt]
+                .joined(separator: "|")
+                .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+                .lowercased()
+                .components(separatedBy: .whitespacesAndNewlines)
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            return "\(medicationKey)|semantic-content|\(content)"
         }
         let detectionSignature = normalized(card.detectionSignature)
         if !detectionSignature.isEmpty {

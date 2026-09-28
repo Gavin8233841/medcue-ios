@@ -42,6 +42,40 @@ struct RiskDisplayProjectionTests {
     }
 
     @Test
+    func semanticSignatureKeepsDistinctContentSeparated() {
+        let medication = StoredMedication(
+            displayName: "测试药品",
+            kind: .prescription,
+            inputSource: .manual
+        )
+        let first = riskCard(
+            id: "spaced",
+            medicationID: medication.id,
+            kind: .labelRisk,
+            displayPriority: 10,
+            sourceExcerpt: "同一来源",
+            title: "警 示",
+            requiresProfessionalReview: false
+        )
+        let second = riskCard(
+            id: "joined",
+            medicationID: medication.id,
+            kind: .labelRisk,
+            displayPriority: 20,
+            sourceExcerpt: "同一来源",
+            title: "警示",
+            requiresProfessionalReview: false
+        )
+
+        let projection = RiskDisplayProjection(
+            riskCards: [second, first],
+            medications: [medication]
+        )
+
+        #expect(projection.activeCards.map(\.id) == ["spaced", "joined"])
+    }
+
+    @Test
     func projectionKeepsCardsWithDifferentDetectionSignatures() {
         let medication = StoredMedication(
             displayName: "测试药品",
