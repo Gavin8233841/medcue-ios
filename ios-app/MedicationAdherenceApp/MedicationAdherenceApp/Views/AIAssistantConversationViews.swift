@@ -1,8 +1,14 @@
+import Combine
 import MedicationAdherenceCore
 import PhotosUI
 import SwiftData
 import SwiftUI
 import UIKit
+
+enum AIAssistantPalette {
+    static let accent = Color(red: 0.28, green: 0.48, blue: 0.62)
+    static let userBubble = Color(red: 0.22, green: 0.38, blue: 0.49)
+}
 
 struct AIConversationVisibilityProjection {
     let messages: [StoredAIChatMessage]
@@ -49,7 +55,7 @@ struct AIQuickActionsSection: View {
             title: "忽略与稍后趋势",
             subtitle: "近期服药节奏",
             iconName: "chart.xyaxis.line",
-            tint: .indigo,
+            tint: AIAssistantPalette.accent,
             displayText: "看看近期忽略或稍后趋势",
             requestText: "请只基于 App 内授权共享的服药记录，说明近期忽略或稍后趋势，并给出提醒建议。"
         ),
@@ -57,7 +63,7 @@ struct AIQuickActionsSection: View {
             title: "药盒与库存",
             subtitle: "编号、余量、提醒",
             iconName: "shippingbox.fill",
-            tint: .brown,
+            tint: AIAssistantPalette.accent,
             displayText: "帮我检查药盒和库存有什么要注意",
             requestText: "请只基于 App 内授权共享的药品信息、药盒编号、库存和提醒计划，说明药盒与库存管理上需要注意的事项。"
         ),
@@ -65,7 +71,7 @@ struct AIQuickActionsSection: View {
             title: "复诊沟通重点",
             subtitle: "便于和医生说明",
             iconName: "stethoscope",
-            tint: .green,
+            tint: AIAssistantPalette.accent,
             displayText: "帮我整理复诊时要说明的重点",
             requestText: "请只基于 App 内授权共享的服药记录、剂量变化、风险提醒和药品信息，整理复诊时可以说明的重点。"
         ),
@@ -73,7 +79,7 @@ struct AIQuickActionsSection: View {
             title: "今日重点核对",
             subtitle: "提醒、风险、记录",
             iconName: "exclamationmark.triangle",
-            tint: .orange,
+            tint: AIAssistantPalette.accent,
             displayText: "帮我核对今日用药注意事项",
             requestText: "请只基于 App 内授权共享的今日提醒药品、今日记录状态和风险提醒，用两三句说明今天应该先核对什么。不要诊断，不要建议停药、暂停使用、换药或调整剂量。"
         ),
@@ -81,7 +87,7 @@ struct AIQuickActionsSection: View {
             title: "说明书重点",
             subtitle: "把复杂内容说清楚",
             iconName: "doc.text.magnifyingglass",
-            tint: .blue,
+            tint: AIAssistantPalette.accent,
             displayText: "解释今天最需要注意的说明书内容",
             requestText: "请只基于 App 内授权共享的说明书摘要卡片，用两三句整理今天需要复核的说明书栏目。不要推断最终风险结论，不要建议停药、暂停使用、换药或调整剂量。"
         ),
@@ -89,7 +95,7 @@ struct AIQuickActionsSection: View {
             title: "风险复核",
             subtitle: "按药物整理",
             iconName: "shield.lefthalf.filled",
-            tint: .purple,
+            tint: AIAssistantPalette.accent,
             displayText: "整理目前最需要复核的用药风险",
             requestText: "请只基于 App 内授权共享的风险提醒、药品信息和说明书摘要，整理目前最需要复核的用药风险。"
         ),
@@ -97,7 +103,7 @@ struct AIQuickActionsSection: View {
             title: "服药记录摘要",
             subtitle: "近期执行情况",
             iconName: "doc.text",
-            tint: .mint,
+            tint: AIAssistantPalette.accent,
             displayText: "生成一段近期服药记录摘要",
             requestText: "请只基于 App 内授权共享的药品、服药记录和风险提醒，生成一段适合复诊沟通的简短服药记录摘要。"
         ),
@@ -105,7 +111,7 @@ struct AIQuickActionsSection: View {
             title: "剂量变化回顾",
             subtitle: "时间段与记录",
             iconName: "arrow.triangle.2.circlepath",
-            tint: .cyan,
+            tint: AIAssistantPalette.accent,
             displayText: "回顾近期剂量变化和服药记录",
             requestText: "请只基于 App 内授权共享的剂量变化和服药记录，回顾近期剂量调整前后的记录变化。"
         ),
@@ -113,7 +119,7 @@ struct AIQuickActionsSection: View {
             title: "图片录入建议",
             subtitle: "药盒、药品、说明书",
             iconName: "photo.on.rectangle",
-            tint: .pink,
+            tint: AIAssistantPalette.accent,
             displayText: "告诉我如何整理药品图片信息",
             requestText: "我准备上传药盒、药品或说明书图片。请只回答如何在本 App 内识别、录入、核对或整理这些信息。"
         )
@@ -296,13 +302,27 @@ struct AIQuickActionButton: View {
 
 struct AIEmptyConversationView: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("开始一次用药咨询", systemImage: "bubble.left.and.bubble.right")
+        VStack(alignment: .leading, spacing: 12) {
+            Image(systemName: "bubble.left.and.text.bubble.right")
+                .font(.title2.weight(.medium))
+                .foregroundStyle(AIAssistantPalette.accent)
+                .frame(width: 48, height: 48)
+                .background(AIAssistantPalette.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 16))
+
+            Text("开始一次用药咨询")
                 .font(.headline)
+            Text("可以询问已授权的用药记录、风险提醒或说明书摘要。重要用药决定请咨询医生或药师。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(16)
+        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background, in: RoundedRectangle(cornerRadius: 8))
+        .background(.background, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+        )
     }
 }
 
@@ -338,9 +358,9 @@ struct LocalStreamingResponseView: View {
                     Text(answer)
                         .font(.body)
                         .foregroundStyle(.primary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 13)
+                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
             }
             Spacer(minLength: 42)
@@ -366,40 +386,45 @@ struct AIMessageBubble: View {
     let message: StoredAIChatMessage
     let archive: () -> Void
 
+    private static let assistantSafetyNote = "模型可能出现遗漏、误解或幻觉；请结合自身情况甄别，重要用药决定以医生或药师意见为准。"
+
     private var tint: Color {
         switch message.role {
         case .user:
-            .blue
+            AIAssistantPalette.accent
         case .assistant:
-            .green
+            AIAssistantPalette.accent
         case .system:
-            .orange
+            .secondary
         }
     }
 
     private var accessibilityLabelText: String {
-        [
+        var parts = [
             messageDisplayName(for: message),
             AppFormatters.time.string(from: message.createdAt),
             messageDisplayText(for: message)
         ]
-        .joined(separator: "，")
+        if message.role == .assistant {
+            parts.append(Self.assistantSafetyNote)
+        }
+        return parts.joined(separator: "，")
     }
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             if message.role == .user {
-                Spacer()
+                Spacer(minLength: 42)
             }
 
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 5) {
+            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 7) {
                 HStack(spacing: 6) {
                     if message.role != .user {
                         Image(systemName: iconName)
                     }
-                Text(messageDisplayName(for: message))
-                Text(AppFormatters.time.string(from: message.createdAt))
-                    .foregroundStyle(.secondary)
+                    Text(messageDisplayName(for: message))
+                    Text(AppFormatters.time.string(from: message.createdAt))
+                        .foregroundStyle(.secondary)
                 }
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(tint)
@@ -412,20 +437,37 @@ struct AIMessageBubble: View {
                 Text(messageDisplayText(for: message))
                     .font(.body)
                     .foregroundStyle(message.role == .user ? .white : .primary)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(bubbleBackground, in: RoundedRectangle(cornerRadius: 8))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 13)
+                    .background(bubbleBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(message.role == .user ? Color.clear : Color.primary.opacity(0.06), lineWidth: 1)
+                    )
                     .accessibilityHidden(true)
 
                 if message.role == .assistant {
-                    Text("模型可能出现遗漏、误解或幻觉；请结合自身情况甄别，重要用药决定以医生或药师意见为准。")
+                    Text(Self.assistantSafetyNote)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 4)
                         .accessibilityHidden(true)
+
+                    Button {
+                        UIPasteboard.general.string = messageDisplayText(for: message)
+                    } label: {
+                        Label("复制回答", systemImage: "doc.on.doc")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .frame(minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHidden(true)
                 }
             }
+            .frame(maxWidth: message.role == .user ? 480 : 560, alignment: message.role == .user ? .trailing : .leading)
 
             if message.role != .user {
                 Spacer(minLength: 42)
@@ -469,11 +511,11 @@ struct AIMessageBubble: View {
     private var bubbleBackground: Color {
         switch message.role {
         case .user:
-            .blue
+            AIAssistantPalette.userBubble
         case .assistant:
             Color(.secondarySystemGroupedBackground)
         case .system:
-            .orange.opacity(0.14)
+            Color(.tertiarySystemGroupedBackground)
         }
     }
 }
@@ -633,9 +675,9 @@ struct AIThinkingBubble: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+            .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
             )
             Spacer(minLength: 42)

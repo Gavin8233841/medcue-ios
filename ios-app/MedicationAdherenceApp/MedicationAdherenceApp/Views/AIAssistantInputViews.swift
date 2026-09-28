@@ -23,73 +23,107 @@ struct AIChatInputBar: View {
     }
 
     private var accentTint: Color {
-        Color(red: 0.28, green: 0.48, blue: 0.62)
+        AIAssistantPalette.accent
+    }
+
+    private var isExpanded: Bool {
+        isFocused.wrappedValue || !text.isEmpty || !isEnabled
     }
 
     var body: some View {
         let inputTint = accentTint
 
-        HStack(alignment: .center, spacing: 8) {
-            PhotosPicker(selection: $selectedImageItem, matching: .images) {
-                AIChatAccessoryIcon(
-                    systemName: isReadingImage ? "hourglass" : "photo.badge.plus",
-                    accessibilityLabel: "发送图片",
-                    tint: inputTint,
-                    isEnabled: isEnabled && !isSending && !isReadingImage
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(!isEnabled || isSending || isReadingImage)
-
-            TextField(isEnabled ? "询问用药记录、风险提示或说明书摘要" : "确认使用说明后开启咨询", text: $text, axis: .vertical)
-                .lineLimit(1...5)
-                .textInputAutocapitalization(.never)
-                .focused(isFocused)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .frame(minHeight: 44)
-                .background(Color(.systemBackground).opacity(0.92), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(accentTint.opacity(isFocused.wrappedValue ? 0.28 : 0.10), lineWidth: 1)
-                )
-                .disabled(!isEnabled || isSending)
-                .accessibilityIdentifier(AppAccessibilityID.assistantInput)
-                .toolbar {
-                    ToolbarItemGroup(placement: .keyboard) {
-                        Spacer()
-                        Button("收起") {
-                            dismissKeyboard()
-                        }
-                        .disabled(!isFocused.wrappedValue)
-                    }
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 8) {
+                if !isExpanded {
+                    imagePicker(tint: inputTint)
                 }
 
-            Button {
-                isEnabled ? send() : showDisclaimer()
-            } label: {
-                AIChatAccessoryIcon(
-                    systemName: isSending ? "hourglass" : "arrow.up",
-                    accessibilityLabel: isEnabled ? "发送" : "查看使用说明",
-                    tint: inputTint,
-                    isEnabled: isEnabled ? canSend : true,
-                    isProminent: true
-                )
+                // Keep one TextField at the same place in the tree as the composer grows.
+                TextField(isEnabled ? "询问用药记录、风险提示或说明书摘要" : "确认使用说明后开启咨询", text: $text, axis: .vertical)
+                    .lineLimit(1...5)
+                    .textInputAutocapitalization(.never)
+                    .focused(isFocused)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .frame(minHeight: 44)
+                    .disabled(!isEnabled || isSending)
+                    .accessibilityIdentifier(AppAccessibilityID.assistantInput)
+                    .toolbar {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button("收起") {
+                                dismissKeyboard()
+                            }
+                            .disabled(!isFocused.wrappedValue)
+                        }
+                    }
+
+                if !isExpanded {
+                    sendButton(tint: inputTint)
+                }
             }
-            .buttonStyle(.plain)
-            .disabled(isSending || isReadingImage || (isEnabled && trimmedText.isEmpty))
-            .accessibilityIdentifier(AppAccessibilityID.assistantSend)
+            .padding(.horizontal, 6)
+            .frame(minHeight: 56)
+
+            if isExpanded {
+                HStack(spacing: 10) {
+                    imagePicker(tint: inputTint)
+
+                    Text(isEnabled ? "图片只在本机识别文字" : "请先查看使用说明")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Spacer(minLength: 4)
+                    sendButton(tint: inputTint)
+                }
+                .padding(.leading, 6)
+                .padding(.trailing, 6)
+                .padding(.bottom, 5)
+            }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: isExpanded ? 22 : 28, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(accentTint.opacity(0.14), lineWidth: 1)
+            RoundedRectangle(cornerRadius: isExpanded ? 22 : 28, style: .continuous)
+                .stroke(accentTint.opacity(isFocused.wrappedValue ? 0.30 : 0.14), lineWidth: 1)
         )
-        .shadow(color: accentTint.opacity(0.06), radius: 10, x: 0, y: 4)
+        .shadow(color: accentTint.opacity(0.09), radius: 12, x: 0, y: 5)
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
+        .animation(.easeOut(duration: 0.18), value: isExpanded)
+    }
+
+    private func imagePicker(tint: Color) -> some View {
+        PhotosPicker(selection: $selectedImageItem, matching: .images) {
+            AIChatAccessoryIcon(
+                systemName: isReadingImage ? "hourglass" : "photo.badge.plus",
+                accessibilityLabel: "识别药品图片文字",
+                tint: tint,
+                isEnabled: isEnabled && !isSending && !isReadingImage
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled || isSending || isReadingImage)
+        .accessibilityHint("选取后仅在本机识别文字，不会发送原图")
+    }
+
+    private func sendButton(tint: Color) -> some View {
+        Button {
+            isEnabled ? send() : showDisclaimer()
+        } label: {
+            AIChatAccessoryIcon(
+                systemName: isSending ? "hourglass" : "arrow.up",
+                accessibilityLabel: isEnabled ? "发送" : "查看使用说明",
+                tint: tint,
+                isEnabled: isEnabled ? canSend : true,
+                isProminent: true
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isSending || isReadingImage || (isEnabled && trimmedText.isEmpty))
+        .accessibilityIdentifier(AppAccessibilityID.assistantSend)
     }
 
     private func dismissKeyboard() {
