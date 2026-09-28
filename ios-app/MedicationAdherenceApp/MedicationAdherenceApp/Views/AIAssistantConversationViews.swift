@@ -139,21 +139,28 @@ struct AIQuickActionsSection: View {
                     isExpanded.toggle()
                 }
             } label: {
-                HStack(spacing: 10) {
-                    Text("快捷咨询")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                Group {
+                    if dynamicTypeSize.isAccessibilitySize {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("快捷咨询")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
 
-                    Spacer(minLength: 8)
+                            HStack(spacing: 10) {
+                                Spacer(minLength: 0)
+                                expansionLabel
+                            }
+                        }
+                    } else {
+                        HStack(spacing: 10) {
+                            Text("快捷咨询")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
 
-                    Text(isExpanded ? "收起" : "查看全部")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-
-                    Image(systemName: "chevron.down")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(isExpanded ? 0 : -90))
+                            Spacer(minLength: 8)
+                            expansionLabel
+                        }
+                    }
                 }
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
@@ -199,6 +206,17 @@ struct AIQuickActionsSection: View {
                 .transition(.opacity)
             }
         }
+    }
+
+    private var expansionLabel: some View {
+        HStack(spacing: 10) {
+            Text(isExpanded ? "收起" : "查看全部")
+                .font(.caption.weight(.semibold))
+            Image(systemName: "chevron.down")
+                .font(.caption.weight(.bold))
+                .rotationEffect(.degrees(isExpanded ? 0 : -90))
+        }
+        .foregroundStyle(.secondary)
     }
 }
 
