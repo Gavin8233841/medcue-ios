@@ -55,10 +55,73 @@ import Testing
     for message in [
         "把用量翻一番。",
         "下一次剂量翻倍。",
-        "以后每次加倍服用。"
+        "以后每次加倍服用。",
+        "请从明天起把用量翻倍。",
+        "建议把药量加倍。",
+        "把药量翻倍后再服用。",
+        "建议用量加倍。"
     ] {
         let review = MedicalAIResponseBoundaryGuard().review(message)
         #expect(review.blockedActionableInstruction)
+        #expect(review.flags.contains("dose-change"))
+        #expect(!review.displayMessage.contains(message))
+    }
+}
+
+@Test func medicalAIResponseBoundaryKeepsWarningsAgainstNewMultiplierPhrases() {
+    for message in [
+        "不要自行把用量翻倍，应先联系医生。",
+        "是否需要把药量加倍，应由医生判断。",
+        "不要把药量加倍。",
+        "请勿把用量翻倍。",
+        "别把药量加倍。",
+        "切勿把药量加倍。",
+        "不可把药量加倍。",
+        "不能把药量加倍。",
+        "能不能把药量加倍？",
+        "可以把药量加倍吗？",
+        "可以把药量加倍吗?",
+        "不建议把药量加倍。",
+        "你问“是否把药量加倍”应由医生判断。",
+        "用户问能否调整用量：答复是不应把药量加倍。",
+        "“把药量加倍”是错误建议，请咨询医生。",
+        "“请把药量加倍”是错误建议，请勿照做。",
+        "“把药量加倍”并不安全，请咨询医生。",
+        "「把药量加倍」是错误建议，请勿照做。",
+        "『把用量翻倍』不是正确建议，请咨询医生。",
+        "\"把药量加倍\"是错误建议，请咨询医生。",
+        "'把药量加倍'是错误建议，请咨询医生。",
+        "不要把药量加倍然后不要把用量翻倍。",
+        "你问“是否需要把用量翻倍然后把药量加倍”？"
+    ] {
+        let review = MedicalAIResponseBoundaryGuard().review(message)
+        #expect(!review.blockedActionableInstruction, "Blocked safety education: \(message)")
+        #expect(review.displayMessage.contains(message))
+    }
+}
+
+@Test func medicalAIResponseBoundaryDoesNotLetWarningOrQuestionMaskLaterMultiplierAdvice() {
+    for message in [
+        "不要自行把用量翻倍然后把药量加倍。",
+        "你问“是否需要把用量翻倍”随后把药量翻倍。",
+        "不要把药量加倍但是应该把用量翻倍。",
+        "请勿把用量翻倍再把药量加倍。",
+        "不要把药量加倍却把用量翻倍。",
+        "不要把药量加倍而应该把用量翻倍。",
+        "不要把药量加倍还要把用量翻倍。",
+        "你问是否把药量加倍却应该把用量翻倍。",
+        "你问是否要加量我认为把药量加倍。",
+        "用户问能否加量我答把药量加倍。",
+        "不要自行停药并把药量加倍。",
+        "不要自行停药之后把用量翻倍。",
+        "请把药量加倍好吗？",
+        "麻烦你把药量加倍好吗？",
+        "用户问能否调整用量：答复是把药量加倍。",
+        "用户问能否调整用量答复是把用量翻倍。",
+        "你问「是否把药量加倍」随后把用量翻倍。"
+    ] {
+        let review = MedicalAIResponseBoundaryGuard().review(message)
+        #expect(review.blockedActionableInstruction, "Missed later dose advice: \(message)")
         #expect(review.flags.contains("dose-change"))
         #expect(!review.displayMessage.contains(message))
     }
