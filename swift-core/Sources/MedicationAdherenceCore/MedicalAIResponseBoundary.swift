@@ -172,11 +172,13 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
                 let hasConditionalRiskPrefix = clauses.first.map {
                     $0.contains("如已有") || $0.contains("如出现")
                 } ?? false
-                return clauses.enumerated().map { index, rawClause in
+                return clauses.enumerated().flatMap { index, rawClause in
                     let clause = String(rawClause)
-                    let isRiskDescription = isConditionalRiskDescription(clause)
-                        || (index > 0 && hasConditionalRiskPrefix && isRiskLimitClause(clause))
-                    return (clause, isRiskDescription)
+                    return splitActionTransitions(clause).map { part in
+                        let isRiskDescription = isConditionalRiskDescription(part)
+                            || (index > 0 && hasConditionalRiskPrefix && isRiskLimitClause(part))
+                        return (part, isRiskDescription)
+                    }
                 }
             }
             .filter { !isNonActionableContext($0.text, isRiskDescription: $0.isRiskDescription) }
@@ -247,6 +249,36 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
             && !actionMarkers.contains { trimmed.contains($0) }
     }
 
+    private func splitActionTransitions(_ clause: String) -> [String] {
+        let transitions = ["但是", "然后", "随后", "接着", "而是", "并且", "同时", "或者", "再", "但", "也"]
+        let actionPrefixes = ["把", "将", "建议", "应", "可以", "必须", "要", "不要", "不应", "请勿", "不得", "立即", "马上", "改为", "调整"]
+        var parts: [String] = []
+        var start = clause.startIndex
+        var index = start
+        var insideQuote = false
+
+        while index < clause.endIndex {
+            if clause[index] == "“" { insideQuote = true }
+            if clause[index] == "”" { insideQuote = false }
+
+            if !insideQuote, let transition = transitions.first(where: { clause[index...].hasPrefix($0) }) {
+                let next = clause.index(index, offsetBy: transition.count)
+                if actionPrefixes.contains(where: { clause[next...].hasPrefix($0) }) {
+                    let part = clause[start..<index].trimmingCharacters(in: .whitespaces)
+                    if !part.isEmpty { parts.append(part) }
+                    start = next
+                    index = next
+                    continue
+                }
+            }
+            index = clause.index(after: index)
+        }
+
+        let finalPart = clause[start...].trimmingCharacters(in: .whitespaces)
+        if !finalPart.isEmpty { parts.append(finalPart) }
+        return parts
+    }
+
     private func isConditionalRiskDescription(_ statement: String) -> Bool {
         let conditions = ["如已有", "如出现"]
         return conditions.contains { statement.contains($0) }
@@ -294,6 +326,7 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
         }
         let markers = [
             "不要自行", "不应自行", "请勿自行", "不得擅自",
+            "不要把", "不应把", "请勿把", "不得把",
             "你问", "用户问", "问题是", "是否", "能否"
         ]
         return markers.contains { statement.contains($0) }

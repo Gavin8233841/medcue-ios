@@ -88,6 +88,20 @@ struct MedicalAIRequestOrchestratorTests {
     }
 
     @Test
+    func finalizerKeepsLaterMultiplierAdviceOutOfDisplayAndPersistence() throws {
+        for answer in [
+            "不要自行把用量翻倍然后把药量加倍。",
+            "你问“是否需要把用量翻倍”随后把药量翻倍。"
+        ] {
+            let finalized = try MedicalAIResponseFinalizer().finalize(answer: answer)
+            #expect(finalized.boundaryBlockedAction)
+            #expect(finalized.boundaryFlags.contains("dose-change"))
+            #expect(!finalized.displayMessage.contains(answer))
+            #expect(finalized.persistedMessage == finalized.displayMessage)
+        }
+    }
+
+    @Test
     func mismatchedResponseRequestIDIsRejected() async {
         let request = Self.request()
         let wrongResponse = MedicalAIResponse(

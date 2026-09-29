@@ -71,11 +71,29 @@ import Testing
 @Test func medicalAIResponseBoundaryKeepsWarningsAgainstNewMultiplierPhrases() {
     for message in [
         "不要自行把用量翻倍，应先联系医生。",
-        "是否需要把药量加倍，应由医生判断。"
+        "是否需要把药量加倍，应由医生判断。",
+        "不要把药量加倍。",
+        "请勿把用量翻倍。",
+        "不要把药量加倍然后不要把用量翻倍。",
+        "你问“是否需要把用量翻倍然后把药量加倍”？"
     ] {
         let review = MedicalAIResponseBoundaryGuard().review(message)
         #expect(!review.blockedActionableInstruction, "Blocked safety education: \(message)")
         #expect(review.displayMessage.contains(message))
+    }
+}
+
+@Test func medicalAIResponseBoundaryDoesNotLetWarningOrQuestionMaskLaterMultiplierAdvice() {
+    for message in [
+        "不要自行把用量翻倍然后把药量加倍。",
+        "你问“是否需要把用量翻倍”随后把药量翻倍。",
+        "不要把药量加倍但是应该把用量翻倍。",
+        "请勿把用量翻倍再把药量加倍。"
+    ] {
+        let review = MedicalAIResponseBoundaryGuard().review(message)
+        #expect(review.blockedActionableInstruction, "Missed later dose advice: \(message)")
+        #expect(review.flags.contains("dose-change"))
+        #expect(!review.displayMessage.contains(message))
     }
 }
 
