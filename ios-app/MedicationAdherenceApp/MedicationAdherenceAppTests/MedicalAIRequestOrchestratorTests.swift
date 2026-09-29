@@ -74,6 +74,20 @@ struct MedicalAIRequestOrchestratorTests {
     }
 
     @Test
+    func finalizerKeepsColloquialMultiplierAdviceOutOfDisplayAndPersistence() throws {
+        let finalized = try MedicalAIResponseFinalizer().finalize(
+            answer: "建议把药量加倍。",
+            thinking: "这个问题需要调整用量。"
+        )
+
+        #expect(finalized.boundaryBlockedAction)
+        #expect(finalized.boundaryFlags.contains("dose-change"))
+        #expect(!finalized.displayMessage.contains("药量加倍"))
+        #expect(finalized.thinking.isEmpty)
+        #expect(finalized.persistedMessage == finalized.displayMessage)
+    }
+
+    @Test
     func mismatchedResponseRequestIDIsRejected() async {
         let request = Self.request()
         let wrongResponse = MedicalAIResponse(
