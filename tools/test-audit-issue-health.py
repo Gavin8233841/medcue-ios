@@ -491,6 +491,21 @@ Check #77.
         self.assertNotIn("...", rendered)
         self.assertEqual(rendered.count("#"), 150)
 
+    def test_indented_code_blocks_do_not_trigger_reference_extraction(self) -> None:
+        """Optional: Four-space indented code blocks should not have their #N references extracted."""
+        text_with_indented_code = """Some explanation text.
+
+    # This is a code comment
+    fix_issue(#42)  # A reference in code
+    return #99
+
+Regular text with real #1 reference."""
+        references = audit.extract_local_references(text_with_indented_code, "owner/repo")
+        # Should only find #1 from regular text, not #42 or #99 from code block
+        self.assertIn(1, references)
+        self.assertNotIn(42, references)
+        self.assertNotIn(99, references)
+
 
 class AnalysisAndReportTests(unittest.TestCase):
     def test_analysis_covers_labels_forms_assignees_comments_and_milestones(self) -> None:

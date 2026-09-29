@@ -633,17 +633,20 @@ def response_present(values: Sequence[str]) -> bool:
 
 
 def extract_local_references(text: str, repository: str) -> set[int]:
+    # Strip four-space indented code blocks to prevent false positives
+    text_without_indented_code = re.sub(r"(?m)^(?:    |\t).*$", "", text)
+
     escaped_repository = re.escape(repository)
-    references = {int(value) for value in HASH_REFERENCE_RE.findall(text)}
+    references = {int(value) for value in HASH_REFERENCE_RE.findall(text_without_indented_code)}
     references.update(
         int(value)
         for value in re.findall(
-            rf"https://github\.com/{escaped_repository}/issues/(\d+)\b", text, flags=re.IGNORECASE
+            rf"https://github\.com/{escaped_repository}/issues/(\d+)\b", text_without_indented_code, flags=re.IGNORECASE
         )
     )
     references.update(
         int(value)
-        for value in re.findall(rf"\b{escaped_repository}#(\d+)\b", text, flags=re.IGNORECASE)
+        for value in re.findall(rf"\b{escaped_repository}#(\d+)\b", text_without_indented_code, flags=re.IGNORECASE)
     )
     return references
 
