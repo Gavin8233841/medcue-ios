@@ -174,7 +174,7 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
     }
 
     private func actionableInstructionFlags(in message: String) -> [String] {
-        let treatmentDecisionStatements = message
+        let treatmentDecisionStatements = canonicalSafetyQuotes(in: message)
             .split(whereSeparator: { "。！？?；;\n".contains($0) })
             .flatMap { rawStatement -> [(text: String, isRiskDescription: Bool)] in
                 let statement = String(rawStatement)
@@ -262,7 +262,7 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
 
     private func splitActionTransitions(_ clause: String) -> [String] {
         let transitions = ["但是", "然后", "随后", "接着", "而是", "并且", "同时", "或者", "不过", "可是", "然而", "转而", "之后", "再", "但", "也", "却", "而", "还", "并", "后"]
-        let answerFrames = ["我的建议是", "我的看法是", "我认为", "我建议", "我觉得", "我主张", "我答", "结论是", "答案是"]
+        let answerFrames = ["我的建议是", "我的看法是", "我认为", "我建议", "我觉得", "我主张", "我答", "答复是", "回答是", "结论是", "答案是"]
         let actionPrefixes = ["把", "将", "建议", "应", "可以", "必须", "要", "不要", "不应", "请勿", "不得", "立即", "马上", "改为", "调整"]
         var parts: [String] = []
         var start = clause.startIndex
@@ -273,6 +273,13 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
             if clause[index] == "“" { insideQuote = true }
             if clause[index] == "”" { insideQuote = false }
 
+            if !insideQuote && (clause[index] == "：" || clause[index] == ":") {
+                let part = clause[start..<index].trimmingCharacters(in: .whitespaces)
+                if !part.isEmpty { parts.append(part) }
+                index = clause.index(after: index)
+                start = index
+                continue
+            }
             if !insideQuote, let frame = answerFrames.first(where: { clause[index...].hasPrefix($0) }) {
                 let part = clause[start..<index].trimmingCharacters(in: .whitespaces)
                 if !part.isEmpty { parts.append(part) }
@@ -296,6 +303,37 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
         let finalPart = clause[start...].trimmingCharacters(in: .whitespaces)
         if !finalPart.isEmpty { parts.append(finalPart) }
         return parts
+    }
+
+    private func canonicalSafetyQuotes(in message: String) -> String {
+        var result = message
+            .replacingOccurrences(of: "「", with: "“")
+            .replacingOccurrences(of: "」", with: "”")
+            .replacingOccurrences(of: "『", with: "“")
+            .replacingOccurrences(of: "』", with: "”")
+            .replacingOccurrences(of: "‘", with: "“")
+            .replacingOccurrences(of: "’", with: "”")
+
+        for delimiter: Character in ["\"", "'"] {
+            let characters = Array(result)
+            var rebuilt = ""
+            var index = 0
+            while index < characters.count {
+                if characters[index] == delimiter,
+                   let closing = ((index + 1)..<characters.count).first(where: { characters[$0] == delimiter }) {
+                    let quoted = String(characters[(index + 1)..<closing])
+                    if Self.doseMultiplierPhrases.contains(where: { quoted.contains($0) }) {
+                        rebuilt += "“\(quoted)”"
+                        index = closing + 1
+                        continue
+                    }
+                }
+                rebuilt.append(characters[index])
+                index += 1
+            }
+            result = rebuilt
+        }
+        return result
     }
 
     private func hasUnnegatedMultiplier(in statement: String) -> Bool {
