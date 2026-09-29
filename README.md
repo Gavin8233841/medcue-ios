@@ -55,14 +55,14 @@ Open:
 
 `ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj`
 
-The source repository intentionally omits the local llama binary. For a clean
-clone, build the rest of the product against the CI stub:
+The source repository intentionally omits the local llama binary. Ordinary
+builds use the local-inference stub by default:
 
 ```zsh
-MEDCUE_DISABLE_LOCAL_LLAMA=1 xcodebuild \
+xcodebuild \
   -project ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj \
   -scheme MedicationAdherenceApp \
-  -configuration Debug \
+  -configuration Release \
   -destination 'generic/platform=iOS Simulator' \
   CODE_SIGNING_ALLOWED=NO \
   -jobs 1 \
@@ -72,7 +72,7 @@ MEDCUE_DISABLE_LOCAL_LLAMA=1 xcodebuild \
 To link the real on-device model runtime, first provide a local
 `llama.xcframework` described in
 [`ios-app/MedicationAdherenceApp/Frameworks/README.md`](ios-app/MedicationAdherenceApp/Frameworks/README.md),
-then build without `MEDCUE_DISABLE_LOCAL_LLAMA`. The stub path verifies the rest
+then build with `MEDCUE_ENABLE_LOCAL_LLAMA=1`. The stub path verifies the rest
 of the source and integration boundary; it does not verify the real llama binary
 or on-device inference. Repository automation does not yet verify the binary's
 source or digest, so those checks must be completed separately before treating
@@ -93,13 +93,13 @@ Run the complete native validation gate from a clean source clone without the
 local binary:
 
 ```zsh
-MEDCUE_DISABLE_LOCAL_LLAMA=1 tools/verify-native.sh
+tools/verify-native.sh
 ```
 
 The native gate covers domain tests, hosted persistence and application tests, primary-navigation and first-launch UI smoke tests, unsigned Release builds, Watch builds, project preflight checks, and sensitive-artifact assertions.
 
-With a locally supplied XCFramework installed, omit
-`MEDCUE_DISABLE_LOCAL_LLAMA` to link it during the gate. Real inference
+With a locally supplied XCFramework installed, set
+`MEDCUE_ENABLE_LOCAL_LLAMA=1` to link it during the gate. Real inference
 additionally requires the ignored GGUF model and the explicit smoke procedure;
 neither the CI stub nor a successful link build proves real-model behavior.
 

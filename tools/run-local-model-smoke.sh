@@ -17,6 +17,11 @@ EXPECTED_MODEL_NAME="MiniCPM4-0.5B-QAT-Int4_gptq_aware_q4_0.gguf"
 MIN_MODEL_BYTES=$((200 * 1024 * 1024))
 MAX_MODEL_BYTES=$((350 * 1024 * 1024))
 
+if [[ "${MEDCUE_DISABLE_LOCAL_LLAMA:-0}" == "1" ]]; then
+  echo "Local-model smoke requires llama; unset MEDCUE_DISABLE_LOCAL_LLAMA before running it." >&2
+  exit 2
+fi
+
 if [[ ! -d "$DEVELOPER_DIR" ]]; then
   echo "DEVELOPER_DIR does not exist: $DEVELOPER_DIR" >&2
   exit 2
@@ -39,7 +44,7 @@ if [[ -n "$LOCAL_MODEL_GGUF" ]]; then
 fi
 
 echo "Building $SCHEME for $SIMULATOR_NAME..."
-xcodebuild \
+MEDCUE_ENABLE_LOCAL_LLAMA=1 xcodebuild \
   -project "$PROJECT_PATH" \
   -scheme "$SCHEME" \
   -configuration Debug \

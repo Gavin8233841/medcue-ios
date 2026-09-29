@@ -9,7 +9,7 @@ Use only a dedicated clean test installation and fictional, non-medication-speci
 ## Prerequisites
 
 1. Supply the optional `llama.xcframework` in the ignored `ios-app/MedicationAdherenceApp/Frameworks/` location. The repository's `tools/install-llama-xcframework.sh` names the official llama.cpp `b9596` XCFramework release. Verify the source archive against the publisher's release-asset digest before trusting the binary; a successful link alone does not establish provenance or inference behavior.
-2. Build with the real llama runtime. CI sets `MEDCUE_DISABLE_LOCAL_LLAMA=1` and therefore does not test it. Allow at least the model manifest's recommended 700 MB of free space in the test environment.
+2. Build with the real llama runtime by setting `MEDCUE_ENABLE_LOCAL_LLAMA=1`. Ordinary builds use the stub, and CI explicitly sets `MEDCUE_DISABLE_LOCAL_LLAMA=1`; neither tests the runtime. Allow at least the model manifest's recommended 700 MB of free space in the test environment.
 3. Keep the model file out of the source tree. `LocalAIModelManifest.miniCPM4` pins the upstream HTTPS source, exact byte count and SHA-256 digest. If a mirror is evaluated, it must serve those **same bytes** over HTTPS and support a complete download; do not weaken the installer check or change the selected model.
 4. Ensure the test device or Simulator has a network path for the initial download and a separately controllable offline state for the later response. Do not use real medication records or enable cloud AI for this test.
 

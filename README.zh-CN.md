@@ -53,20 +53,20 @@ MedCue 用于用药安全支持和日常管理，不诊断疾病、不处方，�
 
 `ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj`
 
-源码仓库有意不包含本地 llama 二进制文件。干净克隆后，可以使用 CI stub 构建其余产品：
+源码仓库有意不包含本地 llama 二进制文件。普通构建默认使用本地推理 stub：
 
 ```zsh
-MEDCUE_DISABLE_LOCAL_LLAMA=1 xcodebuild \
+xcodebuild \
   -project ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj \
   -scheme MedicationAdherenceApp \
-  -configuration Debug \
+  -configuration Release \
   -destination 'generic/platform=iOS Simulator' \
   CODE_SIGNING_ALLOWED=NO \
   -jobs 1 \
   build
 ```
 
-如果要连接真机本地模型运行时，请先按照 [`ios-app/MedicationAdherenceApp/Frameworks/README.md`](ios-app/MedicationAdherenceApp/Frameworks/README.md) 提供本地 `llama.xcframework`，然后去掉 `MEDCUE_DISABLE_LOCAL_LLAMA`。stub 路径只验证其余源码和集成边界，不验证真实 llama 二进制或真机推理。仓库自动化目前还没有验证该框架的来源或摘要；在将它视为可信依赖前，必须单独完成这些检查。
+如果要连接真机本地模型运行时，请先按照 [`ios-app/MedicationAdherenceApp/Frameworks/README.md`](ios-app/MedicationAdherenceApp/Frameworks/README.md) 提供本地 `llama.xcframework`，构建时设置 `MEDCUE_ENABLE_LOCAL_LLAMA=1`。stub 路径只验证其余源码和集成边界，不验证真实 llama 二进制或真机推理。仓库自动化目前还没有验证该框架的来源或摘要；在将它视为可信依赖前，必须单独完成这些检查。
 
 真机运行时，请为主应用及其扩展选择同一个开发团队，然后在 Xcode 中运行共享的 `MedicationAdherenceApp` scheme。
 
@@ -82,12 +82,12 @@ swift test
 在不包含本地二进制的干净源码克隆中运行完整原生验证门禁：
 
 ```zsh
-MEDCUE_DISABLE_LOCAL_LLAMA=1 tools/verify-native.sh
+tools/verify-native.sh
 ```
 
 原生门禁覆盖领域测试、托管持久化和应用测试、主导航与首次启动 UI 冒烟测试、未签名 Release 构建、Watch 构建、项目预检和敏感产物断言。
 
-连接本地 XCFramework 后，可在门禁中去掉 `MEDCUE_DISABLE_LOCAL_LLAMA`。真实推理还需要被忽略的 GGUF 模型和明确的冒烟流程；CI stub 或成功的链接构建都不能证明真实模型行为。
+连接本地 XCFramework 后，可在门禁中设置 `MEDCUE_ENABLE_LOCAL_LLAMA=1`。真实推理还需要被忽略的 GGUF 模型和明确的冒烟流程；CI stub 或成功的链接构建都不能证明真实模型行为。
 
 ## 仓库结构
 
