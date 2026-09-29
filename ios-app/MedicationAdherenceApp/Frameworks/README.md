@@ -18,4 +18,5 @@ or:
 LLAMA_XCFRAMEWORK_DIR=/path/to/llama.xcframework tools/install-llama-xcframework.sh
 ```
 
-Do not place partial downloads here. The app only treats `Frameworks/llama.xcframework` as an installable runtime artifact after the full framework directory exists.
+Do not place partial downloads here. The package enables local inference only
+when the framework manifest and iOS device and Simulator binaries are present.

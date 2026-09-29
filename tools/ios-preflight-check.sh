@@ -188,8 +188,10 @@ require_file "$LOCAL_MODEL_RUNTIME" "Local model runtime adapter"
 require_file "$LLAMA_PACKAGE_MANIFEST" "Local llama Swift package manifest"
 require_file "$LLAMA_INSTALL_SCRIPT" "llama.xcframework install script"
 require_file "$LOCAL_MODEL_SMOKE_SCRIPT" "Local model smoke script"
-if [[ -d "$LLAMA_FRAMEWORK" ]]; then
+if [[ -f "$LLAMA_FRAMEWORK/Info.plist" && -f "$LLAMA_FRAMEWORK/ios-arm64/llama.framework/llama" && -f "$LLAMA_FRAMEWORK/ios-arm64_x86_64-simulator/llama.framework/llama" ]]; then
     pass "llama.xcframework installed"
+elif [[ -e "$LLAMA_FRAMEWORK" ]]; then
+    warn "Optional llama.xcframework is incomplete; local inference uses the unavailable stub"
 else
     pass "Optional llama.xcframework absent; local inference uses the unavailable stub"
 fi

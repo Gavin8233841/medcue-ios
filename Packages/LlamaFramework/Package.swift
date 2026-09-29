@@ -7,8 +7,16 @@ let frameworkPath = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent()
     .appendingPathComponent("../../ios-app/MedicationAdherenceApp/Frameworks/llama.xcframework")
     .standardizedFileURL
+let requiredFrameworkFiles = [
+    "Info.plist",
+    "ios-arm64/llama.framework/llama",
+    "ios-arm64_x86_64-simulator/llama.framework/llama",
+]
+let frameworkInstalled = requiredFrameworkFiles.allSatisfy {
+    FileManager.default.fileExists(atPath: frameworkPath.appendingPathComponent($0).path)
+}
 let localLlamaDisabled = ProcessInfo.processInfo.environment["MEDCUE_DISABLE_LOCAL_LLAMA"] == "1"
-    || !FileManager.default.fileExists(atPath: frameworkPath.appendingPathComponent("Info.plist").path)
+    || !frameworkInstalled
 let llamaProductTargets = localLlamaDisabled ? ["LlamaFrameworkStub"] : ["llama"]
 let llamaTargets: [Target] = localLlamaDisabled
     ? [
