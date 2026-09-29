@@ -83,6 +83,8 @@ import Testing
         "可以把药量加倍吗?",
         "不建议把药量加倍。",
         "你问“是否把药量加倍”应由医生判断。",
+        "“把药量加倍”是错误建议，请咨询医生。",
+        "“请把药量加倍”是错误建议，请勿照做。",
         "不要把药量加倍然后不要把用量翻倍。",
         "你问“是否需要把用量翻倍然后把药量加倍”？"
     ] {
@@ -103,7 +105,10 @@ import Testing
         "不要把药量加倍还要把用量翻倍。",
         "你问是否把药量加倍却应该把用量翻倍。",
         "你问是否要加量我认为把药量加倍。",
-        "用户问能否加量我答把药量加倍。"
+        "用户问能否加量我答把药量加倍。",
+        "不要自行停药并把药量加倍。",
+        "不要自行停药之后把用量翻倍。",
+        "请把药量加倍好吗？"
     ] {
         let review = MedicalAIResponseBoundaryGuard().review(message)
         #expect(review.blockedActionableInstruction, "Missed later dose advice: \(message)")

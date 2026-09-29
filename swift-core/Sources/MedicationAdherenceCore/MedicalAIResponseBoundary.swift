@@ -261,7 +261,7 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
     }
 
     private func splitActionTransitions(_ clause: String) -> [String] {
-        let transitions = ["但是", "然后", "随后", "接着", "而是", "并且", "同时", "或者", "不过", "可是", "然而", "转而", "再", "但", "也", "却", "而", "还"]
+        let transitions = ["但是", "然后", "随后", "接着", "而是", "并且", "同时", "或者", "不过", "可是", "然而", "转而", "之后", "再", "但", "也", "却", "而", "还", "并", "后"]
         let answerFrames = ["我的建议是", "我的看法是", "我认为", "我建议", "我觉得", "我主张", "我答", "结论是", "答案是"]
         let actionPrefixes = ["把", "将", "建议", "应", "可以", "必须", "要", "不要", "不应", "请勿", "不得", "立即", "马上", "改为", "调整"]
         var parts: [String] = []
@@ -302,15 +302,22 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
         var insideQuote = false
         var previousMatchEnd = statement.startIndex
         var index = statement.startIndex
-        let isQuestion = statement.trimmingCharacters(in: .whitespaces).hasSuffix("吗")
+        let isQuestion = isNonImperativeQuestion(statement)
 
         while index < statement.endIndex {
             if statement[index] == "“" { insideQuote = true }
             if statement[index] == "”" { insideQuote = false }
 
             if let phrase = Self.doseMultiplierPhrases.first(where: { statement[index...].hasPrefix($0) }) {
-                let prefix = statement[previousMatchEnd..<index]
-                let hasLocalBoundary = Self.nonActionableMultiplierMarkers.contains { prefix.contains($0) }
+                let prefix = String(statement[previousMatchEnd..<index])
+                let lastBoundaryEnd = Self.nonActionableMultiplierMarkers
+                    .compactMap { prefix.range(of: $0, options: .backwards)?.upperBound }
+                    .max()
+                let interveningActions = ["停药", "停用", "换药", "加量", "减量", "然后", "随后", "之后", "并", "却", "而", "还", "我认为", "我建议", "我答"]
+                let hasLocalBoundary = lastBoundaryEnd.map { boundaryEnd in
+                    let trailing = prefix[boundaryEnd...]
+                    return !interveningActions.contains { trailing.contains($0) }
+                } ?? false
                 if !insideQuote && !hasLocalBoundary && !isQuestion {
                     return true
                 }
@@ -321,6 +328,12 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
             index = statement.index(after: index)
         }
         return false
+    }
+
+    private func isNonImperativeQuestion(_ statement: String) -> Bool {
+        let trimmed = statement.trimmingCharacters(in: .whitespaces)
+        let imperativePrefixes = ["请把", "请将", "请你把", "请您把", "帮我把", "把", "将", "建议", "应", "必须", "立即", "马上"]
+        return trimmed.hasSuffix("吗") && !imperativePrefixes.contains { trimmed.hasPrefix($0) }
     }
 
     private func isConditionalRiskDescription(_ statement: String) -> Bool {
@@ -353,6 +366,10 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
             if !actionableInstructionFlags(in: String(followingText)).isEmpty {
                 return false
             }
+            let safetyDescriptions = ["是错误建议", "不是正确建议", "请勿照做", "不要照做", "应由医生判断"]
+            if safetyDescriptions.contains(where: { followingText.contains($0) }) {
+                return true
+            }
         }
         let laterAdvice = [
             "但建议", "但可以", "不过建议", "不过可以", "随后建议", "并建议",
@@ -367,7 +384,7 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
             && !lowercased.contains(" then take ") {
             return true
         }
-        return lowercased.hasSuffix("吗")
+        return isNonImperativeQuestion(statement)
             || Self.nonActionableMultiplierMarkers.contains { statement.contains($0) }
     }
 

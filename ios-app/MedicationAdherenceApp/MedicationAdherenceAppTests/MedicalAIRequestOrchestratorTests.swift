@@ -93,7 +93,9 @@ struct MedicalAIRequestOrchestratorTests {
             "不要自行把用量翻倍然后把药量加倍。",
             "你问“是否需要把用量翻倍”随后把药量翻倍。",
             "不要把药量加倍却把用量翻倍。",
-            "你问是否要加量我认为把药量加倍。"
+            "你问是否要加量我认为把药量加倍。",
+            "不要自行停药并把药量加倍。",
+            "请把药量加倍好吗？"
         ] {
             let finalized = try MedicalAIResponseFinalizer().finalize(answer: answer)
             #expect(finalized.boundaryBlockedAction)
