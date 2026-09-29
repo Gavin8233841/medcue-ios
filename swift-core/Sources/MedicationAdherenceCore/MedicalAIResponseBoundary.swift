@@ -332,8 +332,12 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
 
     private func isNonImperativeQuestion(_ statement: String) -> Bool {
         let trimmed = statement.trimmingCharacters(in: .whitespaces)
-        let imperativePrefixes = ["请把", "请将", "请你把", "请您把", "帮我把", "把", "将", "建议", "应", "必须", "立即", "马上"]
-        return trimmed.hasSuffix("吗") && !imperativePrefixes.contains { trimmed.hasPrefix($0) }
+        let questionPrefixes = [
+            "是否", "能否", "能不能", "可否", "可以", "能", "需要", "要不要", "该不该",
+            "我是否", "我能否", "我能不能", "我可以", "我能", "我该不该",
+            "你问", "用户问", "请问", "药量可以", "用量可以", "剂量可以"
+        ]
+        return trimmed.hasSuffix("吗") && questionPrefixes.contains { trimmed.hasPrefix($0) }
     }
 
     private func isConditionalRiskDescription(_ statement: String) -> Bool {
@@ -366,7 +370,10 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
             if !actionableInstructionFlags(in: String(followingText)).isEmpty {
                 return false
             }
-            let safetyDescriptions = ["是错误建议", "不是正确建议", "请勿照做", "不要照做", "应由医生判断"]
+            let safetyDescriptions = [
+                "是错误建议", "不是正确建议", "请勿照做", "不要照做",
+                "应由医生判断", "并不安全", "不安全", "不可取", "有风险"
+            ]
             if safetyDescriptions.contains(where: { followingText.contains($0) }) {
                 return true
             }
