@@ -191,7 +191,7 @@ require_file "$LOCAL_MODEL_SMOKE_SCRIPT" "Local model smoke script"
 if [[ -d "$LLAMA_FRAMEWORK" ]]; then
     pass "llama.xcframework installed"
 else
-    warn "llama.xcframework missing; offline model responses stay disabled until installed"
+    pass "Optional llama.xcframework absent; local inference uses the unavailable stub"
 fi
 if [[ -f "$LOCAL_MODEL_STORE" ]]; then
     require_text "$LOCAL_MODEL_STORE" "MiniCPM4-0.5B-QAT-Int4_gptq_aware_q4_0.gguf" "MiniCPM4 GGUF filename registered"

@@ -3,7 +3,12 @@
 import Foundation
 import PackageDescription
 
+let frameworkPath = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()
+    .appendingPathComponent("../../ios-app/MedicationAdherenceApp/Frameworks/llama.xcframework")
+    .standardizedFileURL
 let localLlamaDisabled = ProcessInfo.processInfo.environment["MEDCUE_DISABLE_LOCAL_LLAMA"] == "1"
+    || !FileManager.default.fileExists(atPath: frameworkPath.appendingPathComponent("Info.plist").path)
 let llamaProductTargets = localLlamaDisabled ? ["LlamaFrameworkStub"] : ["llama"]
 let llamaTargets: [Target] = localLlamaDisabled
     ? [
