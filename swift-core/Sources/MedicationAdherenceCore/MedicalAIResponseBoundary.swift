@@ -24,6 +24,16 @@ public struct MedicalAIResponseBoundaryReview: Sendable, Equatable {
 
 public struct MedicalAIResponseBoundaryGuard: Sendable {
     public static let safetyNote = "以上内容仅用于用药风险提示和复诊沟通，不能替代医生或药师判断。"
+    private static let doseMultiplierPhrases = [
+        "剂量加倍", "用量翻一番", "剂量翻倍", "加倍服用",
+        "用量翻倍", "用量加倍", "药量翻倍", "药量加倍"
+    ]
+    private static let nonActionableMultiplierMarkers = [
+        "不要自行", "不应自行", "请勿自行", "不得擅自",
+        "不要把", "不应把", "请勿把", "不得把",
+        "别把", "切勿把", "不可把", "不能把",
+        "你问", "用户问", "问题是", "是否", "能否", "能不能"
+    ]
 
     public init() {}
 
@@ -181,7 +191,10 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
                     }
                 }
             }
-            .filter { !isNonActionableContext($0.text, isRiskDescription: $0.isRiskDescription) }
+            .filter {
+                !isNonActionableContext($0.text, isRiskDescription: $0.isRiskDescription)
+                    || hasUnnegatedMultiplier(in: $0.text)
+            }
         let checks: [(String, [String])] = [
             ("diagnosis", ["可以诊断为", "可诊断为", "诊断为", "确诊为", "你患有", "你得了", "就是患有"]),
             ("prescription", [
@@ -202,10 +215,8 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
             ("dose-change", [
                 "调整剂量为", "调整剂量", "剂量改为", "剂量增加到", "剂量减少到",
                 "增加剂量", "减少剂量", "加大剂量", "降低剂量", "加量至", "减量至",
-                "逐渐减量", "逐步减量", "渐减剂量", "递减剂量", "每次改为", "剂量加倍",
-                "用量翻一番", "剂量翻倍", "加倍服用",
-                "用量翻倍", "用量加倍", "药量翻倍", "药量加倍"
-            ])
+                "逐渐减量", "逐步减量", "渐减剂量", "递减剂量", "每次改为"
+            ] + Self.doseMultiplierPhrases)
         ]
 
         var flags = checks.compactMap { flag, phrases in
@@ -250,7 +261,7 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
     }
 
     private func splitActionTransitions(_ clause: String) -> [String] {
-        let transitions = ["但是", "然后", "随后", "接着", "而是", "并且", "同时", "或者", "再", "但", "也"]
+        let transitions = ["但是", "然后", "随后", "接着", "而是", "并且", "同时", "或者", "不过", "可是", "然而", "转而", "再", "但", "也", "却", "而", "还"]
         let actionPrefixes = ["把", "将", "建议", "应", "可以", "必须", "要", "不要", "不应", "请勿", "不得", "立即", "马上", "改为", "调整"]
         var parts: [String] = []
         var start = clause.startIndex
@@ -277,6 +288,31 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
         let finalPart = clause[start...].trimmingCharacters(in: .whitespaces)
         if !finalPart.isEmpty { parts.append(finalPart) }
         return parts
+    }
+
+    private func hasUnnegatedMultiplier(in statement: String) -> Bool {
+        var insideQuote = false
+        var previousMatchEnd = statement.startIndex
+        var index = statement.startIndex
+        let isQuestion = statement.trimmingCharacters(in: .whitespaces).hasSuffix("吗")
+
+        while index < statement.endIndex {
+            if statement[index] == "“" { insideQuote = true }
+            if statement[index] == "”" { insideQuote = false }
+
+            if let phrase = Self.doseMultiplierPhrases.first(where: { statement[index...].hasPrefix($0) }) {
+                let prefix = statement[previousMatchEnd..<index]
+                let hasLocalBoundary = Self.nonActionableMultiplierMarkers.contains { prefix.contains($0) }
+                if !insideQuote && !hasLocalBoundary && !isQuestion {
+                    return true
+                }
+                index = statement.index(index, offsetBy: phrase.count)
+                previousMatchEnd = index
+                continue
+            }
+            index = statement.index(after: index)
+        }
+        return false
     }
 
     private func isConditionalRiskDescription(_ statement: String) -> Bool {
@@ -324,12 +360,8 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
             && !lowercased.contains(" then take ") {
             return true
         }
-        let markers = [
-            "不要自行", "不应自行", "请勿自行", "不得擅自",
-            "不要把", "不应把", "请勿把", "不得把",
-            "你问", "用户问", "问题是", "是否", "能否"
-        ]
-        return markers.contains { statement.contains($0) }
+        return lowercased.hasSuffix("吗")
+            || Self.nonActionableMultiplierMarkers.contains { statement.contains($0) }
     }
 
     private func displayFlags(normalizedFormatting: Bool, hasSafetyNote: Bool) -> [String] {
