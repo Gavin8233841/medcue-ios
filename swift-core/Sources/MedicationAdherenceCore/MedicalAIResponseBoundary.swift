@@ -31,7 +31,7 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
     private static let nonActionableMultiplierMarkers = [
         "不要自行", "不应自行", "请勿自行", "不得擅自",
         "不要把", "不应把", "请勿把", "不得把",
-        "别把", "切勿把", "不可把", "不能把",
+        "别把", "切勿把", "不可把", "不能把", "不建议",
         "你问", "用户问", "问题是", "是否", "能否", "能不能"
     ]
 
@@ -175,7 +175,7 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
 
     private func actionableInstructionFlags(in message: String) -> [String] {
         let treatmentDecisionStatements = message
-            .split(whereSeparator: { "。！？；;\n".contains($0) })
+            .split(whereSeparator: { "。！？?；;\n".contains($0) })
             .flatMap { rawStatement -> [(text: String, isRiskDescription: Bool)] in
                 let statement = String(rawStatement)
                 let clauses = statement.split(whereSeparator: { "，,".contains($0) })
@@ -262,6 +262,7 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
 
     private func splitActionTransitions(_ clause: String) -> [String] {
         let transitions = ["但是", "然后", "随后", "接着", "而是", "并且", "同时", "或者", "不过", "可是", "然而", "转而", "再", "但", "也", "却", "而", "还"]
+        let answerFrames = ["我的建议是", "我的看法是", "我认为", "我建议", "我觉得", "我主张", "我答", "结论是", "答案是"]
         let actionPrefixes = ["把", "将", "建议", "应", "可以", "必须", "要", "不要", "不应", "请勿", "不得", "立即", "马上", "改为", "调整"]
         var parts: [String] = []
         var start = clause.startIndex
@@ -272,6 +273,13 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
             if clause[index] == "“" { insideQuote = true }
             if clause[index] == "”" { insideQuote = false }
 
+            if !insideQuote, let frame = answerFrames.first(where: { clause[index...].hasPrefix($0) }) {
+                let part = clause[start..<index].trimmingCharacters(in: .whitespaces)
+                if !part.isEmpty { parts.append(part) }
+                start = index
+                index = clause.index(index, offsetBy: frame.count)
+                continue
+            }
             if !insideQuote, let transition = transitions.first(where: { clause[index...].hasPrefix($0) }) {
                 let next = clause.index(index, offsetBy: transition.count)
                 if actionPrefixes.contains(where: { clause[next...].hasPrefix($0) }) {
@@ -342,8 +350,7 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
         }
         if let closingQuote = statement.lastIndex(of: "”") {
             let followingText = statement[statement.index(after: closingQuote)...]
-            let actionIntroducers = ["建议", "可以", "应", "改为", "加倍"]
-            if actionIntroducers.contains(where: { followingText.contains($0) }) {
+            if !actionableInstructionFlags(in: String(followingText)).isEmpty {
                 return false
             }
         }
