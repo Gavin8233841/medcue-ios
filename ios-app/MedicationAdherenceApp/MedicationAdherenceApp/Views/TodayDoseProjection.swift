@@ -54,6 +54,101 @@ struct TodayRenderSnapshot {
     }
 }
 
+enum ElderDoseDisplayStatus: Equatable {
+    case pendingBeforeDue
+    case pendingAtOrAfterDue
+    case delayedBeforeDue
+    case delayedAtOrAfterDue
+
+    var displayName: String {
+        switch self {
+        case .pendingBeforeDue:
+            "待服用"
+        case .pendingAtOrAfterDue:
+            "未确认"
+        case .delayedBeforeDue:
+            "稍后提醒"
+        case .delayedAtOrAfterDue:
+            "仍未确认"
+        }
+    }
+
+    static func resolve(for task: StoredDoseTask, now: Date) -> ElderDoseDisplayStatus? {
+        switch task.status {
+        case .pending:
+            return task.dueAt > now ? .pendingBeforeDue : .pendingAtOrAfterDue
+        case .delayed:
+            return task.dueAt > now ? .delayedBeforeDue : .delayedAtOrAfterDue
+        case .taken, .corrected, .skipped:
+            return nil
+        }
+    }
+}
+
+enum ElderTodayEmptyState: Equatable {
+    case noTasks
+    case complete
+    case noOpenTasks
+
+    var title: String {
+        switch self {
+        case .noTasks:
+            "今天没有用药任务"
+        case .complete:
+            "今日用药已完成"
+        case .noOpenTasks:
+            "没有待处理用药"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .noTasks:
+            "calendar"
+        case .complete:
+            "checkmark.seal.fill"
+        case .noOpenTasks:
+            "checkmark.circle"
+        }
+    }
+}
+
+struct ElderTodayRenderSnapshot {
+    let currentTask: StoredDoseTask?
+    let currentMedication: StoredMedication?
+    let currentStatus: ElderDoseDisplayStatus?
+    let remainingOpenTaskCount: Int
+    let emptyState: ElderTodayEmptyState?
+}
+
+extension TodayRenderSnapshot {
+    func elderSnapshot(
+        medications: [StoredMedication],
+        now: Date
+    ) -> ElderTodayRenderSnapshot {
+        let openTasks = visibleOpenTimelineTasks.filter {
+            $0.status == .pending || $0.status == .delayed
+        }
+        let currentTask = openTasks.first
+        let currentMedication = currentTask.flatMap { task in
+            medications.first { $0.id == task.medicationID }
+        }
+        return ElderTodayRenderSnapshot(
+            currentTask: currentTask,
+            currentMedication: currentMedication,
+            currentStatus: currentTask.flatMap { ElderDoseDisplayStatus.resolve(for: $0, now: now) },
+            remainingOpenTaskCount: max(0, openTasks.count - 1),
+            emptyState: currentTask == nil
+                ? (displayTodayTasks.isEmpty
+                    ? .noTasks
+                    : completionRateSnapshot.isComplete
+                        ? .complete
+                        : .noOpenTasks)
+                : nil
+        )
+    }
+}
+
 @MainActor
 final class TodayDoseProjectionStore {
     private let cache = RevisionSnapshotCache<TodayRenderSnapshot>()

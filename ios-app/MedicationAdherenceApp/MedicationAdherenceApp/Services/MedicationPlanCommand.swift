@@ -1,4 +1,5 @@
 import Foundation
+import MedicationAdherenceCore
 import OSLog
 import SwiftData
 
@@ -32,6 +33,7 @@ enum MedicationPlanCommandOutcome {
         reminderBatch: MedicationReminderScheduleBatch
     )
     case rejected(MedicationPlanRejection)
+    case scheduleFailed
     case saveFailed
 }
 
@@ -43,6 +45,7 @@ struct MedicationPlanCommand {
     private let saveOperation: SaveOperation
     private var calendar: Calendar
     private let referenceDate: Date
+    private let scheduleDoses: MedicationReminderTaskCoordinator.ScheduleDoses
     private static let signposter = OSSignposter(
         subsystem: "com.gwyy.appcontest2026.medicationadherence",
         category: "Performance"
@@ -52,12 +55,16 @@ struct MedicationPlanCommand {
         modelContext: ModelContext,
         calendar: Calendar = .current,
         referenceDate: Date = Date(),
-        saveOperation: @escaping SaveOperation = { try $0.save() }
+        saveOperation: @escaping SaveOperation = { try $0.save() },
+        scheduleDoses: @escaping MedicationReminderTaskCoordinator.ScheduleDoses = {
+            try ReminderScheduleEngine().scheduledDoses(for: $0, calendar: $1, timeZone: $2)
+        }
     ) {
         self.modelContext = modelContext
         self.calendar = calendar
         self.referenceDate = referenceDate
         self.saveOperation = saveOperation
+        self.scheduleDoses = scheduleDoses
     }
 
     func update(_ update: MedicationPlanUpdate) -> MedicationPlanCommandOutcome {
@@ -139,6 +146,72 @@ struct MedicationPlanCommand {
 
         let previousDoseValue = existingPlan?.doseValue
         let previousDoseUnit = existingPlan?.doseUnit ?? ""
+        let planID = existingPlan?.id ?? UUID()
+        let candidatePlan = StoredMedicationPlan(
+            id: planID,
+            medicationID: medication.id,
+            doseValue: update.doseValue,
+            doseUnit: doseUnit,
+            timingSummary: reminderSummary(reminderTimes),
+            timeZonePolicy: .localClock,
+            sourceNote: update.sourceNote.trimmingCharacters(in: .whitespacesAndNewlines),
+            requiresUserConfirmation: existingPlan?.requiresUserConfirmation ?? true,
+            courseStartAt: update.courseStartAt,
+            courseEndAt: update.courseEndAt,
+            reminderTimesRaw: encodedReminderTimes(reminderTimes),
+            reminderDelivery: update.reminderDeliveryMethod,
+            escalatesToAlarmWhenUnhandled: update.escalatesToAlarmWhenUnhandled,
+            createdAt: existingPlan?.createdAt ?? referenceDate
+        )
+        if let existingPlan {
+            candidatePlan.timeZonePolicyRaw = existingPlan.timeZonePolicyRaw
+        }
+        var prospectiveDoseChanges = existingDoseChanges
+        let prospectiveDoseChange: StoredMedicationDoseChange?
+        if doseChanged(
+            previousValue: previousDoseValue,
+            previousUnit: previousDoseUnit,
+            newValue: update.doseValue,
+            newUnit: doseUnit
+        ) {
+            let trimmedNote = update.doseChangeNote.trimmingCharacters(in: .whitespacesAndNewlines)
+            let note = trimmedNote.isEmpty
+                ? (previousDoseValue == nil
+                    ? "初始剂量记录，用户已确认。"
+                    : "用户确认后修改剂量；请按医嘱、说明书或药师建议核对。")
+                : trimmedNote
+            prospectiveDoseChange = StoredMedicationDoseChange(
+                medicationID: medication.id,
+                planID: planID,
+                previousDoseValue: previousDoseValue,
+                previousDoseUnit: previousDoseUnit,
+                newDoseValue: update.doseValue,
+                newDoseUnit: doseUnit,
+                effectiveFrom: calendar.startOfDay(for: update.doseEffectiveFrom),
+                note: note
+            )
+            prospectiveDoseChanges.append(prospectiveDoseChange!)
+        } else {
+            prospectiveDoseChange = nil
+        }
+        let coordinator = MedicationReminderTaskCoordinator(
+            calendar: calendar,
+            referenceDate: referenceDate,
+            scheduleDoses: scheduleDoses
+        )
+        let preparedPlan: PreparedMedicationReminderPlan
+        do {
+            preparedPlan = try coordinator.preparePlan(
+                candidatePlan,
+                medication: medication,
+                planTasks: planTasks,
+                actionLogs: actionLogs,
+                doseChanges: prospectiveDoseChanges
+            )
+        } catch {
+            return .scheduleFailed
+        }
+
         let plan: StoredMedicationPlan
         let created: Bool
         if let existingPlan {
@@ -154,63 +227,17 @@ struct MedicationPlanCommand {
             plan.reminderDeliveryMethod = update.reminderDeliveryMethod
             plan.escalatesToAlarmWhenUnhandled = update.escalatesToAlarmWhenUnhandled
         } else {
-            plan = StoredMedicationPlan(
-                medicationID: medication.id,
-                doseValue: update.doseValue,
-                doseUnit: doseUnit,
-                timingSummary: reminderSummary(reminderTimes),
-                timeZonePolicy: .localClock,
-                sourceNote: update.sourceNote.trimmingCharacters(in: .whitespacesAndNewlines),
-                requiresUserConfirmation: true,
-                courseStartAt: update.courseStartAt,
-                courseEndAt: update.courseEndAt,
-                reminderTimesRaw: encodedReminderTimes(reminderTimes),
-                reminderDelivery: update.reminderDeliveryMethod,
-                escalatesToAlarmWhenUnhandled: update.escalatesToAlarmWhenUnhandled
-            )
+            plan = candidatePlan
             modelContext.insert(plan)
             created = true
         }
 
-        var doseChanges = existingDoseChanges
-        if doseChanged(
-            previousValue: previousDoseValue,
-            previousUnit: previousDoseUnit,
-            newValue: update.doseValue,
-            newUnit: doseUnit
-        ) {
-            let trimmedNote = update.doseChangeNote.trimmingCharacters(in: .whitespacesAndNewlines)
-            let note = trimmedNote.isEmpty
-                ? (previousDoseValue == nil
-                    ? "初始剂量记录，用户已确认。"
-                    : "用户确认后修改剂量；请按医嘱、说明书或药师建议核对。")
-                : trimmedNote
-            let doseChange = StoredMedicationDoseChange(
-                medicationID: medication.id,
-                planID: plan.id,
-                previousDoseValue: previousDoseValue,
-                previousDoseUnit: previousDoseUnit,
-                newDoseValue: update.doseValue,
-                newDoseUnit: doseUnit,
-                effectiveFrom: calendar.startOfDay(for: update.doseEffectiveFrom),
-                note: note
-            )
+        if let doseChange = prospectiveDoseChange {
             modelContext.insert(doseChange)
-            doseChanges.append(doseChange)
         }
 
         let reconcileInterval = Self.signposter.beginInterval("plan.reconcile")
-        let reminderBatch = MedicationReminderTaskCoordinator(
-            calendar: calendar,
-            referenceDate: referenceDate
-        ).reconcilePlan(
-            plan,
-            medication: medication,
-            planTasks: planTasks,
-            actionLogs: actionLogs,
-            doseChanges: doseChanges,
-            in: modelContext
-        )
+        let reminderBatch = coordinator.applyPreparedPlan(preparedPlan, in: modelContext)
         Self.signposter.endInterval("plan.reconcile", reconcileInterval)
 
         do {

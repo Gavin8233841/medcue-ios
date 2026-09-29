@@ -32,6 +32,7 @@ enum DoseReopenRejection: Equatable {
     case taskNotFound
     case readFailed
     case alreadyOpen
+    case notUndoable
 }
 
 enum DoseReopenCommandOutcome: Equatable {
@@ -59,8 +60,6 @@ struct DoseReopenCommand {
     private static let reopenNote = "用户撤销后等待确认"
     private let modelContext: ModelContext
     private let saveOperation: SaveOperation
-    private let reminderPolicy = DoseReminderPolicy.competitionDemo
-
     init(
         modelContext: ModelContext,
         saveOperation: @escaping SaveOperation = { try $0.save() }
@@ -111,6 +110,50 @@ struct DoseReopenCommand {
             primaryTask: primaryTask,
             group: group,
             snapshots: snapshots,
+            occurredAt: occurredAt
+        )
+    }
+
+    func undoRecentDelay(taskID: UUID, at occurredAt: Date) -> DoseReopenCommandOutcome {
+        let primaryTask: StoredDoseTask
+        do {
+            guard let storedTask = try fetchTask(id: taskID) else {
+                return .rejected(.taskNotFound)
+            }
+            primaryTask = storedTask
+        } catch {
+            return .rejected(.readFailed)
+        }
+        guard primaryTask.status == .delayed else {
+            return .rejected(.notUndoable)
+        }
+
+        let group: [StoredDoseTask]
+        let logs: [StoredDoseActionLog]
+        do {
+            group = try fetchLogicalGroup(containing: primaryTask)
+            logs = try fetchActionLogs(taskIDs: Set(group.map(\.id)))
+        } catch {
+            return .rejected(.readFailed)
+        }
+        guard let primaryLog = logs.first(where: {
+            Self.isCurrentDelay($0, for: primaryTask, at: occurredAt)
+        }), group.allSatisfy({ task in
+            logs.contains(where: {
+                Self.isCurrentDelay($0, for: task, at: occurredAt)
+                    && $0.occurredAt == primaryLog.occurredAt
+                    && Self.isSameMinute($0.previousDueAt, primaryLog.previousDueAt)
+            })
+        }) else {
+            return .rejected(.notUndoable)
+        }
+
+        return restoreLatestAction(
+            primaryTask: primaryTask,
+            group: group,
+            actionLogs: logs,
+            primaryLog: primaryLog,
+            snapshots: group.map(Self.snapshot),
             occurredAt: occurredAt
         )
     }
@@ -177,6 +220,7 @@ struct DoseReopenCommand {
                 $0.taskID == task.id
                     && Self.isUndoable($0, at: occurredAt)
                     && $0.actionRaw == primaryLog.actionRaw
+                    && $0.occurredAt == primaryLog.occurredAt
                     && Self.isSameMinute($0.previousDueAt, primaryLog.previousDueAt)
             }) {
                 matchingLogsByTaskID[task.id] = matchingLog
@@ -190,9 +234,7 @@ struct DoseReopenCommand {
             task.recordedAt = snapshotLog.previousRecordedAt
             task.reason = reopenedReason(
                 previousReason: snapshotLog.previousReason,
-                status: snapshotLog.previousStatus,
-                previousDueAt: snapshotLog.previousDueAt,
-                reopenedAt: occurredAt
+                status: snapshotLog.previousStatus
             )
         }
         let reactivatedLogs = matchingLogsByTaskID.values.sorted(by: Self.logOrder)
@@ -243,9 +285,7 @@ struct DoseReopenCommand {
             task.recordedAt = nil
             task.reason = reopenedReason(
                 previousReason: "",
-                status: .pending,
-                previousDueAt: task.dueAt,
-                reopenedAt: occurredAt
+                status: .pending
             )
         }
 
@@ -365,18 +405,14 @@ struct DoseReopenCommand {
 
     private func reopenedReason(
         previousReason: String,
-        status: StoredDoseStatus,
-        previousDueAt: Date,
-        reopenedAt: Date
+        status: StoredDoseStatus
     ) -> String {
         let baseReason = previousReason
             .split(separator: "；")
             .map(String.init)
             .filter { $0 != Self.archiveMarker }
             .joined(separator: "；")
-        guard Self.isOpen(status),
-              previousDueAt.addingTimeInterval(reminderPolicy.autoSkipInterval) <= reopenedAt
-        else {
+        guard Self.isOpen(status) else {
             return baseReason
         }
         if baseReason.isEmpty {
@@ -420,6 +456,19 @@ struct DoseReopenCommand {
             && date <= log.undoExpiresAt
             && log.actionRaw != DoseActionKind.archiveToday.rawValue
             && log.actionRaw != DoseActionKind.restoreArchive.rawValue
+    }
+
+    private static func isCurrentDelay(
+        _ log: StoredDoseActionLog,
+        for task: StoredDoseTask,
+        at date: Date
+    ) -> Bool {
+        log.taskID == task.id
+            && log.actionRaw == DoseActionKind.delay.rawValue
+            && log.newStatusRaw == StoredDoseStatus.delayed.rawValue
+            && task.status == .delayed
+            && task.recordedAt == log.occurredAt
+            && isUndoable(log, at: date)
     }
 
     private static func isSameMinute(_ lhs: Date, _ rhs: Date) -> Bool {

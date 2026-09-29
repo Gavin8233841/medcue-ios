@@ -7,6 +7,40 @@ import Testing
 @Suite(.serialized)
 struct DoseActionPersistenceTests {
     @Test @MainActor
+    func externalSaveFailureUsesStableCodeAndKeepsLegacyReaderCompatible() throws {
+        let suite = "DoseActionFailureNoticeTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        DoseActionFailureNotice.recordSaveFailure(in: defaults)
+        let code = try #require(defaults.string(forKey: DoseActionFailureNotice.codeDefaultsKey))
+        let legacy = try #require(defaults.string(forKey: DoseActionPersistence.failureMessageDefaultsKey))
+        #expect(code == DoseActionPersistenceError.saveFailed.rawValue)
+        #expect(legacy == DoseActionPersistenceError.saveFailed.userMessage)
+        #expect(DoseActionFailureNotice.displayedMessage(code: code, legacyMessage: "旧文案")
+                == DoseActionPersistenceError.saveFailed.userMessage)
+
+        defaults.removeObject(forKey: DoseActionPersistence.failureMessageDefaultsKey)
+        #expect(DoseActionFailureNotice.displayedMessage(
+            code: code,
+            legacyMessage: defaults.string(forKey: DoseActionPersistence.failureMessageDefaultsKey) ?? ""
+        ) == nil)
+
+        DoseActionFailureNotice.recordSaveFailure(in: defaults)
+        DoseActionFailureNotice.clear(in: defaults)
+        #expect(defaults.string(forKey: DoseActionFailureNotice.codeDefaultsKey) == nil)
+        #expect(defaults.string(forKey: DoseActionPersistence.failureMessageDefaultsKey) == nil)
+    }
+
+    @Test @MainActor
+    func externalSaveFailureReadsOldMessageAndUnknownCodeSafely() {
+        let oldMessage = "旧版保存失败提示"
+        #expect(DoseActionFailureNotice.displayedMessage(code: "", legacyMessage: oldMessage) == oldMessage)
+        #expect(DoseActionFailureNotice.displayedMessage(code: "future-code", legacyMessage: oldMessage) == oldMessage)
+        #expect(DoseActionFailureNotice.displayedMessage(code: "future-code", legacyMessage: "  ") == nil)
+    }
+
+    @Test @MainActor
     func transitionPlannerFreezesSharedDoseActionSemantics() {
         let plannedDueAt = Date(timeIntervalSince1970: 1_700_000_000)
         let secondaryDueAt = plannedDueAt.addingTimeInterval(20)
@@ -167,6 +201,50 @@ struct DoseActionPersistenceTests {
         #expect(persistedTask.recordedAt == nil)
         #expect(persistedTask.reason == "原始状态")
         #expect(try verificationContext.fetch(FetchDescriptor<StoredDoseActionLog>()).isEmpty)
+    }
+
+    @Test @MainActor
+    func closedTaskCommitIsRejectedBeforeWritingAnything() throws {
+        let container = try MedicationAdherenceModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        context.autosaveEnabled = false
+        let dueAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let task = StoredDoseTask(
+            medicationID: UUID(),
+            dueAt: dueAt,
+            doseValue: 1,
+            doseUnit: "片",
+            status: .taken,
+            recordedAt: dueAt
+        )
+        context.insert(task)
+        try context.save()
+
+        let transition = DoseActionTransition(
+            task: task,
+            action: .markTaken,
+            newStatus: .taken,
+            newDueAt: dueAt,
+            newRecordedAt: dueAt.addingTimeInterval(60),
+            newReason: "重复动作",
+            occurredAt: dueAt.addingTimeInterval(60),
+            undoExpiresAt: dueAt.addingTimeInterval(660)
+        )
+
+        do {
+            try DoseActionPersistence().commit([transition], in: context)
+            Issue.record("Expected a closed task action to be rejected")
+        } catch let error as DoseActionPersistenceError {
+            #expect(error == .taskClosed)
+            #expect(error.userMessage == "这项用药已更新，请重新查看。")
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+
+        #expect(task.status == .taken)
+        #expect(task.recordedAt == dueAt)
+        #expect(try context.fetch(FetchDescriptor<StoredDoseActionLog>()).isEmpty)
+        #expect(!context.hasChanges)
     }
 }
 

@@ -20,8 +20,8 @@ struct MedicationReminderLiveActivityIntentExecutor: Sendable {
 
 @available(iOS 17.0, *)
 struct MarkMedicationReminderTakenIntent: LiveActivityIntent {
-    static let title: LocalizedStringResource = "标记已完成"
-    static let description = IntentDescription("在灵动岛中确认本次用药已处理。")
+    static let title: LocalizedStringResource = "打开应用确认"
+    static let description = IntentDescription("旧版实时活动操作已停用，请在应用内确认用药。")
     static let openAppWhenRun = false
 
     @Parameter(title: "提醒 ID")
@@ -49,56 +49,8 @@ struct MarkMedicationReminderTakenIntent: LiveActivityIntent {
     }
 
     func perform() async throws -> some IntentResult {
-        guard let taskID = UUID(uuidString: taskID),
-              let operationID = UUID(uuidString: operationID)
-        else {
-            return .result()
-        }
-        let now = Date()
-        let request = MedicationReminderLiveActivityActionRequest(
-            taskID: taskID,
-            action: .markTaken,
-            operationID: operationID,
-            expiresAt: Date(timeIntervalSince1970: expiresAt)
-        )
-        let outcome = await executor.execute(request, now)
-
-        for activity in Activity<MedicationReminderActivityAttributes>.activities where activity.attributes.taskID == taskID {
-            switch outcome {
-            case .committed, .alreadyCommitted:
-                let completedState = MedicationReminderActivityAttributes.ContentState(
-                    dueAt: now,
-                    statusText: "已完成",
-                    completedAt: now
-                )
-                await activity.end(
-                    ActivityContent(state: completedState, staleDate: nil),
-                    dismissalPolicy: .after(now.addingTimeInterval(5))
-                )
-            case .saveFailed:
-                let retryState = MedicationReminderActivityAttributes.ContentState(
-                    dueAt: activity.content.state.dueAt,
-                    statusText: "记录失败，请重试",
-                    completedAt: nil
-                )
-                await activity.update(
-                    ActivityContent(
-                        state: retryState,
-                        staleDate: activity.content.staleDate
-                    )
-                )
-            case .rejected:
-                let rejectedState = MedicationReminderActivityAttributes.ContentState(
-                    dueAt: activity.content.state.dueAt,
-                    statusText: "任务已关闭",
-                    completedAt: nil
-                )
-                await activity.end(
-                    ActivityContent(state: rejectedState, staleDate: nil),
-                    dismissalPolicy: .after(now.addingTimeInterval(2))
-                )
-            }
-        }
+        // Retain the type so an activity from an older build can deserialize,
+        // but an intent without a proven unlock must never write a dose.
         return .result()
     }
 }

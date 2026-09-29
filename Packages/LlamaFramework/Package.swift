@@ -3,19 +3,20 @@
 import Foundation
 import PackageDescription
 
-let localLlamaDisabled = ProcessInfo.processInfo.environment["MEDCUE_DISABLE_LOCAL_LLAMA"] == "1"
-let llamaProductTargets = localLlamaDisabled ? ["LlamaFrameworkStub"] : ["llama"]
-let llamaTargets: [Target] = localLlamaDisabled
+let localLlamaEnabled = ProcessInfo.processInfo.environment["MEDCUE_ENABLE_LOCAL_LLAMA"] == "1"
+    && ProcessInfo.processInfo.environment["MEDCUE_DISABLE_LOCAL_LLAMA"] != "1"
+let llamaProductTargets = localLlamaEnabled ? ["llama"] : ["LlamaFrameworkStub"]
+let llamaTargets: [Target] = localLlamaEnabled
     ? [
-        .target(
-            name: "LlamaFrameworkStub",
-            path: "Sources/LlamaFrameworkStub"
-        )
-    ]
-    : [
         .binaryTarget(
             name: "llama",
             path: "../../ios-app/MedicationAdherenceApp/Frameworks/llama.xcframework"
+        )
+    ]
+    : [
+        .target(
+            name: "LlamaFrameworkStub",
+            path: "Sources/LlamaFrameworkStub"
         )
     ]
 

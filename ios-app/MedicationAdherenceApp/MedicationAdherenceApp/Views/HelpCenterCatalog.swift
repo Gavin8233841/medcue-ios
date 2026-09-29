@@ -280,7 +280,7 @@ enum AppHelpCatalog {
             subtitle: "提醒、稍后、忽略、撤销和完成率",
             symbolName: "calendar.badge.checkmark",
             tint: .blue,
-            topicIDs: ["mark-dose", "today-progress", "reminder-escalation", "weather-focus"]
+            topicIDs: ["mark-dose", "today-progress", "reminder-escalation"]
         ),
         AppHelpGoal(
             id: "medication-setup",
@@ -353,24 +353,6 @@ enum AppHelpCatalog {
                     "很早提前点稍后时，需要确认，避免时间线错乱。"
                 ],
                 keywords: ["提醒", "推送", "闹钟", "稍后", "忽略"]
-            ),
-            topic(
-                id: "weather-focus",
-                title: "天气与用药关注",
-                summary: "今日页会结合本地药品资料和天气信号生成简短关注点。",
-                symbolName: "cloud.sun.fill",
-                tint: .blue,
-                steps: [
-                    "允许位置后，今日页可读取当前位置天气。",
-                    "关注点只用于提醒核对药品保存、随身药和今日计划。",
-                    "没有天气授权时，App 会根据今日计划和药品类型给出简短关注。",
-                    "天气提示不会替代风险页的说明书警示。"
-                ],
-                examples: [
-                    "高温天气时，优先核对避光、密封或冷藏要求。",
-                    "干燥或有风时，人工泪液和过敏相关药品会更容易被提醒核对。"
-                ],
-                keywords: ["天气", "位置", "高温", "随身药", "保存"]
             )
         ]),
         AppHelpSection(category: medications, topics: [
@@ -631,7 +613,6 @@ enum AppHelpCatalog {
     private static let explanationTopicIDs: Set<String> = [
         "today-progress",
         "reminder-escalation",
-        "weather-focus",
         "medication-photo-stock",
         "label-import",
         "medication-lifecycle",

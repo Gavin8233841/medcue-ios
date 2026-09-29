@@ -1,7 +1,33 @@
 # MedCue Project Status
 
-Latest coordination audit: 2026-09-22
-Current source checkpoint: `7de86b34df209bd6b33aca8495b9c9a5ec4e16ae`
+Latest full coordination audit: 2026-09-22; targeted update: 2026-09-27 (#28)
+Verified source checkpoint for the #4 update below: `main@74fb171088a80c38872c51fcae85c05721dc10f0`
+
+## 2026-09-27 Local-model journey attempt (#28)
+
+At `main@ed67bf82cb582f482b87454ffa9012d239764b99`, a dedicated iPhone 17 Pro / iOS 26.5 Simulator installation with a locally supplied real llama runtime reached the in-app 265.3 MB download and displayed progress. The download failed below 1 MB and the app offered retry. An independent range request to the pinned upstream source received only 69 KB in about 41 seconds before timing out. The functional journey therefore has **not** reached installation, relaunch persistence, explicit local selection, or an offline guarded response. The runtime's official archive digest also remains unverified. The product owner authorized Simulator substitution for the functional Issue journey; no physical-device result is claimed. The exact steps, redacted result matrix, and remaining decision are in [the #28 runbook](ISSUE28_LOCAL_MODEL_ACCEPTANCE.md) and [Issue checkpoint](https://github.com/Gavin8233841/medcue-ios/issues/28#issuecomment-5853320437).
+
+## 2026-09-27 Competition/Beta capability scope (#4)
+
+The product owner chose to hide unverified Apple sign-in, automatic iCloud
+backup, and WeatherKit entry points for the current competition/Beta build.
+The account page now explains that medication data remains on this iPhone and
+must not be assumed backed up or recoverable. Existing local account/backup
+preferences remain stored but no longer imply success in the interface.
+Today and the AI assistant no longer instantiate the weather service or request
+location. The dormant weather adapter and location purpose string remain in
+source; re-enabling them requires entitlement, privacy, account, and runtime
+evidence. This is a source-scope update, not backup, restore, or device proof.
+
+## 2026-09-26 GitHub Topics completion (#33)
+
+The public repository description remains Chinese-first with an English
+explanation. Its Topics were set to `ios`, `watchos`, `swiftui`, `swiftdata`,
+`medication-management`, and `medication-reminders`, then read back through the
+GitHub API. These describe verified platforms, implementation, and medication
+organization features; they do not claim diagnosis, prescribing, or release
+readiness. PR #53 already delivered the bilingual README, templates, labels,
+and Issue migration. The earlier #33 Topics blocker below is historical.
 
 ## 2026-09-22 Current Coordination Snapshot
 
@@ -24,7 +50,8 @@ Current source checkpoint: `7de86b34df209bd6b33aca8495b9c9a5ec4e16ae`
   (`c9ad98e`) failed its required result after UI-job timeout; child #87's
   successful run does not satisfy its parent's integration gate.
 - #17 remains open: merged evidence documentation is not physical-device
-  acceptance. #33 remains open for its explicit Topics decision. #20's local
+  acceptance. At this 2026-09-22 snapshot, #33 still awaited a Topics decision;
+  the 2026-09-26 update above resolves it. #20's local
   work does not establish merged migration acceptance.
 - #83 now has [PR #92](https://github.com/Gavin8233841/medcue-ios/pull/92)
   at `cf761441589964dcd8d93d281fe61833f3fb5944`: strict Node tests 38/38,
@@ -45,6 +72,98 @@ Current source checkpoint: `7de86b34df209bd6b33aca8495b9c9a5ec4e16ae`
 This snapshot is a source/integration status, not release, device, VoiceOver,
 telephone, notification-delivery, or representative-user acceptance. Current
 GitHub Issue and PR state supersedes these timestamped counts.
+
+## 2026-09-17 Local Candidate: Issue #85 Complete-Mode Dynamic Type
+
+- Branch: `codex/85-complete-dynamic-type`; base:
+  `c9ad98ebe60c91b2e7ede5f7dc4e53589b9e3a8b` (PR #86).
+  This is a serial UI child of the #46 / #55 workline, not integrated main.
+- Accessibility text sizes now use a vertical timeline header/action layout,
+  single-column medication metrics, expanded runtime selector descriptions,
+  naturally sized records previews and seven readable calendar rows. Local-data
+  and profile-entry descriptions wrap; decorative icons retain bounded sizes.
+  Default text retains the compact page structure.
+- Inline confirmation buttons now include their whole background in the
+  tappable label, with minimum height 44 pt (60 pt at accessibility sizes).
+  Cancel/confirm callbacks and medication commit/delay semantics are unchanged;
+  no consent, download, persistence, reminder or AI-request command changed.
+- The synthetic iPhone 17 Pro twice stalled while scrolling an expanded AX5
+  confirmation (runs 07 and 08, including an isolated retry). A process sample
+  showed main-thread SwiftUI lazy-layout updates. Resolving the finite outer
+  Today sections with VStack removed that reproduced stall: the same journey
+  passed in run 09, then the final SE journey also passed. This is simulator
+  regression evidence, not a physical-device performance measurement.
+- Final layout inputs: `.codex-local/issue85/final-layout-inputs.json`.
+  SE run 10 passed UI 5/5 (default and AX5 five-tab tours, content/navigation
+  journey, touch-preference persistence, elder entry). iPhone 17 Pro run 09
+  passed the AX5 journey 1/1; run 11 passed tours/settings 3/3. Tests check
+  medication text geometry, metric width, seven distinct date rows, actual
+  navigation/back, confirmation cancellation with zero medication writes,
+  and the full settings-entry description.
+- Earlier same-workline evidence is separately scoped: run 05 passed SE AX5
+  profile/settings 1/1; run 06 passed ElderModeTests 17/17 and UI 6/6.
+  These precede only the final outer Today stack adjustment. They are not a
+  second final-revision full-suite claim. Failed/interrupted runs are retained.
+- Twenty final five-tab screenshots cover two screen sizes and two text sizes;
+  focused action screenshots and the earlier failure evidence are retained.
+  Preflight, Swift source-size and diff-whitespace checks pass. The expected
+  missing Debug AI configuration warning applies to this explicitly marked
+  synthetic simulator test host. Existing staged-hook checks apply; the PR #77
+  reusable scripts are absent on this branch.
+- No new full `verify-native.sh` result, exact-head remote CI, physical
+  VoiceOver, notification/phone delivery, or release is claimed. PR #86's
+  run 35102932986 completed 29 UI tests without assertion failures but the
+  job exceeded its 25-minute budget; its required gate remains failed.
+  Keep this stacked child Draft until parent and integration gates are met.
+  Issue #52 retains broader detail-page/long-content visual coverage and
+  cross-page data/end-to-end acceptance. The assistant's horizontally scrolling
+  quick-question chips still warrant an AX layout follow-up; this candidate
+  fixes the runtime selector and does not declare every assistant control
+  visually complete.
+
+## 2026-09-16 Local Candidate: Issue #55 Elder Interaction
+
+- Branch: `codex/55-elder-no-scroll`; base:
+  `ebf0a0c364a9bdeb263a76ddedd291013f2cd9c0`. This is a serial UI follow-up
+  to Issue #46 / PR #78. The unchanged base was published as
+  `codex/46-notification-postpone-fix` for a focused stacked Draft PR;
+  publishing that reference is not integration or release.
+- Three elder actions and confirmation controls now occupy a fixed bottom safe
+  area. Medication identity remains independently scrollable, photos open in a
+  stable detail sheet, and a task change restores the next identity to the top.
+  Success feedback follows the current identity. Text scales continuously and
+  secondary text has stronger contrast. Medication commit, delay, consent and
+  phone-opening semantics are unchanged.
+- Help settings no longer open the keyboard immediately. While editing, the
+  save control stays above it; successful persistence dismisses the keyboard.
+  Editing clears stale success feedback, and an unsaved draft does not expose
+  a remove-saved-contact action.
+- Synthetic SE (375x667 pt), Xcode 27 / iOS 26.5:
+  `regression-07` passed ElderModeTests 17/17 and UI 28/29. Its single
+  failure was the unfiltered accessibility audit's contrast check. The final
+  delta changes only three secondary foreground colors; `focused-09` then
+  passed 3/3 (unfiltered system audit, maximum text, and dark appearance).
+  Earlier failures are retained, not reclassified as passing.
+- A separate synthetic iPhone 17 Pro run, `normal-08`, passed 3/3 for
+  default-mode entry, AX5 confirmation/photo controls, and AX5 next-task
+  identity after scrolling. This shares the regression-07 geometry; it predates
+  only the three final foreground-color changes.
+- Logs, xcresults and SHA-256 input manifests are retained under
+  `.codex-local/elder-ux/`; the final code/test inputs are
+  `focused-09-inputs.json`. Preflight and Swift source-size checks pass;
+  preflight reports the expected absence of Debug-only AI configuration on
+  this explicitly marked synthetic test host. Existing staged-hook checks
+  apply; the unmerged PR #77 reusable checker is absent at this revision.
+- This is focused local evidence, not a new full `verify-native.sh` gate,
+  exact-head remote CI, physical VoiceOver, real notification/phone delivery,
+  or competition acceptance. The earlier #46 full gate does not validate this
+  changed UI. At that candidate date the child PR remained Draft; current integration and
+  release evidence belongs in the linked Issue and PR.
+- The complete-mode AX5 five-tab tour passed reachability checks but exposed
+  visible truncation/overlap in manual screenshot review. Those unfixed
+  production layouts are tracked in Issue #85, linked to the visual-baseline
+  Issue #52; this elder candidate does not declare those pages visually valid.
+
 
 ## Historical Audit Baseline (2026-08-23)
 
@@ -187,7 +306,13 @@ milestone-free `重复` without `已阻塞`. Issue #25 carries the evidence-back
 - Portable domain logic, SwiftData transactions and migrations, iPhone-primary
   system snapshots, consent-scoped AI context, response safety checks, and the
   constrained Broker remain the current architectural boundaries.
-- Live Activity URL authorization remains tracked by Issue #2.
+- The Issue #14 privacy candidate uses generic iPhone system-surface text,
+  requires unlock for notification dose actions, and removes direct Live
+  Activity dose writes. Its legacy-content migration is implemented in the
+  candidate branch; exact-head CI and Simulator system-surface checks remain
+  open. See `docs/adr/0003-iphone-system-reminder-privacy.md`. Issue #2 remains
+  open for the full authorization regression boundary, and Issue #17 retains
+  real-device release evidence.
 - Broker fail-closed startup and bounded provider responses remain tracked by
   Issue #3.
 - Consent revocation transactionality, persistent-store recovery, physical
@@ -229,3 +354,130 @@ scanning or review of intentionally added fixtures.
    where Windows cannot provide them.
 4. Do not describe the competition/Beta scope as App Store, clinical, or
    commercial-production ready without the corresponding evidence.
+
+## Issue #89 Candidate: Schedule Failure Boundary (2026-09-22)
+
+The `codex/89-schedule-failure` candidate is stacked on Issue #81's reviewed
+checkpoint `8a9ca69f27b1948cbddf1e247bdd35c7a2f3f5d0`; it is not evidence that
+the native parent chain has merged into main.
+
+Global reconciliation prepares every applicable schedule before mutating any
+task. Creation, plan editing and medication reactivation also prepare schedules
+before inserting or updating models. A schedule failure is explicit, does not
+save or apply system reminder effects, and does not roll back unrelated
+unsaved edits. Startup retry and command failure messages expose this outcome.
+Existing plan identity/time-zone policy and the legacy 21:00 fallback for
+unparseable reminder times are preserved; genuinely ended courses still have
+legitimate empty schedules.
+
+The candidate's source passed 23 focused hosted tests across four suites on a
+dedicated clean Simulator, including multi-plan failure, command failure,
+unsaved-edit preservation and retry without duplicate tasks. Validation used
+the existing CI-compatible `MEDCUE_DISABLE_LOCAL_LLAMA=1` configuration and
+synthetic in-memory records; it does not validate local-model inference or
+physical-device notification delivery. Exact final-commit full-gate, CI and
+independent-review evidence belongs in the linked Issue/PR. #82 still owns
+cross-await scheduling convergence and the global request budget.
+
+## Issue #82 A Candidate: Ordered Reminder Effects (2026-09-22)
+
+The `codex/82-reminder-serialization` candidate builds on PR #93 at
+`928771223188b33fc1c9d5c4cb6c467c5154ec72`. Each process serializes complete
+system-reminder operations, including suspension points. iPhone post-commit
+and NotificationService paths share one owner; Watch compiles the same queue
+source and owns its own instance. Cancelling a UI waiter does not cancel an
+already committed reminder update.
+
+Successful commands freeze reminder values and enqueue before deferred UI or
+Live Activity work. Today, record correction, lifecycle changes, notification
+and Live Activity actions submit whole reminder groups. Global reconciliation
+alone prunes the global snapshot; a single-plan update preserves other plans.
+Read/schedule/save failure boundaries from #81/#89 remain in place. Notification
+and Live Activity delay snapshots now retain the plan's escalation setting.
+
+Local candidate evidence: 32 focused hosted tests passed, including controlled
+cross-instance reconciliation interleaving and existing failure/no-side-effect
+checks; two portable queue tests (including replacement/cancellation cases)
+and Watch Simulator Debug build passed. The complete native gate is delegated
+to exact-revision CI rather than duplicating the whole UI/build matrix locally.
+Final quick, review and CI evidence is recorded in the Issue/PR. This candidate
+is not integrated main or physical-device delivery evidence. Issue #82 B still
+owns actual-request budgets, partial failures and recovery.
+
+## Issue #82 B Candidate: Actual Request Budget and Recovery (2026-09-25)
+
+The iPhone post-commit and NotificationService paths now share one serialized
+system scheduler. Its app policy of 60 counts pending notification and AlarmKit
+requests, including other medications, base alerts, alarm delivery and
+escalation. Post-commit iPhone entry points read a fresh committed global task
+snapshot and replan all medication reminders, so an earlier new dose can
+displace later requests across plans. Base and escalation requests are budgeted
+by their actual due time across medications, with a stable task ID tie-breaker.
+A second base notification channel receives only spare capacity after the
+selected base and escalation requests, then runs at its own due time among all
+selected requests. If the base time has passed but the
+five-minute escalation is still ahead, the open task remains eligible for
+escalation only. Replanning
+preserves its existing base notification or alarm while replacing the future
+escalation, and submits selected requests in global due-time order.
+The scheduler rechecks both times after cancellation and permission waits and
+before each add; if the base expires during an add attempt, its reserved slot
+can still carry the future escalation and the missed base is reported.
+Global cancellation reads both pending and delivered notifications. A delivered
+reminder for a completed task is removed, while a delivered base or escalation
+for an open overdue task remains available for action. The preservation set is
+recomputed at cleanup time, including an open reminder that became due while
+its committed snapshot waited in the queue. Snapshot capture time is retained
+so an entire reminder window that closes before or during execution receives a
+persistent failure warning. A base reminder that expires while queued also
+receives partial-failure feedback when its escalation is still schedulable;
+feedback describes only the requests that were actually arranged. The delivered
+readback catches a completed task's notification that fires during cancellation,
+and rechecks pending requests and AlarmKit state before deciding whether to
+block replacement or count occupied slots. The readback requires two stable
+clear rounds; unresolved requests after bounded retries retain a failure warning.
+When a candidate has only one free slot, its selected base delivery takes
+priority over its later escalation or a second base channel; the omitted
+escalation is reported as a partial result. If a selected base alarm then fails, an ordinary
+notification can reuse that reserved request slot as a fallback.
+The policy is an app-side budget, not an assertion about an iOS system limit.
+
+Cancellation is read back before replacement. A request that remains pending
+blocks its own replacement; an AlarmKit read failure or unresolved cancellation
+is reported rather than hidden. Base and escalation additions return distinct
+failure outcomes, and an AlarmKit escalation failure can use a notification
+within its reserved slot. A full startup reconciliation or the startup retry
+alert can recover after partial success, using stable request identifiers.
+The Today and Settings warning surfaces disclose an incomplete system update.
+Startup reconciliation also reports an incomplete outcome when budget or
+permission leaves a task unarranged, keeping the retry alert available.
+System sync warnings use a separate key from notification authorization warnings,
+so a permission refresh cannot erase an unresolved scheduling failure. If an
+AlarmKit add fails or alarm authorization is unavailable, an ordinary-notification
+fallback is reported as a partial result and remains eligible for retry. The
+persistent warning names the missing selected alarm for both cases, including
+batch paths that do not display individual scheduling results. Warnings are
+tracked per task, so a successful local retry clears only the resolved task's
+warning. Elder delay feedback shows the specific partial-result message.
+The shared path now uses a MainActor service; real-device save responsiveness
+after this change has not been measured and needs a device check before merge.
+Global replanning cancels and replaces the selected reminders; interruption
+between those system calls is recovered on next startup but needs device review.
+
+Local candidate evidence before the escalation-window fix: 42 focused hosted
+test functions (40 unit, two UI), 47 test runs and zero failures on an iPhone
+17 Pro iOS 26.5 Simulator, covering
+request-budget ordering, delivery availability, partial add retry, cancellation
+readback, warning text in elder mode and existing reconciliation behavior.
+After the cleanup and budget fixes, four focused suites passed 44 tests with
+zero failures on the same Simulator, including crossing the base and escalation
+windows before and during queue execution, request-time selection and
+submission order across medications, delivered-notification cleanup and
+pending-to-delivered readback races including a late retry round, accurate
+partial-failure and startup-retry outcomes, and preservation of an open task's
+displayed reminder.
+Full current-head CI remains pending.
+This is not exact-head CI, physical-device
+delivery, or a claim that the OS accepted or delivered every request. PR #94
+remains Draft pending final gates, independent review and parent/main
+integration; #17 owns the real notification and AlarmKit device matrix.

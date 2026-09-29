@@ -26,6 +26,8 @@ final class MedicationWatchSnapshotCenter: NSObject, ObservableObject, WCSession
     private var lastReminderRefreshKey: String?
     private var reminderRefreshTask: Task<Void, Never>?
     private var reminderRefreshID: UUID?
+    // One writer for this process; UI cancellation must not interrupt system replacement.
+    private static let reminderOperations = ReminderOperationQueue()
 
     override init() {
         super.init()
@@ -47,10 +49,11 @@ final class MedicationWatchSnapshotCenter: NSObject, ObservableObject, WCSession
         isReminderAuthorizationRequestInFlight = true
         lastReminderRefreshKey = Self.reminderRefreshKey(for: snapshot, now: now)
         beginReminderRefresh { [self, snapshot] in
-            await self.reminderScheduler.enableReminders(for: snapshot, now: now)
+            let summary = await self.reminderScheduler.enableReminders(for: snapshot, now: now)
+            self.isReminderAuthorizationRequestInFlight = false
+            return summary
         } completion: { [self] summary in
             self.reminderSummary = summary
-            self.isReminderAuthorizationRequestInFlight = false
         }
     }
 
@@ -179,8 +182,11 @@ final class MedicationWatchSnapshotCenter: NSObject, ObservableObject, WCSession
         reminderRefreshTask?.cancel()
         let refreshID = UUID()
         reminderRefreshID = refreshID
+        let systemOperation = Self.reminderOperations.enqueue { @MainActor in
+            await operation()
+        }
         reminderRefreshTask = Task { @MainActor [weak self] in
-            let summary = await operation()
+            let summary = await systemOperation.value
             guard !Task.isCancelled, self?.reminderRefreshID == refreshID else { return }
             completion(summary)
             self?.reminderRefreshID = nil
@@ -270,7 +276,7 @@ final class MedicationWatchSnapshotCenter: NSObject, ObservableObject, WCSession
     #endif
 }
 
-struct MedicationWatchReminderSummary: Equatable {
+struct MedicationWatchReminderSummary: Equatable, Sendable {
     var title: String
     var detail: String
     var scheduledCount: Int

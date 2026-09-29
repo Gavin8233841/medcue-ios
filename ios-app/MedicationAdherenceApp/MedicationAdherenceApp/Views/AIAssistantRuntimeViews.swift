@@ -58,6 +58,9 @@ func medicalAIScopeDisplayName(_ scope: MedicalAIDataScope) -> String {
 }
 
 struct AgentRuntimeSelectorBar: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var isAccessibilitySize: Bool { dynamicTypeSize.isAccessibilitySize }
+
     let onlineConfiguration: MedicalAIConfiguration
     let onlineReadiness: MedicalAITransportReadiness
     let status: LocalMedicalModelStatus
@@ -80,7 +83,7 @@ struct AgentRuntimeSelectorBar: View {
         case .downloading:
             return "正在下载"
         case .ready:
-            return "使用离线模型"
+            return status.canUseForResponses ? "使用离线模型" : "暂不可用"
         case .failed:
             return "重新下载"
         }
@@ -107,61 +110,61 @@ struct AgentRuntimeSelectorBar: View {
         prefersLocalResponses ? "在 iPhone 上本地推理" : "连接云端能力，适合复杂任务"
     }
 
-    private var activeTint: Color {
-        prefersLocalResponses ? Color(red: 0.28, green: 0.56, blue: 0.48) : Color(red: 0.28, green: 0.48, blue: 0.62)
-    }
-
     private var shouldUseCompactChip: Bool {
-        hasUserSelectedRuntime && !isExpanded
+        hasUserSelectedRuntime || isExpanded
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
+            (isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))) {
                 Button(action: toggleExpanded) {
                     HStack(spacing: 8) {
                         Image(systemName: prefersLocalResponses ? "iphone.gen3.radiowaves.left.and.right" : "network")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(activeTint)
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(AIAssistantPalette.accent)
                             .frame(width: shouldUseCompactChip ? 24 : 28, height: shouldUseCompactChip ? 24 : 28)
-                            .background(activeTint.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .background(AIAssistantPalette.accent.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                         if shouldUseCompactChip {
                             Text(prefersLocalResponses ? "端侧" : "云端")
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.primary)
                         } else {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(activeTitle)
+                                    .fixedSize(horizontal: false, vertical: true)
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(.primary)
                                 Text(activeSubtitle)
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                                    .lineLimit(isAccessibilitySize ? nil : 1)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                         Image(systemName: "chevron.down")
-                            .font(.caption.weight(.bold))
+                            .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(.secondary)
                             .rotationEffect(.degrees(isExpanded ? 180 : 0))
                     }
                     .padding(.horizontal, shouldUseCompactChip ? 9 : 10)
                     .padding(.vertical, shouldUseCompactChip ? 7 : 8)
-                    .background(.ultraThinMaterial, in: Capsule())
+                    .frame(minHeight: 44)
+                    .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: isAccessibilitySize ? 16 : 20, style: .continuous))
                     .overlay(
-                        Capsule()
+                        RoundedRectangle(cornerRadius: isAccessibilitySize ? 16 : 20, style: .continuous)
                             .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
                     )
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("切换智能体模式")
+                .accessibilityIdentifier("assistant.runtime.toggle")
 
-                Spacer(minLength: 8)
+                if !isAccessibilitySize { Spacer(minLength: 8) }
 
                 if !shouldUseCompactChip {
                     Text(prefersLocalResponses ? "Beta" : onlineStatusText)
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(prefersLocalResponses ? Color.secondary : activeTint)
+                        .foregroundStyle(.primary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(Color(.secondarySystemGroupedBackground), in: Capsule())
@@ -177,10 +180,12 @@ struct AgentRuntimeSelectorBar: View {
                         progress: nil,
                         progressText: nil,
                         iconName: "network",
-                        tint: .blue,
+                        tint: AIAssistantPalette.accent,
+                        statusBackgroundTint: onlineReadiness.canSend ? AIAssistantPalette.accent : .secondary,
                         isSelected: !prefersLocalResponses,
                         isEnabled: true,
-                        actionTitle: onlineReadiness.canSend ? "使用" : "开启",
+                        isActionAvailable: onlineReadiness.canSend,
+                        actionTitle: onlineReadiness.canSend ? "使用" : "暂不可用",
                         action: selectOnline
                     )
 
@@ -193,9 +198,11 @@ struct AgentRuntimeSelectorBar: View {
                         progress: status.availability == .downloading ? (status.downloadProgress ?? 0.01) : status.downloadProgress,
                         progressText: status.fileSizeText ?? (status.availability == .downloading ? "正在连接下载源" : nil),
                         iconName: "iphone.gen3.radiowaves.left.and.right",
-                        tint: .green,
+                        tint: AIAssistantPalette.accent,
+                        statusBackgroundTint: status.canUseForResponses ? AIAssistantPalette.accent : .secondary,
                         isSelected: prefersLocalResponses,
                         isEnabled: status.canUseForResponses,
+                        isActionAvailable: status.canUseForResponses || status.canStartDownload,
                         actionTitle: status.canUseForResponses ? "使用" : offlineButtonTitle,
                         action: {
                             if status.canUseForResponses {
@@ -206,7 +213,7 @@ struct AgentRuntimeSelectorBar: View {
                         }
                     )
 
-                    Text("设备端模型会在这台 iPhone 上运行，本次输入默认留在设备上；Beta 版本回答可能不如云端智能体稳定。云端模式只有在你主动选择并开启后才会调用外部服务。")
+                    Text("设备端模型会在这台 iPhone 上运行，本次输入默认留在设备上；Beta 版本回答可能不如云端智能体稳定。云端模式仅在你确认授权并主动发送咨询后才会调用外部服务。")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -219,6 +226,9 @@ struct AgentRuntimeSelectorBar: View {
 }
 
 struct RuntimeChoiceRow: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var isAccessibilitySize: Bool { dynamicTypeSize.isAccessibilitySize }
+
     let title: String
     let subtitle: String
     let status: String
@@ -226,35 +236,38 @@ struct RuntimeChoiceRow: View {
     let progressText: String?
     let iconName: String
     let tint: Color
+    let statusBackgroundTint: Color
     let isSelected: Bool
     let isEnabled: Bool
+    let isActionAvailable: Bool
     let actionTitle: String
     let action: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        (isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10)) : AnyLayout(HStackLayout(spacing: 10))) {
             Image(systemName: iconName)
-                .font(.subheadline.weight(.semibold))
+                .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(isEnabled ? tint : .secondary)
                 .frame(width: 32, height: 32)
                 .background((isEnabled ? tint : Color.secondary).opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
+                (isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6)) : AnyLayout(HStackLayout(spacing: 6))) {
                     Text(title)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(isEnabled ? .primary : .secondary)
                     Text(status)
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(isEnabled ? tint : .secondary)
+                        .foregroundStyle(.primary)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
-                        .background((isEnabled ? tint : Color.secondary).opacity(0.12), in: Capsule())
+                        .background(statusBackgroundTint.opacity(0.12), in: Capsule())
                 }
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .lineLimit(isAccessibilitySize ? nil : 2)
+                    .fixedSize(horizontal: false, vertical: true)
                 if let progress {
                     VStack(alignment: .leading, spacing: 4) {
                         ProgressView(value: progress)
@@ -275,27 +288,36 @@ struct RuntimeChoiceRow: View {
                 }
             }
 
-            Spacer(minLength: 8)
+            if !isAccessibilitySize { Spacer(minLength: 8) }
 
             if isSelected {
-                Button(actionTitle, action: action)
-                    .font(.caption.weight(.semibold))
+                Button(action: action) {
+                    Text(actionTitle)
+                        .font(.caption.weight(.semibold))
+                        .frame(minHeight: 44)
+                }
                     .buttonStyle(.borderedProminent)
+                    .tint(tint)
                     .controlSize(.small)
+                    .disabled(!isActionAvailable)
             } else {
-                Button(actionTitle, action: action)
-                    .font(.caption.weight(.semibold))
+                Button(action: action) {
+                    Text(actionTitle)
+                        .font(.caption.weight(.semibold))
+                        .frame(minHeight: 44)
+                }
                     .buttonStyle(.bordered)
+                    .tint(.primary)
                     .controlSize(.small)
+                    .disabled(!isActionAvailable)
             }
         }
-        .padding(10)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
+        .padding(12)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? tint.opacity(0.45) : Color.clear, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(isSelected ? tint.opacity(0.38) : Color.secondary.opacity(0.10), lineWidth: 1)
         )
-        .opacity(isEnabled || !isSelected ? 1 : 0.62)
     }
 }
 

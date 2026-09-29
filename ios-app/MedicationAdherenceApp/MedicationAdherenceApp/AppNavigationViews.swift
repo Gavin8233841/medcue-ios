@@ -7,8 +7,14 @@ enum AppAccessibilityID {
     static let tabAssistant = "tab.assistant"
     static let tabRecords = "tab.records"
     static let tabProfile = "tab.profile"
+    static let profileRoot = "profile.root"
     static let todayOpenTimeline = "today.timeline.open"
     static let todayHandledTimeline = "today.timeline.handled"
+    static let todayTimelineTaken = "today.timeline.action.taken"
+    static let todayTimelineDelay = "today.timeline.action.delay"
+    static let todayTimelineSkip = "today.timeline.action.skip"
+    static let todayTimelineConfirmationConfirm = "today.timeline.confirmation.confirm"
+    static let todayTimelineConfirmationCancel = "today.timeline.confirmation.cancel"
     static let medicationAdd = "medication.add"
     static let medicationEditSave = "medication.edit.save"
     static let medicationPlanSave = "medication.plan.save"
@@ -17,6 +23,34 @@ enum AppAccessibilityID {
     static let assistantSend = "assistant.send"
     static let firstLaunchSkip = "firstLaunch.skip"
     static let firstLaunchNext = "firstLaunch.next"
+    static let todayElderModeEntry = "today.elder-mode-entry"
+    static let elderHome = "elder.home"
+    static let elderCurrentTask = "elder.current-task"
+    static let elderMarkTaken = "elder.action.taken"
+    static let elderDelay = "elder.action.delay"
+    static let elderRequestHelp = "elder.action.help"
+    static let elderConfirmationConfirm = "elder.confirmation.confirm"
+    static let elderConfirmationCancel = "elder.confirmation.cancel"
+    static let elderOpenSettings = "elder.settings"
+    static let elderSwitchToComplete = "elder.switch-to-complete"
+}
+
+enum AppExperienceMode: String, CaseIterable, Identifiable {
+    static let storageKey = "appExperienceMode"
+
+    case complete
+    case elder
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .complete:
+            "完整模式"
+        case .elder:
+            "适老模式"
+        }
+    }
 }
 
 struct AppTabContentView: View, Equatable {
@@ -322,7 +356,10 @@ struct AppTabTopGradientOverlay: View {
     }
 
     private var overallOpacity: Double {
-        colorScheme == .dark ? 0.90 : 0.86
+        if tab == .assistant {
+            return colorScheme == .dark ? 0.52 : 0.50
+        }
+        return colorScheme == .dark ? 0.90 : 0.86
     }
 
     private var paletteColors: AppTabTopGradientPalette {
@@ -341,9 +378,9 @@ struct AppTabTopGradientOverlay: View {
             )
         case .assistant:
             AppTabTopGradientPalette(
-                leading: Color(red: 0.62, green: 0.54, blue: 0.98),
-                trailing: Color(red: 0.34, green: 0.82, blue: 0.90),
-                background: Color(red: 0.88, green: 0.88, blue: 0.98)
+                leading: Color(red: 0.54, green: 0.66, blue: 0.76),
+                trailing: Color(red: 0.70, green: 0.75, blue: 0.79),
+                background: Color(red: 0.91, green: 0.94, blue: 0.96)
             )
         case .records:
             AppTabTopGradientPalette(

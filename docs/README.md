@@ -39,6 +39,7 @@ documents are navigation aids. They do not override the sources above.
 
 ## Operational References
 
+- `ISSUE28_LOCAL_MODEL_ACCEPTANCE.md`: exact-revision local-model download-to-response journey, prerequisites, and redacted result matrix.
 - `13-iphone-signing-and-live-activity-test.md`: legacy physical-device script;
   use its scenarios, but record evidence in the active Pull Request against an
   exact revision.

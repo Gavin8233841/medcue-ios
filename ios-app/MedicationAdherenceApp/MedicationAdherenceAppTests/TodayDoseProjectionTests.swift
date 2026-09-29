@@ -41,8 +41,8 @@ struct TodayDoseProjectionTests {
 
         #expect(recorder.events == [
             .cancelReminder(primary.id),
-            .endLiveActivity(primary.id),
             .cancelReminder(duplicate.id),
+            .endLiveActivity(primary.id),
             .endLiveActivity(duplicate.id)
         ])
     }
@@ -81,8 +81,8 @@ struct TodayDoseProjectionTests {
 
         #expect(recorder.events == [
             .scheduleReminder(primary.id),
-            .endLiveActivity(primary.id),
             .cancelReminder(duplicate.id),
+            .endLiveActivity(primary.id),
             .endLiveActivity(duplicate.id)
         ])
     }
@@ -123,10 +123,10 @@ struct TodayDoseProjectionTests {
         )
 
         #expect(recorder.events == [
-            .endLiveActivity(primary.id),
             .scheduleReminder(primary.id),
-            .endLiveActivity(duplicate.id),
-            .cancelReminder(duplicate.id)
+            .cancelReminder(duplicate.id),
+            .endLiveActivity(primary.id),
+            .endLiveActivity(duplicate.id)
         ])
     }
 
@@ -166,8 +166,8 @@ struct TodayDoseProjectionTests {
 
         #expect(recorder.events == [
             .scheduleReminder(primary.id),
-            .startLiveActivity(primary.id),
             .cancelReminder(duplicate.id),
+            .startLiveActivity(primary.id),
             .endLiveActivity(duplicate.id)
         ])
     }
@@ -531,6 +531,8 @@ struct TodayDoseProjectionTests {
         #expect(beforeProjection.overdueOpenTaskCount == 0)
         #expect(afterProjection.nextReminderTask == nil)
         #expect(afterProjection.overdueOpenTaskCount == 1)
+        #expect(task.status == .pending)
+        #expect(task.recordedAt == nil)
     }
 
     @Test @MainActor
@@ -589,11 +591,18 @@ private final class TodaySystemSurfaceRecorder {
 
     var adapter: TodaySystemSurfaceAdapter {
         TodaySystemSurfaceAdapter(
-            cancelReminder: { [weak self] taskID in
-                self?.events.append(.cancelReminder(taskID))
-            },
-            scheduleReminder: { [weak self] task, _, _ in
-                self?.events.append(.scheduleReminder(task.id))
+            applyReminderSnapshot: { [weak self] snapshot in
+                Task { @MainActor [weak self] in
+                    var results: [UUID: MedicationReminderSchedulingResult] = [:]
+                    for entry in snapshot.entries {
+                        self?.events.append(.scheduleReminder(entry.taskID))
+                        results[entry.taskID] = .scheduled
+                    }
+                    for taskID in snapshot.cancelledTaskIDs {
+                        self?.events.append(.cancelReminder(taskID))
+                    }
+                    return results
+                }
             },
             endLiveActivity: { [weak self] taskID in
                 self?.events.append(.endLiveActivity(taskID))

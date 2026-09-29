@@ -569,7 +569,7 @@ jobs:
     needs: [classify, full]
     if: ${{ always() && needs.full.result == 'success' && ((needs.classify.result == 'success' && needs.classify.outputs.lane == 'full') || needs.classify.result == 'failure') }}
     runs-on: macos-26
-    timeout-minutes: 25
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:

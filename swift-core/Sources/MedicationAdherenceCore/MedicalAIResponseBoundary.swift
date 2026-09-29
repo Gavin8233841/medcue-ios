@@ -168,15 +168,16 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
             .split(whereSeparator: { "。！？；;\n".contains($0) })
             .flatMap { rawStatement -> [(text: String, isRiskDescription: Bool)] in
                 let statement = String(rawStatement)
-                let statementIsConditionalRiskDescription = isConditionalRiskDescription(statement)
-                return statement
-                    .split(whereSeparator: { "，,".contains($0) })
-                    .map { rawClause in
-                        let clause = String(rawClause)
-                        let isRiskDescription = containsSourceAttribution(clause)
-                            || statementIsConditionalRiskDescription
-                        return (clause, isRiskDescription)
-                    }
+                let clauses = statement.split(whereSeparator: { "，,".contains($0) })
+                let hasConditionalRiskPrefix = clauses.first.map {
+                    $0.contains("如已有") || $0.contains("如出现")
+                } ?? false
+                return clauses.enumerated().map { index, rawClause in
+                    let clause = String(rawClause)
+                    let isRiskDescription = isConditionalRiskDescription(clause)
+                        || (index > 0 && hasConditionalRiskPrefix && isRiskLimitClause(clause))
+                    return (clause, isRiskDescription)
+                }
             }
             .filter { !isNonActionableContext($0.text, isRiskDescription: $0.isRiskDescription) }
         let checks: [(String, [String])] = [
@@ -199,30 +200,68 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
             ("dose-change", [
                 "调整剂量为", "调整剂量", "剂量改为", "剂量增加到", "剂量减少到",
                 "增加剂量", "减少剂量", "加大剂量", "降低剂量", "加量至", "减量至",
-                "逐渐减量", "逐步减量", "渐减剂量", "递减剂量", "每次改为", "剂量加倍"
+                "逐渐减量", "逐步减量", "渐减剂量", "递减剂量", "每次改为", "剂量加倍",
+                "用量翻一番", "剂量翻倍", "加倍服用"
             ])
         ]
 
-        return checks.compactMap { flag, phrases in
+        var flags = checks.compactMap { flag, phrases in
             treatmentDecisionStatements.contains { statement in
                 phrases.contains { statement.text.contains($0) }
             } ? flag : nil
         }
+        for statement in treatmentDecisionStatements.map(\.text) where !isCurrentDoseDescription(statement) {
+            let lowercased = statement.lowercased()
+            let hasDoseQuantity = lowercased.range(
+                of: #"(?:[0-9]+(?:\.[0-9]+)?|[一二两三四五六七八九十半])\s*(?:片|粒|丸|毫克|mg|毫升|ml|tablets?|capsules?)"#,
+                options: .regularExpression
+            ) != nil
+            let hasMedicationAction = [
+                "服用", "吃", "每天", "每日", "每次", "一日", "一天", "剂量", "用量",
+                "改为", "改成", "调到", "take", "tablet", "capsule"
+            ].contains { lowercased.contains($0) }
+            if hasDoseQuantity && hasMedicationAction && !flags.contains("dose-change") {
+                flags.append("dose-change")
+            }
+
+            let hasFrequencyQuantity = lowercased.range(
+                of: #"(?:[0-9]+|[一二两三四五六七八九十])\s*(?:次|times?)"#,
+                options: .regularExpression
+            ) != nil
+            let hasFrequencyAction = ["每天", "每日", "一日", "服用", "用药", "daily", "per day"].contains {
+                lowercased.contains($0)
+            }
+            if hasFrequencyQuantity && hasFrequencyAction && !flags.contains("frequency-change") {
+                flags.append("frequency-change")
+            }
+        }
+        return flags
     }
 
-    private func containsSourceAttribution(_ statement: String) -> Bool {
-        let markers = [
-            "说明书提示", "说明书写明", "说明书原文",
-            "标签提示", "标签写明", "原文提示", "原文写明"
-        ]
-        return markers.contains { statement.contains($0) }
+    private func isCurrentDoseDescription(_ statement: String) -> Bool {
+        let trimmed = statement.trimmingCharacters(in: .whitespaces)
+        let descriptionPrefixes = ["患者目前", "患者当前", "用户目前", "用户当前", "我目前", "我现在", "目前", "当前"]
+        let actionMarkers = ["建议", "应", "可以", "必须", "改为", "改成", "调整", "增加", "减少", "加倍", "翻倍"]
+        return descriptionPrefixes.contains { trimmed.hasPrefix($0) }
+            && !actionMarkers.contains { trimmed.contains($0) }
     }
 
     private func isConditionalRiskDescription(_ statement: String) -> Bool {
         let conditions = ["如已有", "如出现"]
-        let riskLimits = ["应避免使用", "不应超过", "应停止使用"]
         return conditions.contains { statement.contains($0) }
-            && riskLimits.contains { statement.contains($0) }
+            && isRiskLimitClause(statement)
+    }
+
+    private func isRiskLimitClause(_ clause: String) -> Bool {
+        let riskLimits = ["应避免使用", "不应超过", "应停止使用"]
+        let professionalReferral = ["咨询医生", "咨询药师", "联系医生", "联系药师"]
+        let additionalDirections = [
+            "建议", "可以", "改为", "加倍", "翻倍", "翻一番",
+            "把", "每次", "每天", "每日", "换成", "改用", "换药"
+        ]
+        return riskLimits.contains { clause.contains($0) }
+            && (!clause.contains("应停止使用") || professionalReferral.contains { clause.contains($0) })
+            && !additionalDirections.contains { clause.contains($0) }
     }
 
     private func isNonActionableContext(
@@ -230,6 +269,26 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
         isRiskDescription: Bool
     ) -> Bool {
         if isRiskDescription {
+            return true
+        }
+        if let closingQuote = statement.lastIndex(of: "”") {
+            let followingText = statement[statement.index(after: closingQuote)...]
+            let actionIntroducers = ["建议", "可以", "应", "改为", "加倍"]
+            if actionIntroducers.contains(where: { followingText.contains($0) }) {
+                return false
+            }
+        }
+        let laterAdvice = [
+            "但建议", "但可以", "不过建议", "不过可以", "随后建议", "并建议",
+            "然后建议", "接着建议", "我建议"
+        ]
+        if laterAdvice.contains(where: { statement.contains($0) }) {
+            return false
+        }
+        let lowercased = statement.trimmingCharacters(in: .whitespaces).lowercased()
+        if lowercased.hasPrefix("do not take ")
+            && !lowercased.contains(" but take ")
+            && !lowercased.contains(" then take ") {
             return true
         }
         let markers = [

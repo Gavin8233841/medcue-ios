@@ -28,11 +28,12 @@ The repository separates domain logic from Apple-platform integration:
 - `Packages/LlamaFramework/` provides the local model runtime package boundary.
 - `tools/` contains reproducible validation and release-safety checks.
 
-Application writes use explicit command and transaction boundaries. SwiftData commits complete before user-visible success or post-commit side effects such as notifications, Watch snapshots, and Live Activity updates. Critical dose actions are designed to be idempotent across in-app and system-surface entry points; the current Live Activity URL entry point has a documented authorization and idempotency gap tracked in [GitHub Issue #2](https://github.com/Gavin8233841/medcue-ios/issues/2) and is not release-ready.
+Application writes use explicit command and transaction boundaries. SwiftData commits complete before user-visible success or post-commit side effects such as notifications, Watch snapshots, and Live Activity updates. The former Live Activity URL dose-action handler is disabled; the legacy intent no longer writes a dose. [GitHub Issue #2](https://github.com/Gavin8233841/medcue-ios/issues/2) tracks the remaining authorization regression gate before this boundary is release-ready.
 
 ## Privacy And Safety
 
 - Medication data is stored locally with versioned SwiftData schemas and migration coverage.
+- iPhone notifications, alarms, Lock Screen Live Activities, and Dynamic Island views use generic reminder text without medication names or doses. Notification dose actions require device unlock; Live Activities open the app for confirmation. See [ADR-0003](docs/adr/0003-iphone-system-reminder-privacy.md) and the remaining [Issue #14](https://github.com/Gavin8233841/medcue-ios/issues/14) validation.
 - Cloud AI remains opt-in and receives only user-authorized context scopes.
 - Credentials are not stored in source control and release artifacts are checked for sensitive configuration.
 - iOS remote endpoints are HTTPS validated, client-side redirects are rejected,
@@ -54,14 +55,14 @@ Open:
 
 `ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj`
 
-The source repository intentionally omits the local llama binary. For a clean
-clone, build the rest of the product against the CI stub:
+The source repository intentionally omits the local llama binary. Ordinary
+builds use the local-inference stub by default:
 
 ```zsh
-MEDCUE_DISABLE_LOCAL_LLAMA=1 xcodebuild \
+xcodebuild \
   -project ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj \
   -scheme MedicationAdherenceApp \
-  -configuration Debug \
+  -configuration Release \
   -destination 'generic/platform=iOS Simulator' \
   CODE_SIGNING_ALLOWED=NO \
   -jobs 1 \
@@ -71,7 +72,7 @@ MEDCUE_DISABLE_LOCAL_LLAMA=1 xcodebuild \
 To link the real on-device model runtime, first provide a local
 `llama.xcframework` described in
 [`ios-app/MedicationAdherenceApp/Frameworks/README.md`](ios-app/MedicationAdherenceApp/Frameworks/README.md),
-then build without `MEDCUE_DISABLE_LOCAL_LLAMA`. The stub path verifies the rest
+then build with `MEDCUE_ENABLE_LOCAL_LLAMA=1`. The stub path verifies the rest
 of the source and integration boundary; it does not verify the real llama binary
 or on-device inference. Repository automation does not yet verify the binary's
 source or digest, so those checks must be completed separately before treating
@@ -92,13 +93,13 @@ Run the complete native validation gate from a clean source clone without the
 local binary:
 
 ```zsh
-MEDCUE_DISABLE_LOCAL_LLAMA=1 tools/verify-native.sh
+tools/verify-native.sh
 ```
 
 The native gate covers domain tests, hosted persistence and application tests, primary-navigation and first-launch UI smoke tests, unsigned Release builds, Watch builds, project preflight checks, and sensitive-artifact assertions.
 
-With a locally supplied XCFramework installed, omit
-`MEDCUE_DISABLE_LOCAL_LLAMA` to link it during the gate. Real inference
+With a locally supplied XCFramework installed, set
+`MEDCUE_ENABLE_LOCAL_LLAMA=1` to link it during the gate. Real inference
 additionally requires the ignored GGUF model and the explicit smoke procedure;
 neither the CI stub nor a successful link build proves real-model behavior.
 

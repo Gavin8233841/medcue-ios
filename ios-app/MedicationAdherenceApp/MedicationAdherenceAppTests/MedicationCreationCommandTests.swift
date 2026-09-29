@@ -102,6 +102,30 @@ struct MedicationCreationCommandTests {
         #expect(try fixture.context.fetch(FetchDescriptor<StoredDoseTask>()).isEmpty)
         #expect(!fixture.context.hasChanges)
     }
+
+    @Test @MainActor
+    func scheduleFailureDoesNotInsertOrSaveMedicationGraph() throws {
+        let fixture = try MedicationCreationFixture()
+        var saveCallCount = 0
+
+        let outcome = MedicationCreationCommand(
+            modelContext: fixture.context,
+            calendar: fixture.calendar,
+            saveOperation: { _ in saveCallCount += 1 },
+            scheduleDoses: { _, _, _ in throw SyntheticMedicationCreationScheduleError.unavailable }
+        ).create(fixture.input(initialStockQuantity: 8, lowStockThreshold: 2))
+
+        guard case .scheduleFailed = outcome else {
+            Issue.record("Expected schedule failure")
+            return
+        }
+        #expect(saveCallCount == 0)
+        #expect(try fixture.context.fetch(FetchDescriptor<StoredMedication>()).isEmpty)
+        #expect(try fixture.context.fetch(FetchDescriptor<StoredMedicationPlan>()).isEmpty)
+        #expect(try fixture.context.fetch(FetchDescriptor<StoredMedicationStock>()).isEmpty)
+        #expect(try fixture.context.fetch(FetchDescriptor<StoredDoseTask>()).isEmpty)
+        #expect(!fixture.context.hasChanges)
+    }
 }
 
 private extension MedicationCreationCommandOutcome {
@@ -114,6 +138,10 @@ private extension MedicationCreationCommandOutcome {
 }
 
 private enum SyntheticMedicationCreationSaveError: Error {
+    case unavailable
+}
+
+private enum SyntheticMedicationCreationScheduleError: Error {
     case unavailable
 }
 

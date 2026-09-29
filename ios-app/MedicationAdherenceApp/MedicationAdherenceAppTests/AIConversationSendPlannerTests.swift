@@ -418,4 +418,48 @@ struct AIConversationSendPlannerTests {
         #expect(dispatch.request.userMessage.contains("药品一、药品二、药品三、药品四"))
         #expect(!dispatch.request.userMessage.contains("药品五"))
     }
+
+    @Test @MainActor
+    func todayReviewDoesNotSendLocalMedicationNamesWhenProfileSharingIsOff() {
+        let consent = StoredAIConsent(sharesMedicationProfile: false)
+        let directive = AIConversationSendPlanner().plan(
+            input: AIConversationSendPlanningInput(
+                outgoingMessage: AIOutgoingMessage(
+                    displayText: "帮我核对今日用药注意事项",
+                    requestText: "帮我核对今日用药注意事项"
+                ),
+                hasAcknowledgedThirdPartyAgent: true,
+                consent: consent,
+                configuration: MedicalAIConfiguration(
+                    providerName: "测试智能体",
+                    modelName: "test-model",
+                    endpointURLString: "https://example.com/v1/respond",
+                    hasAPIKey: true
+                ),
+                readiness: MedicalAITransportReadiness(
+                    canSend: true,
+                    userFacingMessage: nil,
+                    diagnosticSummary: "ready"
+                ),
+                prefersLocalModel: false,
+                localModelURL: nil,
+                hasUsableCloudKey: true,
+                todayOpenMedicationNames: ["不应发送的药品"]
+            ),
+            makeRequest: { text, consent in
+                MedicalAIRequest(
+                    kind: .chat,
+                    userMessage: text,
+                    authorization: consent.authorization
+                )
+            }
+        )
+
+        guard case let .sendCloud(dispatch) = directive else {
+            Issue.record("关闭药品共享后应仍可发送不含本机药名的提问")
+            return
+        }
+        #expect(dispatch.request.userMessage == "帮我核对今日用药注意事项")
+        #expect(!dispatch.request.userMessage.contains("不应发送的药品"))
+    }
 }

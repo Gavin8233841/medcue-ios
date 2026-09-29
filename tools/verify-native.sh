@@ -18,8 +18,8 @@ IOS_TEST_SCHEME="MedicationAdherenceApp"
 IOS_TEST_TARGET="MedicationAdherenceAppTests"
 IOS_UI_TEST_TARGET="MedicationAdherenceAppUITests"
 WATCH_APP_TARGET="MedicationAdherenceWatchApp"
-WATCH_SIMULATOR_SDK="${VERIFY_NATIVE_WATCH_SIMULATOR_SDK:-watchsimulator26.5}"
-WATCH_DEVICE_SDK="${VERIFY_NATIVE_WATCH_DEVICE_SDK:-watchos26.5}"
+WATCH_SIMULATOR_SDK="${VERIFY_NATIVE_WATCH_SIMULATOR_SDK:-watchsimulator}"
+WATCH_DEVICE_SDK="${VERIFY_NATIVE_WATCH_DEVICE_SDK:-watchos}"
 IOS_TEST_DESTINATION="${VERIFY_NATIVE_IOS_TEST_DESTINATION:-platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5}"
 
 CURRENT_STEP="startup"
@@ -59,10 +59,11 @@ Environment:
              Override the iOS Simulator used for hosted unit tests. The default
              is platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5.
   VERIFY_NATIVE_WATCH_SIMULATOR_SDK=<sdk>
-             Override the Watch Simulator SDK name. The default is
-             watchsimulator26.5.
+             Override the Watch Simulator SDK name. The default is the
+             installed watchsimulator SDK selected by Xcode.
   VERIFY_NATIVE_WATCH_DEVICE_SDK=<sdk>
-             Override the Watch device SDK name. The default is watchos26.5.
+             Override the Watch device SDK name. The default is the
+             installed watchos SDK selected by Xcode.
 USAGE
 }
 

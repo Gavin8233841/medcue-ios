@@ -1,10 +1,171 @@
 import AuthenticationServices
 import MedicationAdherenceCore
-import OSLog
 import QuickLook
 import SwiftData
 import SwiftUI
 import UIKit
+
+struct ElderHelpPhoneNumber: Equatable {
+    let storageValue: String
+
+    init(validating input: String) throws {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        var normalized = ""
+        var digitCount = 0
+
+        for character in trimmed {
+            if Self.isASCIIDigit(character) {
+                normalized.append(character)
+                digitCount += 1
+            } else if character == "+", normalized.isEmpty {
+                normalized.append(character)
+            } else if Self.isDisplaySeparator(character) {
+                continue
+            } else {
+                throw ElderHelpContactError.invalidPhoneNumber
+            }
+        }
+
+        guard digitCount > 0 else {
+            throw ElderHelpContactError.invalidPhoneNumber
+        }
+        storageValue = normalized
+    }
+
+    var callURL: URL? {
+        var components = URLComponents()
+        components.scheme = "tel"
+        components.path = storageValue
+        return components.url
+    }
+
+    private static func isASCIIDigit(_ character: Character) -> Bool {
+        guard character.unicodeScalars.count == 1,
+              let scalar = character.unicodeScalars.first
+        else {
+            return false
+        }
+        return (48...57).contains(Int(scalar.value))
+    }
+
+    private static func isDisplaySeparator(_ character: Character) -> Bool {
+        character == "-"
+            || character == "("
+            || character == ")"
+            || character.unicodeScalars.allSatisfy(CharacterSet.whitespacesAndNewlines.contains)
+    }
+}
+
+enum ElderHelpContactError: Error, Equatable {
+    case invalidPhoneNumber
+    case localStorageUnavailable
+    case storedPhoneNumberInvalid
+
+    var userMessage: String {
+        switch self {
+        case .invalidPhoneNumber:
+            "请输入包含数字的电话号码；可以使用开头的 +、空格、短横线和括号。"
+        case .localStorageUnavailable:
+            "帮助号码暂时无法在本机存取，请稍后重试。"
+        case .storedPhoneNumberInvalid:
+            "已保存的帮助号码无效，请重新输入。"
+        }
+    }
+}
+
+protocol ElderHelpContactStoring {
+    func load() throws -> ElderHelpPhoneNumber?
+    func save(_ phoneNumber: ElderHelpPhoneNumber) throws
+    func remove() throws
+}
+
+struct UserDefaultsElderHelpContactStore: ElderHelpContactStoring {
+    static let storageKey = "elderHelpPhoneNumber"
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    func load() throws -> ElderHelpPhoneNumber? {
+        guard let storedValue = defaults.string(forKey: Self.storageKey) else { return nil }
+        do {
+            return try ElderHelpPhoneNumber(validating: storedValue)
+        } catch {
+            throw ElderHelpContactError.storedPhoneNumberInvalid
+        }
+    }
+
+    func save(_ phoneNumber: ElderHelpPhoneNumber) throws {
+        defaults.set(phoneNumber.storageValue, forKey: Self.storageKey)
+    }
+
+    func remove() throws {
+        defaults.removeObject(forKey: Self.storageKey)
+    }
+}
+
+@MainActor
+protocol ElderHelpOpening {
+    func openConfirmation(
+        for phoneNumber: ElderHelpPhoneNumber,
+        completion: @escaping @MainActor (Bool) -> Void
+    )
+}
+
+@MainActor
+struct SystemElderHelpOpener: ElderHelpOpening {
+    func openConfirmation(
+        for phoneNumber: ElderHelpPhoneNumber,
+        completion: @escaping @MainActor (Bool) -> Void
+    ) {
+        guard let url = phoneNumber.callURL,
+              UIApplication.shared.canOpenURL(url)
+        else {
+            completion(false)
+            return
+        }
+        UIApplication.shared.open(url, options: [:]) { didOpen in
+            Task { @MainActor in
+                completion(didOpen)
+            }
+        }
+    }
+}
+
+enum ElderHelpRequestOutcome: Equatable {
+    case requiresSettings
+    case openedConfirmation
+    case failed
+}
+
+@MainActor
+struct ElderHelpRequestCoordinator {
+    let contactStore: any ElderHelpContactStoring
+    let opener: any ElderHelpOpening
+
+    func loadPhoneNumber() throws -> ElderHelpPhoneNumber? {
+        try contactStore.load()
+    }
+
+    func open(phoneNumber: ElderHelpPhoneNumber, completion: @escaping @MainActor (ElderHelpRequestOutcome) -> Void) {
+        opener.openConfirmation(for: phoneNumber) { didOpen in
+            completion(didOpen ? .openedConfirmation : .failed)
+        }
+    }
+
+    func request(completion: @escaping @MainActor (ElderHelpRequestOutcome) -> Void) {
+        do {
+            guard let phoneNumber = try loadPhoneNumber() else {
+                completion(.requiresSettings)
+                return
+            }
+            open(phoneNumber: phoneNumber, completion: completion)
+        } catch {
+            completion(.failed)
+        }
+    }
+}
 
 struct ProfileView: View {
     @Environment(\.activeAppTab) private var activeAppTab
@@ -127,6 +288,7 @@ struct ProfileView: View {
                         trailingText: nil
                     )
                 }
+                .accessibilityIdentifier("profile.settings")
             }
 
             Section("隐私") {
@@ -135,6 +297,7 @@ struct ProfileView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .accessibilityIdentifier(AppAccessibilityID.profileRoot)
         .coordinateSpace(name: "ProfileTopGradientList")
         .navigationTitle("个人")
         .onAppear {
@@ -314,6 +477,8 @@ private struct ProfileSnapshot {
 }
 
 private struct ProfileActionRow: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
     let iconName: String
     let tint: Color
     let title: String
@@ -321,9 +486,9 @@ private struct ProfileActionRow: View {
     let trailingText: String?
 
     var body: some View {
-        HStack(spacing: 12) {
+        (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))) {
             Image(systemName: iconName)
-                .font(.headline)
+                .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(tint)
                 .frame(width: 34, height: 34)
                 .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
@@ -334,9 +499,10 @@ private struct ProfileActionRow: View {
                 Text(subtitle)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 8)
+            if !dynamicTypeSize.isAccessibilitySize { Spacer(minLength: 8) }
             if let trailingText {
                 Text(trailingText)
                     .font(.caption.weight(.semibold))
@@ -353,76 +519,244 @@ private struct ProfileActionRow: View {
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @AppStorage("appColorSchemePreference") private var appColorSchemePreference = AppColorSchemePreference.system.rawValue
+    @AppStorage(AppExperienceMode.storageKey) private var appExperienceModeRaw = AppExperienceMode.complete.rawValue
     @AppStorage("prefersReducedAppMotion") private var prefersReducedAppMotion = false
     @AppStorage("showsMedicationPhotosInReminders") private var showsMedicationPhotosInReminders = true
     @AppStorage("usesLargeTouchTargets") private var usesLargeTouchTargets = true
     @AppStorage(NotificationService.reminderNotificationUnavailableMessageKey) private var reminderNotificationUnavailableMessage = ""
+    @AppStorage(NotificationService.reminderSystemSyncMessageKey) private var reminderSystemSyncMessage = ""
     @StateObject private var notificationService = NotificationService()
     @State private var pendingPermissionGate: AppPermissionGate?
     @State private var isUpdatingNotificationPermission = false
+    @State private var elderHelpPhoneInput = ""
+    @State private var hasSavedElderHelpContact = false
+    @State private var elderHelpContactStatus = ""
+    @State private var elderHelpContactErrorMessage: String?
+    @FocusState private var isElderHelpPhoneFocused: Bool
+    private let focusesElderHelpContact: Bool
+    private let elderHelpContactStore: any ElderHelpContactStoring
+
+    init(
+        focusesElderHelpContact: Bool = false,
+        elderHelpContactStore: (any ElderHelpContactStoring)? = nil
+    ) {
+        self.focusesElderHelpContact = focusesElderHelpContact
+        #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
+        // All settings entrances, including the complete-mode profile, share
+        // the isolated fixture store while a UI test is active.
+        self.elderHelpContactStore = elderHelpContactStore
+            ?? ElderUITestFixture.active?.helpContactStore
+            ?? UserDefaultsElderHelpContactStore()
+        #else
+        self.elderHelpContactStore = elderHelpContactStore ?? UserDefaultsElderHelpContactStore()
+        #endif
+    }
 
     var body: some View {
-        List {
-            Section("外观与交互") {
-                Picker("显示模式", selection: $appColorSchemePreference) {
-                    ForEach(AppColorSchemePreference.allCases) { preference in
-                        Text(preference.displayName).tag(preference.rawValue)
+        ScrollViewReader { scrollProxy in
+            List {
+                Section("使用模式") {
+                    Toggle("使用适老模式", isOn: elderModeBinding)
+                        .accessibilityHint("打开后首页只显示一个当前任务和三个大按钮")
+                }
+
+                Section("同机帮助") {
+                    TextField("帮助电话号码", text: $elderHelpPhoneInput)
+                        .textContentType(.telephoneNumber)
+                        .keyboardType(.phonePad)
+                        .focused($isElderHelpPhoneFocused)
+                        .accessibilityHint("请输入帮助电话号码")
+                        .accessibilityIdentifier("settings.elder-help.phone")
+
+                    if !isElderHelpPhoneFocused {
+                        Button("保存帮助号码") {
+                            saveElderHelpContact()
+                        }
+                        .accessibilityIdentifier("settings.elder-help.save")
+                        .disabled(elderHelpPhoneInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+
+                    if hasSavedElderHelpContact {
+                        Button("移除帮助号码", role: .destructive) {
+                            removeElderHelpContact()
+                        }
+                        .accessibilityIdentifier("settings.elder-help.remove")
+                    }
+
+                    if !elderHelpContactStatus.isEmpty {
+                        Text(elderHelpContactStatus)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                .pickerStyle(.segmented)
+                .id("settings.elder-help")
 
-                SettingsToggleRow(title: "减少动态效果", isOn: $prefersReducedAppMotion)
-                HStack {
-                    Text("语言")
+                Section("外观与交互") {
+                    Picker("显示模式", selection: $appColorSchemePreference) {
+                        ForEach(AppColorSchemePreference.allCases) { preference in
+                            Text(preference.displayName).tag(preference.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    SettingsToggleRow(title: "减少动态效果", isOn: $prefersReducedAppMotion)
+                    HStack {
+                        Text("语言")
+                        Spacer()
+                        Text("中文")
+                            .foregroundStyle(.secondary)
+                    }
+                    SettingsToggleRow(title: "提醒时突出药品图片", isOn: $showsMedicationPhotosInReminders)
+                    SettingsToggleRow(title: "使用更大的触控区域", isOn: $usesLargeTouchTargets)
+                }
+
+                Section("用药提醒") {
+                    SettingsStatusRow(
+                        iconName: "bell.badge.fill",
+                        tint: .blue,
+                        title: "提醒通知",
+                        subtitle: notificationStatusText
+                    )
+                    Button {
+                        startNotificationPermissionFlow()
+                    } label: {
+                        Text(isUpdatingNotificationPermission ? "正在检查通知权限" : "开启或更新通知权限")
+                    }
+                    .disabled(isUpdatingNotificationPermission)
+                    Button {
+                        openSystemSettings()
+                    } label: {
+                        Text("打开系统通知设置")
+                    }
+                }
+
+                Section("隐私") {
+                    SettingsStatusRow(
+                        iconName: "lock.shield.fill",
+                        tint: .green,
+                        title: "本机优先",
+                        subtitle: "用药数据默认保存在本机"
+                    )
+                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if isElderHelpPhoneFocused {
+                    Button {
+                        saveElderHelpContact()
+                    } label: {
+                        Text("保存号码")
+                            .font(.title3.bold())
+                            .frame(maxWidth: .infinity, minHeight: 60)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityLabel("保存帮助号码")
+                    .accessibilityIdentifier("settings.elder-help.save")
+                    .disabled(elderHelpPhoneInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.bar)
+                }
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
-                    Text("中文")
-                        .foregroundStyle(.secondary)
-                }
-                SettingsToggleRow(title: "提醒时突出药品图片", isOn: $showsMedicationPhotosInReminders)
-                SettingsToggleRow(title: "使用更大的触控区域", isOn: $usesLargeTouchTargets)
-            }
-
-            Section("用药提醒") {
-                SettingsStatusRow(
-                    iconName: "bell.badge.fill",
-                    tint: .blue,
-                    title: "提醒通知",
-                    subtitle: notificationStatusText
-                )
-                Button {
-                    startNotificationPermissionFlow()
-                } label: {
-                    Text(isUpdatingNotificationPermission ? "正在检查通知权限" : "开启或更新通知权限")
-                }
-                .disabled(isUpdatingNotificationPermission)
-                Button {
-                    openSystemSettings()
-                } label: {
-                    Text("打开系统通知设置")
+                    Button("收起键盘") { isElderHelpPhoneFocused = false }
                 }
             }
-
-            Section("隐私") {
-                SettingsStatusRow(
-                    iconName: "lock.shield.fill",
-                    tint: .green,
-                    title: "本机优先",
-                    subtitle: "用药数据默认保存在本机"
+            .onChange(of: elderHelpPhoneInput) { _, _ in
+                if isElderHelpPhoneFocused { elderHelpContactStatus = "" }
+            }
+            .navigationTitle("应用设置")
+            .appPermissionPrimer(pendingGate: $pendingPermissionGate) { gate in
+                guard gate == .notifications else {
+                    return
+                }
+                Task {
+                    await requestNotificationPermissionAndRefresh()
+                }
+            }
+            .task {
+                loadElderHelpContact()
+                if focusesElderHelpContact {
+                    await Task.yield()
+                    scrollProxy.scrollTo("settings.elder-help", anchor: .top)
+                }
+                await notificationService.refreshAuthorizationStatus()
+                await notificationService.refreshPendingReminderCount()
+            }
+            .alert(
+                "帮助号码未保存",
+                isPresented: Binding(
+                    get: { elderHelpContactErrorMessage != nil },
+                    set: { isPresented in
+                        if !isPresented {
+                            elderHelpContactErrorMessage = nil
+                        }
+                    }
                 )
+            ) {
+                Button("好", role: .cancel) {
+                    elderHelpContactErrorMessage = nil
+                }
+            } message: {
+                Text(elderHelpContactErrorMessage ?? "")
             }
         }
-        .navigationTitle("应用设置")
-        .appPermissionPrimer(pendingGate: $pendingPermissionGate) { gate in
-            guard gate == .notifications else {
-                return
+    }
+
+    private var elderModeBinding: Binding<Bool> {
+        Binding(
+            get: { AppExperienceMode(rawValue: appExperienceModeRaw) == .elder },
+            set: { isEnabled in
+                appExperienceModeRaw = isEnabled
+                    ? AppExperienceMode.elder.rawValue
+                    : AppExperienceMode.complete.rawValue
             }
-            Task {
-                await requestNotificationPermissionAndRefresh()
-            }
+        )
+    }
+
+    private func loadElderHelpContact() {
+        elderHelpContactStatus = ""
+        hasSavedElderHelpContact = false
+        do {
+            let savedPhone = try elderHelpContactStore.load()
+            elderHelpPhoneInput = savedPhone?.storageValue ?? ""
+            hasSavedElderHelpContact = savedPhone != nil
+        } catch let error as ElderHelpContactError {
+            elderHelpContactErrorMessage = error.userMessage
+        } catch {
+            elderHelpContactErrorMessage = ElderHelpContactError.localStorageUnavailable.userMessage
         }
-        .task {
-            await notificationService.refreshAuthorizationStatus()
-            await notificationService.refreshPendingReminderCount()
+    }
+
+    private func saveElderHelpContact() {
+        do {
+            let phoneNumber = try ElderHelpPhoneNumber(validating: elderHelpPhoneInput)
+            try elderHelpContactStore.save(phoneNumber)
+            hasSavedElderHelpContact = true
+            elderHelpPhoneInput = phoneNumber.storageValue
+            isElderHelpPhoneFocused = false
+            elderHelpContactStatus = "帮助号码已保存。"
+        } catch let error as ElderHelpContactError {
+            elderHelpContactErrorMessage = error.userMessage
+        } catch {
+            elderHelpContactErrorMessage = ElderHelpContactError.localStorageUnavailable.userMessage
+        }
+    }
+
+    private func removeElderHelpContact() {
+        do {
+            try elderHelpContactStore.remove()
+            hasSavedElderHelpContact = false
+            isElderHelpPhoneFocused = false
+            elderHelpPhoneInput = ""
+            elderHelpContactStatus = "本机帮助号码已移除。"
+        } catch let error as ElderHelpContactError {
+            elderHelpContactErrorMessage = error.userMessage
+        } catch {
+            elderHelpContactErrorMessage = ElderHelpContactError.localStorageUnavailable.userMessage
         }
     }
 
@@ -437,15 +771,15 @@ struct SettingsView: View {
         guard let detailText = notificationUnavailableDetailText else {
             return baseText
         }
-        return "\(baseText) · 普通提醒需检查：\(detailText)"
+        return "\(baseText) · 提醒需检查：\(detailText)"
     }
 
     private var notificationUnavailableDetailText: String? {
-        let trimmedMessage = reminderNotificationUnavailableMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedMessage.isEmpty else {
-            return nil
-        }
-        return trimmedMessage.replacingOccurrences(of: "普通提醒不可用：", with: "")
+        let messages = [reminderSystemSyncMessage, reminderNotificationUnavailableMessage]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map { $0.replacingOccurrences(of: "普通提醒不可用：", with: "") }
+        return messages.isEmpty ? nil : messages.joined(separator: "；")
     }
 
     private func startNotificationPermissionFlow() {
