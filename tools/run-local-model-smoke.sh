@@ -39,7 +39,7 @@ if [[ -n "$LOCAL_MODEL_GGUF" ]]; then
 fi
 
 echo "Building $SCHEME for $SIMULATOR_NAME..."
-xcodebuild \
+MEDCUE_ENABLE_LOCAL_LLAMA=1 xcodebuild \
   -project "$PROJECT_PATH" \
   -scheme "$SCHEME" \
   -configuration Debug \

@@ -1,8 +1,9 @@
 # Local Frameworks
 
-The app and Xcode project build without this optional framework. When it is absent,
-the local inference adapter reports unavailable. Install it only for local-model
-runtime validation; other MedCue features do not require it.
+The app and Xcode project use the unavailable local-inference stub by default,
+whether or not this optional framework is present. Install it only for
+local-model runtime validation, then set `MEDCUE_ENABLE_LOCAL_LLAMA=1` when
+building; other MedCue features do not require it.
 
 Place `llama.xcframework` in this directory after downloading or unpacking the official llama.cpp iOS XCFramework.
 
@@ -18,5 +19,5 @@ or:
 LLAMA_XCFRAMEWORK_DIR=/path/to/llama.xcframework tools/install-llama-xcframework.sh
 ```
 
-Do not place partial downloads here. The package enables local inference only
-when the framework manifest and iOS device and Simulator binaries are present.
+Do not place partial downloads here. An explicit local-model build needs the
+complete framework; an ordinary build does not inspect or link it.

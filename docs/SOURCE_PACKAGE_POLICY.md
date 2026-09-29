@@ -56,8 +56,10 @@ identifier or account artifact is treated as package evidence.
 
 The repository intentionally omits `llama.xcframework`. The package records its
 upstream release and license status in the manifest and includes the source-only
-notice, but does not claim to contain or verify the binary. A device build must
-follow `tools/install-llama-xcframework.sh` separately.
+notice, but does not claim to contain or verify the binary. Ordinary device
+builds use the local-inference stub. To validate the real runtime, install the
+framework with `tools/install-llama-xcframework.sh` and build with
+`MEDCUE_ENABLE_LOCAL_LLAMA=1`.
 
 ## Inventory And Release Review
 

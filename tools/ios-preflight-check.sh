@@ -188,12 +188,12 @@ require_file "$LOCAL_MODEL_RUNTIME" "Local model runtime adapter"
 require_file "$LLAMA_PACKAGE_MANIFEST" "Local llama Swift package manifest"
 require_file "$LLAMA_INSTALL_SCRIPT" "llama.xcframework install script"
 require_file "$LOCAL_MODEL_SMOKE_SCRIPT" "Local model smoke script"
-if [[ -f "$LLAMA_FRAMEWORK/Info.plist" && -f "$LLAMA_FRAMEWORK/ios-arm64/llama.framework/llama" && -f "$LLAMA_FRAMEWORK/ios-arm64_x86_64-simulator/llama.framework/llama" ]]; then
-    pass "llama.xcframework installed"
-elif [[ -e "$LLAMA_FRAMEWORK" ]]; then
-    warn "Optional llama.xcframework is incomplete; local inference uses the unavailable stub"
+if [[ "${MEDCUE_ENABLE_LOCAL_LLAMA:-0}" == "1" && "${MEDCUE_DISABLE_LOCAL_LLAMA:-0}" != "1" ]]; then
+    require_file "$LLAMA_FRAMEWORK/Info.plist" "Opt-in llama framework manifest"
+    require_file "$LLAMA_FRAMEWORK/ios-arm64/llama.framework/llama" "Opt-in llama iOS binary"
+    require_file "$LLAMA_FRAMEWORK/ios-arm64_x86_64-simulator/llama.framework/llama" "Opt-in llama Simulator binary"
 else
-    pass "Optional llama.xcframework absent; local inference uses the unavailable stub"
+    pass "Optional llama runtime disabled for ordinary builds"
 fi
 if [[ -f "$LOCAL_MODEL_STORE" ]]; then
     require_text "$LOCAL_MODEL_STORE" "MiniCPM4-0.5B-QAT-Int4_gptq_aware_q4_0.gguf" "MiniCPM4 GGUF filename registered"
