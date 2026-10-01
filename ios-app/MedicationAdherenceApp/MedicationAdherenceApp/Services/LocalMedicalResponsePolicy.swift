@@ -191,7 +191,7 @@ struct LocalMedicalResponsePolicy: Sendable {
     }
 
     private func cleanFinalAnswerText(_ value: String, request: MedicalAIRequest) -> String {
-        let cleaned = value
+        let lines = value
             .replacingOccurrences(of: "根据用户提供的信息，", with: "")
             .replacingOccurrences(of: "根据用户提供的信息：", with: "")
             .replacingOccurrences(of: "根据您提供的信息，", with: "")
@@ -204,6 +204,7 @@ struct LocalMedicalResponsePolicy: Sendable {
             .replacingOccurrences(of: "用户问题：\(request.userMessage)", with: "")
             .replacingOccurrences(of: request.userMessage, with: "")
             .components(separatedBy: .newlines)
+        let cleaned = lines
             .filter { line in
                 let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 return !trimmedLine.hasPrefix("```")
