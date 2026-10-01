@@ -439,9 +439,11 @@ public enum MedicationImportTextExtractor {
     ]
 
     private static let explicitStrengthLabels = [
+        // Match the complete label first, including when its value is empty.
+        // Otherwise the shorter "规格" prefix turns "型号" into a field value.
+        "规格型号",
         "规格",
         "药品规格",
-        "规格型号",
         "含量",
         "Strength"
     ]
