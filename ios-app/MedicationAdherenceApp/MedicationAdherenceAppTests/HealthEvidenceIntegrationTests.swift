@@ -165,3 +165,112 @@ private actor HealthTransportRecorder: MedicalAIClient {
             message: "test")
     }
 }
+
+@MainActor
+struct HealthPartialAuthorizationPresentationTests {
+    private let measuredAt = Date(timeIntervalSince1970: 1_800_000_000)
+
+    private func review(_ metric: HealthEvidenceMetric) -> HealthEvidenceSample {
+        HealthEvidenceSample(id: UUID(), metric: metric, start: measuredAt.addingTimeInterval(-3600),
+            end: measuredAt, value: metric == .sleep ? 0 : 62, unit: metric.unit,
+            sourceID: "synthetic-watch", sourceName: "Synthetic Watch",
+            sleepState: metric == .sleep ? .asleep : nil)
+    }
+    private func vital() -> HealthSignalSample {
+        HealthSignalSample(kind: .heartRate, measuredAt: measuredAt, value: 70, unit: "次/分")
+    }
+
+    @Test func sleepOnlyIsReadableWithoutClaimingVitalSignAuthorization() {
+        let summary = HealthKitSettingsSummary(vitalSignSamples: [], reviewSamples: [review(.sleep)], refreshedAt: measuredAt)
+        #expect(summary.hasSamples)
+        #expect(summary.hasReviewSamples)
+        #expect(summary.sampleCount == 1)
+        #expect(summary.metricCount == 1)
+        #expect(summary.coveredDayCount == 1)
+        #expect(summary.headline == "已读取健康回顾记录")
+        #expect(summary.vitalSigns.sampleCount == 0)
+        #expect(summary.vitalSignDestinationText == "暂无生命体征")
+        #expect(!summary.vitalSignDestinationText.contains("授权"))
+    }
+
+    @Test func restingHeartRateOnlyIsSeparateFromLegacyHeartRate() {
+        let summary = HealthKitSettingsSummary(vitalSignSamples: [], reviewSamples: [review(.restingHeartRate)], refreshedAt: measuredAt)
+        #expect(summary.reviewSampleCount == 1)
+        #expect(summary.reviewMetricCount == 1)
+        #expect(summary.vitalSigns.metricSummaries.isEmpty)
+        #expect(summary.vitalSigns.latestSample == nil)
+    }
+
+    @Test func vitalSignsOnlyAndMixedDataKeepDestinationCountsSeparate() {
+        let onlyVital = HealthKitSettingsSummary(vitalSignSamples: [vital()], reviewSamples: [], refreshedAt: measuredAt)
+        #expect(onlyVital.sampleCount == 1)
+        #expect(onlyVital.reviewSampleCount == 0)
+        #expect(onlyVital.vitalSignDestinationText == "1 条生命体征")
+        let mixed = HealthKitSettingsSummary(vitalSignSamples: [vital()], reviewSamples: [review(.sleep), review(.restingHeartRate)], refreshedAt: measuredAt)
+        #expect(mixed.sampleCount == 3)
+        #expect(mixed.metricCount == 3)
+        #expect(mixed.coveredDayCount == 1)
+        #expect(mixed.vitalSigns.sampleCount == 1)
+        #expect(mixed.reviewSampleCount == 2)
+        #expect(mixed.vitalSignDestinationText == "1 条生命体征")
+    }
+
+    @Test func emptyDataDoesNotAssertReadPermissionWasDenied() {
+        let summary = HealthKitSettingsSummary(vitalSignSamples: [], reviewSamples: [], refreshedAt: measuredAt)
+        #expect(!summary.hasSamples)
+        #expect(summary.headline == "暂无可读取的健康记录")
+        #expect(summary.reviewCoverageText == "暂无健康回顾记录")
+        #expect(summary.vitalSignDestinationText == "暂无生命体征")
+    }
+}
+
+@MainActor
+struct HealthReviewMissingSnapshotTests {
+    @Test func exactReviewWithoutSnapshotNeverCallsModel() async throws {
+        let runtime = HealthReviewForbiddenRuntime()
+        let client = LocalMedicalAIClient(modelURL: URL(fileURLWithPath: "/tmp/not-a-real-model.gguf"), runtime: runtime)
+        let request = MedicalAIRequest(kind: .chat, userMessage: "近一周睡眠怎样",
+            authorization: MedicalAIUserAuthorization(grantedScopes: []))
+        let response = try await client.respond(to: request)
+        #expect(response.message.contains("刷新"))
+        #expect(response.provider.modelName == "deterministic-v1")
+        #expect(await runtime.calls == 0)
+    }
+
+    @Test func streamReviewWithoutSnapshotNeverCallsModel() async throws {
+        let runtime = HealthReviewForbiddenRuntime()
+        let client = LocalMedicalAIClient(modelURL: URL(fileURLWithPath: "/tmp/not-a-real-model.gguf"), runtime: runtime)
+        let request = MedicalAIRequest(kind: .chat, userMessage: "回顾静息心率记录",
+            authorization: MedicalAIUserAuthorization(grantedScopes: []))
+        var answer: String?
+        for try await event in client.streamResponse(to: request) {
+            if case let .generationCompleted(text, _) = event { answer = text }
+        }
+        #expect(answer?.contains("刷新") == true)
+        #expect(await runtime.calls == 0)
+    }
+
+    @Test func symptomQuestionDoesNotTakeMissingSnapshotShortcut() async {
+        let runtime = HealthReviewForbiddenRuntime()
+        let client = LocalMedicalAIClient(modelURL: URL(fileURLWithPath: "/tmp/not-a-real-model.gguf"), runtime: runtime)
+        let request = MedicalAIRequest(kind: .chat, userMessage: "最近呼吸困难怎么办",
+            authorization: MedicalAIUserAuthorization(grantedScopes: []))
+        do { _ = try await client.respond(to: request) } catch { }
+        #expect(await runtime.calls == 1) // The existing medical-AI path, not a record-review template.
+    }
+}
+
+private actor HealthReviewForbiddenRuntime: LocalMedicalGenerating {
+    private(set) var calls = 0
+    func generateResponse(prompt: String, modelURL: URL, maxTokens: Int) async throws -> String {
+        calls += 1
+        throw LocalMedicalAIError.runtimeUnavailable
+    }
+    nonisolated func generateResponseStream(prompt: String, modelURL: URL, maxTokens: Int) -> LocalMedicalGenerationStream {
+        let (stream, continuation) = AsyncThrowingStream<String, Error>.makeStream()
+        // Any unexpected stream invocation is a test failure independently of actor counter timing.
+        Issue.record("A missing-snapshot review invoked the model stream")
+        continuation.finish(throwing: LocalMedicalAIError.runtimeUnavailable)
+        return LocalMedicalGenerationStream(stream: stream) {}
+    }
+}

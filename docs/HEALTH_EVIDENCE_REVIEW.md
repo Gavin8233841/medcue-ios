@@ -8,7 +8,9 @@ This document describes the proposed branch, not an integrated release or device
 
 Settings → Apple Health → 本机健康回顾 opens a local review. Choose 7, 30 or 56 days,
 refresh, inspect sleep, resting heart rate, HRV SDNN and respiratory-rate facts,
-and choose a deterministic review question. No model download, credential or network
+and choose a deterministic review question. The settings overview counts new review records
+separately from legacy vital signs, so sleep-only authorization is not shown as no health data;
+trend/export destinations still count only their supported vital-sign records. No model download, credential or network
 request is needed for this page. This does not remove the existing downloaded-model
 readiness requirement from the separate assistant chat screen. Existing vital-sign trends and visit-summary links remain.
 
@@ -22,6 +24,8 @@ runtime to be ready; the standalone local review has no such requirement. Only a
 allowlist of record-review questions can use the deterministic chat shortcut. Arbitrary
 symptom, treatment and causal questions continue through the existing medical-AI path.
 The data-backed shortcut does not use a language model or claim model interpretation.
+An exact review question with no current snapshot returns a refresh/permission message and
+never falls through to general model generation. Symptom questions retain the existing path.
 
 ## Data contract and calculations
 
@@ -108,7 +112,7 @@ signature with the official Swift 6.x fingerprint `52BB7E3DE28A71BE22EC05FFEF80A
 It also reported an expired public key warning. This local compiler evidence is supplementary;
 the repository's unchanged required macOS/Xcode CI remains authoritative for native checks.
 
-Eight hosted integration tests are added, covering default-off scope, cloud guard, connection
+Fifteen hosted integration tests are added, covering default-off scope, cloud guard, connection
 ABA, regrant, and actual SwiftData commit rejection after revocation/refresh. They were not run
 on Linux. `tools/verify-native.sh --quick` is blocked by missing `xcodebuild`; no gate is weakened.
 No device, HealthKit permission dialog, provider, model inference, UI/accessibility screenshot,

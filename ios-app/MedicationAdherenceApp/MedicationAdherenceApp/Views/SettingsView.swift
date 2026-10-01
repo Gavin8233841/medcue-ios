@@ -258,8 +258,8 @@ struct ProfileView: View {
                         iconName: "heart.text.square.fill",
                         tint: .red,
                         title: "Apple 健康",
-                        subtitle: healthKitService.hasCompletedAuthorizationRequest ? healthKitService.recentSummary.coverageText : "连接生命体征到趋势与复诊资料",
-                        trailingText: healthKitService.recentSummary.hasSamples ? "\(healthKitService.recentSummary.coveredDayCount) 天" : nil
+                        subtitle: healthKitService.hasCompletedAuthorizationRequest ? healthKitService.settingsSummary.coverageText : "读取健康记录，用于本机回顾",
+                        trailingText: healthKitService.settingsSummary.hasSamples ? "\(healthKitService.settingsSummary.sampleCount) 条" : nil
                     )
                 }
 

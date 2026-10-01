@@ -46,9 +46,14 @@ struct LocalMedicalAIClient: MedicalAIClient {
     }
 
     private func healthReviewAnswer(for request: MedicalAIRequest) -> String? {
-        guard let bundle = request.healthEvidence,
-              MedicalAIRequestValidator().canSend(request),
-              let metric = HealthEvidenceLocalReview.metric(in: request.userMessage) else { return nil }
+        guard let metric = HealthEvidenceLocalReview.metric(in: request.userMessage) else { return nil }
+        guard let bundle = request.healthEvidence else {
+            return "当前健康回顾尚未就绪。请到 Apple 健康页面刷新记录，并检查离线智能体健康摘要授权。"
+        }
+        guard MedicalAIRequestValidator().canSend(request),
+              request.authorization.allows(.healthSummary, at: request.createdAt) else {
+            return "本次未获得健康摘要授权。可在 Apple 健康页面查看本机回顾，或确认离线智能体的共享范围。"
+        }
         return HealthEvidenceLocalReview().answer(metric: metric, bundle: bundle)
     }
 

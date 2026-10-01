@@ -577,8 +577,8 @@ struct AIAssistantView: View {
                 AIChatResponseDraft(
                     role: .assistant,
                     text: finalized.persistedMessage,
-                    providerName: request.healthEvidence == nil ? "离线智能体" : "本机健康回顾",
-                    modelName: request.healthEvidence == nil ? LocalMedicalModelStore.modelDisplayName : "deterministic-v1",
+                    providerName: HealthEvidenceLocalReview.metric(in: request.userMessage) == nil ? "离线智能体" : "本机健康回顾",
+                    modelName: HealthEvidenceLocalReview.metric(in: request.userMessage) == nil ? LocalMedicalModelStore.modelDisplayName : "deterministic-v1",
                     sharedScopesSummary: sharedScopesSummary
                 ), request: request, consent: activeConsent
             )

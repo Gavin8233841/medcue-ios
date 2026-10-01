@@ -15,6 +15,8 @@ final class HealthKitService: ObservableObject {
     @Published private(set) var hasCompletedAuthorizationRequest: Bool
     @Published private(set) var recentTrendSamples: [HealthSignalSample] = []
     @Published private(set) var evidenceBundle: HealthEvidenceBundle?
+    @Published private(set) var settingsSummary = HealthKitSettingsSummary(
+        vitalSignSamples: [], reviewSamples: [], refreshedAt: nil)
     private var evidenceSnapshot = HealthEvidenceSnapshot()
     private var evidenceConnectionRevision: String?
     private var evidenceWindows: [Int: HealthEvidenceBundle] = [:]
@@ -89,6 +91,7 @@ final class HealthKitService: ObservableObject {
         guard HKHealthStore.isHealthDataAvailable() else {
             recentTrendSamples = []
             evidenceBundle = nil
+            settingsSummary = HealthKitSettingsSummary(vitalSignSamples: [], reviewSamples: [], refreshedAt: nil)
             statusMessage = "当前设备不支持 Apple 健康数据读取"
             return
         }
@@ -96,6 +99,7 @@ final class HealthKitService: ObservableObject {
         guard defaults.bool(forKey: Self.completionKey) else {
             recentTrendSamples = []
             evidenceBundle = nil
+            settingsSummary = HealthKitSettingsSummary(vitalSignSamples: [], reviewSamples: [], refreshedAt: nil)
             statusMessage = "尚未完成 Apple 健康授权请求"
             return
         }
@@ -107,6 +111,7 @@ final class HealthKitService: ObservableObject {
         let connectionRevision = HealthConnectionPolicy.revision(defaults: defaults)
         // Clear stale facts before suspending; failed/empty reads cannot reuse them.
         evidenceBundle = nil
+        settingsSummary = HealthKitSettingsSummary(vitalSignSamples: [], reviewSamples: [], refreshedAt: nil)
         evidenceWindows = [:]
         evidenceRevision = nil
         recentTrendSamples = []
@@ -118,7 +123,7 @@ final class HealthKitService: ObservableObject {
         let trend = await fetchTrendSamples(days: min(56, max(1, days)))
         let samples = trend.samples
         let evidence = await fetchEvidenceSamples(start: start, end: end)
-        let windows = await Task.detached(priority: .utility) {
+        let prepared = await Task.detached(priority: .utility) {
             var windows: [Int: HealthEvidenceBundle] = [:]
             for lookback in [7, 30, 56] {
                 let windowStart = calendar.date(byAdding: .day, value: -lookback,
@@ -127,7 +132,9 @@ final class HealthKitService: ObservableObject {
                     start: max(start, windowStart), end: end, timeZone: calendar.timeZone,
                     generatedAt: end, failedMetrics: evidence.failed, budgetExceededMetrics: evidence.overflow)
             }
-            return windows
+            let settings = HealthKitSettingsSummary(vitalSignSamples: samples,
+                reviewSamples: evidence.samples, refreshedAt: end, calendar: calendar)
+            return (windows: windows, settings: settings)
         }.value
         guard !Task.isCancelled,
               HealthConnectionPolicy.isCurrent(connectionRevision, defaults: defaults),
@@ -142,9 +149,10 @@ final class HealthKitService: ObservableObject {
         recentTrendSamples = samples
         evidenceConnectionRevision = connectionRevision
         evidenceRevision = snapshotRevision
-        evidenceWindows = windows
+        evidenceWindows = prepared.windows
+        settingsSummary = prepared.settings
         lastSampleRefreshAt = Date()
-        evidenceBundle = windows[56]
+        evidenceBundle = prepared.windows[56]
         if trend.overflowCount > 0 || !evidence.overflow.isEmpty {
             statusMessage = "部分指标记录超过读取预算，已排除这些指标；可选择较短范围重试。"
         } else {
@@ -183,6 +191,7 @@ final class HealthKitService: ObservableObject {
         evidenceWindows = [:]
         recentTrendSamples = []
         evidenceBundle = nil
+        settingsSummary = HealthKitSettingsSummary(vitalSignSamples: [], reviewSamples: [], refreshedAt: nil)
         lastSampleRefreshAt = nil
         hasCompletedAuthorizationRequest = false
         statusMessage = "已停止读取并清除本次健康回顾；Apple 健康原始记录未更改。"
@@ -427,15 +436,53 @@ private enum HealthKitAuthorizationError: LocalizedError {
     }
 }
 
-struct HealthKitRecentSummary {
+/// Settings-only read overview. The legacy vital-sign summary remains the
+/// contract consumed by medication trends and visit exports; new review records
+/// must never be counted as if they already participate in those destinations.
+struct HealthKitSettingsSummary: Sendable {
+    let vitalSigns: HealthKitRecentSummary
+    let reviewSampleCount: Int
+    let reviewMetricCount: Int
+    let coveredDayCount: Int
+
+    init(vitalSignSamples: [HealthSignalSample], reviewSamples: [HealthEvidenceSample],
+         refreshedAt: Date?, calendar: Calendar = .current) {
+        vitalSigns = HealthKitRecentSummary(samples: vitalSignSamples, refreshedAt: refreshedAt, calendar: calendar)
+        reviewSampleCount = Set(reviewSamples.map(\.id)).count
+        reviewMetricCount = Set(reviewSamples.map(\.metric)).count
+        let recordedDates = vitalSignSamples.map(\.measuredAt) + reviewSamples.map(\.end)
+        coveredDayCount = Set(recordedDates.map { calendar.startOfDay(for: $0) }).count
+    }
+
+    var sampleCount: Int { vitalSigns.sampleCount + reviewSampleCount }
+    var metricCount: Int { vitalSigns.metricSummaries.count + reviewMetricCount }
+    var hasSamples: Bool { sampleCount > 0 }
+    var hasReviewSamples: Bool { reviewSampleCount > 0 }
+    var headline: String {
+        if hasReviewSamples {
+            return vitalSigns.hasSamples ? "已读取生命体征与健康回顾记录" : "已读取健康回顾记录"
+        }
+        return vitalSigns.hasSamples ? vitalSigns.latestSampleText : "暂无可读取的健康记录"
+    }
+    var coverageText: String {
+        hasSamples ? "\(coveredDayCount) 个记录日期 · \(sampleCount) 条" : "暂无可读取的健康记录"
+    }
+    var reviewCoverageText: String {
+        hasReviewSamples ? "\(reviewSampleCount) 条回顾记录 · \(reviewMetricCount) 类" : "暂无健康回顾记录"
+    }
+    var vitalSignDestinationText: String {
+        vitalSigns.hasSamples ? "\(vitalSigns.sampleCount) 条生命体征" : "暂无生命体征"
+    }
+}
+
+struct HealthKitRecentSummary: Sendable {
     let sampleCount: Int
     let coveredDayCount: Int
     let metricSummaries: [HealthKitMetricSummary]
     let latestSample: HealthSignalSample?
     let refreshedAt: Date?
 
-    init(samples: [HealthSignalSample], refreshedAt: Date?) {
-        let calendar = Calendar.current
+    init(samples: [HealthSignalSample], refreshedAt: Date?, calendar: Calendar = .current) {
         sampleCount = samples.count
         coveredDayCount = Set(samples.map { calendar.startOfDay(for: $0.measuredAt) }).count
         latestSample = samples.max { $0.measuredAt < $1.measuredAt }
@@ -476,7 +523,7 @@ struct HealthKitRecentSummary {
     }
 }
 
-struct HealthKitMetricSummary: Identifiable {
+struct HealthKitMetricSummary: Identifiable, Sendable {
     let id: String
     let kind: HealthSignalKind
     let sampleCount: Int

@@ -26,19 +26,21 @@ struct HealthDataSettingsView: View {
                     subtitle: healthKitService.statusMessage
                 )
                 HealthKitSnapshotCard(
-                    summary: summary,
+                    summary: healthKitService.settingsSummary,
                     supportedTypes: healthKitService.supportedReadTypesSummary,
                     hasCompletedAuthorizationRequest: healthKitService.hasCompletedAuthorizationRequest
                 )
             }
 
-            Section("近期健康信号") {
+            Section("生命体征（用于趋势与复诊）") {
                 if summary.metricSummaries.isEmpty {
                     SettingsStatusRow(
                         iconName: "waveform.path.ecg",
                         tint: .secondary,
                         title: "暂无近期样本",
-                        subtitle: healthKitService.hasCompletedAuthorizationRequest ? "授权范围内还没有可读取的生命体征" : "完成授权请求后显示近期健康记录"
+                        subtitle: healthKitService.settingsSummary.hasReviewSamples
+                            ? "健康回顾记录已读取；此处仅列心率、血压、血氧、体温和血糖"
+                            : "当前没有可读取的心率、血压、血氧、体温或血糖记录"
                     )
                 } else {
                     ForEach(summary.metricSummaries) { metric in
@@ -51,7 +53,11 @@ struct HealthDataSettingsView: View {
                 NavigationLink {
                     HealthEvidenceReviewView(service: healthKitService)
                 } label: {
-                    Label("查看睡眠与静息心率回顾", systemImage: "chart.xyaxis.line")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("查看睡眠与静息心率回顾", systemImage: "chart.xyaxis.line")
+                        Text(healthKitService.settingsSummary.reviewCoverageText)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 Toggle("允许离线智能体使用健康摘要", isOn: Binding(
                     get: { sharesLocalHealthSummary },
@@ -70,8 +76,8 @@ struct HealthDataSettingsView: View {
                         iconName: "chart.line.uptrend.xyaxis",
                         tint: .blue,
                         title: "用药趋势",
-                        subtitle: "作为趋势背景信号",
-                        trailingText: summary.hasSamples ? "\(summary.coveredDayCount) 天" : "待授权"
+                        subtitle: "使用上述生命体征作为背景信号",
+                        trailingText: healthKitService.settingsSummary.vitalSignDestinationText
                     )
                 }
 
@@ -82,8 +88,8 @@ struct HealthDataSettingsView: View {
                         iconName: "doc.text.magnifyingglass",
                         tint: .orange,
                         title: "复诊资料",
-                        subtitle: "随报告汇总近期观察",
-                        trailingText: summary.hasSamples ? "\(summary.sampleCount) 条" : "待样本"
+                        subtitle: "随报告汇总上述生命体征",
+                        trailingText: healthKitService.settingsSummary.vitalSignDestinationText
                     )
                 }
             }
@@ -177,14 +183,14 @@ struct HealthDataSettingsView: View {
 }
 
 struct HealthKitSnapshotCard: View {
-    let summary: HealthKitRecentSummary
+    let summary: HealthKitSettingsSummary
     let supportedTypes: String
     let hasCompletedAuthorizationRequest: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
-                Text(summary.hasSamples ? summary.latestSampleText : "等待健康数据")
+                Text(summary.headline)
                     .font(.headline)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
@@ -195,10 +201,13 @@ struct HealthKitSnapshotCard: View {
             }
 
             HStack(spacing: 10) {
-                HealthKitSnapshotTile(title: "覆盖", value: summary.hasSamples ? "\(summary.coveredDayCount) 天" : "0 天", tint: .teal)
+                HealthKitSnapshotTile(title: "记录日期", value: summary.hasSamples ? "\(summary.coveredDayCount) 天" : "0 天", tint: .teal)
                 HealthKitSnapshotTile(title: "样本", value: "\(summary.sampleCount)", tint: .blue)
-                HealthKitSnapshotTile(title: "指标", value: "\(summary.metricSummaries.count)", tint: .indigo)
+                HealthKitSnapshotTile(title: "指标", value: "\(summary.metricCount)", tint: .indigo)
             }
+
+            Text("生命体征 \(summary.vitalSigns.sampleCount) 条 · 健康回顾 \(summary.reviewSampleCount) 条")
+                .font(.caption).foregroundStyle(.secondary)
 
             HStack(spacing: 6) {
                 Image(systemName: hasCompletedAuthorizationRequest ? "checkmark.shield.fill" : "shield")
