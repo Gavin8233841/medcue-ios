@@ -613,6 +613,9 @@ private final class HealthKitReadOperation: @unchecked Sendable {
 
     init(store: HKHealthStore) { self.store = store }
 
+    // Query construction stays on the caller's main actor. NSPredicate is not
+    // Sendable; only HealthKit's callback and the locked completion state cross threads.
+    @MainActor
     func read(type: HKSampleType, predicate: NSPredicate, limit: Int) async throws -> [HKSample] {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
