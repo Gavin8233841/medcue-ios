@@ -65,8 +65,11 @@ final class PlanPermissionPrimerUITests: XCTestCase {
             let escalation = app.switches["medication.plan.escalation"]
             scrollToHittable(escalation, in: app)
             XCTAssertEqual(escalation.value as? String, "0")
-            escalation.tap()
-            XCTAssertEqual(escalation.value as? String, "1")
+            XCTAssertFalse(escalation.frame.isEmpty)
+            // Tap the trailing switch track in this fixed Chinese/LTR fixture;
+            // the automatic hit point may land on the Toggle's long label.
+            escalation.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+            XCTAssertEqual(escalation.value as? String, "1", "Escalation switch frame: \(escalation.frame)")
         }
 
         let note = app.textViews["medication.plan.source-note"]
