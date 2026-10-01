@@ -93,10 +93,12 @@ struct PlanEditorView: View {
                             Text(method.displayName).tag(method)
                         }
                     }
+                    .accessibilityIdentifier("medication.plan.delivery-method")
                     Text(reminderDeliveryMethod.detailText)
                         .font(.footnote)
                         .foregroundStyle(reminderDeliveryMethod == .alarm ? .orange : .secondary)
                     Toggle("未处理时使用 iPhone 闹钟再提醒", isOn: $escalatesToAlarmWhenUnhandled)
+                        .accessibilityIdentifier("medication.plan.escalation")
                     Text("普通提醒 5 分钟内未处理时，可用 iPhone 闹钟加强提醒；关闭后只保留普通提醒。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -110,6 +112,7 @@ struct PlanEditorView: View {
                 Section("备注（可选）") {
                     TextEditor(text: $sourceNote)
                         .frame(minHeight: 90)
+                        .accessibilityIdentifier("medication.plan.source-note")
                     Text("可以记录医生、药师或复诊时调整提醒的原因。")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -142,12 +145,40 @@ struct PlanEditorView: View {
                     .accessibilityIdentifier(AppAccessibilityID.medicationPlanSave)
                 }
             }
-            .appPermissionPrimer(pendingGate: $pendingPermissionGate) { gate in
+            .appPermissionPrimer(
+                pendingGate: $pendingPermissionGate,
+                onCancel: cancelPlanSaveAfterPermissionPrimer
+            ) { gate in
                 Task {
                     await continuePlanSaveAfterPermissionPrimer(gate)
                 }
             }
         }
+    }
+
+    private func cancelPlanSaveAfterPermissionPrimer() {
+        shouldSaveAfterPermissionGrant = false
+        isSaveFlowActive = false
+    }
+
+    // Only the existing isolated Simulator fixture can opt into synthetic
+    // platform answers. Requests are denied; Save, primer, Cancel and retry stay real.
+    private var permissionPrimerUITestActive: Bool {
+        #if DEBUG && targetEnvironment(simulator)
+        ElderUITestFixture.active != nil
+            && ProcessInfo.processInfo.arguments.contains("--plan-permission-primer-ui-test")
+        #else
+        false
+        #endif
+    }
+
+    private var permissionPrimerUITestNotificationAuthorized: Bool {
+        #if DEBUG && targetEnvironment(simulator)
+        permissionPrimerUITestActive
+            && ProcessInfo.processInfo.arguments.contains("--plan-permission-primer-notification-authorized")
+        #else
+        false
+        #endif
     }
 
     private func beginSaveFlow() {
@@ -186,21 +217,27 @@ struct PlanEditorView: View {
     private func ensureReminderPermissionForSave() async -> Bool {
         switch reminderDeliveryMethod {
         case .notification:
-            if await notificationService.hasUsableNotificationAuthorization() {
-                AppPermissionGate.markAuthorizationCompleted(for: .notifications)
+            let notificationsAuthorized = permissionPrimerUITestActive
+                ? permissionPrimerUITestNotificationAuthorized
+                : await notificationService.hasUsableNotificationAuthorization()
+            if notificationsAuthorized {
+                if !permissionPrimerUITestActive {
+                    AppPermissionGate.markAuthorizationCompleted(for: .notifications)
+                }
                 return true
             }
-            if AppPermissionGate.hasCompletedAuthorization(for: .notifications) {
+            if !permissionPrimerUITestActive,
+               AppPermissionGate.hasCompletedAuthorization(for: .notifications) {
                 return await requestReminderPermissionForSave(.notifications)
             }
             pendingPermissionGate = .notifications
             return false
         case .alarm:
-            if AppPermissionGate.isAlarmAuthorized() {
+            if !permissionPrimerUITestActive, AppPermissionGate.isAlarmAuthorized() {
                 AppPermissionGate.markAuthorizationCompleted(for: .alarm)
                 return true
             }
-            if AppPermissionGate.hasCompletedAuthorization(for: .alarm) {
+            if !permissionPrimerUITestActive, AppPermissionGate.hasCompletedAuthorization(for: .alarm) {
                 return await requestReminderPermissionForSave(.alarm)
             }
             pendingPermissionGate = .alarm
@@ -215,11 +252,11 @@ struct PlanEditorView: View {
         else {
             return true
         }
-        if AppPermissionGate.isAlarmAuthorized() {
+        if !permissionPrimerUITestActive, AppPermissionGate.isAlarmAuthorized() {
             AppPermissionGate.markAuthorizationCompleted(for: .alarm)
             return true
         }
-        if AppPermissionGate.hasCompletedAuthorization(for: .alarm) {
+        if !permissionPrimerUITestActive, AppPermissionGate.hasCompletedAuthorization(for: .alarm) {
             return await requestReminderPermissionForSave(.alarm)
         }
         pendingPermissionGate = .alarm
@@ -230,7 +267,7 @@ struct PlanEditorView: View {
     private func requestReminderPermissionForSave(_ gate: AppPermissionGate) async -> Bool {
         switch gate {
         case .notifications:
-            let granted = await notificationService.requestAuthorization()
+            let granted = permissionPrimerUITestActive ? false : await notificationService.requestAuthorization()
             if granted {
                 AppPermissionGate.markAuthorizationCompleted(for: .notifications)
             } else {
@@ -238,7 +275,7 @@ struct PlanEditorView: View {
             }
             return granted
         case .alarm:
-            let granted = await AppPermissionGate.requestAlarmAccess()
+            let granted = permissionPrimerUITestActive ? false : await AppPermissionGate.requestAlarmAccess()
             if granted {
                 AppPermissionGate.markAuthorizationCompleted(for: .alarm)
             } else {

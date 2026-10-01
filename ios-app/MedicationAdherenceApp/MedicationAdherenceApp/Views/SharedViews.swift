@@ -140,14 +140,16 @@ enum AppPermissionGate: String, Identifiable {
 extension View {
     func appPermissionPrimer(
         pendingGate: Binding<AppPermissionGate?>,
+        onCancel: @escaping () -> Void = {},
         onContinue: @escaping (AppPermissionGate) -> Void
     ) -> some View {
-        modifier(AppPermissionPrimerModifier(pendingGate: pendingGate, onContinue: onContinue))
+        modifier(AppPermissionPrimerModifier(pendingGate: pendingGate, onCancel: onCancel, onContinue: onContinue))
     }
 }
 
 private struct AppPermissionPrimerModifier: ViewModifier {
     @Binding var pendingGate: AppPermissionGate?
+    let onCancel: () -> Void
     let onContinue: (AppPermissionGate) -> Void
 
     func body(content: Content) -> some View {
@@ -164,6 +166,7 @@ private struct AppPermissionPrimerModifier: ViewModifier {
         ) {
             Button("暂不开启", role: .cancel) {
                 pendingGate = nil
+                onCancel()
             }
             Button(pendingGate?.continueTitle ?? "同意并继续") {
                 guard let gate = pendingGate else {
