@@ -305,7 +305,9 @@ public struct HealthEvidenceLocalReview: Sendable {
         formatter.timeZone = TimeZone(identifier: bundle.timeZoneIdentifier)
         formatter.dateFormat = "yyyy-MM-dd"
         let window = "\(formatter.string(from: bundle.start))至\(formatter.string(from: bundle.end))"
-        return "本次回顾范围为\(window)，有\(fact.observedDays)/\(fact.expectedDays)个\(period)有记录，日汇总中位数为\(formatted)\(metric.unit)。来源 App：\(fact.sourceName ?? "未知")。缺记录不代表数值为零。以上是记录回顾，不能据此判断病情或药效。"
+        let limitations = fact.quality.map(\.explanation).joined(separator: "；")
+        let limitationText = limitations.isEmpty ? "" : "数据限制：\(limitations)。"
+        return "本次回顾范围为\(window)（时区：\(bundle.timeZoneIdentifier)），有\(fact.observedDays)/\(fact.expectedDays)个\(period)有记录，日汇总中位数为\(formatted)\(metric.unit)。来源 App：\(fact.sourceName ?? "未知")。\(limitationText)缺记录不代表数值为零。以上是记录回顾，不能据此判断病情或药效。"
     }
 }
 

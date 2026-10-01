@@ -177,3 +177,22 @@ private func healthBundle(_ samples: [HealthEvidenceSample], start: String = "20
     #expect(fact.quality.contains(.sampleBudgetExceeded))
     #expect(HealthEvidenceLocalReview().answer(metric: .restingHeartRate, bundle: bundle).contains("超过本次读取预算"))
 }
+
+@Test func healthEvidenceLocalAnswerPreservesAllApplicableQualityAndReportTimezone() {
+    let samples = [
+        HealthEvidenceSample(id: UUID(), metric: .restingHeartRate,
+            start: healthDate("2026-09-01T08:00:00Z"), end: healthDate("2026-09-01T08:00:00Z"),
+            value: 60, unit: "次/分", sourceID: "watch-v1", sourceName: "Watch"),
+        HealthEvidenceSample(id: UUID(), metric: .restingHeartRate,
+            start: healthDate("2026-09-01T08:00:00Z"), end: healthDate("2026-09-01T08:00:00Z"),
+            value: 95, unit: "次/分", sourceID: "watch-v2", sourceName: "Watch")
+    ]
+    let bundle = healthBundle(samples, end: "2026-09-02T00:00:00Z")
+    let fact = bundle.facts.first { $0.metric == .restingHeartRate }!
+    #expect(fact.median == 60)
+    #expect(fact.quality.contains(.multipleSources))
+    #expect(fact.quality.contains(.timeZoneMissing))
+    let answer = HealthEvidenceLocalReview().answer(metric: .restingHeartRate, bundle: bundle)
+    #expect(answer.contains("时区：GMT"))
+    for flag in fact.quality { #expect(answer.contains(flag.explanation)) }
+}

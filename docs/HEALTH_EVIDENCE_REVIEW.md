@@ -24,6 +24,8 @@ runtime to be ready; the standalone local review has no such requirement. Only a
 allowlist of record-review questions can use the deterministic chat shortcut. Arbitrary
 symptom, treatment and causal questions continue through the existing medical-AI path.
 The data-backed shortcut does not use a language model or claim model interpretation.
+Successful deterministic replies include the report timezone and all applicable quality
+limitations, including excluded source groups and timezone assumptions.
 An exact review question with no current snapshot returns a refresh/permission message and
 never falls through to general model generation. Symptom questions retain the existing path.
 
@@ -100,8 +102,8 @@ state; the health content remains in memory.
 
 ## Validation evidence and limitations
 
-Cloud Linux, official Swift 6.4 toolchain: the portable core suite passed **175 tests**, including
-14 health-evidence tests. Initial new-test macro compilation failed because a mutating method
+Cloud Linux, official Swift 6.4 toolchain: the portable core suite passed **176 tests**, including
+15 health-evidence tests. Initial new-test macro compilation failed because a mutating method
 was called inside `#expect`; the tests were corrected to evaluate the mutation before asserting.
 The original failure log was retained outside the repository. Swift source-size and diff-whitespace
 checks pass. All app and hosted-test Swift files passed compiler syntax parsing on Linux;
@@ -112,7 +114,7 @@ signature with the official Swift 6.x fingerprint `52BB7E3DE28A71BE22EC05FFEF80A
 It also reported an expired public key warning. This local compiler evidence is supplementary;
 the repository's unchanged required macOS/Xcode CI remains authoritative for native checks.
 
-Fifteen hosted integration tests are added, covering default-off scope, cloud guard, connection
+Seventeen hosted integration tests are added, covering default-off scope, cloud guard, connection
 ABA, regrant, and actual SwiftData commit rejection after revocation/refresh. They were not run
 on Linux. `tools/verify-native.sh --quick` is blocked by missing `xcodebuild`; no gate is weakened.
 No device, HealthKit permission dialog, provider, model inference, UI/accessibility screenshot,

@@ -250,6 +250,47 @@ struct HealthReviewMissingSnapshotTests {
         #expect(await runtime.calls == 0)
     }
 
+    @Test func successfulLocalResponseKeepsSourceAndTimezoneLimitations() async throws {
+        let runtime = HealthReviewForbiddenRuntime()
+        let client = LocalMedicalAIClient(modelURL: URL(fileURLWithPath: "/tmp/not-a-real-model.gguf"), runtime: runtime)
+        let request = qualityLimitedRequest()
+        let response = try await client.respond(to: request)
+        let displayed = try MedicalAIResponseFinalizer().finalize(answer: response.message).displayMessage
+        #expect(displayed.contains("时区：GMT"))
+        #expect(displayed.contains(HealthEvidenceQuality.multipleSources.explanation))
+        #expect(displayed.contains(HealthEvidenceQuality.timeZoneMissing.explanation))
+        #expect(displayed.contains("60次/分"))
+        #expect(await runtime.calls == 0)
+    }
+
+    @Test func successfulLocalStreamKeepsSourceAndTimezoneLimitations() async throws {
+        let runtime = HealthReviewForbiddenRuntime()
+        let client = LocalMedicalAIClient(modelURL: URL(fileURLWithPath: "/tmp/not-a-real-model.gguf"), runtime: runtime)
+        var answer: String?
+        for try await event in client.streamResponse(to: qualityLimitedRequest()) {
+            if case let .generationCompleted(text, _) = event { answer = text }
+        }
+        let displayed = try MedicalAIResponseFinalizer().finalize(answer: answer ?? "").displayMessage
+        #expect(displayed.contains("时区：GMT"))
+        #expect(displayed.contains(HealthEvidenceQuality.multipleSources.explanation))
+        #expect(displayed.contains(HealthEvidenceQuality.timeZoneMissing.explanation))
+        #expect(displayed.contains("60次/分"))
+        #expect(await runtime.calls == 0)
+    }
+
+    private func qualityLimitedRequest() -> MedicalAIRequest {
+        let start = Date(timeIntervalSince1970: 0)
+        let measuredAt = start.addingTimeInterval(28_800)
+        let records = [("watch-v1", 60.0), ("watch-v2", 95.0)].map { source, value in
+            HealthEvidenceSample(id: UUID(), metric: .restingHeartRate, start: measuredAt, end: measuredAt,
+                value: value, unit: "次/分", sourceID: source, sourceName: "Watch")
+        }
+        let bundle = HealthEvidenceBuilder().build(samples: records, start: start,
+            end: start.addingTimeInterval(86_400), timeZone: TimeZone(identifier: "GMT")!, generatedAt: start)
+        return MedicalAIRequest(kind: .chat, userMessage: "回顾静息心率记录",
+            authorization: MedicalAIUserAuthorization(grantedScopes: [.healthSummary]), healthEvidence: bundle)
+    }
+
     @Test func symptomQuestionDoesNotTakeMissingSnapshotShortcut() async {
         let runtime = HealthReviewForbiddenRuntime()
         let client = LocalMedicalAIClient(modelURL: URL(fileURLWithPath: "/tmp/not-a-real-model.gguf"), runtime: runtime)
@@ -269,7 +310,7 @@ private actor HealthReviewForbiddenRuntime: LocalMedicalGenerating {
     nonisolated func generateResponseStream(prompt: String, modelURL: URL, maxTokens: Int) -> LocalMedicalGenerationStream {
         let (stream, continuation) = AsyncThrowingStream<String, Error>.makeStream()
         // Any unexpected stream invocation is a test failure independently of actor counter timing.
-        Issue.record("A missing-snapshot review invoked the model stream")
+        Issue.record("A deterministic health review invoked the model stream")
         continuation.finish(throwing: LocalMedicalAIError.runtimeUnavailable)
         return LocalMedicalGenerationStream(stream: stream) {}
     }
