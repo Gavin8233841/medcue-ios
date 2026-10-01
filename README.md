@@ -135,3 +135,12 @@ backlog.
 ## Medical Disclaimer
 
 MedCue is a medication organization and education tool. Its reminders, risk summaries, trends, imported text, and AI-generated content may be incomplete or incorrect. Users should verify medication decisions with qualified healthcare professionals and follow the prescription, label, and clinical guidance applicable to them.
+
+
+### Health evidence review / 本机健康回顾
+
+The Issue #135 candidate adds a local, model-free health review with explicit
+7/30/56-day windows, source/coverage labels and independent default-off offline
+assistant consent. Cloud HealthKit sharing and persistent long-term health memory
+are not enabled. Native/device acceptance remains required; see
+[健康回顾范围与验收说明](docs/HEALTH_EVIDENCE_REVIEW.md).

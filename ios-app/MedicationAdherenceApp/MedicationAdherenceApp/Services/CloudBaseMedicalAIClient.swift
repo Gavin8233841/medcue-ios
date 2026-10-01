@@ -7,27 +7,43 @@ enum MedicalAIClientFactory {
         credential: String,
         session: URLSession = MedicalAIURLSessionFactory.make()
     ) -> any MedicalAIClient {
+        let client: any MedicalAIClient
         switch configuration.providerKind {
         case .broker:
-            return CloudBaseMedicalAIClient(
+            client = CloudBaseMedicalAIClient(
                 configuration: configuration,
                 clientToken: credential,
                 session: session
             )
         case .doubao:
-            return DoubaoMedicalAIClient(
+            client = DoubaoMedicalAIClient(
                 configuration: configuration,
                 apiKey: credential,
                 session: session
             )
         case .baichuan:
-            return BaichuanMedicalAIClient(
+            client = BaichuanMedicalAIClient(
                 configuration: configuration,
                 apiKey: credential,
                 session: session
             )
         }
+        return HealthRestrictedCloudClient(underlying: client)
     }
+}
+
+/// HealthKit sharing with a provider requires a separate reviewed rollout.
+struct HealthRestrictedCloudClient: MedicalAIClient {
+    let underlying: any MedicalAIClient
+    func respond(to request: MedicalAIRequest) async throws -> MedicalAIResponse {
+        guard request.healthEvidence == nil else { throw HealthCloudSharingError.notEnabled }
+        return try await underlying.respond(to: request)
+    }
+}
+
+enum HealthCloudSharingError: LocalizedError {
+    case notEnabled
+    var errorDescription: String? { "健康回顾目前仅在本机使用，未发送到在线智能体。" }
 }
 
 struct CloudBaseMedicalAIClient: MedicalAIClient {

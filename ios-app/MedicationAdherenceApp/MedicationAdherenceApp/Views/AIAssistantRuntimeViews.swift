@@ -52,6 +52,8 @@ func medicalAIScopeDisplayName(_ scope: MedicalAIDataScope) -> String {
         "风险提醒"
     case .drugLabels:
         "说明书摘要"
+    case .healthSummary:
+        "健康回顾（仅本机）"
     case .importDraft:
         "导入识别内容"
     }

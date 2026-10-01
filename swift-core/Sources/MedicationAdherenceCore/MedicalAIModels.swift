@@ -14,6 +14,7 @@ public enum MedicalAIDataScope: String, Codable, Sendable, Hashable {
     case riskCards
     case drugLabels
     case importDraft
+    case healthSummary
 }
 
 public struct MedicalAIProviderProfile: Codable, Sendable, Equatable {
@@ -139,6 +140,9 @@ public struct MedicalAIRequest: Codable, Identifiable, Sendable, Equatable {
     public var authorization: MedicalAIUserAuthorization
     public var medicationSnapshots: [MedicalAIMedicationSnapshot]
     public var environmentInsights: [MedicalAIEnvironmentInsight]
+    public var healthEvidence: HealthEvidenceBundle?
+    public var healthConsentRevision: String?
+    public var healthSnapshotRevision: String?
     public var importReview: MedicationImportReview?
     public var localeIdentifier: String
     public var createdAt: Date
@@ -151,6 +155,9 @@ public struct MedicalAIRequest: Codable, Identifiable, Sendable, Equatable {
         medicationSnapshots: [MedicalAIMedicationSnapshot] = [],
         environmentInsights: [MedicalAIEnvironmentInsight] = [],
         importReview: MedicationImportReview? = nil,
+        healthEvidence: HealthEvidenceBundle? = nil,
+        healthConsentRevision: String? = nil,
+        healthSnapshotRevision: String? = nil,
         localeIdentifier: String = "zh_CN",
         createdAt: Date = Date()
     ) {
@@ -160,6 +167,9 @@ public struct MedicalAIRequest: Codable, Identifiable, Sendable, Equatable {
         self.authorization = authorization
         self.medicationSnapshots = medicationSnapshots
         self.environmentInsights = environmentInsights
+        self.healthEvidence = healthEvidence
+        self.healthConsentRevision = healthConsentRevision
+        self.healthSnapshotRevision = healthSnapshotRevision
         self.importReview = importReview
         self.localeIdentifier = localeIdentifier
         self.createdAt = createdAt
@@ -219,6 +229,7 @@ public struct MedicalAIRequestValidator: Sendable {
         if request.medicationSnapshots.contains(where: { $0.labelSummary != nil }) {
             requiredScopes.insert(.drugLabels)
         }
+        if request.healthEvidence != nil { requiredScopes.insert(.healthSummary) }
         if request.importReview != nil {
             requiredScopes.insert(.importDraft)
         }

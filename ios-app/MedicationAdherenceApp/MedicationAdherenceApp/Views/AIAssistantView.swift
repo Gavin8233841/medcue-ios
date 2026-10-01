@@ -39,6 +39,9 @@ struct AIAssistantView: View {
     @State private var localStreamingResponse: LocalStreamingAIResponse?
     @State private var activeAIRequestTask: Task<Void, Never>?
     @State private var activeAIRequestID: UUID?
+    @State private var activeRequestIncludesHealth = false
+    @StateObject private var healthReviewService = HealthKitService()
+    @AppStorage("healthAI.consentRevision.v1") private var healthConsentRevision = "not-granted"
     @State private var imageRecognitionTask: Task<Void, Never>?
     @State private var imageRecognitionGate = VisionImportGenerationGate()
     @FocusState private var isChatInputFocused: Bool
@@ -141,6 +144,20 @@ struct AIAssistantView: View {
             requestLocalModelDownload: requestLocalModelDownload,
             environmentRefreshSignature: environmentRefreshSignature
         )
+        .onReceive(NotificationCenter.default.publisher(for: .medcueAIConsentChanged)) { _ in
+            cancelActiveAIRequest()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .medcueHealthAIConsentChanged)) { _ in
+            cancelActiveAIRequest()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .medcueHealthEvidenceChanged)) { _ in
+            if activeRequestIncludesHealth { cancelActiveAIRequest() }
+        }
+        .task(id: healthConsentRevision) {
+            if HealthAISharingPolicy.allowsLocalSummary() {
+                await healthReviewService.refreshRecentTrendSamples()
+            }
+        }
     }
 
     private func handleActiveTabChange(_ newTab: AppTab?) {
@@ -457,6 +474,7 @@ struct AIAssistantView: View {
         cancelActiveAIRequest()
         let executionID = UUID()
         activeAIRequestID = executionID
+        activeRequestIncludesHealth = pendingRequest.request.healthEvidence != nil
         isSending = true
         logAIEvent("sending provider=\(configuration.providerName) kind=\(configuration.providerKind.rawValue) keySource=\(configurationStore.apiKeySourceDescription(for: configuration)) scopes=\(pendingRequest.sharedScopesSummary)")
         activeAIRequestTask = Task { @MainActor in
@@ -474,6 +492,7 @@ struct AIAssistantView: View {
         cancelActiveAIRequest()
         let executionID = UUID()
         activeAIRequestID = executionID
+        activeRequestIncludesHealth = pendingRequest.request.healthEvidence != nil
         isSending = true
         logAIEvent("sending provider=local requestID=\(pendingRequest.request.id.uuidString) model=\(LocalMedicalModelStore.modelDisplayName) scopes=\(pendingRequest.sharedScopesSummary)")
         activeAIRequestTask = Task { @MainActor in
@@ -510,6 +529,7 @@ struct AIAssistantView: View {
             finishAIRequestIfCurrent(executionID)
         }
 
+        guard isAuthorizationCurrent(for: request) else { return }
         guard Self.beginLocalStreamingResponse(
             executionID: executionID,
             activeRequestID: activeAIRequestID,
@@ -548,19 +568,19 @@ struct AIAssistantView: View {
                 }
             }
             try Task.checkCancellation()
-            guard activeAIRequestID == executionID else { return }
+            guard activeAIRequestID == executionID, isAuthorizationCurrent(for: request) else { return }
             let finalized = try MedicalAIResponseFinalizer().finalize(
                 answer: finalAnswer,
                 thinking: finalThinking
             )
-            let outcome = AIChatResponseCommand(modelContext: modelContext).commit(
+            let outcome = AIConsentCheckedResponseCommand(modelContext: modelContext).commit(
                 AIChatResponseDraft(
                     role: .assistant,
                     text: finalized.persistedMessage,
-                    providerName: "离线智能体",
-                    modelName: LocalMedicalModelStore.modelDisplayName,
+                    providerName: request.healthEvidence == nil ? "离线智能体" : "本机健康回顾",
+                    modelName: request.healthEvidence == nil ? LocalMedicalModelStore.modelDisplayName : "deterministic-v1",
                     sharedScopesSummary: sharedScopesSummary
-                )
+                ), request: request, consent: activeConsent
             )
             guard case .committed = outcome else { return }
             localStreamingResponse?.answerText = finalized.displayMessage
@@ -615,24 +635,25 @@ struct AIAssistantView: View {
         }
 
         do {
+            guard isAuthorizationCurrent(for: request) else { return }
             let result = try await performMedicalAIRequest(
                 request: request,
                 configuration: configuration,
                 apiKey: apiKey
             )
             try Task.checkCancellation()
-            guard activeAIRequestID == executionID else { return }
+            guard activeAIRequestID == executionID, isAuthorizationCurrent(for: request) else { return }
             let response = result.response
             let finalized = result.finalized
             logAIEvent("success provider=\(response.provider.providerName) rawLength=\(response.message.count) displayLength=\(finalized.displayMessage.count) appendedSafetyNote=\(finalized.appendedSafetyNote) blocked=\(finalized.boundaryBlockedAction) flags=\(finalized.boundaryFlags.joined(separator: ","))")
-            guard case .committed = AIChatResponseCommand(modelContext: modelContext).commit(
+            guard case .committed = AIConsentCheckedResponseCommand(modelContext: modelContext).commit(
                 AIChatResponseDraft(
                     role: .assistant,
                     text: finalized.persistedMessage,
                     providerName: response.provider.providerName,
                     modelName: response.provider.modelName,
                     sharedScopesSummary: sharedScopesSummary
-                )
+                ), request: request, consent: activeConsent
             ) else { return }
             archiveOlderVisibleConversationIfNeeded()
             configurationStore.promoteCurrentAPIKeyIfNeeded(for: configuration)
@@ -676,6 +697,7 @@ struct AIAssistantView: View {
         activeAIRequestTask?.cancel()
         activeAIRequestTask = nil
         activeAIRequestID = nil
+        activeRequestIncludesHealth = false
         isSending = false
         localStreamingResponse = nil
     }
@@ -685,6 +707,7 @@ struct AIAssistantView: View {
         guard activeAIRequestID == executionID else { return }
         activeAIRequestTask = nil
         activeAIRequestID = nil
+        activeRequestIncludesHealth = false
         isSending = false
         localStreamingResponse = nil
     }
@@ -846,7 +869,13 @@ struct AIAssistantView: View {
             userMessage: userMessage,
             consent: consent,
             environmentInsights: environmentInsightsForAI(userMessage: userMessage),
-            localeIdentifier: Locale.current.identifier
+            localeIdentifier: Locale.current.identifier,
+            healthEvidence: HealthEvidenceLocalReview.metric(in: userMessage) == nil
+                ? nil : healthReviewService.evidence(for: userMessage),
+            healthSharingAllowed: prefersLocalMedicalModel
+                && HealthAISharingPolicy.allowsLocalSummary(),
+            healthConsentRevision: HealthAISharingPolicy.revision(),
+            healthSnapshotRevision: healthReviewService.evidenceRevision
         )
         let scheduledDoseCount = request.medicationSnapshots.reduce(0) { $0 + $1.scheduledDoses.count }
         let doseEventCount = request.medicationSnapshots.reduce(0) { $0 + $1.doseEvents.count }
@@ -929,6 +958,11 @@ struct AIAssistantView: View {
             draft: draft,
             grantedAt: Date()
         )
+    }
+
+    /// Checked on the main actor immediately before a synchronous persistence commit.
+    private func isAuthorizationCurrent(for request: MedicalAIRequest) -> Bool {
+        AIConsentCheckedResponseCommand.isCurrent(request, consent: activeConsent)
     }
 
     private func revokeConsent() {
