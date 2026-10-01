@@ -101,18 +101,17 @@ struct LocalLLMStreamParser {
     }
 
     private func parseTagged(_ text: String, isFinal: Bool) -> (thinking: String, answer: String)? {
-        let lowercased = text.lowercased()
         let thinkingTags = [("<think>", "</think>"), ("<thought>", "</thought>")]
         let answerStartTags = ["<answer>", "<final>"]
         let answerEndTags = ["</answer>", "</final>"]
 
         let firstThinkingTag = thinkingTags.compactMap { startTag, endTag in
-            lowercased.range(of: startTag).map { (start: $0, endTag: endTag) }
+            rangeOfControlTag(startTag, in: text).map { (start: $0, endTag: endTag) }
         }.min { $0.start.lowerBound < $1.start.lowerBound }
         if let thinkStart = firstThinkingTag?.start,
            let thinkEndTag = firstThinkingTag?.endTag {
             let thinkingStartIndex = thinkStart.upperBound
-            if let thinkEnd = lowercased.range(of: thinkEndTag, range: thinkingStartIndex..<lowercased.endIndex) {
+            if let thinkEnd = rangeOfControlTag(thinkEndTag, in: text, range: thinkingStartIndex..<text.endIndex) {
                 let thinking = cleanupVisibleText(String(text[thinkingStartIndex..<thinkEnd.lowerBound]))
                 let afterThink = String(text[thinkEnd.upperBound...])
                 let remainder = parseTagged(afterThink, isFinal: isFinal)
@@ -132,20 +131,43 @@ struct LocalLLMStreamParser {
     }
 
     private func taggedAnswer(in text: String, startTags: [String], endTags: [String]) -> String? {
-        let lowercased = text.lowercased()
         for startTag in startTags {
-            guard let start = lowercased.range(of: startTag) else {
+            guard let start = rangeOfControlTag(startTag, in: text) else {
                 continue
             }
             let answerStart = start.upperBound
             let matchingEndTags = endTags.filter { $0.contains(startTag.replacingOccurrences(of: "<", with: "</")) || endTags.count > 1 }
             let endRange = matchingEndTags.compactMap { tag in
-                lowercased.range(of: tag, range: answerStart..<lowercased.endIndex)
+                rangeOfControlTag(tag, in: text, range: answerStart..<text.endIndex)
             }.min { $0.lowerBound < $1.lowerBound }
             if let endRange {
                 return cleanupVisibleText(String(text[answerStart..<endRange.lowerBound]))
             }
             return cleanupVisibleText(String(text[answerStart...]))
+        }
+        return nil
+    }
+
+    private func rangeOfControlTag(
+        _ tag: String,
+        in text: String,
+        range: Range<String.Index>? = nil
+    ) -> Range<String.Index>? {
+        let searchRange = range ?? (text.startIndex..<text.endIndex)
+        var searchStart = searchRange.lowerBound
+        while searchStart < searchRange.upperBound,
+              let match = text.range(
+                of: tag,
+                options: .caseInsensitive,
+                range: searchStart..<searchRange.upperBound
+              ) {
+            // Keep indices in the original string: lowercasing may change its
+            // UTF-8 length. Validate the small match to retain the existing tag
+            // grammar rather than accepting extra folds such as long-s/ligatures.
+            if text[match].lowercased() == tag {
+                return match
+            }
+            searchStart = match.upperBound
         }
         return nil
     }
