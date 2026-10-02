@@ -106,6 +106,7 @@ struct AIConversationPersistenceCommand {
 
         do {
             try saveOperation(modelContext)
+            NotificationCenter.default.post(name: .medcueAIConsentChanged, object: nil)
             return .consentSaved
         } catch {
             snapshot?.restore()

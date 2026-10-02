@@ -20,6 +20,11 @@ struct LocalMedicalAIClient: MedicalAIClient {
     }
 
     func respond(to request: MedicalAIRequest) async throws -> MedicalAIResponse {
+        if let answer = healthReviewAnswer(for: request) {
+            return MedicalAIResponse(requestID: request.id,
+                provider: MedicalAIProviderProfile(providerName: "本机健康回顾", modelName: "deterministic-v1",
+                    serviceLicenseSummary: "在本机按记录生成事实摘要，不调用模型或上传数据。"), message: answer)
+        }
         let session = responsePolicy.start(for: request)
         let generatedMessage = try await runtime.generateResponse(
             prompt: session.prompt,
@@ -40,6 +45,18 @@ struct LocalMedicalAIClient: MedicalAIClient {
         )
     }
 
+    private func healthReviewAnswer(for request: MedicalAIRequest) -> String? {
+        guard let metric = HealthEvidenceLocalReview.metric(in: request.userMessage) else { return nil }
+        guard let bundle = request.healthEvidence else {
+            return "当前健康回顾尚未就绪。请到 Apple 健康页面刷新记录，并检查离线智能体健康摘要授权。"
+        }
+        guard MedicalAIRequestValidator().canSend(request),
+              request.authorization.allows(.healthSummary, at: request.createdAt) else {
+            return "本次未获得健康摘要授权。可在 Apple 健康页面查看本机回顾，或确认离线智能体的共享范围。"
+        }
+        return HealthEvidenceLocalReview().answer(metric: metric, bundle: bundle)
+    }
+
     func streamResponse(to request: MedicalAIRequest) -> AsyncThrowingStream<LocalLLMGenerationEvent, Error> {
         AsyncThrowingStream { continuation in
             let worker = Task {
@@ -53,6 +70,11 @@ struct LocalMedicalAIClient: MedicalAIClient {
                 }
 
                 do {
+                    if let answer = healthReviewAnswer(for: request) {
+                        try await emit(.generationCompleted(answer: answer, thinking: ""))
+                        continuation.finish()
+                        return
+                    }
                     var session = responsePolicy.start(for: request)
                     try Task.checkCancellation()
                     try await emit(.generationStarted)

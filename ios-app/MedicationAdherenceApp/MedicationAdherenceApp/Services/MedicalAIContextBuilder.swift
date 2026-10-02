@@ -14,19 +14,29 @@ struct MedicalAIContextBuilder {
         environmentInsights: [MedicalAIEnvironmentInsight],
         localeIdentifier: String,
         now: Date = Date(),
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        healthEvidence: HealthEvidenceBundle? = nil,
+        healthSharingAllowed: Bool = false,
+        healthConsentRevision: String? = nil,
+        healthSnapshotRevision: String? = nil
     ) -> MedicalAIRequest {
-        MedicalAIRequest(
+        var authorization = consent.authorization
+        let authorizedHealth = consent.isActive && healthSharingAllowed ? healthEvidence : nil
+        if authorizedHealth != nil { authorization.grantedScopes.insert(.healthSummary) }
+        return MedicalAIRequest(
             kind: .chat,
             userMessage: userMessage,
-            authorization: consent.authorization,
+            authorization: authorization,
             medicationSnapshots: medicationSnapshots(
                 userMessage: userMessage,
                 consent: consent,
                 now: now,
                 calendar: calendar
             ),
-            environmentInsights: consent.sharesMedicationProfile ? environmentInsights : [],
+            environmentInsights: consent.isActive && consent.sharesMedicationProfile ? environmentInsights : [],
+            healthEvidence: authorizedHealth,
+            healthConsentRevision: authorizedHealth == nil ? nil : healthConsentRevision,
+            healthSnapshotRevision: authorizedHealth == nil ? nil : healthSnapshotRevision,
             localeIdentifier: localeIdentifier
         )
     }
@@ -48,7 +58,7 @@ struct MedicalAIContextBuilder {
         now: Date,
         calendar: Calendar
     ) -> [MedicalAIMedicationSnapshot] {
-        guard consent.sharesMedicationProfile else {
+        guard consent.isActive && consent.sharesMedicationProfile else {
             return []
         }
         let measurableTasks = tasksForContext(

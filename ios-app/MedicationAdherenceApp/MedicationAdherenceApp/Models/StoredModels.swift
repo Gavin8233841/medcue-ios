@@ -984,6 +984,7 @@ final class StoredAIConsent {
     }
 
     var authorization: MedicalAIUserAuthorization {
+        guard isActive else { return MedicalAIUserAuthorization(grantedScopes: [], grantedAt: grantedAt, note: note) }
         var scopes: Set<MedicalAIDataScope> = []
         if sharesMedicationProfile {
             scopes.insert(.medicationProfile)

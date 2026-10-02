@@ -37,6 +37,16 @@ public struct MedicalAIRequestPromptBuilder: Sendable {
             }
         }
 
+        if let health = request.healthEvidence,
+           request.authorization.allows(.healthSummary, at: request.createdAt) {
+            lines.append("健康记录回顾（仅描述记录，不判断病情、药效或因果）：")
+            lines.append("窗口：\(iso8601.string(from: health.start)) 至 \(iso8601.string(from: health.end))；时区：\(health.timeZoneIdentifier)")
+            for fact in health.facts {
+                lines.append("事实ID：\(fact.id)；\(HealthEvidenceLocalReview().answer(metric: fact.metric, bundle: health))")
+                lines.append("数据限制：\(fact.quality.map(\.explanation).joined(separator: "；"))")
+            }
+        }
+
         if let importReview = request.importReview {
             lines.append("")
             lines.append("导入识别内容核对：")
