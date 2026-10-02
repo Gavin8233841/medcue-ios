@@ -1,4 +1,5 @@
 import Foundation
+import MedicationAdherenceCore
 import SwiftData
 
 enum AIConsentRevocationOutcome: Equatable {
@@ -35,7 +36,7 @@ struct AIConsentRevocationCommand {
         self.now = now
     }
 
-    /// Revokes AI consent and cleans up all AI-related data
+    /// Revokes future AI sharing; existing conversation history is retained.
     func execute() -> AIConsentRevocationOutcome {
         // 1. Find existing consent
         let consentDescriptor = FetchDescriptor<StoredAIConsent>()
@@ -68,6 +69,8 @@ struct AIConsentRevocationCommand {
         // 5. Save atomically
         do {
             try saveOperation(modelContext)
+            HealthAISharingPolicy.revoke()
+            NotificationCenter.default.post(name: .medcueAIConsentChanged, object: nil)
             return .revoked
         } catch {
             snapshot.restore()
@@ -90,5 +93,37 @@ private struct AIConsentSnapshot {
 
     func restore() {
         consent.revokedAt = revokedAt
+    }
+}
+
+
+/// The authorization check and SwiftData commit execute without an intervening
+/// suspension on the main actor; cancellation alone is not a consent boundary.
+@MainActor
+struct AIConsentCheckedResponseCommand {
+    let modelContext: ModelContext
+
+    enum Outcome { case committed, authorizationChanged, persistenceFailed }
+
+    static func isCurrent(_ request: MedicalAIRequest, consent: StoredAIConsent?,
+                          defaults: UserDefaults = .standard) -> Bool {
+        guard let consent, consent.isActive,
+              consent.grantedAt == request.authorization.grantedAt else { return false }
+        let medicationScopes = request.authorization.grantedScopes.subtracting([.healthSummary])
+        guard medicationScopes.isSubset(of: consent.authorization.grantedScopes) else { return false }
+        guard request.healthEvidence != nil else { return true }
+        return HealthAISharingPolicy.allowsLocalSummary(defaults: defaults)
+            && request.healthConsentRevision == HealthAISharingPolicy.revision(defaults: defaults)
+            && request.healthSnapshotRevision != nil
+            && request.healthSnapshotRevision == HealthAISharingPolicy.snapshotRevision(defaults: defaults)
+            && request.authorization.allows(.healthSummary)
+    }
+
+    func commit(_ draft: AIChatResponseDraft, request: MedicalAIRequest,
+                consent: StoredAIConsent?, defaults: UserDefaults = .standard) -> Outcome {
+        guard Self.isCurrent(request, consent: consent, defaults: defaults) else { return .authorizationChanged }
+        let outcome = AIChatResponseCommand(modelContext: modelContext).commit(draft)
+        if case .committed = outcome { return .committed }
+        return .persistenceFailed
     }
 }

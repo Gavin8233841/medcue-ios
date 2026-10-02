@@ -2,7 +2,7 @@ import Foundation
 
 struct VisitSummarySnapshotRevision: Sendable, Equatable {
     let startDate: Date
-    let endDate: Date
+    let endDateExclusive: Date
     let medicationSignature: Int
     let taskSignature: Int
     let doseChangeSignature: Int
@@ -14,7 +14,7 @@ struct VisitSummarySnapshotRevision: Sendable, Equatable {
     var id: String {
         [
             String(startDate.timeIntervalSinceReferenceDate.bitPattern),
-            String(endDate.timeIntervalSinceReferenceDate.bitPattern),
+            String(endDateExclusive.timeIntervalSinceReferenceDate.bitPattern),
             String(medicationSignature),
             String(taskSignature),
             String(doseChangeSignature),

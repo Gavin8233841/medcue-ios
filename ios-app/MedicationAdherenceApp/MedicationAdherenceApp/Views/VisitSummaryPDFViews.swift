@@ -14,7 +14,7 @@ struct VisitSummaryPDFReport {
     let trendDashboard: MedicationTrendDashboard
     let healthSignals: [HealthSignalSample]
     let startDate: Date
-    let endDate: Date
+    let endDateExclusive: Date
     let generatedAt: Date
 
     init(payload: VisitSummaryExportPayload) {
@@ -25,7 +25,7 @@ struct VisitSummaryPDFReport {
         trendDashboard = payload.trendDashboard
         healthSignals = payload.healthSignals
         startDate = payload.startDate
-        endDate = payload.endDate
+        endDateExclusive = payload.endDateExclusive
         generatedAt = payload.generatedAt
     }
 
@@ -83,7 +83,7 @@ struct VisitSummaryPDFReport {
     }
 
     private var rangeText: String {
-        VisitSummaryDateRange.displayText(startDate: startDate, endDate: endDate)
+        VisitSummaryDateRange.displayText(startDate: startDate, endDateExclusive: endDateExclusive)
     }
 
     func draw(in context: UIGraphicsPDFRendererContext, pageBounds: CGRect) {
@@ -420,7 +420,7 @@ struct VisitSummaryPDFReport {
                 $0.requiresProfessionalReview
                     && $0.isActive
                     && $0.lastDetectedAt >= startDate
-                    && $0.lastDetectedAt <= endDate
+                    && $0.lastDetectedAt < endDateExclusive
             }
             .sorted {
                 if $0.displayPriority != $1.displayPriority {

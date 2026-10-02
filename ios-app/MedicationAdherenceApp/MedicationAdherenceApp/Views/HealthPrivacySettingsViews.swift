@@ -9,6 +9,8 @@ import UIKit
 struct HealthDataSettingsView: View {
     @StateObject private var healthKitService = HealthKitService()
     @State private var pendingPermissionGate: AppPermissionGate?
+    @AppStorage("healthAI.localSummaryAllowed.v1") private var sharesLocalHealthSummary = false
+    @State private var showingDisconnectConfirmation = false
 
     private var summary: HealthKitRecentSummary {
         healthKitService.recentSummary
@@ -23,26 +25,51 @@ struct HealthDataSettingsView: View {
                     title: "Apple 健康",
                     subtitle: healthKitService.statusMessage
                 )
+                .accessibilityIdentifier("health.settings.status")
                 HealthKitSnapshotCard(
-                    summary: summary,
+                    summary: healthKitService.settingsSummary,
                     supportedTypes: healthKitService.supportedReadTypesSummary,
                     hasCompletedAuthorizationRequest: healthKitService.hasCompletedAuthorizationRequest
                 )
+                .accessibilityIdentifier("health.settings.snapshot")
             }
 
-            Section("近期健康信号") {
+            Section("生命体征（用于趋势与复诊）") {
                 if summary.metricSummaries.isEmpty {
                     SettingsStatusRow(
                         iconName: "waveform.path.ecg",
                         tint: .secondary,
                         title: "暂无近期样本",
-                        subtitle: healthKitService.hasCompletedAuthorizationRequest ? "授权范围内还没有可读取的生命体征" : "完成授权请求后显示最近 56 天的生命体征"
+                        subtitle: healthKitService.settingsSummary.hasReviewSamples
+                            ? "健康回顾记录已读取；此处仅列心率、血压、血氧、体温和血糖"
+                            : "当前没有可读取的心率、血压、血氧、体温或血糖记录"
                     )
                 } else {
                     ForEach(summary.metricSummaries) { metric in
                         HealthKitMetricSummaryRow(metric: metric)
                     }
                 }
+            }
+
+            Section("本机健康回顾") {
+                NavigationLink {
+                    HealthEvidenceReviewView(service: healthKitService)
+                } label: {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("查看睡眠与静息心率回顾", systemImage: "chart.xyaxis.line")
+                        Text(healthKitService.settingsSummary.reviewCoverageText)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityIdentifier("health.review.open")
+                Toggle("允许离线智能体使用健康摘要", isOn: Binding(
+                    get: { sharesLocalHealthSummary },
+                    set: { healthKitService.setLocalSummaryAllowed($0) }
+                ))
+                .accessibilityIdentifier("health.local-summary-sharing")
+                Text("健康回顾无需模型或网络。此授权仅用于本机离线智能体；在线智能体暂不接收健康摘要。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
 
             Section("用于本 App") {
@@ -53,8 +80,8 @@ struct HealthDataSettingsView: View {
                         iconName: "chart.line.uptrend.xyaxis",
                         tint: .blue,
                         title: "用药趋势",
-                        subtitle: "作为趋势背景信号",
-                        trailingText: summary.hasSamples ? "\(summary.coveredDayCount) 天" : "待授权"
+                        subtitle: "使用上述生命体征作为背景信号",
+                        trailingText: healthKitService.settingsSummary.vitalSignDestinationText
                     )
                 }
 
@@ -65,8 +92,8 @@ struct HealthDataSettingsView: View {
                         iconName: "doc.text.magnifyingglass",
                         tint: .orange,
                         title: "复诊资料",
-                        subtitle: "随报告汇总近期观察",
-                        trailingText: summary.hasSamples ? "\(summary.sampleCount) 条" : "待样本"
+                        subtitle: "随报告汇总上述生命体征",
+                        trailingText: healthKitService.settingsSummary.vitalSignDestinationText
                     )
                 }
             }
@@ -92,6 +119,16 @@ struct HealthDataSettingsView: View {
                     } label: {
                         Text("请求读取健康数据授权")
                     }
+                    .accessibilityIdentifier("health.authorization.request")
+                }
+                if healthKitService.hasCompletedAuthorizationRequest {
+                    Button("管理新增指标读取授权") {
+                        Task { await healthKitService.requestAuthorizationEntry() }
+                    }
+                    Button("停止读取并清除本次回顾", role: .destructive) {
+                        showingDisconnectConfirmation = true
+                    }
+                    .accessibilityIdentifier("health.disconnect")
                 }
                 Button {
                     openSystemSettings()
@@ -99,6 +136,14 @@ struct HealthDataSettingsView: View {
                     Text("打开系统隐私设置")
                 }
             }
+        }
+        .alert("停止读取并清除本次健康回顾？", isPresented: $showingDisconnectConfirmation) {
+            Button("取消", role: .cancel) {}
+                .accessibilityIdentifier("health.disconnect.cancel")
+            Button("停止并清除", role: .destructive) { healthKitService.disconnectAndClear() }
+                .accessibilityIdentifier("health.disconnect.confirm")
+        } message: {
+            Text("会关闭健康摘要共享并清除本 App 的内存回顾。Apple 健康原始记录和已有聊天不会删除。")
         }
         .navigationTitle("Apple 健康")
         .toolbar(.hidden, for: .tabBar)
@@ -147,14 +192,14 @@ struct HealthDataSettingsView: View {
 }
 
 struct HealthKitSnapshotCard: View {
-    let summary: HealthKitRecentSummary
+    let summary: HealthKitSettingsSummary
     let supportedTypes: String
     let hasCompletedAuthorizationRequest: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
-                Text(summary.hasSamples ? summary.latestSampleText : "等待健康数据")
+                Text(summary.headline)
                     .font(.headline)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
@@ -165,10 +210,13 @@ struct HealthKitSnapshotCard: View {
             }
 
             HStack(spacing: 10) {
-                HealthKitSnapshotTile(title: "覆盖", value: summary.hasSamples ? "\(summary.coveredDayCount) 天" : "0 天", tint: .teal)
+                HealthKitSnapshotTile(title: "记录日期", value: summary.hasSamples ? "\(summary.coveredDayCount) 天" : "0 天", tint: .teal)
                 HealthKitSnapshotTile(title: "样本", value: "\(summary.sampleCount)", tint: .blue)
-                HealthKitSnapshotTile(title: "指标", value: "\(summary.metricSummaries.count)", tint: .indigo)
+                HealthKitSnapshotTile(title: "指标", value: "\(summary.metricCount)", tint: .indigo)
             }
+
+            Text("生命体征 \(summary.vitalSigns.sampleCount) 条 · 健康回顾 \(summary.reviewSampleCount) 条")
+                .font(.caption).foregroundStyle(.secondary)
 
             HStack(spacing: 6) {
                 Image(systemName: hasCompletedAuthorizationRequest ? "checkmark.shield.fill" : "shield")
@@ -474,5 +522,94 @@ struct SettingsSwitchVisual: View {
             }
             .animation(.snappy(duration: 0.18, extraBounce: 0), value: isOn)
             .accessibilityHidden(true)
+    }
+}
+
+
+struct HealthEvidenceReviewView: View {
+    @ObservedObject var service: HealthKitService
+    @State private var selectedMetric: HealthEvidenceMetric = .sleep
+    @State private var lookbackDays = 7
+
+    var body: some View {
+        List {
+            Section {
+                Text("睡眠、静息心率与呼吸记录")
+                    .font(.headline)
+                Text("按日期整理你允许读取的记录，帮助回顾和准备复诊问题。")
+                    .foregroundStyle(.secondary)
+                Picker("回顾范围", selection: $lookbackDays) {
+                    Text("近 7 天").tag(7)
+                    Text("近 30 天").tag(30)
+                    Text("近 56 天").tag(56)
+                }
+                .accessibilityIdentifier("health.review.range")
+                Button("刷新健康回顾") {
+                    Task { await service.refreshRecentTrendSamples(days: lookbackDays) }
+                }
+                .accessibilityIdentifier("health.review.refresh")
+            }
+            if let bundle = service.evidenceBundle {
+                Section("记录范围") {
+                    Text("\(bundle.start.formatted(date: .abbreviated, time: .omitted)) 至 \(bundle.end.formatted(date: .abbreviated, time: .omitted))")
+                        .accessibilityIdentifier("health.review.window")
+                    Text("回顾时区：\(bundle.timeZoneIdentifier)")
+                        .accessibilityIdentifier("health.review.timezone")
+                    Text("刷新于 \(bundle.generatedAt.formatted(date: .abbreviated, time: .shortened))")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(bundle.facts) { fact in
+                    Section(fact.metric.title) {
+                        if let value = fact.median {
+                            Text("\(value.formatted(.number.precision(.fractionLength(0...1)))) \(fact.metric.unit)")
+                                .font(.title2)
+                                .accessibilityIdentifier("health.review.\(fact.metric.rawValue).value")
+                            Text("有记录的日汇总中位数；\(fact.observedDays)/\(fact.expectedDays)个完整时段有记录")
+                                .accessibilityIdentifier("health.review.\(fact.metric.rawValue).coverage")
+                            if let source = fact.sourceName {
+                                Text("来源 App：\(source)；按 App、版本和型号分组，不能区分同型号的两台设备")
+                                    .accessibilityIdentifier("health.review.\(fact.metric.rawValue).source")
+                            }
+                        } else {
+                            Text("暂无可用汇总")
+                                .accessibilityIdentifier("health.review.\(fact.metric.rawValue).empty")
+                        }
+                        ForEach(fact.quality, id: \.self) { quality in
+                            Text(quality.explanation).font(.footnote).foregroundStyle(.secondary)
+                                .accessibilityIdentifier("health.review.\(fact.metric.rawValue).quality.\(quality.rawValue)")
+                        }
+                        if fact.metric == .sleep {
+                            Text("每个睡眠日从中午到次日中午，包含午睡；只计算已记录的睡眠时长。")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Section("本机问答") {
+                    Picker("想回顾的记录", selection: $selectedMetric) {
+                        ForEach(HealthEvidenceMetric.allCases, id: \.self) { metric in
+                            Text(metric.title).tag(metric)
+                        }
+                    }
+                    .accessibilityIdentifier("health.review.question.metric")
+                    Text(HealthEvidenceLocalReview().answer(metric: selectedMetric, bundle: bundle))
+                        .accessibilityIdentifier("health.review.answer")
+                        .textSelection(.enabled)
+                }
+            } else {
+                Section {
+                    Text(service.statusMessage)
+                        .accessibilityIdentifier("health.review.status")
+                    Text("回到 Apple 健康设置完成读取授权，然后刷新。")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Section {
+                Text("记录回顾不判断病情、药效或因果。若有不适，请向医生或药师说明症状和记录。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityIdentifier("health.review.root")
+        .navigationTitle("健康回顾")
+        .task(id: lookbackDays) { await service.refreshRecentTrendSamples(days: lookbackDays) }
     }
 }

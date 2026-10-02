@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import HealthKit
 import MedicationAdherenceCore
 
@@ -13,24 +14,65 @@ final class HealthKitService: ObservableObject {
     @Published private(set) var statusMessage: String
     @Published private(set) var hasCompletedAuthorizationRequest: Bool
     @Published private(set) var recentTrendSamples: [HealthSignalSample] = []
+    @Published private(set) var evidenceBundle: HealthEvidenceBundle?
+    @Published private(set) var settingsSummary = HealthKitSettingsSummary(
+        vitalSignSamples: [], reviewSamples: [], refreshedAt: nil)
+    private var evidenceSnapshot = HealthEvidenceSnapshot()
+    private var evidenceConnectionRevision: String?
+    private var evidenceWindows: [Int: HealthEvidenceBundle] = [:]
+    private(set) var evidenceRevision: String?
+    private var disconnectObserver: AnyCancellable?
+    private var activeReads: [UUID: HealthKitReadOperation] = [:]
     @Published private(set) var lastSampleRefreshAt: Date?
-    @Published private(set) var supportedReadTypesSummary = "心率、血压、血氧、体温、血糖"
+    @Published private(set) var supportedReadTypesSummary = "睡眠、静息心率、心率变异性、呼吸频率、心率、血压、血氧、体温、血糖"
 
     private static let completionKey = "hasCompletedHealthKitAuthorizationRequest"
     private let healthStore = HKHealthStore()
     private let defaults: UserDefaults
+    #if DEBUG && targetEnvironment(simulator)
+    private let uiFixture: HealthReviewUITestFixture?
+    #endif
 
     init(defaults: UserDefaults = .standard) {
+        #if DEBUG && targetEnvironment(simulator)
+        let fixture = HealthReviewUITestFixture.resolve(
+            arguments: ProcessInfo.processInfo.arguments,
+            isolatedPreferences: ElderUITestFixture.active?.preferences
+        )
+        uiFixture = fixture
+        let resolvedDefaults = fixture?.preferences ?? defaults
+        self.defaults = resolvedDefaults
+        let hasCompleted = fixture?.isValid != false && resolvedDefaults.bool(forKey: Self.completionKey)
+        #else
         self.defaults = defaults
         let hasCompleted = defaults.bool(forKey: Self.completionKey)
+        #endif
         hasCompletedAuthorizationRequest = hasCompleted
         statusMessage = hasCompleted
             ? "已完成 Apple 健康授权请求。仅在用户授权范围内读取生命体征。"
             : "尚未完成 Apple 健康授权请求"
+        disconnectObserver = NotificationCenter.default.publisher(for: .medcueHealthDisconnected)
+            .sink { [weak self] notification in
+                let revision = notification.object as? String
+                Task { @MainActor in
+                    guard let self, revision == HealthConnectionPolicy.revision(defaults: self.defaults),
+                          !self.defaults.bool(forKey: Self.completionKey) else { return }
+                    self.clearHealthSnapshot()
+                }
+            }
     }
 
     @discardableResult
     func requestAuthorizationEntry() async -> Bool {
+        guard !Task.isCancelled else { return false }
+        #if DEBUG && targetEnvironment(simulator)
+        if let uiFixture {
+            statusMessage = uiFixture.isValid
+                ? "界面测试不会请求 Apple 健康授权。"
+                : HealthReviewUITestFixture.invalidMessage
+            return false
+        }
+        #endif
         guard HKHealthStore.isHealthDataAvailable() else {
             statusMessage = "当前设备不支持 Apple 健康数据读取"
             return false
@@ -42,13 +84,21 @@ final class HealthKitService: ObservableObject {
             return false
         }
 
+        evidenceSnapshot.reconnect()
+        let authorizationEpoch = evidenceSnapshot.beginRefresh()
+        let connectionRevision = HealthConnectionPolicy.revision(defaults: defaults)
         do {
             try await requestAuthorization(readTypes: readTypes)
+            guard evidenceSnapshot.epoch == authorizationEpoch, evidenceSnapshot.isEnabled,
+                  HealthConnectionPolicy.revision(defaults: defaults) == connectionRevision,
+                  !Task.isCancelled else { return false }
             markAuthorizationRequestCompleted()
             statusMessage = "已完成 Apple 健康授权请求。仅在用户授权范围内读取生命体征，用于趋势和复诊资料。"
             await refreshRecentTrendSamples()
             return true
         } catch {
+            guard !Task.isCancelled, evidenceSnapshot.epoch == authorizationEpoch,
+                  HealthConnectionPolicy.revision(defaults: defaults) == connectionRevision else { return false }
             statusMessage = "Apple 健康授权暂时无法完成，请稍后重试或前往系统隐私设置检查。"
             return false
         }
@@ -59,33 +109,230 @@ final class HealthKitService: ObservableObject {
     }
 
     func refreshRecentTrendSamples(days: Int) async {
-        guard HKHealthStore.isHealthDataAvailable() else {
+        guard !Task.isCancelled else { return }
+        #if DEBUG && targetEnvironment(simulator)
+        if uiFixture?.isValid == false {
+            statusMessage = HealthReviewUITestFixture.invalidMessage
+            return
+        }
+        let healthDataAvailable = uiFixture != nil || HKHealthStore.isHealthDataAvailable()
+        #else
+        let healthDataAvailable = HKHealthStore.isHealthDataAvailable()
+        #endif
+        guard healthDataAvailable else {
             recentTrendSamples = []
+            evidenceBundle = nil
+            settingsSummary = HealthKitSettingsSummary(vitalSignSamples: [], reviewSamples: [], refreshedAt: nil)
             statusMessage = "当前设备不支持 Apple 健康数据读取"
             return
         }
 
-        guard hasCompletedAuthorizationRequest else {
+        guard defaults.bool(forKey: Self.completionKey) else {
             recentTrendSamples = []
+            evidenceBundle = nil
+            settingsSummary = HealthKitSettingsSummary(vitalSignSamples: [], reviewSamples: [], refreshedAt: nil)
             statusMessage = "尚未完成 Apple 健康授权请求"
             return
         }
 
-        let samples = await fetchTrendSamples(days: days)
+        if !evidenceSnapshot.isEnabled { evidenceSnapshot.reconnect() }
+        hasCompletedAuthorizationRequest = true
+        let epoch = evidenceSnapshot.beginRefresh()
+        let snapshotRevision = HealthAISharingPolicy.invalidateSnapshot(defaults: defaults)
+        let connectionRevision = HealthConnectionPolicy.revision(defaults: defaults)
+        // Clear stale facts before suspending; failed/empty reads cannot reuse them.
+        evidenceBundle = nil
+        settingsSummary = HealthKitSettingsSummary(vitalSignSamples: [], reviewSamples: [], refreshedAt: nil)
+        evidenceWindows = [:]
+        evidenceRevision = nil
+        recentTrendSamples = []
+        statusMessage = "正在读取健康记录…"
+        #if DEBUG && targetEnvironment(simulator)
+        let end = uiFixture?.now ?? Date()
+        let calendar = uiFixture?.calendar ?? Calendar.current
+        #else
+        let end = Date()
+        let calendar = Calendar.current
+        #endif
+        let start = calendar.date(byAdding: .day, value: -min(56, max(1, days)),
+                                  to: calendar.startOfDay(for: end)) ?? end
+        let acquired = await acquireRecentSamples(days: min(56, max(1, days)), start: start, end: end)
+        let trend = acquired.trend
+        let samples = trend.samples
+        let evidence = acquired.evidence
+        let prepared = await Task.detached(priority: .utility) {
+            var windows: [Int: HealthEvidenceBundle] = [:]
+            for lookback in [7, 30, 56] {
+                let windowStart = calendar.date(byAdding: .day, value: -lookback,
+                                                to: calendar.startOfDay(for: end)) ?? start
+                windows[lookback] = HealthEvidenceBuilder().build(samples: evidence.samples,
+                    start: max(start, windowStart), end: end, timeZone: calendar.timeZone,
+                    generatedAt: end, failedMetrics: evidence.failed, budgetExceededMetrics: evidence.overflow)
+            }
+            let settings = HealthKitSettingsSummary(vitalSignSamples: samples,
+                reviewSamples: evidence.samples, refreshedAt: end, calendar: calendar)
+            return (windows: windows, settings: settings)
+        }.value
+        guard !Task.isCancelled,
+              HealthConnectionPolicy.isCurrent(connectionRevision, defaults: defaults),
+              HealthAISharingPolicy.snapshotRevision(defaults: defaults) == snapshotRevision,
+              evidenceSnapshot.replace(evidence.samples, epoch: epoch) else {
+            if evidenceSnapshot.epoch == epoch,
+               HealthConnectionPolicy.isCurrent(connectionRevision, defaults: defaults) {
+                statusMessage = "本次读取已取消或被其他页面更新，请刷新当前回顾。"
+            }
+            return
+        }
         recentTrendSamples = samples
+        evidenceConnectionRevision = connectionRevision
+        evidenceRevision = snapshotRevision
+        evidenceWindows = prepared.windows
+        settingsSummary = prepared.settings
         lastSampleRefreshAt = Date()
-        statusMessage = samples.isEmpty
-            ? "已完成授权请求；当前没有可读取的近期生命体征数据。"
-            : "已读取 \(samples.count) 条近期生命体征数据。"
+        evidenceBundle = prepared.windows[56]
+        if trend.overflowCount > 0 || !evidence.overflow.isEmpty {
+            statusMessage = "部分指标记录超过读取预算，已排除这些指标；可选择较短范围重试。"
+        } else {
+            statusMessage = samples.isEmpty && evidence.samples.isEmpty
+                ? "已完成授权请求；当前没有可读取的近期健康数据。"
+                : "已读取 \(samples.count + evidence.samples.count) 条近期健康记录。"
+        }
     }
 
     var recentSummary: HealthKitRecentSummary {
         HealthKitRecentSummary(samples: recentTrendSamples, refreshedAt: lastSampleRefreshAt)
     }
 
+    func evidence(for question: String) -> HealthEvidenceBundle? {
+        guard let revision = evidenceConnectionRevision,
+              HealthConnectionPolicy.isCurrent(revision, defaults: defaults),
+              evidenceRevision == HealthAISharingPolicy.snapshotRevision(defaults: defaults) else { return nil }
+        return evidenceWindows[HealthEvidenceLocalReview.lookbackDays(in: question)]
+    }
+
+    func setLocalSummaryAllowed(_ allowed: Bool) {
+        #if DEBUG && targetEnvironment(simulator)
+        guard uiFixture?.isValid != false else { return }
+        #endif
+        HealthAISharingPolicy.setAllowed(allowed, defaults: defaults)
+    }
+
+    func disconnectAndClear() {
+        #if DEBUG && targetEnvironment(simulator)
+        guard uiFixture?.isValid != false else { return }
+        #endif
+        HealthConnectionPolicy.setConnected(false, defaults: defaults)
+        HealthAISharingPolicy.revoke(defaults: defaults)
+        _ = HealthAISharingPolicy.invalidateSnapshot(defaults: defaults)
+        clearHealthSnapshot()
+        NotificationCenter.default.post(name: .medcueHealthDisconnected,
+                                        object: HealthConnectionPolicy.revision(defaults: defaults))
+    }
+
+    private func clearHealthSnapshot() {
+        for operation in activeReads.values { operation.cancel() }
+        activeReads = [:]
+        evidenceSnapshot.disconnect()
+        evidenceConnectionRevision = nil
+        evidenceRevision = nil
+        evidenceWindows = [:]
+        recentTrendSamples = []
+        evidenceBundle = nil
+        settingsSummary = HealthKitSettingsSummary(vitalSignSamples: [], reviewSamples: [], refreshedAt: nil)
+        lastSampleRefreshAt = nil
+        hasCompletedAuthorizationRequest = false
+        statusMessage = "已停止读取并清除本次健康回顾；Apple 健康原始记录未更改。"
+    }
+
+    // Only acquisition is substituted. Refresh cancellation, revisions, clearing,
+    // aggregation, publication and disconnect above remain the production path.
+    private func acquireRecentSamples(days: Int, start: Date, end: Date) async -> (
+        trend: (samples: [HealthSignalSample], overflowCount: Int),
+        evidence: (samples: [HealthEvidenceSample], failed: Set<HealthEvidenceMetric>, overflow: Set<HealthEvidenceMetric>)
+    ) {
+        #if DEBUG && targetEnvironment(simulator)
+        if let uiFixture {
+            await Task.yield()
+            return (([], 0), (uiFixture.samples(start: start, end: end), [], []))
+        }
+        #endif
+        let trend = await fetchTrendSamples(days: days)
+        let evidence = await fetchEvidenceSamples(start: start, end: end)
+        return (trend, evidence)
+    }
+
+    private func fetchEvidenceSamples(start: Date, end: Date) async
+        -> (samples: [HealthEvidenceSample], failed: Set<HealthEvidenceMetric>, overflow: Set<HealthEvidenceMetric>) {
+        let connectionRevision = HealthConnectionPolicy.revision(defaults: defaults)
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: [])
+        var result: [HealthEvidenceSample] = []
+        var failed = Set<HealthEvidenceMetric>()
+        var overflow = Set<HealthEvidenceMetric>()
+        let descriptors: [(HealthEvidenceMetric, HKQuantityTypeIdentifier, HKUnit)] = [
+            (.restingHeartRate, .restingHeartRate, HKUnit.count().unitDivided(by: .minute())),
+            (.hrvSDNN, .heartRateVariabilitySDNN, HKUnit.secondUnit(with: .milli)),
+            (.respiratoryRate, .respiratoryRate, HKUnit.count().unitDivided(by: .minute()))
+        ]
+        for (metric, identifier, unit) in descriptors {
+            if Task.isCancelled || !HealthConnectionPolicy.isCurrent(connectionRevision, defaults: defaults) { return ([], Set(HealthEvidenceMetric.allCases), []) }
+            guard let type = HKQuantityType.quantityType(forIdentifier: identifier) else {
+                failed.insert(metric); continue
+            }
+            do {
+                let samples = try await queryQuantitySamples(type: type, predicate: predicate, limit: HealthReadBudget.quantitySamples + 1)
+                guard HealthReadBudget.accepts(count: samples.count, limit: HealthReadBudget.quantitySamples) else {
+                    overflow.insert(metric); continue
+                }
+                result += samples.map { sample in
+                    HealthEvidenceSample(id: sample.uuid, metric: metric, start: sample.startDate,
+                        end: sample.endDate, value: sample.quantity.doubleValue(for: unit), unit: metric.unit,
+                        sourceID: Self.evidenceSourceID(sample),
+                        sourceName: sample.sourceRevision.source.name,
+                        timeZoneIdentifier: sample.metadata?[HKMetadataKeyTimeZone] as? String,
+                        sourceVersion: sample.sourceRevision.version, deviceModel: sample.device?.model)
+                }
+            } catch { failed.insert(metric) }
+        }
+        if Task.isCancelled || !HealthConnectionPolicy.isCurrent(connectionRevision, defaults: defaults) { return ([], Set(HealthEvidenceMetric.allCases), []) }
+        if let type = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) {
+            do {
+                let samples = try await querySamples(type: type, predicate: predicate, limit: HealthReadBudget.sleepSamples + 1)
+                    .compactMap { $0 as? HKCategorySample }
+                if !HealthReadBudget.accepts(count: samples.count, limit: HealthReadBudget.sleepSamples) {
+                    overflow.insert(.sleep)
+                }
+                for sample in overflow.contains(.sleep) ? [] : samples {
+                    let state: HealthSleepState
+                    switch sample.value {
+                    case HKCategoryValueSleepAnalysis.inBed.rawValue: state = .inBed
+                    case HKCategoryValueSleepAnalysis.awake.rawValue: state = .awake
+                    case HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue: state = .asleep
+                    case HKCategoryValueSleepAnalysis.asleepCore.rawValue: state = .core
+                    case HKCategoryValueSleepAnalysis.asleepDeep.rawValue: state = .deep
+                    case HKCategoryValueSleepAnalysis.asleepREM.rawValue: state = .rem
+                    default: continue
+                    }
+                    result.append(HealthEvidenceSample(id: sample.uuid, metric: .sleep,
+                        start: sample.startDate, end: sample.endDate, value: 0, unit: HealthEvidenceMetric.sleep.unit,
+                        sourceID: Self.evidenceSourceID(sample),
+                        sourceName: sample.sourceRevision.source.name,
+                        timeZoneIdentifier: sample.metadata?[HKMetadataKeyTimeZone] as? String, sleepState: state,
+                        sourceVersion: sample.sourceRevision.version, deviceModel: sample.device?.model))
+                }
+            } catch { failed.insert(.sleep) }
+        } else { failed.insert(.sleep) }
+        return (result, failed, overflow)
+    }
+
+    private static func evidenceSourceID(_ sample: HKSample) -> String {
+        // Keep model/source versions distinct without collecting serial numbers.
+        [sample.sourceRevision.source.bundleIdentifier, sample.sourceRevision.version ?? "unknown",
+         sample.sourceRevision.productType ?? sample.device?.model ?? "unknown"].joined(separator: "|")
+    }
+
     private func markAuthorizationRequestCompleted() {
         hasCompletedAuthorizationRequest = true
-        defaults.set(true, forKey: Self.completionKey)
+        HealthConnectionPolicy.setConnected(true, defaults: defaults)
     }
 
     private func requestAuthorization(readTypes: Set<HKObjectType>) async throws {
@@ -102,7 +349,8 @@ final class HealthKitService: ObservableObject {
         }
     }
 
-    private func fetchTrendSamples(days: Int) async -> [HealthSignalSample] {
+    private func fetchTrendSamples(days: Int) async -> (samples: [HealthSignalSample], overflowCount: Int) {
+        let connectionRevision = HealthConnectionPolicy.revision(defaults: defaults)
         let calendar = Calendar.current
         let endDate = Date()
         let startDate = calendar.date(
@@ -116,8 +364,10 @@ final class HealthKitService: ObservableObject {
             options: [.strictStartDate]
         )
         var samples: [HealthSignalSample] = []
+        var overflowCount = 0
 
         for descriptor in Self.trendSignalDescriptors() {
+            if Task.isCancelled || !HealthConnectionPolicy.isCurrent(connectionRevision, defaults: defaults) { return ([], 0) }
             guard let quantityType = HKQuantityType.quantityType(forIdentifier: descriptor.identifier) else {
                 continue
             }
@@ -125,12 +375,16 @@ final class HealthKitService: ObservableObject {
                 let quantitySamples = try await queryQuantitySamples(
                     type: quantityType,
                     predicate: predicate,
-                    limit: 250
+                    limit: HealthReadBudget.quantitySamples + 1
                 )
+                guard HealthReadBudget.accepts(count: quantitySamples.count, limit: HealthReadBudget.quantitySamples) else {
+                    overflowCount += 1; continue
+                }
                 samples.append(
                     contentsOf: quantitySamples.map { sample in
                         let rawValue = sample.quantity.doubleValue(for: descriptor.unit)
                         return HealthSignalSample(
+                            id: sample.uuid,
                             kind: descriptor.kind,
                             measuredAt: sample.endDate,
                             value: descriptor.displayValue(from: rawValue),
@@ -143,7 +397,7 @@ final class HealthKitService: ObservableObject {
             }
         }
 
-        return samples.sorted { $0.measuredAt < $1.measuredAt }
+        return (samples.sorted { $0.measuredAt < $1.measuredAt }, overflowCount)
     }
 
     private func queryQuantitySamples(
@@ -151,26 +405,25 @@ final class HealthKitService: ObservableObject {
         predicate: NSPredicate,
         limit: Int
     ) async throws -> [HKQuantitySample] {
-        try await withCheckedThrowingContinuation { continuation in
-            let sortDescriptor = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
-            let query = HKSampleQuery(
-                sampleType: type,
-                predicate: predicate,
-                limit: limit,
-                sortDescriptors: [sortDescriptor]
-            ) { _, samples, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                    return
-                }
-                continuation.resume(returning: samples?.compactMap { $0 as? HKQuantitySample } ?? [])
-            }
-            healthStore.execute(query)
-        }
+        try await querySamples(type: type, predicate: predicate, limit: limit)
+            .compactMap { $0 as? HKQuantitySample }
+    }
+
+    private func querySamples(type: HKSampleType, predicate: NSPredicate, limit: Int) async throws -> [HKSample] {
+        try Task.checkCancellation()
+        let id = UUID()
+        let operation = HealthKitReadOperation(store: healthStore)
+        activeReads[id] = operation
+        defer { activeReads.removeValue(forKey: id) }
+        return try await operation.read(type: type, predicate: predicate, limit: limit)
     }
 
     private static func readTypes() -> Set<HKObjectType> {
         [
+            HKCategoryType.categoryType(forIdentifier: .sleepAnalysis),
+            HKQuantityType.quantityType(forIdentifier: .restingHeartRate),
+            HKQuantityType.quantityType(forIdentifier: .heartRateVariabilitySDNN),
+            HKQuantityType.quantityType(forIdentifier: .respiratoryRate),
             HKQuantityType.quantityType(forIdentifier: .heartRate),
             HKQuantityType.quantityType(forIdentifier: .bloodPressureSystolic),
             HKQuantityType.quantityType(forIdentifier: .bloodPressureDiastolic),
@@ -247,15 +500,53 @@ private enum HealthKitAuthorizationError: LocalizedError {
     }
 }
 
-struct HealthKitRecentSummary {
+/// Settings-only read overview. The legacy vital-sign summary remains the
+/// contract consumed by medication trends and visit exports; new review records
+/// must never be counted as if they already participate in those destinations.
+struct HealthKitSettingsSummary: Sendable {
+    let vitalSigns: HealthKitRecentSummary
+    let reviewSampleCount: Int
+    let reviewMetricCount: Int
+    let coveredDayCount: Int
+
+    init(vitalSignSamples: [HealthSignalSample], reviewSamples: [HealthEvidenceSample],
+         refreshedAt: Date?, calendar: Calendar = .current) {
+        vitalSigns = HealthKitRecentSummary(samples: vitalSignSamples, refreshedAt: refreshedAt, calendar: calendar)
+        reviewSampleCount = Set(reviewSamples.map(\.id)).count
+        reviewMetricCount = Set(reviewSamples.map(\.metric)).count
+        let recordedDates = vitalSignSamples.map(\.measuredAt) + reviewSamples.map(\.end)
+        coveredDayCount = Set(recordedDates.map { calendar.startOfDay(for: $0) }).count
+    }
+
+    var sampleCount: Int { vitalSigns.sampleCount + reviewSampleCount }
+    var metricCount: Int { vitalSigns.metricSummaries.count + reviewMetricCount }
+    var hasSamples: Bool { sampleCount > 0 }
+    var hasReviewSamples: Bool { reviewSampleCount > 0 }
+    var headline: String {
+        if hasReviewSamples {
+            return vitalSigns.hasSamples ? "已读取生命体征与健康回顾记录" : "已读取健康回顾记录"
+        }
+        return vitalSigns.hasSamples ? vitalSigns.latestSampleText : "暂无可读取的健康记录"
+    }
+    var coverageText: String {
+        hasSamples ? "\(coveredDayCount) 个记录日期 · \(sampleCount) 条" : "暂无可读取的健康记录"
+    }
+    var reviewCoverageText: String {
+        hasReviewSamples ? "\(reviewSampleCount) 条回顾记录 · \(reviewMetricCount) 类" : "暂无健康回顾记录"
+    }
+    var vitalSignDestinationText: String {
+        vitalSigns.hasSamples ? "\(vitalSigns.sampleCount) 条生命体征" : "暂无生命体征"
+    }
+}
+
+struct HealthKitRecentSummary: Sendable {
     let sampleCount: Int
     let coveredDayCount: Int
     let metricSummaries: [HealthKitMetricSummary]
     let latestSample: HealthSignalSample?
     let refreshedAt: Date?
 
-    init(samples: [HealthSignalSample], refreshedAt: Date?) {
-        let calendar = Calendar.current
+    init(samples: [HealthSignalSample], refreshedAt: Date?, calendar: Calendar = .current) {
         sampleCount = samples.count
         coveredDayCount = Set(samples.map { calendar.startOfDay(for: $0.measuredAt) }).count
         latestSample = samples.max { $0.measuredAt < $1.measuredAt }
@@ -296,7 +587,7 @@ struct HealthKitRecentSummary {
     }
 }
 
-struct HealthKitMetricSummary: Identifiable {
+struct HealthKitMetricSummary: Identifiable, Sendable {
     let id: String
     let kind: HealthSignalKind
     let sampleCount: Int
@@ -362,3 +653,207 @@ extension HealthSignalKind {
     }
 
 }
+
+// Independent of the existing medication-sharing consent. No cloud rollout is enabled.
+@MainActor
+enum HealthAISharingPolicy {
+    static let allowedKey = "healthAI.localSummaryAllowed.v1"
+    static let revisionKey = "healthAI.consentRevision.v1"
+    static let cloudHealthSharingEnabled = false
+    static let snapshotRevisionKey = "healthAI.snapshotRevision.v1"
+    static func snapshotRevision(defaults: UserDefaults = .standard) -> String {
+        defaults.string(forKey: snapshotRevisionKey) ?? "unread"
+    }
+    static func invalidateSnapshot(defaults: UserDefaults = .standard) -> String {
+        let revision = UUID().uuidString
+        defaults.set(revision, forKey: snapshotRevisionKey)
+        NotificationCenter.default.post(name: .medcueHealthEvidenceChanged, object: nil)
+        return revision
+    }
+
+    static func allowsLocalSummary(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: allowedKey)
+    }
+    static func revision(defaults: UserDefaults = .standard) -> String {
+        defaults.string(forKey: revisionKey) ?? "not-granted"
+    }
+    static func setAllowed(_ allowed: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(allowed, forKey: allowedKey)
+        defaults.set(UUID().uuidString, forKey: revisionKey)
+        NotificationCenter.default.post(name: .medcueHealthAIConsentChanged, object: nil)
+    }
+    static func revoke(defaults: UserDefaults = .standard) { setAllowed(false, defaults: defaults) }
+}
+
+extension Notification.Name {
+    static let medcueHealthEvidenceChanged = Notification.Name("medcue.health.evidenceChanged")
+    static let medcueAIConsentChanged = Notification.Name("medcue.ai.consentChanged")
+    static let medcueHealthDisconnected = Notification.Name("medcue.health.disconnected")
+    static let medcueHealthAIConsentChanged = Notification.Name("medcue.health.aiConsentChanged")
+}
+
+
+/// Shared across service instances. A bool alone cannot reject a disconnect /
+/// reconnect ABA race while an older HealthKit query is still in flight.
+@MainActor
+enum HealthConnectionPolicy {
+    static let completionKey = "hasCompletedHealthKitAuthorizationRequest"
+    static let revisionKey = "health.connectionRevision.v1"
+    static func revision(defaults: UserDefaults = .standard) -> String {
+        defaults.string(forKey: revisionKey) ?? "initial"
+    }
+    static func setConnected(_ connected: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(UUID().uuidString, forKey: revisionKey)
+        defaults.set(connected, forKey: completionKey)
+    }
+    static func isCurrent(_ capturedRevision: String, defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: completionKey) && revision(defaults: defaults) == capturedRevision
+    }
+}
+
+
+/// HealthKit callbacks and task cancellation may race. The lock owns exactly one
+/// continuation completion; cancellation also stops the OS query, not just its UI.
+private final class HealthKitReadOperation: @unchecked Sendable {
+    private let store: HKHealthStore
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<[HKSample], Error>?
+    private var query: HKQuery?
+    private var finished = false
+    private var cancelled = false
+
+    init(store: HKHealthStore) { self.store = store }
+
+    // Query construction stays on the caller's main actor. NSPredicate is not
+    // Sendable; only HealthKit's callback and the locked completion state cross threads.
+    @MainActor
+    func read(type: HKSampleType, predicate: NSPredicate, limit: Int) async throws -> [HKSample] {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: limit,
+                    sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)]) {
+                        [weak self] _, samples, error in
+                        if let error { self?.finish(.failure(error)) }
+                        else { self?.finish(.success(samples ?? [])) }
+                    }
+                start(query, continuation: continuation)
+            }
+        } onCancel: {
+            self.cancel()
+        }
+    }
+
+    private func start(_ query: HKQuery, continuation: CheckedContinuation<[HKSample], Error>) {
+        lock.lock()
+        if finished {
+            lock.unlock(); continuation.resume(throwing: CancellationError()); return
+        }
+        self.query = query; self.continuation = continuation
+        lock.unlock()
+        store.execute(query)
+        lock.lock(); let shouldStop = cancelled; lock.unlock()
+        if shouldStop { store.stop(query) }
+    }
+
+    private func finish(_ result: Result<[HKSample], Error>) {
+        lock.lock()
+        guard !finished else { lock.unlock(); return }
+        finished = true
+        let continuation = self.continuation
+        self.continuation = nil; query = nil
+        lock.unlock()
+        continuation?.resume(with: result)
+    }
+
+    func cancel() {
+        lock.lock()
+        guard !finished else { lock.unlock(); return }
+        finished = true; cancelled = true
+        let query = self.query; let continuation = self.continuation
+        self.query = nil; self.continuation = nil
+        lock.unlock()
+        if let query { store.stop(query) }
+        continuation?.resume(throwing: CancellationError())
+    }
+}
+
+#if DEBUG && targetEnvironment(simulator)
+/// Synthetic, per-session UI acquisition only. This type is absent from device
+/// and Release builds; an invalid explicit request must never reach HealthKit.
+@MainActor
+final class HealthReviewUITestFixture {
+    enum Scenario: String { case populated, sleepOnly = "sleep-only", empty }
+    static let flag = "--health-review-ui-fixture"
+    static let seedKey = "health.uiFixture.scenario.v1"
+    static let invalidMessage = "健康回顾界面测试配置无效；未读取健康数据。"
+
+    let preferences: UserDefaults
+    let scenario: Scenario?
+    var isValid: Bool { scenario != nil }
+    let now = Date(timeIntervalSince1970: 1_790_769_600) // 2026-09-30 12:00 UTC
+    var calendar: Calendar {
+        var result = Calendar(identifier: .gregorian)
+        result.timeZone = TimeZone(identifier: "Etc/UTC")!
+        return result
+    }
+
+    private init(preferences: UserDefaults, scenario: Scenario?) {
+        self.preferences = preferences
+        self.scenario = scenario
+    }
+
+    static func resolve(arguments: [String], isolatedPreferences: UserDefaults?) -> HealthReviewUITestFixture? {
+        let explicitFlags = arguments.indices.filter {
+            arguments[$0] == flag || arguments[$0].hasPrefix(flag + "=")
+        }
+        guard !explicitFlags.isEmpty else { return nil }
+        guard explicitFlags.count == 1, let index = explicitFlags.first,
+              arguments[index] == flag, arguments.indices.contains(index + 1),
+              let scenario = Scenario(rawValue: arguments[index + 1]),
+              let preferences = isolatedPreferences, preferences !== UserDefaults.standard,
+              preferences.string(forKey: seedKey).map({ $0 == scenario.rawValue }) ?? true
+        else {
+            // A blocked request owns an unseeded domain. It cannot read or write
+            // the caller's standard or injected health preferences by accident.
+            return HealthReviewUITestFixture(
+                preferences: UserDefaults(suiteName: "medcue.health-ui.blocked.\(UUID().uuidString)")!,
+                scenario: nil
+            )
+        }
+        if preferences.object(forKey: seedKey) == nil {
+            HealthConnectionPolicy.setConnected(true, defaults: preferences)
+            HealthAISharingPolicy.setAllowed(false, defaults: preferences)
+            preferences.set(scenario.rawValue, forKey: seedKey)
+        }
+        return HealthReviewUITestFixture(preferences: preferences, scenario: scenario)
+    }
+
+    func samples(start: Date, end: Date) -> [HealthEvidenceSample] {
+        guard let scenario, scenario != .empty else { return [] }
+        let count = scenario == .sleepOnly ? 3 : 56
+        return (1...count).flatMap { day -> [HealthEvidenceSample] in
+            let sleepEnd = now.addingTimeInterval(-Double(day - 1) * 86_400 - 4 * 3_600)
+            var rows = [sample(id: day, metric: .sleep, start: sleepEnd.addingTimeInterval(-8 * 3_600),
+                               end: sleepEnd, value: 0, sleepState: .asleep)]
+            if scenario == .populated {
+                let measured = now.addingTimeInterval(-Double(day) * 86_400 + 2 * 3_600)
+                rows += [sample(id: 100 + day, metric: .restingHeartRate, start: measured, end: measured,
+                                value: Double(40 + day)),
+                         sample(id: 200 + day, metric: .hrvSDNN, start: measured, end: measured,
+                                value: Double(20 + day)),
+                         sample(id: 300 + day, metric: .respiratoryRate, start: measured, end: measured,
+                                value: Double(10 + day % 3))]
+            }
+            return rows.filter { $0.end >= start && $0.start <= end }
+        }
+    }
+
+    private func sample(id: Int, metric: HealthEvidenceMetric, start: Date, end: Date,
+                        value: Double, sleepState: HealthSleepState? = nil) -> HealthEvidenceSample {
+        HealthEvidenceSample(id: UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", id))!,
+            metric: metric, start: start, end: end, value: value, unit: metric.unit,
+            sourceID: "medcue.ui.synthetic|1|synthetic", sourceName: "UI Fixture",
+            timeZoneIdentifier: "Etc/UTC", sleepState: sleepState, sourceVersion: "1", deviceModel: "synthetic")
+    }
+}
+#endif

@@ -224,6 +224,58 @@ import Testing
     #expect(fields.directionsText == "每次 200 mg")
 }
 
+@Test func prescriptionStrengthConsumesTheCompleteSupportedLongLabel() {
+    for text in ["规格型号 10 mg", "规格型号10 mg", "规格型号：10 mg", "规格型号:10 mg"] {
+        let fields = MedicationImportTextExtractor.structuredFields(fromPrescriptionText: text)
+        #expect(fields.strength == "10 mg", "Incorrect strength for: \(text)")
+        #expect(fields.doseAmount == nil)
+    }
+}
+
+@Test func prescriptionEmptyLongStrengthLabelDoesNotInventAValue() {
+    for text in ["规格型号", "规格型号：", "规格型号:", "规格型号　", "【规格型号】：", "规格型号： —"] {
+        let fields = MedicationImportTextExtractor.structuredFields(fromPrescriptionText: text)
+        #expect(fields.strength == nil, "A label is not a strength: \(text)")
+    }
+}
+
+@Test func prescriptionEmptyLongStrengthLabelAllowsLaterActualStrength() {
+    for label in ["规格型号", "规格型号：", "规格型号:", "【规格型号】："] {
+        let fields = MedicationImportTextExtractor.structuredFields(
+            fromPrescriptionText: "\(label)\n规格：10 mg\n剂型：片剂\n用法用量：每次一片"
+        )
+        #expect(fields.strength == "10 mg")
+        #expect(fields.form == "片剂")
+        #expect(fields.directionsText == "每次一片")
+        #expect(fields.doseAmount?.value == Decimal(1))
+        #expect(fields.doseAmount?.unit == "片")
+    }
+}
+
+@Test func prescriptionStrengthSynonymsAndSeparatorRulesRemainAvailable() {
+    for label in ["规格", "药品规格", "规格型号", "含量", "Strength", "sTrEnGtH"] {
+        for separator in [":", "："] {
+            let fields = MedicationImportTextExtractor.structuredFields(
+                fromPrescriptionText: "\(label)\(separator)10 mg"
+            )
+            #expect(fields.strength == "10 mg")
+        }
+    }
+    for text in ["Strength 10 mg", "Strength10 mg", "Medication Status: Active"] {
+        #expect(MedicationImportTextExtractor.structuredFields(fromPrescriptionText: text).strength == nil)
+    }
+}
+
+@Test func prescriptionStrengthPayloadIsNotStrippedOrOverwritten() {
+    for text in ["规格：型号 10 mg", "规格型号：型号 10 mg"] {
+        let fields = MedicationImportTextExtractor.structuredFields(
+            fromPrescriptionText: "\(text)\n含量：20 mg"
+        )
+        #expect(fields.strength == "型号 10 mg")
+        #expect(fields.doseAmount == nil)
+    }
+}
+
 @Test func confirmedImportBuildsMedication() throws {
     let draft = MedicationImportDraft(
         source: .manual,

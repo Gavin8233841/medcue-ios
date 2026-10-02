@@ -278,7 +278,7 @@ struct VisitSummaryPDFLifecycleTests {
             ),
             healthSignals: [],
             startDate: Date(),
-            endDate: Date(),
+            endDateExclusive: Date(),
             generatedAt: Date(),
             exportSignature: "test-signature"
         )

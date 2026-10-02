@@ -77,6 +77,8 @@ private struct TodayContentView: View {
     @State private var showingHandledTasks = false
     @State private var pendingDoseConfirmation: PendingDoseConfirmation?
     @State private var doseInteraction = TodayDoseInteractionState()
+    @State private var doseFeedbackState = TodayDoseFeedbackState()
+    @State private var doseFeedbackPulse: TodayDoseFeedbackPulse?
     @State private var reopenHighlightTasks: [String: Task<Void, Never>] = [:]
     @State private var liveActivityRefreshTask: Task<Void, Never>?
     @State private var completionRateFeedback: CompletionRateFeedback?
@@ -249,6 +251,10 @@ private struct TodayContentView: View {
                 )
             )
             .environment(\.medcueReduceMotionEnabled, reduceMotionEnabled)
+            .modifier(TodayDoseFeedbackModifier(
+                pulse: doseFeedbackPulse,
+                cancelPendingFeedback: cancelDoseFeedback
+            ))
         } else {
             TodayScreen(
                 snapshot: snapshot,
@@ -296,7 +302,7 @@ private struct TodayContentView: View {
                     markTaken: requestMarkTaken,
                     delay: requestDelay,
                     skip: { task in
-                        performWithDoseFeedback(task, action: .skip) {
+                        performWithDoseFeedback(task, action: .skip) { _ in
                             mark(task, mutation: .skip, reason: "用户忽略")
                         }
                     },
@@ -317,6 +323,10 @@ private struct TodayContentView: View {
                 )
             )
             .environment(\.medcueReduceMotionEnabled, reduceMotionEnabled)
+            .modifier(TodayDoseFeedbackModifier(
+                pulse: doseFeedbackPulse,
+                cancelPendingFeedback: cancelDoseFeedback
+            ))
         }
     }
 
@@ -398,6 +408,7 @@ private struct TodayContentView: View {
     }
 
     private func cleanupTodayScreen() {
+        cancelDoseFeedback()
         elderTapGuardTask?.cancel()
         elderTapGuardTask = nil
         elderActionInProgress = false
@@ -503,7 +514,11 @@ private struct TodayContentView: View {
     }
 
     @discardableResult
-    private func delay(_ task: StoredDoseTask, fromPlannedTime: Bool = false) -> Bool {
+    private func delay(
+        _ task: StoredDoseTask,
+        fromPlannedTime: Bool = false,
+        feedbackRequest: TodayDoseFeedbackRequest
+    ) -> Bool {
         guard isOpenStatus(task.status) else {
             return false
         }
@@ -537,6 +552,8 @@ private struct TodayContentView: View {
             }
         }
         guard didCommit else { return false }
+        let feedbackDueAt = task.dueAt
+        let feedbackRecordedAt = task.recordedAt
         let operationID = elderOperationID
         if presentation == .elder {
             elderReminderSyncInProgress = true
@@ -546,6 +563,13 @@ private struct TodayContentView: View {
         )
         performDeferredSystemSurfaceSync(after: presentation == .elder ? 0 : 0.75) {
             let result = await systemSurfaceSync.value
+            emitDoseFeedback(doseFeedbackState.finishReminder(
+                feedbackRequest,
+                scheduled: result == .reminder(.scheduled),
+                recordIsCurrent: task.modelContext != nil && !task.isDeleted
+                    && task.status == .delayed
+                    && task.dueAt == feedbackDueAt && task.recordedAt == feedbackRecordedAt
+            ))
             if presentation == .elder, operationID == elderOperationID {
                 elderReminderSyncInProgress = false
                 switch result {
@@ -584,7 +608,7 @@ private struct TodayContentView: View {
     }
 
     private func performMarkTaken(_ task: StoredDoseTask, reason: String) {
-        performWithDoseFeedback(task, action: .taken) {
+        performWithDoseFeedback(task, action: .taken) { _ in
             mark(task, mutation: .markTaken, reason: reason)
         }
     }
@@ -595,7 +619,7 @@ private struct TodayContentView: View {
               !elderActionInProgress, !elderReminderSyncInProgress else {
             return
         }
-        performWithDoseFeedback(task, action: .skip) {
+        performWithDoseFeedback(task, action: .skip) { _ in
             mark(task, mutation: .skip, reason: "用户选择这次不吃")
         }
     }
@@ -614,8 +638,8 @@ private struct TodayContentView: View {
     }
 
     private func performDelay(_ task: StoredDoseTask, fromPlannedTime: Bool) {
-        performWithDoseFeedback(task, action: .delay) {
-            delay(task, fromPlannedTime: fromPlannedTime)
+        performWithDoseFeedback(task, action: .delay) { feedbackRequest in
+            delay(task, fromPlannedTime: fromPlannedTime, feedbackRequest: feedbackRequest)
         }
     }
 
@@ -682,12 +706,22 @@ private struct TodayContentView: View {
         plans.first { $0.id == task.planID }?.reminderDeliveryMethod ?? .notification
     }
 
-    private func performWithDoseFeedback(_ task: StoredDoseTask, action: PendingDoseFeedback.Action, commit: @escaping () -> Bool) {
+    private func performWithDoseFeedback(
+        _ task: StoredDoseTask,
+        action: PendingDoseFeedback.Action,
+        commit: @escaping (TodayDoseFeedbackRequest) -> Bool
+    ) {
         let doseKey = logicalDoseKey(for: task)
         guard presentation != .elder || (!elderActionInProgress && !elderReminderSyncInProgress),
               isOpenStatus(task.status), doseInteraction.beginDoseAction(for: doseKey) else {
             return
         }
+        let feedbackAction: TodayDoseFeedbackAction = switch action {
+        case .taken: .taken
+        case .delay: .delayed
+        case .skip: .skipped
+        }
+        let feedbackRequest = doseFeedbackState.begin(feedbackAction)
         var didCommit = false
         if presentation == .elder {
             elderActionInProgress = true
@@ -727,11 +761,13 @@ private struct TodayContentView: View {
             }
         }
 
-        didCommit = commit()
+        didCommit = commit(feedbackRequest)
+        let feedback = doseFeedbackState.finishCommit(feedbackRequest, succeeded: didCommit)
         guard didCommit else {
             resetDoseTransitionState(animated: false)
             return
         }
+        emitDoseFeedback(feedback)
         showElderDoseSuccess(for: task, action: action)
         if doseInteraction.pendingDoseFeedback != nil {
             doseInteraction.pendingDoseFeedback = PendingDoseFeedback(doseKey: logicalDoseKey(for: task), action: action)
@@ -794,6 +830,16 @@ private struct TodayContentView: View {
             }
             doseInteraction.pendingDoseFeedbackTask = nil
         }
+    }
+
+    private func emitDoseFeedback(_ kind: TodayDoseFeedbackKind?) {
+        guard let kind else { return }
+        doseFeedbackPulse = TodayDoseFeedbackPulse(kind: kind)
+    }
+
+    private func cancelDoseFeedback() {
+        doseFeedbackState.cancel()
+        doseFeedbackPulse = nil
     }
 
     private func showElderDoseSuccess(for task: StoredDoseTask, action: PendingDoseFeedback.Action) {
@@ -916,6 +962,7 @@ private struct TodayContentView: View {
         onCommit: (() -> Void)? = nil
     ) {
         let wasDelayed = task.status == .delayed
+        let feedbackRequest = doseFeedbackState.begin(.reopened)
         performReopenTransition(task) {
             let previousCompletionSnapshot = currentCompletionRateSnapshot
             if !wasDelayed {
@@ -929,6 +976,7 @@ private struct TodayContentView: View {
                     : command.perform(taskID: task.id, at: occurredAt ?? now())
             }
             guard case let .committed(commit) = outcome else {
+                _ = doseFeedbackState.finishCommit(feedbackRequest, succeeded: false)
                 dosePersistenceErrorMessage = outcome == .saveFailed
                     ? DoseActionPersistenceError.saveFailed.userMessage
                     : DoseActionPersistenceError.taskClosed.userMessage
@@ -936,6 +984,7 @@ private struct TodayContentView: View {
                 return
             }
             onCommit?()
+            emitDoseFeedback(doseFeedbackState.finishCommit(feedbackRequest, succeeded: true))
             if wasDelayed {
                 elderOperationID = UUID()
             }
@@ -1003,6 +1052,7 @@ private struct TodayContentView: View {
             return
         }
         isDoseUndoRollbackInFlight = true
+        let feedbackRequest = doseFeedbackState.begin(.rollback)
         defer {
             isDoseUndoRollbackInFlight = false
         }
@@ -1014,7 +1064,11 @@ private struct TodayContentView: View {
                 at: now()
             )
         }
-        guard case let .committed(taskIDs) = outcome else { return }
+        guard case let .committed(taskIDs) = outcome else {
+            _ = doseFeedbackState.finishCommit(feedbackRequest, succeeded: false)
+            return
+        }
+        emitDoseFeedback(doseFeedbackState.finishCommit(feedbackRequest, succeeded: true))
         let restoredTaskIDs = Set(taskIDs)
         let restoredTasks = tasks.filter { restoredTaskIDs.contains($0.id) }
         let nextCompletionSnapshot = currentCompletionRateSnapshot

@@ -92,6 +92,7 @@ struct AIConversationSendPlanner {
             )])
         }
         let request = makeRequest(requestText, consent)
+        let authorizedScopeSummary = consent.scopeSummary + (request.healthEvidence == nil ? "" : "、健康回顾（仅本机）")
         let missingScopes = MedicalAIRequestValidator().missingRequiredScopes(for: request)
         guard missingScopes.isEmpty else {
             let names = missingScopes.map(scopeDisplayName).sorted().joined(separator: "、")
@@ -116,7 +117,7 @@ struct AIConversationSendPlanner {
             return .sendLocal(AIConversationLocalDispatch(
                 userDraft: userDraft,
                 request: request,
-                sharedScopesSummary: consent.scopeSummary,
+                sharedScopesSummary: authorizedScopeSummary,
                 modelURL: modelURL
             ))
         }
@@ -133,7 +134,7 @@ struct AIConversationSendPlanner {
             return .sendCloud(AIConversationCloudDispatch(
                 userDraft: userDraft,
                 request: request,
-                sharedScopesSummary: consent.scopeSummary,
+                sharedScopesSummary: authorizedScopeSummary,
                 configuration: input.configuration
             ))
         }
@@ -152,6 +153,8 @@ struct AIConversationSendPlanner {
             "风险提醒"
         case .drugLabels:
             "说明书摘要"
+        case .healthSummary:
+            "健康回顾（仅本机）"
         case .importDraft:
             "导入识别内容"
         }

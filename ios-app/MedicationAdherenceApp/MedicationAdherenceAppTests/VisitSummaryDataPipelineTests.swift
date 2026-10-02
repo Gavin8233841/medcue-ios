@@ -1,5 +1,6 @@
 import Foundation
 import MedicationAdherenceCore
+import PDFKit
 import SwiftData
 import Testing
 @testable import MedicationAdherenceApp
@@ -12,7 +13,7 @@ struct VisitSummaryDataPipelineTests {
 
         let outcome = VisitSummaryDataCommand(modelContext: fixture.context).load(
             startDate: fixture.rangeStart,
-            endDate: fixture.rangeEnd
+            endDateExclusive: fixture.rangeEndExclusive
         )
 
         guard case let .loaded(data) = outcome else {
@@ -32,7 +33,7 @@ struct VisitSummaryDataPipelineTests {
         let fixture = try VisitSummaryDataFixture()
         let outcome = VisitSummaryDataCommand(modelContext: fixture.context).load(
             startDate: fixture.rangeStart,
-            endDate: fixture.rangeEnd
+            endDateExclusive: fixture.rangeEndExclusive
         )
         guard case let .loaded(data) = outcome else {
             Issue.record("Expected visit summary data to load, got \(String(describing: outcome))")
@@ -44,8 +45,8 @@ struct VisitSummaryDataPipelineTests {
             trendDashboard: fixture.emptyTrendDashboard,
             healthSignals: [],
             startDate: fixture.rangeStart,
-            endDate: fixture.rangeEnd,
-            generatedAt: fixture.rangeEnd,
+            endDateExclusive: fixture.rangeEndExclusive,
+            generatedAt: fixture.rangeEndExclusive,
             exportSignature: "stable"
         )
         fixture.relevantMedication.displayName = "已修改药名"
@@ -74,7 +75,7 @@ struct VisitSummaryDataPipelineTests {
         let fixture = try VisitSummaryDataFixture()
         let outcome = VisitSummaryDataCommand(modelContext: fixture.context).load(
             startDate: fixture.rangeStart,
-            endDate: fixture.rangeEnd
+            endDateExclusive: fixture.rangeEndExclusive
         )
         guard case let .loaded(data) = outcome else {
             Issue.record("Expected visit summary data to load")
@@ -85,8 +86,8 @@ struct VisitSummaryDataPipelineTests {
             trendDashboard: fixture.emptyTrendDashboard,
             healthSignals: [],
             startDate: fixture.rangeStart,
-            endDate: fixture.rangeEnd,
-            generatedAt: fixture.rangeEnd,
+            endDateExclusive: fixture.rangeEndExclusive,
+            generatedAt: fixture.rangeEndExclusive,
             exportSignature: "pdf-test"
         )
         let rootURL = FileManager.default.temporaryDirectory
@@ -107,13 +108,140 @@ struct VisitSummaryDataPipelineTests {
         #expect(dataAtURL.starts(with: Data("%PDF".utf8)))
         #expect(dataAtURL.count > 1_000)
     }
+
+    @Test @MainActor
+    func calendarBoundaryFlowsThroughQueriesSnapshotTextAndPDF() async throws {
+        let fixture = try VisitSummaryDataFixture()
+        let selectedDay = try #require(Calendar.current.date(from:
+            DateComponents(year: 2026, month: 10, day: 1, hour: 12)
+        ))
+        let range = VisitSummaryDateRange.normalized(startDate: selectedDay, endDate: selectedDay)
+        let nextDay = try #require(Calendar.current.date(byAdding: .day, value: 1, to: range.start))
+        let cases: [(String, Date, Bool)] = [
+            ("before", range.start.addingTimeInterval(-0.5), false),
+            ("start", range.start, true),
+            ("last-whole", nextDay.addingTimeInterval(-1), true),
+            ("last-fraction", nextDay.addingTimeInterval(-0.5), true),
+            ("next-day", nextDay, false)
+        ]
+        var expectedTasks: Set<UUID> = []
+        var expectedChanges: Set<UUID> = []
+        var expectedRisks: Set<String> = []
+        var expectedLifecycle: Set<UUID> = []
+        var expectedSignals: Set<UUID> = []
+        var signals: [HealthSignalSample] = []
+        for (index, entry) in cases.enumerated() {
+            let (label, instant, included) = entry
+            let task = StoredDoseTask(
+                medicationID: fixture.relevantMedication.id,
+                planID: fixture.inRangeTask.planID,
+                dueAt: selectedDay.addingTimeInterval(Double(index) * 60), doseValue: 1, doseUnit: "片",
+                status: label == "last-fraction" ? .skipped : .taken,
+                recordedAt: instant
+            )
+            let change = StoredMedicationDoseChange(
+                medicationID: fixture.relevantMedication.id,
+                planID: fixture.inRangeTask.planID,
+                newDoseValue: 1, newDoseUnit: "片", effectiveFrom: instant
+            )
+            let risk = StoredRiskCard(
+                id: "boundary-\(label)", medicationID: fixture.relevantMedication.id,
+                kindRaw: RiskAssessmentCardKind.labelRisk.rawValue, displayPriority: 1,
+                title: "边界 \(label)", message: "合成边界记录", requiresProfessionalReview: true,
+                safetyNote: "", firstDetectedAt: instant, lastDetectedAt: instant
+            )
+            let lifecycle = StoredMedicationLifecycleEvent(
+                medicationID: fixture.relevantMedication.id, status: .active, occurredAt: instant
+            )
+            let signal = HealthSignalSample(kind: .heartRate, measuredAt: instant, value: 70, unit: "次/分钟")
+            fixture.context.insert(task)
+            fixture.context.insert(change)
+            fixture.context.insert(risk)
+            fixture.context.insert(lifecycle)
+            signals.append(signal)
+            if included {
+                expectedTasks.insert(task.id)
+                expectedChanges.insert(change.id)
+                expectedRisks.insert(risk.id)
+                expectedSignals.insert(signal.id)
+            }
+            // Lifecycle context intentionally includes history before the selected start.
+            if label != "next-day" { expectedLifecycle.insert(lifecycle.id) }
+        }
+        try fixture.context.save()
+        let outcome = VisitSummaryDataCommand(modelContext: fixture.context).load(
+            startDate: range.start, endDateExclusive: range.endExclusive
+        )
+        guard case let .loaded(data) = outcome else {
+            Issue.record("Expected the selected calendar day to load")
+            return
+        }
+        #expect(Set(data.tasks.map(\.id)) == expectedTasks)
+        #expect(Set(data.doseChanges.map(\.id)) == expectedChanges)
+        #expect(Set(data.riskCards.map(\.id)) == expectedRisks)
+        #expect(Set(data.lifecycleEvents.map(\.id)) == expectedLifecycle)
+        let revision = VisitSummarySnapshotRevision(
+            startDate: range.start, endDateExclusive: range.endExclusive,
+            medicationSignature: 1, taskSignature: 1, doseChangeSignature: 1,
+            riskCardSignature: 1, healthSignalSignature: 1, planSignature: 1, lifecycleEventSignature: 1
+        )
+        let snapshot = VisitSummarySnapshot.build(
+            revision: revision, medications: data.medications, tasks: data.tasks,
+            doseChanges: data.doseChanges, plans: data.plans, lifecycleEvents: data.lifecycleEvents,
+            riskCards: data.riskCards, healthSignals: signals, healthRefreshedAt: nextDay,
+            generatedAt: nextDay
+        )
+        #expect(Set(snapshot.tasks.map(\.id)) == expectedTasks)
+        #expect(Set(snapshot.doseChanges.map(\.id)) == expectedChanges)
+        #expect(Set(snapshot.riskCards.map(\.id)) == expectedRisks)
+        #expect(Set(snapshot.healthSignals.map(\.id)) == expectedSignals)
+        #expect(snapshot.healthSummary.sampleCount == 3)
+        #expect(snapshot.healthSummary.coveredDayCount == 1)
+        #expect(snapshot.completedCount == 2)
+        #expect(snapshot.completionRate == 2.0 / 3.0)
+        let dayText = AppFormatters.day.string(from: selectedDay)
+        let expectedLabel = "\(dayText) - \(dayText)"
+        #expect(snapshot.summaryText.contains("日期范围：\(expectedLabel)"))
+        #expect(snapshot.summaryText.contains("应服 3 次，已服用 2 次，忽略 1 次"))
+        #expect(snapshot.summaryText.contains("23:59：范围内药品 忽略。"))
+        let payload = VisitSummaryExportPayload(
+            medications: snapshot.medications, tasks: snapshot.tasks, doseChanges: snapshot.doseChanges,
+            riskCards: snapshot.riskCards, trendDashboard: snapshot.trendDashboard,
+            healthSignals: snapshot.healthSignals, startDate: snapshot.startDate,
+            endDateExclusive: snapshot.endDateExclusive, generatedAt: snapshot.generatedAt,
+            exportSignature: snapshot.exportSignature
+        )
+        #expect(Set(payload.healthSignals.map(\.id)) == expectedSignals)
+        #expect(payload.tasks.count == 3)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("visit-boundary-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let lifecycle = VisitSummaryPDFLifecycle(rootDirectory: root, expiryInterval: 3600, clock: Date.init)
+        let url = try await VisitSummaryPDFExporter.export(payload: payload, lifecycle: lifecycle)
+        let pdfText = try #require(PDFDocument(url: url)?.string)
+        #expect(pdfText.contains(expectedLabel))
+        #expect(!pdfText.contains(AppFormatters.day.string(from: nextDay) + " 期间计划"))
+    }
+
+    @Test @MainActor
+    func emptyAndReversedExclusiveIntervalsAreRejected() throws {
+        let fixture = try VisitSummaryDataFixture()
+        for end in [fixture.rangeStart, fixture.rangeStart.addingTimeInterval(-1)] {
+            let outcome = VisitSummaryDataCommand(modelContext: fixture.context).load(
+                startDate: fixture.rangeStart, endDateExclusive: end
+            )
+            guard case .rejected = outcome else {
+                Issue.record("Expected an empty or reversed interval to be rejected")
+                continue
+            }
+        }
+    }
 }
 
 @MainActor
 private struct VisitSummaryDataFixture {
     let context: ModelContext
     let rangeStart = Date(timeIntervalSince1970: 1_800_000_000)
-    let rangeEnd = Date(timeIntervalSince1970: 1_800_086_399)
+    let rangeEndExclusive = Date(timeIntervalSince1970: 1_800_086_400)
     let relevantMedication: StoredMedication
     let unrelatedMedication: StoredMedication
     let inRangeTask: StoredDoseTask
@@ -128,7 +256,7 @@ private struct VisitSummaryDataFixture {
             doseChanges: [],
             healthSignals: [],
             timeZone: TimeZone(secondsFromGMT: 0)!,
-            now: rangeEnd
+            now: rangeEndExclusive
         )
     }
 

@@ -115,3 +115,12 @@ tools/verify-native.sh
 ## 医疗免责声明
 
 MedCue 是用药整理和教育工具。提醒、风险摘要、趋势、导入文本和 AI 生成内容可能不完整或不准确。用户应向合格的医疗专业人员核实用药决定，并遵循适用的处方、药品标签和临床指导。
+
+
+### Health evidence review / 本机健康回顾
+
+The Issue #135 candidate adds a local, model-free health review with explicit
+7/30/56-day windows, source/coverage labels and independent default-off offline
+assistant consent. Cloud HealthKit sharing and persistent long-term health memory
+are not enabled. Native/device acceptance remains required; see
+[健康回顾范围与验收说明](docs/HEALTH_EVIDENCE_REVIEW.md).
