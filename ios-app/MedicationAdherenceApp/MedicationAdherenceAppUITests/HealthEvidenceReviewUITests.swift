@@ -107,10 +107,11 @@ final class HealthEvidenceReviewUITests: XCTestCase {
         let disconnect = app.buttons["health.disconnect"]
         scrollTo(disconnect, in: app)
         disconnect.tap()
-        let confirm = app.buttons["停止并清除"]
+        let confirm = app.buttons.matching(identifier: "health.disconnect.confirm").firstMatch
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
-        app.buttons["取消"].tap()
+        cancelDisconnectConfirmation(confirm: confirm, in: app)
         XCTAssertTrue(confirm.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Apple 健康"].exists)
         scrollTo(sharing, in: app, upward: false)
         XCTAssertEqual(sharing.value as? String, "1")
         openReview(in: app, upward: false)
@@ -146,6 +147,22 @@ final class HealthEvidenceReviewUITests: XCTestCase {
         openReview(in: app, upward: false)
         assertDisconnectedReview(in: app)
         screenshot("health-review-disconnected-after-relaunch", in: app)
+    }
+
+    private func cancelDisconnectConfirmation(confirm: XCUIElement, in app: XCUIApplication) {
+        let cancel = app.buttons["取消"]
+        if cancel.exists {
+            cancel.tap()
+        } else {
+            // A native confirmation popover can omit a Cancel button. Dismiss
+            // it through the noninteractive navigation title outside the action,
+            // then retain the same no-clear/no-consent-change assertions.
+            let title = app.navigationBars["Apple 健康"].staticTexts["Apple 健康"]
+            XCTAssertTrue(title.waitForExistence(timeout: 5))
+            XCTAssertFalse(title.frame.isEmpty)
+            XCTAssertFalse(title.frame.intersects(confirm.frame))
+            title.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
     }
 
     private func launch(scenario: String, accessibilitySize: Bool = false, dark: Bool = false) -> XCUIApplication {
@@ -218,8 +235,19 @@ final class HealthEvidenceReviewUITests: XCTestCase {
         XCTAssertEqual(timeZone.label, "回顾时区：Etc/UTC")
         let reading = app.staticTexts["health.review.restingHeartRate.value"]
         scrollTo(reading, in: app)
-        let expected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", value), object: reading)
-        XCTAssertEqual(XCTWaiter.wait(for: [expected], timeout: 5), .completed)
+        // The expected window above has already settled. Dates and facts are
+        // rendered from one published bundle; another short polling deadline
+        // can expire inside an accessibility query without observing a mismatch.
+        // Read once and compare exactly, so a real mismatch reports both values.
+        let observedValue = reading.label
+        var diagnostic = "Range \(days), settled window: \(expectedWindow)"
+        if observedValue != value {
+            screenshot("health-review-\(days)-day-value-mismatch", in: app)
+            // Only this isolated synthetic fixture is launched by this suite.
+            // Keep failure evidence in the log even if CI exports no xcresult.
+            diagnostic += "\nObserved window: \(window.label)\n" + String(app.debugDescription.prefix(8_000))
+        }
+        XCTAssertEqual(observedValue, value, diagnostic)
         let coverageText = app.staticTexts["health.review.restingHeartRate.coverage"]
         scrollTo(coverageText, in: app)
         XCTAssertTrue(coverageText.label.contains(coverage))
