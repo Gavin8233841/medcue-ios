@@ -29,10 +29,24 @@ final class HealthKitService: ObservableObject {
     private static let completionKey = "hasCompletedHealthKitAuthorizationRequest"
     private let healthStore = HKHealthStore()
     private let defaults: UserDefaults
+    #if DEBUG && targetEnvironment(simulator)
+    private let uiFixture: HealthReviewUITestFixture?
+    #endif
 
     init(defaults: UserDefaults = .standard) {
+        #if DEBUG && targetEnvironment(simulator)
+        let fixture = HealthReviewUITestFixture.resolve(
+            arguments: ProcessInfo.processInfo.arguments,
+            isolatedPreferences: ElderUITestFixture.active?.preferences
+        )
+        uiFixture = fixture
+        let resolvedDefaults = fixture?.preferences ?? defaults
+        self.defaults = resolvedDefaults
+        let hasCompleted = fixture?.isValid != false && resolvedDefaults.bool(forKey: Self.completionKey)
+        #else
         self.defaults = defaults
         let hasCompleted = defaults.bool(forKey: Self.completionKey)
+        #endif
         hasCompletedAuthorizationRequest = hasCompleted
         statusMessage = hasCompleted
             ? "已完成 Apple 健康授权请求。仅在用户授权范围内读取生命体征。"
@@ -51,6 +65,14 @@ final class HealthKitService: ObservableObject {
     @discardableResult
     func requestAuthorizationEntry() async -> Bool {
         guard !Task.isCancelled else { return false }
+        #if DEBUG && targetEnvironment(simulator)
+        if let uiFixture {
+            statusMessage = uiFixture.isValid
+                ? "界面测试不会请求 Apple 健康授权。"
+                : HealthReviewUITestFixture.invalidMessage
+            return false
+        }
+        #endif
         guard HKHealthStore.isHealthDataAvailable() else {
             statusMessage = "当前设备不支持 Apple 健康数据读取"
             return false
@@ -88,7 +110,16 @@ final class HealthKitService: ObservableObject {
 
     func refreshRecentTrendSamples(days: Int) async {
         guard !Task.isCancelled else { return }
-        guard HKHealthStore.isHealthDataAvailable() else {
+        #if DEBUG && targetEnvironment(simulator)
+        if uiFixture?.isValid == false {
+            statusMessage = HealthReviewUITestFixture.invalidMessage
+            return
+        }
+        let healthDataAvailable = uiFixture != nil || HKHealthStore.isHealthDataAvailable()
+        #else
+        let healthDataAvailable = HKHealthStore.isHealthDataAvailable()
+        #endif
+        guard healthDataAvailable else {
             recentTrendSamples = []
             evidenceBundle = nil
             settingsSummary = HealthKitSettingsSummary(vitalSignSamples: [], reviewSamples: [], refreshedAt: nil)
@@ -116,13 +147,19 @@ final class HealthKitService: ObservableObject {
         evidenceRevision = nil
         recentTrendSamples = []
         statusMessage = "正在读取健康记录…"
+        #if DEBUG && targetEnvironment(simulator)
+        let end = uiFixture?.now ?? Date()
+        let calendar = uiFixture?.calendar ?? Calendar.current
+        #else
         let end = Date()
         let calendar = Calendar.current
+        #endif
         let start = calendar.date(byAdding: .day, value: -min(56, max(1, days)),
                                   to: calendar.startOfDay(for: end)) ?? end
-        let trend = await fetchTrendSamples(days: min(56, max(1, days)))
+        let acquired = await acquireRecentSamples(days: min(56, max(1, days)), start: start, end: end)
+        let trend = acquired.trend
         let samples = trend.samples
-        let evidence = await fetchEvidenceSamples(start: start, end: end)
+        let evidence = acquired.evidence
         let prepared = await Task.detached(priority: .utility) {
             var windows: [Int: HealthEvidenceBundle] = [:]
             for lookback in [7, 30, 56] {
@@ -173,7 +210,17 @@ final class HealthKitService: ObservableObject {
         return evidenceWindows[HealthEvidenceLocalReview.lookbackDays(in: question)]
     }
 
+    func setLocalSummaryAllowed(_ allowed: Bool) {
+        #if DEBUG && targetEnvironment(simulator)
+        guard uiFixture?.isValid != false else { return }
+        #endif
+        HealthAISharingPolicy.setAllowed(allowed, defaults: defaults)
+    }
+
     func disconnectAndClear() {
+        #if DEBUG && targetEnvironment(simulator)
+        guard uiFixture?.isValid != false else { return }
+        #endif
         HealthConnectionPolicy.setConnected(false, defaults: defaults)
         HealthAISharingPolicy.revoke(defaults: defaults)
         _ = HealthAISharingPolicy.invalidateSnapshot(defaults: defaults)
@@ -195,6 +242,23 @@ final class HealthKitService: ObservableObject {
         lastSampleRefreshAt = nil
         hasCompletedAuthorizationRequest = false
         statusMessage = "已停止读取并清除本次健康回顾；Apple 健康原始记录未更改。"
+    }
+
+    // Only acquisition is substituted. Refresh cancellation, revisions, clearing,
+    // aggregation, publication and disconnect above remain the production path.
+    private func acquireRecentSamples(days: Int, start: Date, end: Date) async -> (
+        trend: (samples: [HealthSignalSample], overflowCount: Int),
+        evidence: (samples: [HealthEvidenceSample], failed: Set<HealthEvidenceMetric>, overflow: Set<HealthEvidenceMetric>)
+    ) {
+        #if DEBUG && targetEnvironment(simulator)
+        if let uiFixture {
+            await Task.yield()
+            return (([], 0), (uiFixture.samples(start: start, end: end), [], []))
+        }
+        #endif
+        let trend = await fetchTrendSamples(days: days)
+        let evidence = await fetchEvidenceSamples(start: start, end: end)
+        return (trend, evidence)
     }
 
     private func fetchEvidenceSamples(start: Date, end: Date) async
@@ -712,3 +776,84 @@ private final class HealthKitReadOperation: @unchecked Sendable {
         continuation?.resume(throwing: CancellationError())
     }
 }
+
+#if DEBUG && targetEnvironment(simulator)
+/// Synthetic, per-session UI acquisition only. This type is absent from device
+/// and Release builds; an invalid explicit request must never reach HealthKit.
+@MainActor
+final class HealthReviewUITestFixture {
+    enum Scenario: String { case populated, sleepOnly = "sleep-only", empty }
+    static let flag = "--health-review-ui-fixture"
+    static let seedKey = "health.uiFixture.scenario.v1"
+    static let invalidMessage = "健康回顾界面测试配置无效；未读取健康数据。"
+
+    let preferences: UserDefaults
+    let scenario: Scenario?
+    var isValid: Bool { scenario != nil }
+    let now = Date(timeIntervalSince1970: 1_790_769_600) // 2026-09-30 12:00 UTC
+    var calendar: Calendar {
+        var result = Calendar(identifier: .gregorian)
+        result.timeZone = TimeZone(identifier: "Etc/UTC")!
+        return result
+    }
+
+    private init(preferences: UserDefaults, scenario: Scenario?) {
+        self.preferences = preferences
+        self.scenario = scenario
+    }
+
+    static func resolve(arguments: [String], isolatedPreferences: UserDefaults?) -> HealthReviewUITestFixture? {
+        let explicitFlags = arguments.indices.filter {
+            arguments[$0] == flag || arguments[$0].hasPrefix(flag + "=")
+        }
+        guard !explicitFlags.isEmpty else { return nil }
+        guard explicitFlags.count == 1, let index = explicitFlags.first,
+              arguments[index] == flag, arguments.indices.contains(index + 1),
+              let scenario = Scenario(rawValue: arguments[index + 1]),
+              let preferences = isolatedPreferences, preferences !== UserDefaults.standard,
+              preferences.string(forKey: seedKey).map({ $0 == scenario.rawValue }) ?? true
+        else {
+            // A blocked request owns an unseeded domain. It cannot read or write
+            // the caller's standard or injected health preferences by accident.
+            return HealthReviewUITestFixture(
+                preferences: UserDefaults(suiteName: "medcue.health-ui.blocked.\(UUID().uuidString)")!,
+                scenario: nil
+            )
+        }
+        if preferences.object(forKey: seedKey) == nil {
+            HealthConnectionPolicy.setConnected(true, defaults: preferences)
+            HealthAISharingPolicy.setAllowed(false, defaults: preferences)
+            preferences.set(scenario.rawValue, forKey: seedKey)
+        }
+        return HealthReviewUITestFixture(preferences: preferences, scenario: scenario)
+    }
+
+    func samples(start: Date, end: Date) -> [HealthEvidenceSample] {
+        guard let scenario, scenario != .empty else { return [] }
+        let count = scenario == .sleepOnly ? 3 : 56
+        return (1...count).flatMap { day -> [HealthEvidenceSample] in
+            let sleepEnd = now.addingTimeInterval(-Double(day - 1) * 86_400 - 4 * 3_600)
+            var rows = [sample(id: day, metric: .sleep, start: sleepEnd.addingTimeInterval(-8 * 3_600),
+                               end: sleepEnd, value: 0, sleepState: .asleep)]
+            if scenario == .populated {
+                let measured = now.addingTimeInterval(-Double(day) * 86_400 + 2 * 3_600)
+                rows += [sample(id: 100 + day, metric: .restingHeartRate, start: measured, end: measured,
+                                value: Double(40 + day)),
+                         sample(id: 200 + day, metric: .hrvSDNN, start: measured, end: measured,
+                                value: Double(20 + day)),
+                         sample(id: 300 + day, metric: .respiratoryRate, start: measured, end: measured,
+                                value: Double(10 + day % 3))]
+            }
+            return rows.filter { $0.end >= start && $0.start <= end }
+        }
+    }
+
+    private func sample(id: Int, metric: HealthEvidenceMetric, start: Date, end: Date,
+                        value: Double, sleepState: HealthSleepState? = nil) -> HealthEvidenceSample {
+        HealthEvidenceSample(id: UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", id))!,
+            metric: metric, start: start, end: end, value: value, unit: metric.unit,
+            sourceID: "medcue.ui.synthetic|1|synthetic", sourceName: "UI Fixture",
+            timeZoneIdentifier: "Etc/UTC", sleepState: sleepState, sourceVersion: "1", deviceModel: "synthetic")
+    }
+}
+#endif

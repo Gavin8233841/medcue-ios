@@ -25,11 +25,13 @@ struct HealthDataSettingsView: View {
                     title: "Apple 健康",
                     subtitle: healthKitService.statusMessage
                 )
+                .accessibilityIdentifier("health.settings.status")
                 HealthKitSnapshotCard(
                     summary: healthKitService.settingsSummary,
                     supportedTypes: healthKitService.supportedReadTypesSummary,
                     hasCompletedAuthorizationRequest: healthKitService.hasCompletedAuthorizationRequest
                 )
+                .accessibilityIdentifier("health.settings.snapshot")
             }
 
             Section("生命体征（用于趋势与复诊）") {
@@ -59,10 +61,12 @@ struct HealthDataSettingsView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                .accessibilityIdentifier("health.review.open")
                 Toggle("允许离线智能体使用健康摘要", isOn: Binding(
                     get: { sharesLocalHealthSummary },
-                    set: { HealthAISharingPolicy.setAllowed($0) }
+                    set: { healthKitService.setLocalSummaryAllowed($0) }
                 ))
+                .accessibilityIdentifier("health.local-summary-sharing")
                 Text("健康回顾无需模型或网络。此授权仅用于本机离线智能体；在线智能体暂不接收健康摘要。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -115,6 +119,7 @@ struct HealthDataSettingsView: View {
                     } label: {
                         Text("请求读取健康数据授权")
                     }
+                    .accessibilityIdentifier("health.authorization.request")
                 }
                 if healthKitService.hasCompletedAuthorizationRequest {
                     Button("管理新增指标读取授权") {
@@ -123,6 +128,7 @@ struct HealthDataSettingsView: View {
                     Button("停止读取并清除本次回顾", role: .destructive) {
                         showingDisconnectConfirmation = true
                     }
+                    .accessibilityIdentifier("health.disconnect")
                 }
                 Button {
                     openSystemSettings()
@@ -133,6 +139,7 @@ struct HealthDataSettingsView: View {
         }
         .confirmationDialog("停止读取并清除本次健康回顾？", isPresented: $showingDisconnectConfirmation) {
             Button("停止并清除", role: .destructive) { healthKitService.disconnectAndClear() }
+                .accessibilityIdentifier("health.disconnect.confirm")
         } message: {
             Text("会关闭健康摘要共享并清除本 App 的内存回顾。Apple 健康原始记录和已有聊天不会删除。")
         }
@@ -534,14 +541,18 @@ struct HealthEvidenceReviewView: View {
                     Text("近 30 天").tag(30)
                     Text("近 56 天").tag(56)
                 }
+                .accessibilityIdentifier("health.review.range")
                 Button("刷新健康回顾") {
                     Task { await service.refreshRecentTrendSamples(days: lookbackDays) }
                 }
+                .accessibilityIdentifier("health.review.refresh")
             }
             if let bundle = service.evidenceBundle {
                 Section("记录范围") {
                     Text("\(bundle.start.formatted(date: .abbreviated, time: .omitted)) 至 \(bundle.end.formatted(date: .abbreviated, time: .omitted))")
+                        .accessibilityIdentifier("health.review.window")
                     Text("回顾时区：\(bundle.timeZoneIdentifier)")
+                        .accessibilityIdentifier("health.review.timezone")
                     Text("刷新于 \(bundle.generatedAt.formatted(date: .abbreviated, time: .shortened))")
                         .foregroundStyle(.secondary)
                 }
@@ -550,13 +561,20 @@ struct HealthEvidenceReviewView: View {
                         if let value = fact.median {
                             Text("\(value.formatted(.number.precision(.fractionLength(0...1)))) \(fact.metric.unit)")
                                 .font(.title2)
+                                .accessibilityIdentifier("health.review.\(fact.metric.rawValue).value")
                             Text("有记录的日汇总中位数；\(fact.observedDays)/\(fact.expectedDays)个完整时段有记录")
-                            if let source = fact.sourceName { Text("来源 App：\(source)；按 App、版本和型号分组，不能区分同型号的两台设备") }
+                                .accessibilityIdentifier("health.review.\(fact.metric.rawValue).coverage")
+                            if let source = fact.sourceName {
+                                Text("来源 App：\(source)；按 App、版本和型号分组，不能区分同型号的两台设备")
+                                    .accessibilityIdentifier("health.review.\(fact.metric.rawValue).source")
+                            }
                         } else {
                             Text("暂无可用汇总")
+                                .accessibilityIdentifier("health.review.\(fact.metric.rawValue).empty")
                         }
                         ForEach(fact.quality, id: \.self) { quality in
                             Text(quality.explanation).font(.footnote).foregroundStyle(.secondary)
+                                .accessibilityIdentifier("health.review.\(fact.metric.rawValue).quality.\(quality.rawValue)")
                         }
                         if fact.metric == .sleep {
                             Text("每个睡眠日从中午到次日中午，包含午睡；只计算已记录的睡眠时长。")
@@ -570,12 +588,15 @@ struct HealthEvidenceReviewView: View {
                             Text(metric.title).tag(metric)
                         }
                     }
+                    .accessibilityIdentifier("health.review.question.metric")
                     Text(HealthEvidenceLocalReview().answer(metric: selectedMetric, bundle: bundle))
+                        .accessibilityIdentifier("health.review.answer")
                         .textSelection(.enabled)
                 }
             } else {
                 Section {
                     Text(service.statusMessage)
+                        .accessibilityIdentifier("health.review.status")
                     Text("回到 Apple 健康设置完成读取授权，然后刷新。")
                         .foregroundStyle(.secondary)
                 }
@@ -585,6 +606,7 @@ struct HealthEvidenceReviewView: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
+        .accessibilityIdentifier("health.review.root")
         .navigationTitle("健康回顾")
         .task(id: lookbackDays) { await service.refreshRecentTrendSamples(days: lookbackDays) }
     }

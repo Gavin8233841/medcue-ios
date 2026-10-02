@@ -263,6 +263,8 @@ struct ProfileView: View {
                     )
                 }
 
+                .accessibilityIdentifier("profile.health")
+
                 NavigationLink {
                     MedicalAIPrivacyView()
                 } label: {
