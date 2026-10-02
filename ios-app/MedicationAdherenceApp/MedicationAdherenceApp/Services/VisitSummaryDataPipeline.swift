@@ -31,8 +31,9 @@ enum VisitSummaryDataLoadStage: String {
 struct VisitSummaryDataCommand {
     let modelContext: ModelContext
 
-    func load(startDate: Date, endDate: Date) -> VisitSummaryDataLoadOutcome {
-        guard startDate <= endDate, !Task.isCancelled else {
+    /// Load the half-open report interval [startDate, endDateExclusive).
+    func load(startDate: Date, endDateExclusive: Date) -> VisitSummaryDataLoadOutcome {
+        guard startDate < endDateExclusive, !Task.isCancelled else {
             return .rejected
         }
 
@@ -40,7 +41,7 @@ struct VisitSummaryDataCommand {
         do {
             let taskContextInterval: TimeInterval = 24 * 60 * 60
             let queryStartDate = startDate.addingTimeInterval(-taskContextInterval)
-            let queryEndDate = endDate.addingTimeInterval(taskContextInterval)
+            let queryEndDate = endDateExclusive.addingTimeInterval(taskContextInterval)
             let dueTaskDescriptor = FetchDescriptor<StoredDoseTask>(
                 predicate: #Predicate { task in
                     task.dueAt >= queryStartDate && task.dueAt <= queryEndDate
@@ -49,7 +50,7 @@ struct VisitSummaryDataCommand {
             )
             tasks = try modelContext.fetch(dueTaskDescriptor).filter { task in
                 let effectiveDate = task.effectiveAdherenceDate
-                return effectiveDate >= startDate && effectiveDate <= endDate
+                return effectiveDate >= startDate && effectiveDate < endDateExclusive
             }
         } catch {
             return .failed(.tasks)
@@ -60,7 +61,7 @@ struct VisitSummaryDataCommand {
         do {
             doseChanges = try modelContext.fetch(FetchDescriptor<StoredMedicationDoseChange>(
                 predicate: #Predicate { change in
-                    change.effectiveFrom >= startDate && change.effectiveFrom <= endDate
+                    change.effectiveFrom >= startDate && change.effectiveFrom < endDateExclusive
                 },
                 sortBy: [SortDescriptor(\StoredMedicationDoseChange.effectiveFrom, order: .reverse)]
             ))
@@ -73,7 +74,7 @@ struct VisitSummaryDataCommand {
         do {
             riskCards = try modelContext.fetch(FetchDescriptor<StoredRiskCard>(
                 predicate: #Predicate { card in
-                    card.lastDetectedAt >= startDate && card.lastDetectedAt <= endDate
+                    card.lastDetectedAt >= startDate && card.lastDetectedAt < endDateExclusive
                 },
                 sortBy: [
                     SortDescriptor(\StoredRiskCard.displayPriority),
@@ -125,7 +126,7 @@ struct VisitSummaryDataCommand {
         do {
             lifecycleEvents = try modelContext.fetch(FetchDescriptor<StoredMedicationLifecycleEvent>(
                 predicate: #Predicate { event in
-                    medicationIDs.contains(event.medicationID) && event.occurredAt <= endDate
+                    medicationIDs.contains(event.medicationID) && event.occurredAt < endDateExclusive
                 },
                 sortBy: [SortDescriptor(\StoredMedicationLifecycleEvent.occurredAt, order: .reverse)]
             ))
@@ -309,7 +310,7 @@ struct VisitSummaryExportPayload: Sendable, Equatable {
     let trendDashboard: MedicationTrendDashboard
     let healthSignals: [HealthSignalSample]
     let startDate: Date
-    let endDate: Date
+    let endDateExclusive: Date
     let generatedAt: Date
     let exportSignature: String
 
@@ -319,7 +320,7 @@ struct VisitSummaryExportPayload: Sendable, Equatable {
         trendDashboard: MedicationTrendDashboard,
         healthSignals: [HealthSignalSample],
         startDate: Date,
-        endDate: Date,
+        endDateExclusive: Date,
         generatedAt: Date,
         exportSignature: String
     ) {
@@ -331,7 +332,7 @@ struct VisitSummaryExportPayload: Sendable, Equatable {
             trendDashboard: trendDashboard,
             healthSignals: healthSignals,
             startDate: startDate,
-            endDate: endDate,
+            endDateExclusive: endDateExclusive,
             generatedAt: generatedAt,
             exportSignature: exportSignature
         )
@@ -346,7 +347,7 @@ struct VisitSummaryExportPayload: Sendable, Equatable {
         trendDashboard: MedicationTrendDashboard,
         healthSignals: [HealthSignalSample],
         startDate: Date,
-        endDate: Date,
+        endDateExclusive: Date,
         generatedAt: Date,
         exportSignature: String
     ) {
@@ -357,7 +358,7 @@ struct VisitSummaryExportPayload: Sendable, Equatable {
         self.trendDashboard = trendDashboard
         self.healthSignals = healthSignals
         self.startDate = startDate
-        self.endDate = endDate
+        self.endDateExclusive = endDateExclusive
         self.generatedAt = generatedAt
         self.exportSignature = exportSignature
     }

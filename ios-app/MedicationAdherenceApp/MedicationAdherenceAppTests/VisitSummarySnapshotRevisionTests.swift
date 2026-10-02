@@ -10,7 +10,7 @@ struct VisitSummarySnapshotRevisionTests {
 
         let first = VisitSummarySnapshotRevision(
             startDate: start,
-            endDate: end,
+            endDateExclusive: end,
             medicationSignature: 1,
             taskSignature: 2,
             doseChangeSignature: 3,
@@ -21,7 +21,7 @@ struct VisitSummarySnapshotRevisionTests {
         )
         let second = VisitSummarySnapshotRevision(
             startDate: start,
-            endDate: end,
+            endDateExclusive: end,
             medicationSignature: 1,
             taskSignature: 2,
             doseChangeSignature: 3,
@@ -39,7 +39,7 @@ struct VisitSummarySnapshotRevisionTests {
     func changedDataOrRangeInvalidatesIdentity() {
         let baseline = VisitSummarySnapshotRevision(
             startDate: Date(timeIntervalSinceReferenceDate: 100),
-            endDate: Date(timeIntervalSinceReferenceDate: 200),
+            endDateExclusive: Date(timeIntervalSinceReferenceDate: 200),
             medicationSignature: 1,
             taskSignature: 2,
             doseChangeSignature: 3,
@@ -50,7 +50,7 @@ struct VisitSummarySnapshotRevisionTests {
         )
         let changedTask = VisitSummarySnapshotRevision(
             startDate: Date(timeIntervalSinceReferenceDate: 100),
-            endDate: Date(timeIntervalSinceReferenceDate: 200),
+            endDateExclusive: Date(timeIntervalSinceReferenceDate: 200),
             medicationSignature: 1,
             taskSignature: 20,
             doseChangeSignature: 3,
@@ -61,7 +61,7 @@ struct VisitSummarySnapshotRevisionTests {
         )
         let changedRange = VisitSummarySnapshotRevision(
             startDate: Date(timeIntervalSinceReferenceDate: 101),
-            endDate: Date(timeIntervalSinceReferenceDate: 200),
+            endDateExclusive: Date(timeIntervalSinceReferenceDate: 200),
             medicationSignature: 1,
             taskSignature: 2,
             doseChangeSignature: 3,

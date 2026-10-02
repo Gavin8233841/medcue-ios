@@ -8,7 +8,7 @@ struct VisitSummaryTextBuilder {
         tasks: [StoredDoseTask],
         riskCards: [StoredRiskCard],
         startDate: Date,
-        endDate: Date,
+        endDateExclusive: Date,
         generatedAt: Date
     ) -> String {
         var lines: [String] = []
@@ -31,7 +31,7 @@ struct VisitSummaryTextBuilder {
         }
         lines.append("复诊沟通摘要")
         lines.append("")
-        lines.append("日期范围：\(VisitSummaryDateRange.displayText(startDate: startDate, endDate: endDate))")
+        lines.append("日期范围：\(VisitSummaryDateRange.displayText(startDate: startDate, endDateExclusive: endDateExclusive))")
         lines.append("生成时间：\(AppFormatters.day.string(from: generatedAt)) \(AppFormatters.time.string(from: generatedAt))")
         lines.append("")
 
@@ -69,7 +69,7 @@ struct VisitSummaryTextBuilder {
         lines.append("所选时间段记录")
         let calendar = Calendar.current
         let recentTasks = tasks
-            .filter { $0.effectiveAdherenceDate >= startDate && $0.effectiveAdherenceDate <= endDate }
+            .filter { $0.effectiveAdherenceDate >= startDate && $0.effectiveAdherenceDate < endDateExclusive }
             .sorted { $0.effectiveAdherenceDate < $1.effectiveAdherenceDate }
         let groupedByWeek = Dictionary(grouping: recentTasks) { task -> Date in
             let interval = calendar.dateInterval(of: .weekOfYear, for: task.effectiveAdherenceDate)

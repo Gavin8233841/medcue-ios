@@ -26,18 +26,18 @@ struct VisitSummaryView: View {
 
     private let pdfLifecycle = VisitSummaryPDFLifecycle.production()
 
-    private var normalizedRange: (start: Date, end: Date) {
+    private var normalizedRange: (start: Date, endExclusive: Date) {
         VisitSummaryDateRange.normalized(startDate: rangeStartDate, endDate: rangeEndDate)
     }
 
     private var rangeText: String {
-        VisitSummaryDateRange.displayText(startDate: normalizedRange.start, endDate: normalizedRange.end)
+        VisitSummaryDateRange.displayText(startDate: normalizedRange.start, endDateExclusive: normalizedRange.endExclusive)
     }
 
     private var rangeLoadID: String {
         [
             String(normalizedRange.start.timeIntervalSinceReferenceDate.bitPattern),
-            String(normalizedRange.end.timeIntervalSinceReferenceDate.bitPattern)
+            String(normalizedRange.endExclusive.timeIntervalSinceReferenceDate.bitPattern)
         ].joined(separator: "|")
     }
 
@@ -45,7 +45,7 @@ struct VisitSummaryView: View {
         guard let storedData else { return nil }
         return VisitSummarySnapshotRevision(
             startDate: normalizedRange.start,
-            endDate: normalizedRange.end,
+            endDateExclusive: normalizedRange.endExclusive,
             medicationSignature: stableMedicationSignature(storedData.medications),
             taskSignature: stableTaskSignature(storedData.tasks),
             doseChangeSignature: stableDoseChangeSignature(storedData.doseChanges),
@@ -157,7 +157,7 @@ struct VisitSummaryView: View {
             pdfLifecycle.sweepExpiredFiles()
         }
         .task(id: rangeLoadID) {
-            await loadStoredData(startDate: normalizedRange.start, endDate: normalizedRange.end)
+            await loadStoredData(startDate: normalizedRange.start, endDateExclusive: normalizedRange.endExclusive)
         }
         .task(id: sourceRevision?.id ?? "visit-summary-unloaded") {
             guard let sourceRevision else { return }
@@ -216,7 +216,7 @@ struct VisitSummaryView: View {
             trendDashboard: snapshot.trendDashboard,
             healthSignals: snapshot.healthSignals,
             startDate: snapshot.startDate,
-            endDate: snapshot.endDate,
+            endDateExclusive: snapshot.endDateExclusive,
             generatedAt: snapshot.generatedAt,
             exportSignature: snapshot.exportSignature
         )
@@ -252,18 +252,18 @@ struct VisitSummaryView: View {
     }
 
     @MainActor
-    private func loadStoredData(startDate: Date, endDate: Date) async {
+    private func loadStoredData(startDate: Date, endDateExclusive: Date) async {
         snapshot = nil
         storedData = nil
         await Task.yield()
         guard !Task.isCancelled else { return }
         let outcome = VisitSummaryDataCommand(modelContext: modelContext).load(
             startDate: startDate,
-            endDate: endDate
+            endDateExclusive: endDateExclusive
         )
         guard !Task.isCancelled,
               startDate == normalizedRange.start,
-              endDate == normalizedRange.end
+              endDateExclusive == normalizedRange.endExclusive
         else {
             return
         }
@@ -339,7 +339,7 @@ struct VisitSummarySnapshot {
     let revision: VisitSummarySnapshotRevision
     let generatedAt: Date
     let startDate: Date
-    let endDate: Date
+    let endDateExclusive: Date
     let medications: [StoredMedication]
     let tasks: [StoredDoseTask]
     let doseChanges: [StoredMedicationDoseChange]
@@ -372,16 +372,16 @@ struct VisitSummarySnapshot {
         let reportTasks = VisitSummaryTaskFilter.historicalTasks(
             from: tasks.adherenceMeasurableTasks,
             startDate: revision.startDate,
-            endDate: revision.endDate
+            endDateExclusive: revision.endDateExclusive
         )
         let reportDoseChanges = doseChanges.filter {
-            $0.effectiveFrom >= revision.startDate && $0.effectiveFrom <= revision.endDate
+            $0.effectiveFrom >= revision.startDate && $0.effectiveFrom < revision.endDateExclusive
         }
         let reportHealthSignals = healthSignals.filter {
-            $0.measuredAt >= revision.startDate && $0.measuredAt <= revision.endDate
+            $0.measuredAt >= revision.startDate && $0.measuredAt < revision.endDateExclusive
         }
         let rangeRiskCards = riskCards.filter {
-            $0.lastDetectedAt >= revision.startDate && $0.lastDetectedAt <= revision.endDate
+            $0.lastDetectedAt >= revision.startDate && $0.lastDetectedAt < revision.endDateExclusive
         }
         let medicationIDs = Set(reportTasks.map(\.medicationID))
             .union(reportDoseChanges.map(\.medicationID))
@@ -426,7 +426,7 @@ struct VisitSummarySnapshot {
             tasks: reportTasks,
             riskCards: reportRiskCards,
             startDate: revision.startDate,
-            endDate: revision.endDate,
+            endDateExclusive: revision.endDateExclusive,
             generatedAt: generatedAt
         )
         let exportSignature = [
@@ -439,7 +439,7 @@ struct VisitSummarySnapshot {
             revision: revision,
             generatedAt: generatedAt,
             startDate: revision.startDate,
-            endDate: revision.endDate,
+            endDateExclusive: revision.endDateExclusive,
             medications: reportMedications,
             tasks: reportTasks,
             doseChanges: reportDoseChanges,
@@ -686,17 +686,30 @@ struct VisitSummaryHealthSignalCard: View {
     }
 }
 
+/// Picker dates are inclusive; all report queries and filters use [start, endExclusive).
 enum VisitSummaryDateRange {
-    static func normalized(startDate: Date, endDate: Date) -> (start: Date, end: Date) {
-        let calendar = Calendar.current
+    static func normalized(
+        startDate: Date,
+        endDate: Date,
+        calendar: Calendar = .current
+    ) -> (start: Date, endExclusive: Date) {
         let start = calendar.startOfDay(for: min(startDate, endDate))
         let endStart = calendar.startOfDay(for: max(startDate, endDate))
-        let end = calendar.date(byAdding: DateComponents(day: 1, second: -1), to: endStart) ?? endStart
-        return (start, end)
+        let endExclusive = calendar.dateInterval(of: .day, for: endStart)?.end ?? endStart
+        return (start, endExclusive)
     }
 
-    static func displayText(startDate: Date, endDate: Date) -> String {
-        "\(AppFormatters.day.string(from: startDate)) - \(AppFormatters.day.string(from: endDate))"
+    /// Convert the exclusive query boundary back to the user's final selected date only for display.
+    static func inclusiveEndDate(
+        endDateExclusive: Date,
+        calendar: Calendar = .current
+    ) -> Date {
+        calendar.date(byAdding: .day, value: -1, to: endDateExclusive) ?? endDateExclusive
+    }
+
+    static func displayText(startDate: Date, endDateExclusive: Date) -> String {
+        let finalSelectedDate = inclusiveEndDate(endDateExclusive: endDateExclusive)
+        return "\(AppFormatters.day.string(from: startDate)) - \(AppFormatters.day.string(from: finalSelectedDate))"
     }
 }
 
@@ -704,15 +717,15 @@ enum VisitSummaryTaskFilter {
     static func historicalTasks(
         from tasks: [StoredDoseTask],
         startDate: Date,
-        endDate: Date
+        endDateExclusive: Date
     ) -> [StoredDoseTask] {
         return tasks
             .filter { task in
                 let referenceDate = task.effectiveAdherenceDate
-                guard referenceDate >= startDate && referenceDate <= endDate else {
+                guard referenceDate >= startDate && referenceDate < endDateExclusive else {
                     return false
                 }
-                return task.dueAt <= endDate || task.effectiveAdherenceRecordedAt != nil
+                return task.dueAt < endDateExclusive || task.effectiveAdherenceRecordedAt != nil
             }
             .sorted { $0.effectiveAdherenceDate < $1.effectiveAdherenceDate }
     }
