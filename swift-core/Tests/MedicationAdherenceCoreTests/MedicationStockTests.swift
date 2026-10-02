@@ -305,6 +305,125 @@ import Testing
     #expect(projection.issues.contains { $0.kind == .insufficientConsumptionData })
 }
 
+@Test func medicationStockProjectionAcceptsEstablishedDoseUnitAliases() {
+    let aliases = [
+        ("片", "tablet"),
+        ("tablet", "tablets"),
+        ("粒", "capsules"),
+        ("毫升", "mL"),
+        ("滴", "drops"),
+        ("袋", "包"),
+        ("喷", "spray")
+    ]
+    for (first, second) in aliases {
+        for (stockUnit, doseUnit) in [(first, second), (second, first)] {
+            let projection = makeStockUnitProjection(stockUnit: stockUnit, doseUnit: doseUnit)
+
+            #expect(projection.consumedQuantity == 2)
+            #expect(projection.projectedRemainingQuantity == 1)
+            #expect(projection.isLowStock)
+            #expect(projection.needsRefillReminder)
+            #expect(projection.averageDailyConsumption == 2)
+            #expect(projection.estimatedDaysRemaining == 1)
+            #expect(projection.trackedDayCount == 1)
+            #expect(projection.issues.isEmpty)
+            #expect(projection.unit == stockUnit)
+        }
+    }
+}
+
+@Test func medicationStockProjectionPreservesRawUnitMatchingAndOutput() {
+    for (stockUnit, doseUnit) in [
+        ("片", "片"),
+        ("tablet", "tablet"),
+        (" tablet ", "TABLET"),
+        ("微量勺", " 微量勺 "),
+        ("custom scoop", "CUSTOM SCOOP")
+    ] {
+        let projection = makeStockUnitProjection(stockUnit: stockUnit, doseUnit: doseUnit)
+
+        #expect(projection.consumedQuantity == 2)
+        #expect(projection.projectedRemainingQuantity == 1)
+        #expect(projection.needsRefillReminder)
+        #expect(projection.issues.isEmpty)
+        #expect(projection.unit == stockUnit)
+    }
+}
+
+@Test func medicationStockProjectionDoesNotConvertIncompatibleOrUnknownUnits() {
+    for (stockUnit, doseUnit) in [
+        ("片", "capsules"),
+        ("毫升", "drops"),
+        ("mg", "片"),
+        ("mg", "mL"),
+        ("微量勺", "包"),
+        ("微量勺", "未知勺")
+    ] {
+        let projection = makeStockUnitProjection(stockUnit: stockUnit, doseUnit: doseUnit)
+
+        #expect(projection.consumedQuantity == 0)
+        #expect(projection.projectedRemainingQuantity == 3)
+        #expect(!projection.needsRefillReminder)
+        #expect(projection.averageDailyConsumption == nil)
+        #expect(projection.issues.contains { $0.kind == .doseUnitMismatch })
+    }
+}
+
+@Test func medicationStockProjectionAliasesRespectCheckpointsAndEventStatuses() {
+    let cases: [(DoseEventStatus, TimeInterval, Decimal, Decimal?)] = [
+        (.taken, -1, 0, 2),
+        (.taken, 0, 0, 2),
+        (.taken, 1, 2, 2),
+        (.corrected, 1, 2, 2),
+        (.skipped, 1, 0, nil),
+        (.delayed, 1, 0, nil)
+    ]
+    for (status, offset, expectedConsumption, expectedAverage) in cases {
+        let projection = makeStockUnitProjection(
+            stockUnit: "片",
+            doseUnit: "tablets",
+            status: status,
+            recordedOffset: offset
+        )
+
+        #expect(projection.consumedQuantity == expectedConsumption)
+        #expect(projection.projectedRemainingQuantity == 3 - expectedConsumption)
+        #expect(projection.averageDailyConsumption == expectedAverage)
+        #expect(projection.needsRefillReminder == (expectedConsumption > 0))
+        #expect(!projection.issues.contains { $0.kind == .doseUnitMismatch })
+    }
+}
+
+private func makeStockUnitProjection(
+    stockUnit: String,
+    doseUnit: String,
+    status: DoseEventStatus = .taken,
+    recordedOffset: TimeInterval = 1
+) -> MedicationStockProjection {
+    let checkpoint = Date(timeIntervalSince1970: 1_750_000_000)
+    let dose = ScheduledDose(
+        planID: UUID(),
+        dueAt: checkpoint.addingTimeInterval(60),
+        dose: DoseAmount(value: 2, unit: doseUnit)
+    )
+    return MedicationStockEstimator().project(
+        stock: MedicationStock(
+            medicationID: UUID(),
+            remainingQuantity: 3,
+            unit: stockUnit,
+            lowStockThreshold: 2,
+            lastUpdated: checkpoint
+        ),
+        scheduledDoses: [dose],
+        events: [DoseEvent(
+            scheduledDoseID: dose.id,
+            status: status,
+            recordedAt: checkpoint.addingTimeInterval(recordedOffset)
+        )],
+        timeZone: TimeZone(secondsFromGMT: 0)!
+    )
+}
+
 private func makeStockDate(calendar: Calendar, day: Int, hour: Int) -> Date {
     calendar.date(from: DateComponents(
         timeZone: calendar.timeZone,

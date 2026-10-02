@@ -190,7 +190,7 @@ public struct MedicationStockEstimator: Sendable {
     }
 
     private func normalized(_ value: String) -> String {
-        value.trimmingCharacters(in: .whitespacesAndNewlines)
+        NormalizedDoseUnit(rawUnit: value).canonicalUnit
     }
 
     private func dayKey(for date: Date, calendar: Calendar) -> String {
