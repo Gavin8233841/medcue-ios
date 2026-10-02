@@ -107,10 +107,15 @@ final class HealthEvidenceReviewUITests: XCTestCase {
         let disconnect = app.buttons["health.disconnect"]
         scrollTo(disconnect, in: app)
         disconnect.tap()
-        let confirm = app.buttons.matching(identifier: "health.disconnect.confirm").firstMatch
-        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
-        cancelDisconnectConfirmation(confirm: confirm, in: app)
-        XCTAssertTrue(confirm.waitForNonExistence(timeout: 5))
+        let alert = app.alerts["停止读取并清除本次健康回顾？"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), String(app.debugDescription.prefix(8_000)))
+        XCTAssertTrue(alert.staticTexts["会关闭健康摘要共享并清除本 App 的内存回顾。Apple 健康原始记录和已有聊天不会删除。"].exists)
+        let cancel = alert.buttons["health.disconnect.cancel"].firstMatch
+        let confirm = alert.buttons["health.disconnect.confirm"].firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5))
+        XCTAssertTrue(confirm.exists)
+        cancel.tap()
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 5), String(app.debugDescription.prefix(8_000)))
         XCTAssertTrue(app.navigationBars["Apple 健康"].exists)
         scrollTo(sharing, in: app, upward: false)
         XCTAssertEqual(sharing.value as? String, "1")
@@ -119,9 +124,10 @@ final class HealthEvidenceReviewUITests: XCTestCase {
         app.navigationBars["健康回顾"].buttons.firstMatch.tap()
         scrollTo(disconnect, in: app)
         disconnect.tap()
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), String(app.debugDescription.prefix(8_000)))
         XCTAssertTrue(confirm.waitForExistence(timeout: 5))
         confirm.tap()
-        XCTAssertTrue(confirm.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(alert.waitForNonExistence(timeout: 5), String(app.debugDescription.prefix(8_000)))
         let request = app.buttons["health.authorization.request"]
         XCTAssertTrue(request.waitForExistence(timeout: 5))
         scrollTo(sharing, in: app, upward: false)
@@ -147,22 +153,6 @@ final class HealthEvidenceReviewUITests: XCTestCase {
         openReview(in: app, upward: false)
         assertDisconnectedReview(in: app)
         screenshot("health-review-disconnected-after-relaunch", in: app)
-    }
-
-    private func cancelDisconnectConfirmation(confirm: XCUIElement, in app: XCUIApplication) {
-        let cancel = app.buttons["取消"]
-        if cancel.exists {
-            cancel.tap()
-        } else {
-            // A native confirmation popover can omit a Cancel button. Dismiss
-            // it through the noninteractive navigation title outside the action,
-            // then retain the same no-clear/no-consent-change assertions.
-            let title = app.navigationBars["Apple 健康"].staticTexts["Apple 健康"]
-            XCTAssertTrue(title.waitForExistence(timeout: 5))
-            XCTAssertFalse(title.frame.isEmpty)
-            XCTAssertFalse(title.frame.intersects(confirm.frame))
-            title.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        }
     }
 
     private func launch(scenario: String, accessibilitySize: Bool = false, dark: Bool = false) -> XCUIApplication {

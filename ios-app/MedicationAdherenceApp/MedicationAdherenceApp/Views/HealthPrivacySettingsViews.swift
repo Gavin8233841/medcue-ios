@@ -137,7 +137,9 @@ struct HealthDataSettingsView: View {
                 }
             }
         }
-        .confirmationDialog("停止读取并清除本次健康回顾？", isPresented: $showingDisconnectConfirmation) {
+        .alert("停止读取并清除本次健康回顾？", isPresented: $showingDisconnectConfirmation) {
+            Button("取消", role: .cancel) {}
+                .accessibilityIdentifier("health.disconnect.cancel")
             Button("停止并清除", role: .destructive) { healthKitService.disconnectAndClear() }
                 .accessibilityIdentifier("health.disconnect.confirm")
         } message: {
