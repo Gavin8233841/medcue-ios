@@ -1,0 +1,135 @@
+{
+  "fixtureVersion": 1,
+  "case": "correction_before",
+  "purpose": "同一任务/药物/计划ID的前后快照；更正有效记录时间进入期间，结果应重新生成",
+  "syntheticOnly": true,
+  "range": {
+    "calendar": "gregorian",
+    "timeZone": "Asia/Shanghai",
+    "selectedStart": "2026-10-01",
+    "selectedEnd": "2026-10-03",
+    "startInclusive": "2026-10-01T00:00:00+08:00",
+    "mainEndInclusive": "2026-10-03T23:59:59+08:00",
+    "candidateEndExclusive": "2026-10-04T00:00:00+08:00"
+  },
+  "generatedAt": "2026-10-05T10:00:00+08:00",
+  "medications": [
+    {
+      "alias": "A",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "displayName": "01 合成甲片",
+      "kind": "prescription",
+      "inputSource": "manual",
+      "form": "片剂",
+      "strength": "5 mg",
+      "lifecycleStatus": "active",
+      "createdAt": "2026-09-01T08:00:00+08:00"
+    }
+  ],
+  "plans": [
+    {
+      "id": "10000000-0000-4000-8000-000000000001",
+      "medicationID": "00000000-0000-4000-8000-000000000001",
+      "doseValue": 1,
+      "doseUnit": "片",
+      "timingSummary": "合成每日一次",
+      "timeZonePolicy": "localClock",
+      "sourceNote": "",
+      "createdAt": "2026-09-01T08:00:00+08:00"
+    }
+  ],
+  "lifecycleEvents": [
+    {
+      "id": "40000000-0000-4000-8000-000000000001",
+      "medicationID": "00000000-0000-4000-8000-000000000001",
+      "status": "active",
+      "occurredAt": "2026-09-01T08:00:00+08:00",
+      "note": "合成开始记录"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "20000000-0000-4000-8000-000000000001",
+      "medicationID": "00000000-0000-4000-8000-000000000001",
+      "planID": "10000000-0000-4000-8000-000000000001",
+      "dueAt": "2026-10-03T22:00:00+08:00",
+      "doseValue": 1,
+      "doseUnit": "片",
+      "status": "skipped",
+      "recordedAt": "2026-10-04T00:00:00+08:00",
+      "reason": ""
+    }
+  ],
+  "doseChanges": [],
+  "riskCards": [],
+  "healthSignals": [],
+  "expected": {
+    "main_inclusive_seconds": {
+      "loaderMedicationIDs": [],
+      "loaderTaskCount": 0,
+      "reportTaskIDs": [],
+      "reportMedicationIDs": [],
+      "reportOrderGroups": [],
+      "reportDoseChangeMedicationIDs": [],
+      "reportActiveRiskMedicationIDs": [],
+      "snapshotMedicationCount": 0,
+      "pdfMedicationCount": 0,
+      "reportTaskCount": 0,
+      "completedCount": 0,
+      "skippedCount": 0,
+      "delayedCount": 0,
+      "communicationCount": 0,
+      "textSummaryTaskMedicationCount": 0,
+      "textMedicationRows": [],
+      "perMedicationTaskCounts": {},
+      "contentAllocation": {
+        "sectionTitle": "所选期间涉及药品",
+        "firstPageOrderGroups": [],
+        "continuationOrderGroups": [],
+        "overflowCount": 0,
+        "requiresContinuation": false,
+        "basePageCount": 2,
+        "nativePageCountConstraint": "exactly 2; no empty continuation",
+        "countMeans": "distinct Snapshot medication IDs, including event-only entries; not active medication inventory"
+      },
+      "reportTaskOrderIDs": [],
+      "completionRate": 0.0
+    },
+    "pr150_half_open": {
+      "loaderMedicationIDs": [],
+      "loaderTaskCount": 0,
+      "reportTaskIDs": [],
+      "reportMedicationIDs": [],
+      "reportOrderGroups": [],
+      "reportDoseChangeMedicationIDs": [],
+      "reportActiveRiskMedicationIDs": [],
+      "snapshotMedicationCount": 0,
+      "pdfMedicationCount": 0,
+      "reportTaskCount": 0,
+      "completedCount": 0,
+      "skippedCount": 0,
+      "delayedCount": 0,
+      "communicationCount": 0,
+      "textSummaryTaskMedicationCount": 0,
+      "textMedicationRows": [],
+      "perMedicationTaskCounts": {},
+      "contentAllocation": {
+        "sectionTitle": "所选期间涉及药品",
+        "firstPageOrderGroups": [],
+        "continuationOrderGroups": [],
+        "overflowCount": 0,
+        "requiresContinuation": false,
+        "basePageCount": 2,
+        "nativePageCountConstraint": "exactly 2; no empty continuation",
+        "countMeans": "distinct Snapshot medication IDs, including event-only entries; not active medication inventory"
+      },
+      "reportTaskOrderIDs": [],
+      "completionRate": 0.0
+    }
+  },
+  "rationale": [
+    "这是已提交数据的两个独立输入状态，不是对真实记录执行纠正",
+    "前态effectiveAdherenceDate在次日00:00不纳入；后态末日23:59:58纳入并按corrected计已服用",
+    "本地另验revision失效、旧PDF替换/借用生命周期；Python不生成Swift哈希"
+  ]
+}

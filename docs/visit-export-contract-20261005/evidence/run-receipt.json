@@ -1,0 +1,42 @@
+{
+  "startedUTC": "2026-10-05T14:00:03.017095+00:00",
+  "finishedUTC": "2026-10-05T14:00:03.060753+00:00",
+  "scope": "Synthetic fixture contracts only; no native execution",
+  "workingDirectory": "docs/visit-export-contract-20261005",
+  "command": [
+    "python3",
+    "checks/check_contract.py",
+    "--mutation-checks"
+  ],
+  "exitCode": 0,
+  "python": "3.12.14",
+  "operatingSystem": "Linux",
+  "fixtureCount": 8,
+  "profileChecks": 16,
+  "negativeControls": 10,
+  "sameNameOrderControl": 1,
+  "syntaxCheck": "Python ast.parse passed",
+  "fixedInputsAndExpectedUnchanged": true,
+  "checkScriptUnchanged": true,
+  "notRun": [
+    "SwiftData execution",
+    "Swift compilation",
+    "Xcode build/tests",
+    "PDFKit",
+    "native PDF rendering",
+    "physical-device/accessibility acceptance"
+  ],
+  "inputSHA256": {
+    "fixtures/00_medications.json": "43b4679e9d0714a34c220f03de0eb2772b9da64ac757dadcf89368c825771fc7",
+    "fixtures/04_medications.json": "b33b8c69f6994a09ef7b5dacc9bab8a92b934fa2df7190cc4490dbbaa52dba48",
+    "fixtures/05_medications.json": "6a593d8a46e8211d95fbee85937580ff33f46fc8914874c1f728129dbec9fb99",
+    "fixtures/06_medications.json": "72982d5b53ab42febc840f39d34e8889e79dd3da98a93f8fceddcb4e18d16196",
+    "fixtures/correction_after.json": "72dd947b6e6a25d5bda7b1214e2662018445a2f27eef7e388e11689f245a9952",
+    "fixtures/correction_before.json": "d2464c0aae570fb83d0ba0c71e503dffcc9e6d1e997b4f2f76466e322f9611e7",
+    "fixtures/event_only_scope.json": "d9bd888b1d359508f699e81bba40dd858191d049051a9086d7369e19eb96e632",
+    "fixtures/selected_end_boundary.json": "c21e22b073ef3379a60fa6ca8978ba4fe123964bf31ae74837e34e42880e2762"
+  },
+  "checkScriptSHA256": "00ff3ad4f040aae8277e6c9c891cc0b6ff535bcc79b0cbac41cdcafa1162b8eb",
+  "stdoutSHA256": "0348a602bc2fb6a41397c5a10d17610f537ef0391224d73ed631a62d2970a05c",
+  "stdoutReproduction": "Capture stdout from the command above as UTF-8 with LF newlines, then compute SHA-256."
+}

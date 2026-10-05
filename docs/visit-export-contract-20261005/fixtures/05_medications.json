@@ -1,0 +1,556 @@
+{
+  "fixtureVersion": 1,
+  "case": "05_medications",
+  "purpose": "A活跃且期内有记录；B期内有记录、生成时已归档；C活跃但只有期外记录；按ID保留同名药；多来源和逻辑重复不增加药数",
+  "syntheticOnly": true,
+  "range": {
+    "calendar": "gregorian",
+    "timeZone": "Asia/Shanghai",
+    "selectedStart": "2026-10-01",
+    "selectedEnd": "2026-10-03",
+    "startInclusive": "2026-10-01T00:00:00+08:00",
+    "mainEndInclusive": "2026-10-03T23:59:59+08:00",
+    "candidateEndExclusive": "2026-10-04T00:00:00+08:00"
+  },
+  "generatedAt": "2026-10-05T10:00:00+08:00",
+  "medications": [
+    {
+      "alias": "C",
+      "id": "00000000-0000-4000-8000-000000000003",
+      "displayName": "99 合成范围外片",
+      "kind": "prescription",
+      "inputSource": "manual",
+      "form": "片剂",
+      "strength": "5 mg",
+      "lifecycleStatus": "active",
+      "createdAt": "2026-09-01T08:00:00+08:00"
+    },
+    {
+      "alias": "F",
+      "id": "00000000-0000-4000-8000-000000000006",
+      "displayName": "05 合成长名称复合成分缓释胶囊仅供导出换行压力测试请勿作为真实用药建议",
+      "kind": "prescription",
+      "inputSource": "manual",
+      "form": "胶囊",
+      "strength": "11 mg",
+      "lifecycleStatus": "active",
+      "createdAt": "2026-09-01T08:00:00+08:00"
+    },
+    {
+      "alias": "E",
+      "id": "00000000-0000-4000-8000-000000000005",
+      "displayName": "04 合成戊片",
+      "kind": "prescription",
+      "inputSource": "manual",
+      "form": "片剂",
+      "strength": "5 mg",
+      "lifecycleStatus": "active",
+      "createdAt": "2026-09-01T08:00:00+08:00"
+    },
+    {
+      "alias": "D",
+      "id": "00000000-0000-4000-8000-000000000004",
+      "displayName": "03 合成丁片",
+      "kind": "prescription",
+      "inputSource": "manual",
+      "form": "片剂",
+      "strength": "5 mg",
+      "lifecycleStatus": "active",
+      "createdAt": "2026-09-01T08:00:00+08:00"
+    },
+    {
+      "alias": "B",
+      "id": "00000000-0000-4000-8000-000000000002",
+      "displayName": "02 合成乙胶囊",
+      "kind": "prescription",
+      "inputSource": "manual",
+      "form": "胶囊",
+      "strength": "5 mg",
+      "lifecycleStatus": "archived",
+      "createdAt": "2026-09-01T08:00:00+08:00"
+    },
+    {
+      "alias": "A",
+      "id": "00000000-0000-4000-8000-000000000001",
+      "displayName": "01 合成甲片",
+      "kind": "prescription",
+      "inputSource": "manual",
+      "form": "片剂",
+      "strength": "5 mg",
+      "lifecycleStatus": "active",
+      "createdAt": "2026-09-01T08:00:00+08:00"
+    }
+  ],
+  "plans": [
+    {
+      "id": "10000000-0000-4000-8000-000000000003",
+      "medicationID": "00000000-0000-4000-8000-000000000003",
+      "doseValue": 1,
+      "doseUnit": "片",
+      "timingSummary": "合成每日一次",
+      "timeZonePolicy": "localClock",
+      "sourceNote": "",
+      "createdAt": "2026-09-01T08:00:00+08:00"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000006",
+      "medicationID": "00000000-0000-4000-8000-000000000006",
+      "doseValue": 1,
+      "doseUnit": "片",
+      "timingSummary": "合成每日一次",
+      "timeZonePolicy": "localClock",
+      "sourceNote": "",
+      "createdAt": "2026-09-01T08:00:00+08:00"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000005",
+      "medicationID": "00000000-0000-4000-8000-000000000005",
+      "doseValue": 1,
+      "doseUnit": "片",
+      "timingSummary": "合成每日一次",
+      "timeZonePolicy": "localClock",
+      "sourceNote": "",
+      "createdAt": "2026-09-01T08:00:00+08:00"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000004",
+      "medicationID": "00000000-0000-4000-8000-000000000004",
+      "doseValue": 1,
+      "doseUnit": "片",
+      "timingSummary": "合成每日一次",
+      "timeZonePolicy": "localClock",
+      "sourceNote": "",
+      "createdAt": "2026-09-01T08:00:00+08:00"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000002",
+      "medicationID": "00000000-0000-4000-8000-000000000002",
+      "doseValue": 1,
+      "doseUnit": "片",
+      "timingSummary": "合成每日一次",
+      "timeZonePolicy": "localClock",
+      "sourceNote": "",
+      "createdAt": "2026-09-01T08:00:00+08:00"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000001",
+      "medicationID": "00000000-0000-4000-8000-000000000001",
+      "doseValue": 1,
+      "doseUnit": "片",
+      "timingSummary": "合成每日一次",
+      "timeZonePolicy": "localClock",
+      "sourceNote": "",
+      "createdAt": "2026-09-01T08:00:00+08:00"
+    }
+  ],
+  "lifecycleEvents": [
+    {
+      "id": "40000000-0000-4000-8000-000000000003",
+      "medicationID": "00000000-0000-4000-8000-000000000003",
+      "status": "active",
+      "occurredAt": "2026-09-01T08:00:00+08:00",
+      "note": "合成开始记录"
+    },
+    {
+      "id": "40000000-0000-4000-8000-000000000006",
+      "medicationID": "00000000-0000-4000-8000-000000000006",
+      "status": "active",
+      "occurredAt": "2026-09-01T08:00:00+08:00",
+      "note": "合成开始记录"
+    },
+    {
+      "id": "40000000-0000-4000-8000-000000000005",
+      "medicationID": "00000000-0000-4000-8000-000000000005",
+      "status": "active",
+      "occurredAt": "2026-09-01T08:00:00+08:00",
+      "note": "合成开始记录"
+    },
+    {
+      "id": "40000000-0000-4000-8000-000000000004",
+      "medicationID": "00000000-0000-4000-8000-000000000004",
+      "status": "active",
+      "occurredAt": "2026-09-01T08:00:00+08:00",
+      "note": "合成开始记录"
+    },
+    {
+      "id": "40000000-0000-4000-8000-000000000002",
+      "medicationID": "00000000-0000-4000-8000-000000000002",
+      "status": "active",
+      "occurredAt": "2026-09-01T08:00:00+08:00",
+      "note": "合成开始记录"
+    },
+    {
+      "id": "40000000-0000-4000-8000-000000000001",
+      "medicationID": "00000000-0000-4000-8000-000000000001",
+      "status": "active",
+      "occurredAt": "2026-09-01T08:00:00+08:00",
+      "note": "合成开始记录"
+    },
+    {
+      "id": "40000000-0000-4000-8000-000000000102",
+      "medicationID": "00000000-0000-4000-8000-000000000002",
+      "status": "archived",
+      "occurredAt": "2026-10-04T12:00:00+08:00",
+      "note": "合成期后归档；快照时已归档"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "20000000-0000-4000-8000-000000000003",
+      "medicationID": "00000000-0000-4000-8000-000000000003",
+      "planID": "10000000-0000-4000-8000-000000000003",
+      "dueAt": "2026-09-29T08:00:00+08:00",
+      "doseValue": 1,
+      "doseUnit": "片",
+      "status": "taken",
+      "recordedAt": "2026-09-29T08:03:00+08:00",
+      "reason": ""
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000001",
+      "medicationID": "00000000-0000-4000-8000-000000000001",
+      "planID": "10000000-0000-4000-8000-000000000001",
+      "dueAt": "2026-10-01T08:00:00+08:00",
+      "doseValue": 1,
+      "doseUnit": "片",
+      "status": "taken",
+      "recordedAt": "2026-10-01T08:05:00+08:00",
+      "reason": ""
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000002",
+      "medicationID": "00000000-0000-4000-8000-000000000002",
+      "planID": "10000000-0000-4000-8000-000000000002",
+      "dueAt": "2026-10-01T09:00:00+08:00",
+      "doseValue": 1,
+      "doseUnit": "片",
+      "status": "taken",
+      "recordedAt": "2026-10-01T09:05:00+08:00",
+      "reason": ""
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000004",
+      "medicationID": "00000000-0000-4000-8000-000000000004",
+      "planID": "10000000-0000-4000-8000-000000000004",
+      "dueAt": "2026-10-02T08:00:00+08:00",
+      "doseValue": 1,
+      "doseUnit": "片",
+      "status": "skipped",
+      "recordedAt": "2026-10-02T08:05:00+08:00",
+      "reason": ""
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000005",
+      "medicationID": "00000000-0000-4000-8000-000000000005",
+      "planID": "10000000-0000-4000-8000-000000000005",
+      "dueAt": "2026-10-02T09:00:00+08:00",
+      "doseValue": 1,
+      "doseUnit": "片",
+      "status": "delayed",
+      "recordedAt": "2026-10-02T09:05:00+08:00",
+      "reason": ""
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000006",
+      "medicationID": "00000000-0000-4000-8000-000000000006",
+      "planID": "10000000-0000-4000-8000-000000000006",
+      "dueAt": "2026-10-04T07:00:00+08:00",
+      "doseValue": 1,
+      "doseUnit": "片",
+      "status": "corrected",
+      "recordedAt": "2026-10-03T23:59:58+08:00",
+      "reason": "合成更正说明"
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000101",
+      "medicationID": "00000000-0000-4000-8000-000000000001",
+      "planID": "10000000-0000-4000-8000-000000000001",
+      "dueAt": "2026-10-01T08:00:30+08:00",
+      "doseValue": 1,
+      "doseUnit": "片",
+      "status": "pending",
+      "recordedAt": null,
+      "reason": ""
+    }
+  ],
+  "doseChanges": [
+    {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "medicationID": "00000000-0000-4000-8000-000000000001",
+      "planID": "10000000-0000-4000-8000-000000000001",
+      "previousDoseValue": 1,
+      "previousDoseUnit": "片",
+      "newDoseValue": 2,
+      "newDoseUnit": "片",
+      "effectiveFrom": "2026-10-02T10:00:00+08:00",
+      "changedAt": "2026-10-02T10:00:00+08:00",
+      "note": "合成剂量记录；非治疗建议"
+    }
+  ],
+  "riskCards": [
+    {
+      "id": "synthetic-risk-A",
+      "medicationID": "00000000-0000-4000-8000-000000000001",
+      "kindRaw": "labelRisk",
+      "severityRaw": "medium",
+      "sourceKindRaw": "localRule",
+      "displayPriority": 1,
+      "title": "合成待核对事项",
+      "message": "纯合成风险文案，无真实病史",
+      "sourceTitle": "合成来源",
+      "sourceExcerpt": "合成摘录",
+      "requiresProfessionalReview": false,
+      "safetyNote": "",
+      "firstDetectedAt": "2026-10-02T11:00:00+08:00",
+      "lastDetectedAt": "2026-10-02T11:00:00+08:00",
+      "resolvedAt": null,
+      "archivedAt": null
+    }
+  ],
+  "healthSignals": [],
+  "expected": {
+    "main_inclusive_seconds": {
+      "loaderMedicationIDs": [
+        "00000000-0000-4000-8000-000000000001",
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000004",
+        "00000000-0000-4000-8000-000000000005",
+        "00000000-0000-4000-8000-000000000006"
+      ],
+      "loaderTaskCount": 6,
+      "reportTaskIDs": [
+        "20000000-0000-4000-8000-000000000001",
+        "20000000-0000-4000-8000-000000000002",
+        "20000000-0000-4000-8000-000000000004",
+        "20000000-0000-4000-8000-000000000005",
+        "20000000-0000-4000-8000-000000000006"
+      ],
+      "reportMedicationIDs": [
+        "00000000-0000-4000-8000-000000000001",
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000004",
+        "00000000-0000-4000-8000-000000000005",
+        "00000000-0000-4000-8000-000000000006"
+      ],
+      "reportOrderGroups": [
+        [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        [
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        [
+          "00000000-0000-4000-8000-000000000004"
+        ],
+        [
+          "00000000-0000-4000-8000-000000000005"
+        ],
+        [
+          "00000000-0000-4000-8000-000000000006"
+        ]
+      ],
+      "reportDoseChangeMedicationIDs": [
+        "00000000-0000-4000-8000-000000000001"
+      ],
+      "reportActiveRiskMedicationIDs": [
+        "00000000-0000-4000-8000-000000000001"
+      ],
+      "snapshotMedicationCount": 5,
+      "pdfMedicationCount": 5,
+      "reportTaskCount": 5,
+      "completedCount": 3,
+      "skippedCount": 1,
+      "delayedCount": 1,
+      "communicationCount": 2,
+      "textSummaryTaskMedicationCount": 5,
+      "textMedicationRows": [
+        "00000000-0000-4000-8000-000000000001",
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000004",
+        "00000000-0000-4000-8000-000000000005",
+        "00000000-0000-4000-8000-000000000006"
+      ],
+      "perMedicationTaskCounts": {
+        "00000000-0000-4000-8000-000000000001": {
+          "total": 1,
+          "takenOrCorrected": 1
+        },
+        "00000000-0000-4000-8000-000000000002": {
+          "total": 1,
+          "takenOrCorrected": 1
+        },
+        "00000000-0000-4000-8000-000000000004": {
+          "total": 1,
+          "takenOrCorrected": 0
+        },
+        "00000000-0000-4000-8000-000000000005": {
+          "total": 1,
+          "takenOrCorrected": 0
+        },
+        "00000000-0000-4000-8000-000000000006": {
+          "total": 1,
+          "takenOrCorrected": 1
+        }
+      },
+      "contentAllocation": {
+        "sectionTitle": "所选期间涉及药品",
+        "firstPageOrderGroups": [
+          [
+            "00000000-0000-4000-8000-000000000001"
+          ],
+          [
+            "00000000-0000-4000-8000-000000000002"
+          ],
+          [
+            "00000000-0000-4000-8000-000000000004"
+          ],
+          [
+            "00000000-0000-4000-8000-000000000005"
+          ]
+        ],
+        "continuationOrderGroups": [
+          [
+            "00000000-0000-4000-8000-000000000006"
+          ]
+        ],
+        "overflowCount": 1,
+        "requiresContinuation": true,
+        "basePageCount": 2,
+        "nativePageCountConstraint": "at least 3; determine by native measured row heights",
+        "countMeans": "distinct Snapshot medication IDs, including event-only entries; not active medication inventory"
+      },
+      "reportTaskOrderIDs": [
+        "20000000-0000-4000-8000-000000000001",
+        "20000000-0000-4000-8000-000000000002",
+        "20000000-0000-4000-8000-000000000004",
+        "20000000-0000-4000-8000-000000000005",
+        "20000000-0000-4000-8000-000000000006"
+      ],
+      "completionRate": 0.6
+    },
+    "pr150_half_open": {
+      "loaderMedicationIDs": [
+        "00000000-0000-4000-8000-000000000001",
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000004",
+        "00000000-0000-4000-8000-000000000005",
+        "00000000-0000-4000-8000-000000000006"
+      ],
+      "loaderTaskCount": 6,
+      "reportTaskIDs": [
+        "20000000-0000-4000-8000-000000000001",
+        "20000000-0000-4000-8000-000000000002",
+        "20000000-0000-4000-8000-000000000004",
+        "20000000-0000-4000-8000-000000000005",
+        "20000000-0000-4000-8000-000000000006"
+      ],
+      "reportMedicationIDs": [
+        "00000000-0000-4000-8000-000000000001",
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000004",
+        "00000000-0000-4000-8000-000000000005",
+        "00000000-0000-4000-8000-000000000006"
+      ],
+      "reportOrderGroups": [
+        [
+          "00000000-0000-4000-8000-000000000001"
+        ],
+        [
+          "00000000-0000-4000-8000-000000000002"
+        ],
+        [
+          "00000000-0000-4000-8000-000000000004"
+        ],
+        [
+          "00000000-0000-4000-8000-000000000005"
+        ],
+        [
+          "00000000-0000-4000-8000-000000000006"
+        ]
+      ],
+      "reportDoseChangeMedicationIDs": [
+        "00000000-0000-4000-8000-000000000001"
+      ],
+      "reportActiveRiskMedicationIDs": [
+        "00000000-0000-4000-8000-000000000001"
+      ],
+      "snapshotMedicationCount": 5,
+      "pdfMedicationCount": 5,
+      "reportTaskCount": 5,
+      "completedCount": 3,
+      "skippedCount": 1,
+      "delayedCount": 1,
+      "communicationCount": 2,
+      "textSummaryTaskMedicationCount": 5,
+      "textMedicationRows": [
+        "00000000-0000-4000-8000-000000000001",
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000004",
+        "00000000-0000-4000-8000-000000000005",
+        "00000000-0000-4000-8000-000000000006"
+      ],
+      "perMedicationTaskCounts": {
+        "00000000-0000-4000-8000-000000000001": {
+          "total": 1,
+          "takenOrCorrected": 1
+        },
+        "00000000-0000-4000-8000-000000000002": {
+          "total": 1,
+          "takenOrCorrected": 1
+        },
+        "00000000-0000-4000-8000-000000000004": {
+          "total": 1,
+          "takenOrCorrected": 0
+        },
+        "00000000-0000-4000-8000-000000000005": {
+          "total": 1,
+          "takenOrCorrected": 0
+        },
+        "00000000-0000-4000-8000-000000000006": {
+          "total": 1,
+          "takenOrCorrected": 1
+        }
+      },
+      "contentAllocation": {
+        "sectionTitle": "所选期间涉及药品",
+        "firstPageOrderGroups": [
+          [
+            "00000000-0000-4000-8000-000000000001"
+          ],
+          [
+            "00000000-0000-4000-8000-000000000002"
+          ],
+          [
+            "00000000-0000-4000-8000-000000000004"
+          ],
+          [
+            "00000000-0000-4000-8000-000000000005"
+          ]
+        ],
+        "continuationOrderGroups": [
+          [
+            "00000000-0000-4000-8000-000000000006"
+          ]
+        ],
+        "overflowCount": 1,
+        "requiresContinuation": true,
+        "basePageCount": 2,
+        "nativePageCountConstraint": "at least 3; determine by native measured row heights",
+        "countMeans": "distinct Snapshot medication IDs, including event-only entries; not active medication inventory"
+      },
+      "reportTaskOrderIDs": [
+        "20000000-0000-4000-8000-000000000001",
+        "20000000-0000-4000-8000-000000000002",
+        "20000000-0000-4000-8000-000000000004",
+        "20000000-0000-4000-8000-000000000005",
+        "20000000-0000-4000-8000-000000000006"
+      ],
+      "completionRate": 0.6
+    }
+  },
+  "rationale": [
+    "F/G同displayName不同UUID和strength；同名顺序未在SwiftData中指定，接受两种相邻顺序，不新加UUID次序",
+    "重复A任务同药/同分钟/同剂量；现有偏好保留taken，不能按原始行计数",
+    "B归档发生在所选期末以后；保留其期内记录，PDF不得称为完整当前药单"
+  ]
+}
