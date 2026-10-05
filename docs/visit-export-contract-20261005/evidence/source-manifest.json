@@ -1,0 +1,196 @@
+{
+  "repository": "Gavin8233841/medcue-ios",
+  "retrieved_utc": "2026-10-05",
+  "method": "Exact-revision public repository source review; source copies are not included",
+  "sources": [
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/VisitSummaryView.swift",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "a30e7203b044826d82b06e6713038717b570c1c4",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/VisitSummaryView.swift",
+      "status": "read"
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/VisitSummaryPDFViews.swift",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "fa7e58469f764a39e6e31a161d48c907a960366a",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/VisitSummaryPDFViews.swift",
+      "status": "read"
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/VisitSummaryTextBuilder.swift",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "4837da17b871dd92d2ad8ed5faeb6a660b260d31",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/VisitSummaryTextBuilder.swift",
+      "status": "read"
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/VisitSummarySnapshotRevision.swift",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "52ef0d502788d2fee628de64e83965800a5c8d15",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/VisitSummarySnapshotRevision.swift",
+      "status": "read"
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Models/StoredModels.swift",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "315064d2ac2975038b55faa6314129ef4508feef",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Models/StoredModels.swift",
+      "status": "read"
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/VisitSummaryDataPipelineTests.swift",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "f92639faa7a79f1642bb77585e6f64bf3b251449",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/VisitSummaryDataPipelineTests.swift",
+      "status": "read"
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/VisitSummaryDateRangeTests.swift",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": null,
+      "url": null,
+      "status": "not_present_at_ref"
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/VisitSummaryPDFLifecycleTests.swift",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "89760f63aef3039225eb71043804bfa107e8134d",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/VisitSummaryPDFLifecycleTests.swift",
+      "status": "read"
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/VisitSummarySnapshotRevisionTests.swift",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "601219bef59b64aeaff79e17ec98a429f116ce8a",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/VisitSummarySnapshotRevisionTests.swift",
+      "status": "read"
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj/project.pbxproj",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "8435c257ba7c050f85348a74d4065cd8d25a75a5",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj/project.pbxproj",
+      "status": "read"
+    },
+    {
+      "path": "AGENTS.md",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "2821351973d08e146ae98a29cc9abb9f8c4118c5",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/AGENTS.md",
+      "status": "read"
+    },
+    {
+      "path": "README.md",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "c03e096929d84dd416e13f345d35a8b8d7f91d2f",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/README.md",
+      "status": "read"
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/VisitSummaryDataPipeline.swift",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "05a22ad30cb18f3dc83699a28ed30acd9a26df44",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/VisitSummaryDataPipeline.swift",
+      "status": "read"
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/VisitSummaryPDFExportViews.swift",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "05b3232675f3f364f8d5c99bf08c87d8b551a35e",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/VisitSummaryPDFExportViews.swift",
+      "status": "read"
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Models/DoseTaskFilters.swift",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "a084d4944c9a15ea164bdc28822d5a93a39c5d11",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Models/DoseTaskFilters.swift",
+      "status": "read"
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/SettingsView.swift",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "50a753c9faed8ec97dfbbc6c0ae2edc2a6714033",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/SettingsView.swift",
+      "status": "read"
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/SharedViews.swift",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "c91126f14daabf6ddcc9ac72455d13ac161326ff",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/SharedViews.swift",
+      "status": "read"
+    },
+    {
+      "path": "swift-core/Sources/MedicationAdherenceCore/MedicationNamePolicy.swift",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "efa8ff791daf183a20be15b198d7a025be373b26",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/swift-core/Sources/MedicationAdherenceCore/MedicationNamePolicy.swift",
+      "status": "read"
+    },
+    {
+      "path": "CONTEXT.md",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "d1e32d4ca21e3723020dcb3eb70cf0c2830c5490",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/CONTEXT.md",
+      "status": "read"
+    },
+    {
+      "path": "docs/PROJECT_STATUS.md",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "b61d9412abb2bcced72cdcfe650dc48eac06ca7f",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/docs/PROJECT_STATUS.md",
+      "status": "read"
+    },
+    {
+      "path": "docs/DEVELOPMENT_WORKFLOW.md",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "331a011bba51820d8ae769f21c0c630df77af19c",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/docs/DEVELOPMENT_WORKFLOW.md",
+      "status": "read"
+    },
+    {
+      "path": "tools/verify-native.sh",
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "git_blob_sha": "e53cf85cfed8c8a80ab32689cddd98a7f6ce93ea",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/4d9c6d50d46a5735dc014da5434e1063d8cf7493/tools/verify-native.sh",
+      "status": "read"
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/VisitSummaryDataPipeline.swift",
+      "ref": "683c54c4a808560b4b7c0350c9e1b1b9e25a6893",
+      "git_blob_sha": "ce183d8faeb06b3be05515eaf983ca09bf0552da",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/683c54c4a808560b4b7c0350c9e1b1b9e25a6893/ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/VisitSummaryDataPipeline.swift",
+      "status": "read"
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/VisitSummaryView.swift",
+      "ref": "683c54c4a808560b4b7c0350c9e1b1b9e25a6893",
+      "git_blob_sha": "a3dc648fa70334ce7b110eb85ae9797f71c628cb",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/683c54c4a808560b4b7c0350c9e1b1b9e25a6893/ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/VisitSummaryView.swift",
+      "status": "read"
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/VisitSummaryDateRangeTests.swift",
+      "ref": "683c54c4a808560b4b7c0350c9e1b1b9e25a6893",
+      "git_blob_sha": "40d4ef2c9717bb29147c3e0498ed54649cc654b4",
+      "url": "https://github.com/Gavin8233841/medcue-ios/blob/683c54c4a808560b4b7c0350c9e1b1b9e25a6893/ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/VisitSummaryDateRangeTests.swift",
+      "status": "read"
+    }
+  ],
+  "search_verified_enum_sources": [
+    {
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "path": "swift-core/Sources/MedicationAdherenceCore/RiskAssessment.swift",
+      "symbol": "RiskAssessmentCardKind.labelRisk",
+      "method": "GitHub code search excerpt"
+    },
+    {
+      "ref": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "path": "swift-core/Sources/MedicationAdherenceCore/MedicationModels.swift",
+      "symbol": "ReminderTimeZonePolicy.localClock",
+      "method": "GitHub code search excerpt"
+    }
+  ]
+}
