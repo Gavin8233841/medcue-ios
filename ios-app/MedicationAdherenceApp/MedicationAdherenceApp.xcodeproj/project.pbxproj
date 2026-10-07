@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E4C4D4870FB19023538BD06D /* HealthMedicationWindowAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9EE1522A3C8DA1A813988DD6 /* HealthMedicationWindowAdapter.swift */; };
 		E82000000000000000000001 /* ReminderOperationQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82000000000000000000002 /* ReminderOperationQueue.swift */; };
 		30770726832E4FF9A6A7117E /* VisitSummaryPDFLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE949A0B3A2D49FD98FC7F91 /* VisitSummaryPDFLifecycle.swift */; };
 		A13E00000000000000000001 /* PersistenceRecoveryExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13E00000000000000000002 /* PersistenceRecoveryExport.swift */; };
@@ -227,6 +228,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		9EE1522A3C8DA1A813988DD6 /* HealthMedicationWindowAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HealthMedicationWindowAdapter.swift; sourceTree = "<group>"; };
 		E82000000000000000000002 /* ReminderOperationQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../../swift-core/Sources/MedicationAdherenceCore/ReminderOperationQueue.swift; sourceTree = SOURCE_ROOT; };
 		BE949A0B3A2D49FD98FC7F91 /* VisitSummaryPDFLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitSummaryPDFLifecycle.swift; sourceTree = "<group>"; };
 		A13E00000000000000000002 /* PersistenceRecoveryExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceRecoveryExport.swift; sourceTree = "<group>"; };
@@ -474,6 +476,7 @@
 		A40000000000000000000004 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				9EE1522A3C8DA1A813988DD6 /* HealthMedicationWindowAdapter.swift */,
 				BE949A0B3A2D49FD98FC7F91 /* VisitSummaryPDFLifecycle.swift */,
 				A13E00000000000000000002 /* PersistenceRecoveryExport.swift */,
 				A20000000000000000000005 /* NotificationService.swift */,
@@ -969,6 +972,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E4C4D4870FB19023538BD06D /* HealthMedicationWindowAdapter.swift in Sources */,
 				A10000000000000000000001 /* MedicationAdherenceApp.swift in Sources */,
 				A10000000000000000000002 /* AppRootView.swift in Sources */,
 				A10000000000000000000077 /* AppNavigationViews.swift in Sources */,
