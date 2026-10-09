@@ -2,6 +2,14 @@
 
 Date: 2026-10-09 UTC. Base: `4d9c6d50d46a5735dc014da5434e1063d8cf7493`.
 
+## Current validation route — 2026-10-09 06:45 UTC
+
+The product owner explicitly requested: “不在 ipad 验证，保持用 device hub”. Device Hub remains the authoritative route for subsequent Duo validation. Confirm its available connection, SDK/runtime, supported operations and exact source revision before claiming execution; no new Device Hub build, posture or acceptance result is established by this change.
+
+All dedicated iPad validation, reruns, polling and iPad-specific test/export optimization are paused until the owner explicitly requests resumption. The `synthetic-native-evidence` job in `adaptive-visual-evidence.yml` is disabled with literal `false &&` ahead of its unchanged original guards. Its workflow, helper, permissions, concurrency, action references and prior evidence are retained; the existing full Native workflow and all product/test sources remain unchanged.
+
+Everything below is historical evidence or a superseded iPad execution plan. Prior iPad results remain valid only for their recorded scope and revision, never as Duo acceptance. Pausing the lane does not turn failed, skipped or unexecuted checks into passes. Static pause-condition and preservation checks do not establish Device Hub readiness or native acceptance. Resumption requires an explicit owner request and review of the restored condition.
+
 ## Candidate evidence before native CI
 
 - Two existing product files changed; three independent test files added. No workflow, project-file, permission, medical rule, frozen path, or persistence-command change.
@@ -148,3 +156,14 @@ This four-helper-file change passed independent implementation review and48 Linu
 The7a1afb full UI run subsequently ended with both new iPhone detail-AX methods passing. Total42 entries:38 passed (36 baseline+2new),3 iPad-only skipped,1 existing baseline failed at the five-second settings phone-field existence check before any settings value/save assertions. The logs do not establish transient failure versus regression; that frozen test/source is unchanged. The complete native gate therefore remains failed despite new feature checks passing.
 
 A16 detail-AX failure reason was hidden by the original bounded diagnostic filter. An independently reviewed diagnostic-only extension maps25 fixed source message prefixes, including three known navigation-stage names, into fixed reason codes. It forwards no labels, values, arbitrary suffixes, paths or raw lines; unknown messages remain withheld and the20×400 bounds remain. The combined helper candidate passes51 Linux tests. This is observation improvement, not an A16 repair. Native export compatibility and the A16 failure cause remain to be established.
+
+## Ordinary native gate passed; Device Hub remains the active acceptance route
+
+At `c56c927e6e5b04e17a59a9120bd815fe7b554160`, [Native37894657868](https://github.com/Gavin8233841/medcue-ios/actions/runs/37894657868) completed success, including the required aggregate result. Actual PR merge checkout was `123b943d78dab043510f7a7010c798264a996396`; source tree `64b4e3de0978ec6f2a9db7f1ae1fde90abc0313f`.
+
+- Three native builds, Broker38 and Core161 passed.
+- iOS unit334 passed:327 SwiftTesting, four existing XCTest, three hosted detail tests covering eight states.
+- Ordinary iPhone UI42 entries:39 passed (37 baseline+2 detail AX),3 iPad-only skips,0 failures. The previously failing settings check passed in this run; its earlier failure remains historical evidence, not erased or assigned an unproven cause.
+- Visual37894658067 was cancelled to honor the Device Hub direction. No artifacts were uploaded by either run, and no iPad/Duo acceptance is claimed.
+
+This passing revision proves its ordinary native gate only. Device Hub screenshots, true Duo runtime/posture behavior and visual review remain outstanding. The following workflow/docs-only pause revision does not alter product or test source; its own exact-head checks are tracked separately.

@@ -17,7 +17,10 @@ concurrency:
 
 jobs:
   synthetic-native-evidence:
+    # User paused iPad validation on 2026-10-09; resume only on explicit request.
+    # Preserve the original guards and evidence lane for reversible recovery.
     if: >-
+      false &&
       github.repository == 'Gavin8233841/medcue-ios' &&
       github.event.repository.private == false &&
       github.event.pull_request.number == 162 &&
