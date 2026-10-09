@@ -27,7 +27,7 @@ struct BarcodeScannerGeometryTests {
     @Test
     func unavailableOrInvalidLayoutProducesNoScanArea() {
         for size in [CGSize.zero, CGSize(width: -1, height: 100), CGSize(width: 100, height: 0),
-                     CGSize(width: .infinity, height: 100), CGSize(width: 100, height: .nan)] {
+                     CGSize(width: CGFloat.infinity, height: 100), CGSize(width: 100, height: CGFloat.nan)] {
             #expect(BarcodeScannerGeometry.frameSize(in: size) == .zero)
         }
         #expect(BarcodeScannerGeometry.clippedRect(.null, in: CGRect(x: 0, y: 0, width: 320, height: 480)) == .zero)
@@ -158,7 +158,7 @@ struct BarcodeScannerGeometryTests {
         #expect(abs(clipped.width - 0.2) < 0.000001)
         #expect(abs(clipped.height - 0.1) < 0.000001)
         #expect(clipped.minX == 0 && clipped.maxY == 1)
-        #expect(BarcodeScannerGeometry.normalizedRegion(CGRect(x: 0, y: 0, width: .infinity, height: 1)) == .zero)
+        #expect(BarcodeScannerGeometry.normalizedRegion(CGRect(x: 0, y: 0, width: CGFloat.infinity, height: 1)) == .zero)
     }
 
     @Test

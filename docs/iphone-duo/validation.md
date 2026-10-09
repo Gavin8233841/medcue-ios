@@ -41,3 +41,9 @@ These content hashes bind the completed static reviews, not successful native re
 Run [37875757005](https://github.com/Gavin8233841/medcue-ios/actions/runs/37875757005), attempt 1, failed in the main App Release build on 2026-10-09. `MedicationDetailView.detailPhotoActions` contained a local declaration followed by a view expression without an explicit return. No new native test suite executed; Broker tests passed 38/38. The failure is retained and is not reclassified as a successful validation.
 
 The corrective candidate adds only `return` to that getter. Its source SHA-256 is `fff0e28dad70131c2d560108ac7d2bd15be4d1ef237e35f1d5e540b307d96ac5`; the earlier table binds the original candidate. All test contents and the scanner source are unchanged. A new commit and new CI result are required before claiming the compile error is resolved.
+
+## Second native attempt and typed test constants
+
+Run [37876262950](https://github.com/Gavin8233841/medcue-ios/actions/runs/37876262950), attempt 1, passed the native build suite and Swift Core 161/161, plus Broker 38/38. The iOS test targets then failed to compile two ambiguous `.infinity` expressions in `BarcodeScannerGeometryTests`; none of the 20 new tests executed. These were compile failures, not test skips.
+
+The next candidate qualifies the two constants as `CGFloat.infinity` and the adjacent `.nan` as `CGFloat.nan`. Independent review confirmed exactly these three type qualifications, with all product code unchanged. New scanner-test SHA-256: `1b49285f0b77f346d3ba4652af10cf00620273b10c3ab82ba6db44750e885d15`. New-revision CI remains required; prior build results do not substitute for it.
