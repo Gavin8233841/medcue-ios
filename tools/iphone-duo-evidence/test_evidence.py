@@ -1,15 +1,19 @@
 import copy
 import json
 import io
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, ExitStack
 from pathlib import Path
 import struct
 import tempfile
 import unittest
 import zlib
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 import evidence as e
 import run as runner
+
+# Real STATIC SDK-only schemas, run37881518599/job113662042845. No result data.
+# Provenance timestamps and original digests are in README.
+SDK_SCHEMAS = json.loads(r'''{"summary":{"schemas":{"Configuration":{"properties":{"configurationId":{"type":"string"},"configurationName":{"type":"string"}},"required":["configurationId","configurationName"],"type":"object"},"Device":{"properties":{"architecture":{"type":"string"},"deviceId":{"type":"string"},"deviceName":{"type":"string"},"modelName":{"type":"string"},"osBuildNumber":{"type":"string"},"osVersion":{"type":"string"},"platform":{"type":"string"}},"required":["deviceId","deviceName","architecture","modelName","osVersion"],"type":"object"},"DeviceAndConfigurationSummary":{"properties":{"device":{"$ref":"#/schemas/Device"},"expectedFailures":{"type":"integer"},"failedTests":{"type":"integer"},"passedTests":{"type":"integer"},"skippedTests":{"type":"integer"},"testPlanConfiguration":{"$ref":"#/schemas/Configuration"}},"required":["device","testPlanConfiguration","passedTests","failedTests","skippedTests","expectedFailures"],"type":"object"},"InsightSummary":{"properties":{"category":{"type":"string"},"impact":{"type":"string"},"text":{"type":"string"}},"required":["impact","category","text"],"type":"object"},"Statistic":{"properties":{"subtitle":{"type":"string"},"title":{"type":"string"}},"required":["title","subtitle"],"type":"object"},"Summary":{"properties":{"devicesAndConfigurations":{"$ref":"#/schemas/DeviceAndConfigurationSummary"},"environmentDescription":{"description":"Description of the Test Plan, OS, and environment that was used during testing","type":"string"},"expectedFailures":{"type":"integer"},"failedTests":{"type":"integer"},"finishTime":{"description":"Date as a UNIX timestamp (seconds since midnight UTC on January 1, 1970)","format":"double","type":"number"},"passedTests":{"type":"integer"},"result":{"$ref":"#/schemas/TestResult"},"skippedTests":{"type":"integer"},"startTime":{"description":"Date as a UNIX timestamp (seconds since midnight UTC on January 1, 1970)","format":"double","type":"number"},"statistics":{"items":{"$ref":"#/schemas/Statistic"},"type":"array"},"testFailures":{"$ref":"#/schemas/TestFailure"},"title":{"type":"string"},"topInsights":{"items":{"$ref":"#/schemas/InsightSummary"},"type":"array"},"totalTestCount":{"type":"integer"}},"required":["title","environmentDescription","topInsights","result","totalTestCount","passedTests","failedTests","skippedTests","expectedFailures","statistics","devicesAndConfigurations","testFailures"],"type":"object"},"TestFailure":{"properties":{"failureText":{"type":"string"},"targetName":{"type":"string"},"testIdentifier":{"deprecated":true,"description":"This field is deprecated. Please use testIdentifierString or testIdentifierURL.","format":"int64","type":"integer"},"testIdentifierString":{"type":"string"},"testIdentifierURL":{"type":"string"},"testName":{"type":"string"}},"required":["testName","targetName","failureText","testIdentifier","testIdentifierString"],"type":"object"},"TestResult":{"enum":["Passed","Failed","Skipped","Expected Failure","unknown"],"type":"string"}}},"tests":{"schemas":{"Configuration":{"properties":{"configurationId":{"type":"string"},"configurationName":{"type":"string"}},"required":["configurationId","configurationName"],"type":"object"},"Device":{"properties":{"architecture":{"type":"string"},"deviceId":{"type":"string"},"deviceName":{"type":"string"},"modelName":{"type":"string"},"osBuildNumber":{"type":"string"},"osVersion":{"type":"string"},"platform":{"type":"string"}},"required":["deviceId","deviceName","architecture","modelName","osVersion"],"type":"object"},"TestNode":{"properties":{"children":{"items":{"$ref":"#/schemas/TestNode"},"type":"array"},"details":{"type":"string"},"duration":{"description":"Human-readable duration with optional components of days, hours, minutes and seconds","type":"string"},"durationInSeconds":{"description":"Time interval in seconds","format":"double","type":"number"},"name":{"type":"string"},"nodeIdentifier":{"type":"string"},"nodeIdentifierURL":{"type":"string"},"nodeType":{"$ref":"#/schemas/TestNodeType"},"result":{"$ref":"#/schemas/TestResult"},"tags":{"items":{"type":"string"},"type":"array"}},"required":["nodeType","name"],"type":"object"},"TestNodeType":{"enum":["Test Plan","Unit test bundle","UI test bundle","Test Suite","Test Case","Device","Test Plan Configuration","Arguments","Repetition","Test Case Run","Failure Message","Source Code Reference","Attachment","Expression","Test Value","Runtime Warning"],"type":"string"},"TestResult":{"enum":["Passed","Failed","Skipped","Expected Failure","unknown"],"type":"string"},"Tests":{"properties":{"devices":{"items":{"$ref":"#/schemas/Device"},"type":"array"},"testNodes":{"items":{"$ref":"#/schemas/TestNode"},"type":"array"},"testPlanConfigurations":{"items":{"$ref":"#/schemas/Configuration"},"type":"array"}},"required":["testPlanConfigurations","devices","testNodes"],"type":"object"}}}}''')
 
 
 def chunk(kind, value):
@@ -28,9 +32,9 @@ class EvidenceTests(unittest.TestCase):
         self.root = Path(self.tmp.name).resolve()
         self.test_id = next(iter(e.EXPECTED))
         self.manifest = [{'testIdentifier': self.test_id, 'attachments': []}]
-        for i, (name, width) in enumerate(e.EXPECTED[self.test_id].items()):
+        for i, (name, dimensions) in enumerate(e.EXPECTED[self.test_id].items()):
             filename = f'{i}.png'
-            (self.root / filename).write_bytes(png(width))
+            (self.root / filename).write_bytes(png(*min(dimensions)))
             self.manifest[0]['attachments'].append({
                 'exportedFileName': filename,
                 'suggestedHumanReadableName': f'{name}_0_00000000-0000-0000-0000-000000000000.png',
@@ -117,16 +121,16 @@ class EvidenceTests(unittest.TestCase):
     def test_metadata_removed_from_generated_png(self):
         path = self.root / 'new.png'
         path.write_bytes(png(extra=chunk(b'tEXt', b'Comment\0private')))
-        e.png_dimensions(path, 320)
+        e.png_dimensions(path, {(320, 900)})
         e.strip_generated_metadata(path)
-        e.png_dimensions(path, 320)
+        e.png_dimensions(path, {(320, 900)})
         self.assertNotIn(b'private', path.read_bytes())
 
     def test_metadata_bomb_is_removed_before_native_decode(self):
         path, clean = self.root / 'bomb.png', self.root / 'decode.png'
         compressed_metadata = zlib.compress(b'x' * 10_000_000)
         path.write_bytes(png(extra=chunk(b'zTXt', b'key\0\0' + compressed_metadata)))
-        e.prepare_decode_input(path, clean, 320)
+        e.prepare_decode_input(path, clean, {(320, 900)})
         self.assertNotIn(b'zTXt', clean.read_bytes())
         self.assertEqual(clean.read_bytes(), png())
 
@@ -153,10 +157,11 @@ class EvidenceTests(unittest.TestCase):
         self.manifest[0]['attachments'][0]['isAssociatedWithFailure'] = True
         self.reject()
 
-    def test_both_native_invocations_preserve_package_and_host_boundaries(self):
+    def test_all_native_invocations_preserve_package_and_host_boundaries(self):
         for target, class_name, methods in [
             ('MedicationAdherenceAppTests', e.DETAIL_CLASS, list(e.DETAIL)),
-            ('MedicationAdherenceAppUITests', e.WINDOW_CLASS, e.WINDOW)]:
+            ('MedicationAdherenceAppUITests', e.WINDOW_CLASS, e.WINDOW),
+            ('MedicationAdherenceAppUITests', e.AX_CLASS, list(e.AX))]:
             with self.subTest(target=target):
                 args = runner.native_test_command(self.root, self.root / 'test.xcresult',
                                                   '00000000-0000-0000-0000-000000000000', target, class_name, methods)
@@ -227,13 +232,172 @@ class EvidenceTests(unittest.TestCase):
         self.assertNotIn('\n::warning::', text)
         self.assertIn('truncated', text)
 
+    def test_actual_xcode26_6_static_schemas_are_accepted(self):
+        for kind, schema in SDK_SCHEMAS.items():
+            self.assertEqual(e.validate_static_schema(kind, schema), schema['schemas']['Summary' if kind == 'summary' else 'Tests'])
+        def output(args):
+            self.assertEqual(args[:4], ['xcrun', 'xcresulttool', 'get', 'test-results'])
+            self.assertEqual(args[5:], ['--schema'])
+            return json.dumps(SDK_SCHEMAS[args[4]]).encode()
+        captured = io.StringIO()
+        with patch.object(e, 'command', side_effect=output), redirect_stdout(captured):
+            e.inspect_static_schemas()
+        self.assertEqual(captured.getvalue(), '')
+
+    def test_static_contract_rejects_wrong_roots_fields_types_and_refs(self):
+        mutations = []
+        mutations.append({'type': 'object', 'properties': {}})
+        missing_root = copy.deepcopy(SDK_SCHEMAS['summary'])
+        del missing_root['schemas']['Summary']
+        mutations.append(missing_root)
+        for field_change in ('missing', 'wrong_type', 'external_ref', 'cycle', 'escaped_ref', 'dangling_ref', 'unknown_type'):
+            schema = copy.deepcopy(SDK_SCHEMAS['summary'])
+            root = schema['schemas']['Summary']
+            if field_change == 'missing': del root['properties']['passedTests']
+            if field_change == 'wrong_type': root['properties']['passedTests'] = {'type': 'string'}
+            if field_change == 'external_ref': root['properties']['result'] = {'$ref': 'https://example.invalid/schema.json'}
+            if field_change == 'cycle': root['properties']['result'] = {'$ref': '#/schemas/Summary'}
+            if field_change == 'escaped_ref': root['properties']['result'] = {'$ref': '#/schemas/Test~1Result'}
+            if field_change == 'dangling_ref': root['properties']['result'] = {'$ref': '#/schemas/Missing'}
+            if field_change == 'unknown_type': schema['schemas']['NewType'] = {'type': 'object'}
+            mutations.append(schema)
+        for schema in mutations:
+            with self.subTest(schema_keys=list(schema)):
+                with self.assertRaises(e.InvalidEvidence):
+                    e.validate_static_schema('summary', schema)
+        for change in ('identifier', 'node_type', 'children_ref', 'enum'):
+            schema = copy.deepcopy(SDK_SCHEMAS['tests'])
+            if change == 'identifier': del schema['schemas']['TestNode']['properties']['nodeIdentifier']
+            if change == 'node_type': schema['schemas']['TestNode']['properties']['nodeType'] = {'type': 'integer'}
+            if change == 'children_ref': schema['schemas']['TestNode']['properties']['children']['items']['$ref'] = '#/schemas/Tests'
+            if change == 'enum': schema['schemas']['TestResult']['enum'].append('Maybe Passed')
+            with self.assertRaises(e.InvalidEvidence):
+                e.validate_static_schema('tests', schema)
+
+    def test_all_exact_image_contracts_select(self):
+        self.assertEqual(sum(map(len, e.EXPECTED.values())), 30)
+        for index, (test_id, images) in enumerate(e.EXPECTED.items()):
+            inventory = []
+            for offset, (name, dimensions) in enumerate(images.items()):
+                filename = f'all-{index}-{offset}.png'
+                (self.root / filename).write_bytes(png(*min(dimensions)))
+                inventory.append({'exportedFileName': filename,
+                                  'suggestedHumanReadableName': f'{name}_0_00000000-0000-0000-0000-000000000000.png'})
+            result = e.select_manifest([{'testIdentifier': test_id, 'attachments': inventory}], test_id, self.root)
+            self.assertEqual(set(result), set(images))
+
+    def test_native_screen_and_hosted_dimensions_cannot_cross(self):
+        path = self.root / 'dimensions.png'
+        portrait = {(1640, 2360)}
+        landscape = {(2360, 1640)}
+        hosted = {(1024 * scale, 900 * scale) for scale in (1, 2, 3)}
+        for dimensions, valid in [((1640, 2360), portrait), ((2360, 1640), landscape),
+                                  ((3072, 2700), hosted)]:
+            path.write_bytes(png(*dimensions))
+            self.assertEqual(e.png_dimensions(path, valid), dimensions)
+            for other in (portrait, landscape, hosted):
+                if other != valid:
+                    with self.assertRaises(e.InvalidEvidence):
+                        e.png_dimensions(path, other)
+        for dimensions in ((820, 1180), (3280, 4720), (1640, 2361)):
+            path.write_bytes(png(*dimensions))
+            with self.assertRaises(e.InvalidEvidence):
+                e.png_dimensions(path, portrait)
+
+    def test_only_installed_exact_reviewed_device_type_selected(self):
+        runtime = 'com.apple.CoreSimulator.SimRuntime.iOS-26-5'
+        runtimes = {'runtimes': [{'identifier': runtime, 'version': '26.5', 'isAvailable': True}]}
+        selected = {'name': 'private name never used', 'isAvailable': True,
+                    'deviceTypeIdentifier': 'com.apple.CoreSimulator.SimDeviceType.iPad-A16',
+                    'udid': '00000000-0000-0000-0000-000000000000'}
+        unrelated = {**selected, 'name': 'iPad (A16)', 'deviceTypeIdentifier': 'com.apple.CoreSimulator.SimDeviceType.iPad-unknown'}
+        calls = []
+        def native(args):
+            calls.append(args)
+            if args == ['xcrun', 'simctl', 'list', 'runtimes', '--json']:
+                return json.dumps(runtimes).encode()
+            self.assertEqual(args, ['xcrun', 'simctl', 'list', 'devices', 'available', '--json'])
+            return json.dumps({'devices': {runtime: [unrelated, selected]}}).encode()
+        with patch.object(runner, 'command', side_effect=native):
+            self.assertEqual(runner.destination(), (selected['udid'], '26.5'))
+        self.assertEqual(len(calls), 2)
+        for devices in ([unrelated], [{**selected, 'isAvailable': False}], []):
+            with patch.object(runner, 'command', side_effect=[json.dumps(runtimes).encode(), json.dumps({'devices': {runtime: devices}}).encode()]):
+                with self.assertRaises(e.InvalidEvidence):
+                    runner.destination()
+
+    def test_accessibility_requires_exact_two_passes_without_skips(self):
+        summary = dict(passedTests=2, failedTests=0, skippedTests=0, totalTestCount=2, expectedFailures=0, result='Passed')
+        cases = [{'nodeType': 'Test Case', 'nodeIdentifier': f'{e.AX_CLASS}/{method}()', 'result': 'Passed'} for method in e.AX]
+        tree = {'testNodes': [{'nodeType': 'UI test bundle', 'name': 'MedicationAdherenceAppUITests', 'children': [
+            {'nodeType': 'Test Suite', 'name': e.AX_CLASS, 'children': cases}]}]}
+        def validate():
+            e.validate_results(summary, tree, e.AX_CLASS, list(e.AX), 'MedicationAdherenceAppUITests')
+        validate()
+        for key, value in [('passedTests', 3), ('skippedTests', 1), ('totalTestCount', 3)]:
+            original = summary[key]
+            summary[key] = value
+            with self.assertRaises(e.InvalidEvidence):
+                validate()
+            summary[key] = original
+        cases.append(cases[0])
+        with self.assertRaises(e.InvalidEvidence):
+            validate()
+        with self.assertRaises(e.InvalidEvidence):
+            e.validate_results(summary, tree, e.AX_CLASS, list(e.AX)[:1], 'MedicationAdherenceAppUITests')
+
+    def test_unknown_and_cross_suite_explicit_images_fail_closed(self):
+        row = self.manifest[0]['attachments'][0]
+        for name in ('MedicationDetailAX-default-portrait-initial-top',
+                     'MedicationDetail-resize-0-320-information',
+                     'MedicationDetailAX-default-portrait-initial-information'):
+            row['suggestedHumanReadableName'] = f'{name}_0_00000000-0000-0000-0000-000000000000.png'
+            self.reject()
+
+    def test_runner_validates_three_suites_then_routes_each_export(self):
+        manifest = self.root / 'empty-manifest.json'
+        manifest.write_text('[]')
+        exports, native_calls = [], []
+        def command(args):
+            if args == ['xcodebuild', '-version']:
+                return b'Xcode 26.6\nBuild version 17A1'
+            if args[:3] == ['xcrun', 'xcresulttool', 'export']:
+                exports.append((args[args.index('--path') + 1], args[args.index('--test-id') + 1]))
+            return b'{}'
+        def native(args, **kwargs):
+            native_calls.append(args)
+            return Mock(returncode=0)
+        with ExitStack() as stack:
+            stack.enter_context(patch.dict(runner.os.environ, {'RUNNER_TEMP': str(self.root)}))
+            stack.enter_context(patch.object(runner, 'trusted_event', return_value='a' * 40))
+            stack.enter_context(patch.object(runner, 'synthetic_sources'))
+            stack.enter_context(patch.object(runner, 'preflight'))
+            stack.enter_context(patch.object(runner, 'destination', return_value=('00000000-0000-0000-0000-000000000000', '26.5')))
+            stack.enter_context(patch.object(runner, 'command', side_effect=command))
+            stack.enter_context(patch.object(runner.subprocess, 'run', side_effect=native))
+            validation = stack.enter_context(patch.object(runner, 'validate_results'))
+            stack.enter_context(patch.object(runner, 'safe_file', return_value=manifest))
+            stack.enter_context(patch.object(runner, 'select_manifest', return_value={}))
+            stack.enter_context(redirect_stdout(io.StringIO()))
+            # Empty fake exports must never publish, even with all native exits zero.
+            with self.assertRaisesRegex(e.InvalidEvidence, 'Unexpected staging contents'):
+                runner.run()
+        self.assertEqual(len(native_calls), 3)
+        self.assertEqual([call.args[2] for call in validation.call_args_list],
+                         [e.DETAIL_CLASS, e.WINDOW_CLASS, e.AX_CLASS])
+        self.assertEqual({test_id for _, test_id in exports}, set(e.EXPECTED))
+        for bundle, test_id in exports:
+            self.assertEqual(Path(bundle).name,
+                             'accessibility.xcresult' if test_id.startswith(e.AX_CLASS + '/') else 'detail.xcresult')
+        self.assertFalse((self.root / 'medcue-visual-evidence').exists())
+
     def test_duplicate_json_keys_rejected(self):
         with self.assertRaises(e.InvalidEvidence):
             e.decode_json(b'{"passedTests":3,"passedTests":0}')
 
     def result_fixture(self):
-        summary = dict(passedTests=3, failedTests=0, skippedTests=0, totalTestCount=3, result='Passed')
-        cases = [{'nodeType': 'Test Case', 'nodeIdentifier': identifier, 'result': 'Passed'} for identifier in e.EXPECTED]
+        summary = dict(passedTests=3, failedTests=0, skippedTests=0, totalTestCount=3, expectedFailures=0, result='Passed')
+        cases = [{'nodeType': 'Test Case', 'nodeIdentifier': identifier, 'result': 'Passed'} for identifier in e.EXPECTED if identifier.startswith(e.DETAIL_CLASS + '/')]
         tree = {'testNodes': [{'nodeType': 'Test Plan', 'children': [{'nodeType': 'Unit test bundle', 'name': 'MedicationAdherenceAppTests', 'children': [{'nodeType': 'Test Suite', 'name': e.DETAIL_CLASS, 'children': cases}]}]}]}
         return summary, tree, cases
 
@@ -245,7 +409,7 @@ class EvidenceTests(unittest.TestCase):
         self.validate(summary, tree)
 
     def test_skips_failures_bool_counts_missing_duplicate_wrong_id(self):
-        for key, value in [('skippedTests', 1), ('failedTests', 1), ('passedTests', True), ('totalTestCount', 2), ('result', 'Failed')]:
+        for key, value in [('skippedTests', 1), ('failedTests', 1), ('expectedFailures', 1), ('passedTests', True), ('totalTestCount', 2), ('result', 'Failed')]:
             summary, tree, _ = self.result_fixture()
             summary[key] = value
             with self.assertRaises(e.InvalidEvidence):

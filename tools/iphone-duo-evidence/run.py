@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
-from evidence import (DETAIL, DETAIL_CLASS, WINDOW, WINDOW_CLASS, EXPECTED, LIMIT,
+from evidence import (DETAIL, DETAIL_CLASS, WINDOW, WINDOW_CLASS, AX, AX_CLASS, EXPECTED, LIMIT,
                       InvalidEvidence, command, decode_json, preflight, require,
                       validate_results, select_manifest, safe_file, png_dimensions, strip_generated_metadata, prepare_decode_input, failure_diagnostics)
 
@@ -37,10 +37,14 @@ def trusted_event():
     return sha
 
 # Reviewed synthetic source: a test-source change requires re-review and new hashes.
-SOURCE_HASHES = {'ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/MedicationDetailAdaptiveLayoutTests.swift': '3ef6800b9ad12809db196a835c07a34de6b4c100de4f203dddc12c9189ec523b', 'ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/AdaptiveWindowStateUITests.swift': '114b4fe068a838395090932a68a563ca24cf4b4a5ae3b4067636564926beb9ed'}
+SOURCE_HASHES = {
+    'ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/MedicationDetailAdaptiveLayoutTests.swift': 'd3ad82df4c9486e2cd4de15304b9f5ab29d4acdebdaf4c6778dc70d4adead0a2',
+    'ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/AdaptiveWindowStateUITests.swift': '114b4fe068a838395090932a68a563ca24cf4b4a5ae3b4067636564926beb9ed',
+    'ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/MedicationDetailAccessibilityUITests.swift': 'ca885b70c979a8a293606ec5b0e88bd93f4e0c08b8ed7aa95eea3f82ed7f1c56',
+}
 
 def synthetic_sources():
-    require(len(SOURCE_HASHES) == 2, 'Missing reviewed source fingerprints')
+    require(len(SOURCE_HASHES) == 3, 'Missing reviewed source fingerprints')
     for relative, digest in SOURCE_HASHES.items():
         file = ROOT / relative
         require(not file.is_symlink() and hashlib.sha256(file.read_bytes()).hexdigest() == digest, 'Synthetic test source changed; review required')
@@ -51,8 +55,8 @@ def destination():
                  if r.get('isAvailable') is True and r.get('identifier', '').startswith('com.apple.CoreSimulator.SimRuntime.iOS-26-')}
     devices = decode_json(command(['xcrun', 'simctl', 'list', 'devices', 'available', '--json']))['devices']
     choices = [(runtime, device) for runtime in sorted(supported) for device in devices.get(runtime, [])
-               if device.get('isAvailable') is True and device.get('name', '').startswith('iPad ')]
-    require(bool(choices), 'No already-installed iPad/iOS26 destination; downloads forbidden')
+               if device.get('isAvailable') is True and device.get('deviceTypeIdentifier') == 'com.apple.CoreSimulator.SimDeviceType.iPad-A16']
+    require(bool(choices), 'No already-installed reviewed A16/iOS26 destination; downloads forbidden')
     runtime, device = choices[0]
     require(re.fullmatch('[0-9A-Fa-f-]{36}', device.get('udid', '')), 'Invalid native destination')
     require(re.fullmatch(r'26\.\d+(?:\.\d+)?', supported[runtime]), 'Unexpected runtime version')
@@ -86,7 +90,8 @@ def run():
         bundles = []
         for label, class_name, methods, target in [
             ('detail', DETAIL_CLASS, list(DETAIL), 'MedicationAdherenceAppTests'),
-            ('window', WINDOW_CLASS, WINDOW, 'MedicationAdherenceAppUITests')]:
+            ('window', WINDOW_CLASS, WINDOW, 'MedicationAdherenceAppUITests'),
+            ('accessibility', AX_CLASS, list(AX), 'MedicationAdherenceAppUITests')]:
             bundle = scratch / f'{label}.xcresult'
             args = native_test_command(scratch, bundle, udid, target, class_name, methods)
             # Do not print xcodebuild output: automatic diagnostics may identify devices.
@@ -111,11 +116,15 @@ def run():
         staging.mkdir(mode=0o700)
         total = 0
         input_total = 0
+        export_bundles = {
+            f'{class_name}/{method}()': bundle
+            for bundle, class_name, methods, _ in bundles for method in methods
+        }
         for index, test_id in enumerate(EXPECTED):
             exported = scratch / f'export-{index}'
             # Tool export can include automatic attachments, but only for this exact
-            # hosted test. None are trusted or uploaded without validation below.
-            command(['xcrun', 'xcresulttool', 'export', 'attachments', '--path', str(bundles[0][0]),
+            # allowlisted test. None are trusted or uploaded without validation below.
+            command(['xcrun', 'xcresulttool', 'export', 'attachments', '--path', str(export_bundles[test_id]),
                      '--output-path', str(exported), '--test-id', test_id])
             manifest = decode_json(safe_file(exported, 'manifest.json', 2_000_000).read_bytes())
             selected = select_manifest(manifest, test_id, exported)
@@ -133,11 +142,15 @@ def run():
                 total += file.stat().st_size
                 require(total <= LIMIT, 'Evidence exceeds 20MB; no upload')
         names = {name + '.png' for values in EXPECTED.values() for name in values}
-        require({p.name for p in staging.iterdir()} == names and len(names) == 24, 'Unexpected staging contents')
+        require({p.name for p in staging.iterdir()} == names and len(names) == 30, 'Unexpected staging contents')
         note = (f'Source: {REPO}@{sha}\n{version}\niOS Simulator runtime: {runtime}; installed iPad destination.\n'
                 'MedicationDetailAdaptiveLayoutTests: 3 passed, 0 failed, 0 skipped.\n'
                 'AdaptiveWindowStateUITests: 3 passed, 0 failed, 0 skipped.\n'
-                '24 synthetic real-detail renders: 8 states, top/information/bottom.\n'
+                'MedicationDetailAccessibilityUITests: 2 passed, 0 failed, 0 skipped.\n'
+                '24 hosted synthetic render samples: 8 states, top/middle/bottom.\n'
+                'Hosted checks cover geometry/traversal/store invariants, not accessibility semantics.\n'
+                '6 actual-app synthetic top screenshots: default/AX5, portrait/landscape/restored.\n'
+                'Actual-app assertions check content/control accessibility across orientation changes.\n'
                 'iPad rotation and hosted container evidence only; not Duo hardware/posture certification.\n'
                 'Visual review still required. Existing full verification remains mandatory.\n')
         (staging / 'README.txt').write_text(note)
@@ -146,7 +159,7 @@ def run():
         final = Path(os.environ['RUNNER_TEMP']).resolve() / 'medcue-visual-evidence'
         require(not final.exists() and not final.is_symlink(), 'Stale staging forbidden')
         staging.rename(final)
-        print(f'Exact source {sha}: 3+3 passed, zero skips; 24 sanitized PNGs ready. iPad evidence only.')
+        print(f'Exact source {sha}: 3+3+2 passed, zero skips; 30 sanitized PNGs ready. iPad evidence only.')
     return 0
 
 if __name__ == '__main__':

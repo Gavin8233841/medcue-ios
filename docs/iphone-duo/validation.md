@@ -73,3 +73,38 @@ Independent security review and 25 standard-library positive/negative tests pass
 At revision `d2dc36967f594473db87d827ec41476c64c76576`, [Native37880316719](https://github.com/Gavin8233841/medcue-ios/actions/runs/37880316719) stopped at the unchanged source-package rule because two negative-test strings contained a synthetic private-directory literal. [Visual37880316767](https://github.com/Gavin8233841/medcue-ios/actions/runs/37880316767) passed 25 boundary tests, then rejected the actual SDK schema root before selecting an iPad or running tests. Neither produced native test or image evidence.
 
 The packaging fixture now uses its own TemporaryDirectory to generate an absolute path without embedding a private-user directory. The scanner is unchanged. The schema guard remains fail-closed; its new bounded diagnostic can expose only the fixed SDK's static `--schema` response, never a result bundle. The next run must establish the actual shape before an explicitly reviewed adapter can accept it. Twenty-seven Linux boundary tests pass; no native schema compatibility claim is made.
+
+## Second additive-lane run: observed static SDK schema and reviewed adapter
+
+At checkout `743598a1ac158e769eeb1337553b43049c910fe8` (tree
+`df180bde40e02b7f52f4b3138c09066bff366e0c`),
+[Visual37881518599](https://github.com/Gavin8233841/medcue-ios/actions/runs/37881518599)
+passed 27 Linux-compatible boundary tests on the macOS runner, then failed
+closed at `Unknown result schema root`, before simulator selection or native
+test execution. Its real helper step began at 2026-10-09 03:56:08.421533Z;
+the subsequent bounded diagnostics provided only the installed Xcode 26.6
+static Summary and Tests schemas. The original extracted JSON SHA-256 values
+are `0842cd791603c9184f8287a14db249a9f824f8fa7b3b7797dbfa8d801929e4b7`
+and `845dd3ca1936c50dab17e1cf945d221ad48f162121d36b41070011f77f218f10`,
+respectively. These are static SDK definitions, not actual result payloads;
+no native test pass, screenshot or uploaded artifact is established by this run.
+
+The follow-on, independently reviewed adapter recognizes the exact observed
+`schemas.Summary` and `schemas.Tests` structures through canonical whole-schema
+fingerprints. Unknown schema changes remain rejected. Structural TestNode
+recursion is not expanded; real-result depth and identity checks remain in
+force. The adapter adds no dependency, permission, product/test-source change,
+or workflow change. Its 29 Python boundary tests include the sourced static
+SDK fixtures and rejection cases. A new macOS run must still establish native
+result and attachment compatibility, actual test passes, ImageIO sanitization,
+and screenshot delivery before any visual review or device claim can follow.
+
+## Hosted observation failure and explicit test-scope split
+
+At branch `743598a1ac158e769eeb1337553b43049c910fe8`, Native run [37881518605](https://github.com/Gavin8233841/medcue-ios/actions/runs/37881518605) confirmed all native builds, Core161 and iOS SwiftTesting327 (including scanner14) passed. XCTest had four existing passes and three detail failures. All three report rawAX=0 despite a visible, key, foreground-scene-attached host and a mounted List; adding a scene did not fix the observation method. The overall run and UI result were still pending when this entry was written. These failures are preserved, not rewritten as layout passes.
+
+The replacement hosted suite explicitly proves render/trait/scroll/store invariants instead of inaccessible semantic AX. It retains eight states, requires stable finite geometry, overlapping traversal to actual boundaries, midpoint-specific sampling, 24 correctly sized images and unchanged full fixture snapshots. Its names now state that narrower scope, and image suffix `information` becomes `middle`. Source SHA256: `d3ad82df4c9486e2cd4de15304b9f5ab29d4acdebdaf4c6778dc70d4adead0a2`.
+
+A separate two-test real-app XCUITest suite uses existing synthetic complete/due fixtures, public out-of-process snapshots and actual navigation. It checks six exact static-text markers independently of action labels, four enabled/hittable/fully visible controls, scrolling/return, measured iPad portrait-landscape-portrait changes, and only the limited fields exposed by the existing read-only inspector. Its six iPad images sample the top only. Source SHA256: `ca885b70c979a8a293606ec5b0e88bd93f4e0c08b8ed7aa95eea3f82ed7f1c56`.
+
+Both candidate files passed independent source review, not native execution. Column placement, all long-text clipping, RTL visual order, full control coverage across every hosted state and Duo hardware/posture acceptance remain open. The evidence helper must require all three suites (3+3+2 tests) and the exact 30-image inventory; existing full CI remains required. Actual-image review remains necessary before any frontend quality claim.

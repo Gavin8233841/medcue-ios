@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fail-closed native evidence boundary. Python standard library only."""
 import json
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -12,9 +13,9 @@ import zlib
 LIMIT = 20_000_000
 DETAIL_CLASS = 'MedicationDetailAdaptiveLayoutTests'
 DETAIL = {
-    'testRealDetailReflowsNarrowWideNarrowWithoutLosingContent': ['resize-0-320', 'resize-1-1024', 'resize-2-320'],
-    'testAX5UsesOneColumnEvenInRegularWideContainer': ['AX5-320', 'AX5-1024', 'AX5-restored'],
-    'testRTLDetailRemainsReachableAcrossResize': ['RTL-320', 'RTL-1024'],
+    'testRealDetailRendersAndPreservesStoreAcrossNarrowWideNarrow': ['resize-0-320', 'resize-1-1024', 'resize-2-320'],
+    'testRealDetailRendersAndPreservesStoreAcrossAX5AndRestoredTraits': ['AX5-320', 'AX5-1024', 'AX5-restored'],
+    'testRealDetailRendersAndPreservesStoreWithRTLTraitsAcrossResize': ['RTL-320', 'RTL-1024'],
 }
 WINDOW_CLASS = 'AdaptiveWindowStateUITests'
 WINDOW = [
@@ -23,9 +24,29 @@ WINDOW = [
     'testFailedSaveAcrossWindowChangeLeavesNoDurableLog',
 ]
 EXPECTED = {f'{DETAIL_CLASS}/{method}()': {
-    f'MedicationDetail-{state}-{part}': (320 if state.endswith('320') else 1024)
-    for state in states for part in ['top', 'information', 'bottom']
+    f'MedicationDetail-{state}-{part}': frozenset(((320 if state.endswith('320') else 1024) * scale, 900 * scale) for scale in (1, 2, 3))
+    for state in states for part in ['top', 'middle', 'bottom']
 } for method, states in DETAIL.items()}
+
+AX_CLASS = 'MedicationDetailAccessibilityUITests'
+AX = {
+    'testRealDetailContentAndControlsAtDefaultTextSize': 'default',
+    'testRealDetailContentAndControlsAtMaximumTextSize': 'AX5',
+}
+# Native A16 screenshot pixels (UIKit uses @2, never multiply these dimensions).
+# Apple: https://support.apple.com/en-us/122240
+SCREEN_PIXELS = {'portrait-initial': (1640, 2360), 'landscape': (2360, 1640),
+                 'portrait-restored': (1640, 2360)}
+EXPECTED.update({f'{AX_CLASS}/{method}()': {
+    f'MedicationDetailAX-{size}-{orientation}-top': frozenset({pixels})
+    for orientation, pixels in SCREEN_PIXELS.items()
+} for method, size in AX.items()})
+
+TEST_CONTRACTS = {
+    (DETAIL_CLASS, tuple(DETAIL), 'MedicationAdherenceAppTests'),
+    (WINDOW_CLASS, tuple(WINDOW), 'MedicationAdherenceAppUITests'),
+    (AX_CLASS, tuple(AX), 'MedicationAdherenceAppUITests'),
+}
 
 class InvalidEvidence(Exception):
     pass
@@ -73,22 +94,44 @@ def preflight():
     inspect_static_schemas()
 
 
+# Exact structural contracts from the real Xcode26.6 run, not inferred schemas.
+# Canonical ASCII/sorted/compact JSON digests; provenance is documented in README.
+STATIC_SCHEMA_CONTRACTS = {
+    'summary': ('Summary', 'de64f404b2cc7dd43e1adee4db1cf5b6af6b44f8d6fa9073cb6a0f85f318d39f'),
+    'tests': ('Tests', 'a1cd1c23c7c356f4afce5c4ae965ccf721bbed7c0c8ef4f648136e38387bb07a'),
+}
+
+
+def validate_static_schema(kind, schema):
+    require(kind in STATIC_SCHEMA_CONTRACTS, 'Unknown static schema command')
+    require(isinstance(schema, dict) and set(schema) == {'schemas'}, 'Unknown result schema root')
+    types = schema['schemas']
+    require(isinstance(types, dict) and len(types) <= 16, 'Unknown static schema type map')
+    root_name, expected_digest = STATIC_SCHEMA_CONTRACTS[kind]
+    root = types.get(root_name)
+    require(isinstance(root, dict) and root.get('type') == 'object', 'Unknown named result schema root')
+    # Comparing the entire observed contract checks every field, primitive type,
+    # required list, enum and reference. There is NO generic resolver: external
+    # refs, alias cycles, pointer escapes, new types and missing fields all fail.
+    # The observed TestNode.children -> TestNode edge is structural recursion;
+    # it is never expanded here. Actual result trees remain bounded to depth12.
+    try:
+        canonical = json.dumps(schema, ensure_ascii=True, sort_keys=True, separators=(',', ':')).encode('ascii')
+    except (ValueError, TypeError, RecursionError):
+        raise InvalidEvidence('Invalid static schema graph') from None
+    require(len(canonical) <= 60_000, 'Oversized static schema contract')
+    require(hashlib.sha256(canonical).hexdigest() == expected_digest, 'Unreviewed static schema contract')
+    return root
+
+
 def inspect_static_schemas():
     schemas = {
         kind: decode_json(command(['xcrun', 'xcresulttool', 'get', 'test-results', kind, '--schema']))
         for kind in ('summary', 'tests')
     }
     try:
-        for kind, properties in [('summary', {'passedTests', 'failedTests', 'skippedTests', 'totalTestCount'}),
-                                 ('tests', {'testNodes'})]:
-            schema = schemas[kind]
-            require(isinstance(schema, dict) and schema.get('type') == 'object', 'Unknown result schema root')
-            props = schema.get('properties')
-            require(isinstance(props, dict) and properties <= props.keys(), 'Unknown result schema fields')
-            if kind == 'summary':
-                require(all(props[key].get('type') == 'integer' for key in properties), 'Unknown counter schema')
-            else:
-                require(props['testNodes'].get('type') == 'array', 'Unknown test tree schema')
+        for kind, schema in schemas.items():
+            validate_static_schema(kind, schema)
     except InvalidEvidence:
         # ASCII JSON escapes line breaks/control characters. A 60KB combined
         # payload budget keeps all framing comfortably below 64KB. Unknown
@@ -105,9 +148,10 @@ def inspect_static_schemas():
 
 
 def validate_results(summary, tree, class_name, methods, bundle):
+    require((class_name, tuple(methods), bundle) in TEST_CONTRACTS, 'Unreviewed test selection')
     require(isinstance(summary, dict), 'Unknown summary')
-    for key, expected in [('passedTests', 3), ('failedTests', 0), ('skippedTests', 0), ('totalTestCount', 3)]:
-        require(type(summary.get(key)) is int and summary[key] == expected, 'Expected exactly 3 passed / 0 skipped')
+    for key, expected in [('passedTests', len(methods)), ('failedTests', 0), ('skippedTests', 0), ('expectedFailures', 0), ('totalTestCount', len(methods))]:
+        require(type(summary.get(key)) is int and summary[key] == expected, 'Expected exact allowlisted passes / 0 skipped')
     require(summary.get('result') == 'Passed', 'Run did not pass')
     require(isinstance(tree, dict) and isinstance(tree.get('testNodes'), list), 'Unknown test tree')
     expected = {f'{class_name}/{method}()' for method in methods}
@@ -134,7 +178,7 @@ def validate_results(summary, tree, class_name, methods, bundle):
             visit(child, active_bundle, active_suite, depth + 1)
     for node in tree['testNodes']:
         visit(node)
-    require(len(found) == 3 and set(found) == expected, 'Missing or duplicate test execution')
+    require(len(found) == len(expected) and set(found) == expected, 'Missing or duplicate test execution')
 
 
 def safe_file(root, name, maximum=LIMIT):
@@ -149,7 +193,7 @@ def safe_file(root, name, maximum=LIMIT):
     return path
 
 
-def png_dimensions(path, expected_width):
+def png_dimensions(path, allowed_dimensions):
     data = Path(path).read_bytes()
     require(len(data) <= LIMIT and data[:8] == b'\x89PNG\r\n\x1a\n', 'Not a PNG')
     pos, kinds, dimensions, compressed = 8, [], None, []
@@ -169,7 +213,7 @@ def png_dimensions(path, expected_width):
         if kind == b'IHDR':
             require(not kinds and size == 13, 'Invalid PNG header')
             width, height, depth, color, compression, filtering, interlace = struct.unpack('>IIBBBBB', payload)
-            require((width, height) in {(expected_width*s, 900*s) for s in (1, 2, 3)}, 'Unexpected screenshot dimensions')
+            require((width, height) in allowed_dimensions, 'Unexpected screenshot dimensions')
             require(depth == 8 and color in (2, 6) and compression == filtering == interlace == 0, 'Unsupported PNG encoding')
             dimensions = (width, height)
         if kind == b'IDAT':
@@ -199,6 +243,7 @@ def select_manifest(manifest, test_id, root):
     require(row.get('testIdentifier') == test_id, 'Attachment belongs to wrong test')
     attachments = row.get('attachments')
     require(isinstance(attachments, list) and len(attachments) <= 100, 'Invalid attachment inventory')
+    require(test_id in EXPECTED, 'Unreviewed attachment test')
     expected = EXPECTED[test_id]
     selected, paths = {}, set()
     for item in attachments:
@@ -207,8 +252,8 @@ def select_manifest(manifest, test_id, root):
         name = item.get('suggestedHumanReadableName')
         require(isinstance(name, str), 'Missing attachment name')
         # Known xcresult export spelling: explicit attachment name, ordinal, UUID.
-        match = re.fullmatch(r'(MedicationDetail-[A-Za-z0-9-]+)_\d+_[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}\.png', name)
-        if not name.startswith('MedicationDetail-'):
+        match = re.fullmatch(r'(MedicationDetail(?:AX)?-[A-Za-z0-9-]+)_\d+_[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}\.png', name)
+        if not name.startswith(('MedicationDetail-', 'MedicationDetailAX-')):
             continue  # Automatic screenshots and diagnostics are never staged.
         require(match and match[1] in expected, 'Unknown explicit screenshot')
         fixed = match[1]
@@ -235,17 +280,17 @@ def strip_generated_metadata(path):
     Path(path).write_bytes(b''.join(chunks))
 
 
-def prepare_decode_input(source, destination, expected_width):
+def prepare_decode_input(source, destination, allowed_dimensions):
     """Exclude all metadata BEFORE ImageIO can parse/decompress it.
 
     Pixels are bounded/validated first. Only core chunks are forwarded to the
     native decoder; fresh pixel re-encoding is still mandatory before upload.
     """
-    png_dimensions(source, expected_width)
+    png_dimensions(source, allowed_dimensions)
     with Path(destination).open('xb') as output:
         output.write(Path(source).read_bytes())
     strip_generated_metadata(destination)
-    png_dimensions(destination, expected_width)
+    png_dimensions(destination, allowed_dimensions)
 
 
 def failure_diagnostics(log_path):
@@ -264,7 +309,8 @@ def failure_diagnostics(log_path):
         if message not in output and len(output) < 20:
             output.append(message[:400])
     files = ('MedicationDetailAdaptiveLayoutTests.swift', 'AdaptiveWindowStateUITests.swift',
-             'MedicationDetailView.swift', 'BarcodeScannerView.swift')
+             'MedicationDetailView.swift', 'BarcodeScannerView.swift',
+             'MedicationDetailAccessibilityUITests.swift')
     for line in text.splitlines():
         if 'error:' in line or 'failed' in line.lower():
             for filename in files:
@@ -282,7 +328,7 @@ def failure_diagnostics(log_path):
         for reason in ('noForegroundWindowScene', 'listDidNotMount', 'visibleAccessibilityDidNotStabilize'):
             if reason in line:
                 add('Hosted harness: ' + reason)
-        for class_name, methods in ((DETAIL_CLASS, DETAIL), (WINDOW_CLASS, WINDOW)):
+        for class_name, methods in ((DETAIL_CLASS, DETAIL), (WINDOW_CLASS, WINDOW), (AX_CLASS, AX)):
             if class_name in line and 'failed' in line.lower():
                 for method in methods:
                     if method in line:
