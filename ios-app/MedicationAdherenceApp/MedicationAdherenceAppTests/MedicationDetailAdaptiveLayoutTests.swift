@@ -100,15 +100,10 @@ final class MedicationDetailAdaptiveLayoutTests: XCTestCase {
             if !capturedMiddle && previous.offset.y < midpoint {
                 target = min(target, midpoint)
             }
-            let destination: DetailLayoutHarness.ScrollPosition
-            if !capturedMiddle && target == midpoint {
-                destination = .middle
-            } else if target == previous.bottom {
-                destination = .bottom
-            } else {
-                destination = .offset(target)
-            }
-            geometry = try harness.waitForStableGeometry(in: scroll, seeking: destination)
+            // Freeze this bounded step's coordinate. Lazy measurement can increase
+            // the content extent while seeking; chasing its new bottom/midpoint here
+            // could jump past an unvisited viewport. Recompute extents next iteration.
+            geometry = try harness.waitForStableGeometry(in: scroll, seeking: .offset(target))
             guard geometry.offset.y > previous.offset.y else {
                 throw harness.traversalFailure("\(name): no forward progress from \(previous.offset.y)", scroll: scroll)
             }
@@ -313,14 +308,12 @@ private final class DetailLayoutHarness {
     }
 
     enum ScrollPosition {
-        case top, middle, bottom
+        case top
         case offset(CGFloat)
 
         func target(in geometry: ListGeometry) -> CGFloat {
             switch self {
             case .top: geometry.top
-            case .middle: geometry.midpoint
-            case .bottom: geometry.bottom
             case .offset(let value): value
             }
         }
@@ -341,8 +334,8 @@ private final class DetailLayoutHarness {
                                        viewport: contentViewport(of: scroll))
             if current.isValid && scroll.window === window && !scroll.isHidden && scroll.alpha > 0 {
                 if let position {
-                    // Named boundaries track measured extents. Ordinary steps keep
-                    // their original coordinate and fail if it becomes unreachable.
+                    // Returning to top tracks its current inset. Traversal steps keep
+                    // their bounded coordinate and fail if it becomes unreachable.
                     let target = position.target(in: current)
                     guard target.isFinite && target >= current.top - 1 && target <= current.bottom + 1 else {
                         throw traversalFailure("Invalid seek target=\(target), top=\(current.top), bottom=\(current.bottom)", scroll: scroll)

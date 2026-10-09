@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Private scratch stays on the ephemeral runner; only validated staging uploads."""
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
@@ -10,7 +11,7 @@ import sys
 import tempfile
 import urllib.request
 from evidence import (DETAIL, DETAIL_CLASS, WINDOW, WINDOW_CLASS, AX, AX_CLASS, EXPECTED, LIMIT,
-                      InvalidEvidence, command, decode_json, preflight, require,
+                      InvalidEvidence, command, decode_json, preflight, require, subprocess_environment,
                       validate_results, select_manifest, safe_file, png_dimensions, strip_generated_metadata, prepare_decode_input, failure_diagnostics)
 
 REPO = 'Gavin8233841/medcue-ios'
@@ -38,9 +39,9 @@ def trusted_event():
 
 # Reviewed synthetic source: a test-source change requires re-review and new hashes.
 SOURCE_HASHES = {
-    'ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/MedicationDetailAdaptiveLayoutTests.swift': '6ca65ac4c148e461c69a112c7ae8b7718546702b0f6792b8e13373f651eaf8ff',
+    'ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/MedicationDetailAdaptiveLayoutTests.swift': 'a5b0a8f2d83b37055e6ed835313b6b6632a8917f21d2a48626781a30438075cb',
     'ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/AdaptiveWindowStateUITests.swift': '114b4fe068a838395090932a68a563ca24cf4b4a5ae3b4067636564926beb9ed',
-    'ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/MedicationDetailAccessibilityUITests.swift': '6f7429ed6f1b50e54bbb9263e8c4ad4d21e0f873eafaaa958ee774819ff6e6a6',
+    'ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/MedicationDetailAccessibilityUITests.swift': '282aa6554910805c78a195e14ab6ea8d8205b2b45802802a67660199d3600728',
 }
 
 def synthetic_sources():
@@ -77,6 +78,11 @@ def native_test_command(scratch, bundle, udid, target, class_name, methods):
     return args
 
 def run():
+    output_path = Path(os.environ['GITHUB_OUTPUT'])
+    with output_path.open('a', encoding='utf-8') as output:
+        output.write('evidence_ready=false\n')
+    final = Path(os.environ['RUNNER_TEMP']).resolve() / 'medcue-visual-evidence'
+    require(not final.exists() and not final.is_symlink(), 'Stale staging forbidden')
     sha = trusted_event()
     synthetic_sources()
     version = command(['xcodebuild', '-version']).decode().strip()
@@ -88,6 +94,10 @@ def run():
         sanitizer = scratch / 'sanitize'
         command(['xcrun', 'swiftc', str(HERE / 'sanitize.swift'), '-o', str(sanitizer)])
         bundles = []
+        exit_status = 0
+        statuses = {label: {'status': 'not_run', 'verified_passed_tests': None,
+                            'verified_skipped_tests': None}
+                    for label in ('detail', 'window', 'accessibility')}
         for label, class_name, methods, target in [
             ('detail', DETAIL_CLASS, list(DETAIL), 'MedicationAdherenceAppTests'),
             ('window', WINDOW_CLASS, WINDOW, 'MedicationAdherenceAppUITests'),
@@ -97,30 +107,38 @@ def run():
             # Do not print xcodebuild output: automatic diagnostics may identify devices.
             with (scratch / f'{label}.log').open('wb') as log:
                 status = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, timeout=900,
-                                        env={**os.environ, 'MEDCUE_DISABLE_LOCAL_LLAMA': '1'}).returncode
-            bundles.append((bundle, class_name, methods, target))
+                                        env={**subprocess_environment(), 'MEDCUE_DISABLE_LOCAL_LLAMA': '1'}).returncode
             print(f'{label}: xcodebuild exit {status}', flush=True)
-            # Return immediately so later tooling cannot mask the original failure.
+            # Stop at the first native failure. Earlier independently validated
+            # suites may yield diagnostic evidence; acceptance remains failed.
             if status:
+                exit_status = status if 0 < status < 256 else 1
+                statuses[label]['status'] = 'failed'
                 try:
                     for diagnostic in failure_diagnostics(scratch / f'{label}.log'):
                         print(diagnostic, flush=True)
                 except (OSError, ValueError):
                     print('Allowlisted diagnostics unavailable; preserving native failure.', flush=True)
-                return status if 0 < status < 256 else 1
-        for bundle, class_name, methods, target in bundles:
+                break
             summary = decode_json(command(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--path', str(bundle)]))
             tree = decode_json(command(['xcrun', 'xcresulttool', 'get', 'test-results', 'tests', '--path', str(bundle)]))
             validate_results(summary, tree, class_name, methods, target)
+            statuses[label] = {'status': 'passed', 'verified_passed_tests': len(methods),
+                               'verified_skipped_tests': 0}
+            bundles.append((bundle, class_name, methods, target))
+        export_bundles = {
+            f'{class_name}/{method}()': bundle
+            for bundle, class_name, methods, _ in bundles for method in methods
+            if f'{class_name}/{method}()' in EXPECTED
+        }
+        if not export_bundles:
+            require(exit_status != 0, 'No verified image suite despite native success')
+            return exit_status
         staging = scratch / 'sanitized'
         staging.mkdir(mode=0o700)
         total = 0
         input_total = 0
-        export_bundles = {
-            f'{class_name}/{method}()': bundle
-            for bundle, class_name, methods, _ in bundles for method in methods
-        }
-        for index, test_id in enumerate(EXPECTED):
+        for index, test_id in enumerate(export_bundles):
             exported = scratch / f'export-{index}'
             # Tool export can include automatic attachments, but only for this exact
             # allowlisted test. None are trusted or uploaded without validation below.
@@ -141,26 +159,43 @@ def run():
                 png_dimensions(file, EXPECTED[test_id][fixed])
                 total += file.stat().st_size
                 require(total <= LIMIT, 'Evidence exceeds 20MB; no upload')
-        names = {name + '.png' for values in EXPECTED.values() for name in values}
-        require({p.name for p in staging.iterdir()} == names and len(names) == 30, 'Unexpected staging contents')
-        note = (f'Source: {REPO}@{sha}\n{version}\niOS Simulator runtime: {runtime}; installed iPad destination.\n'
-                'MedicationDetailAdaptiveLayoutTests: 3 passed, 0 failed, 0 skipped.\n'
-                'AdaptiveWindowStateUITests: 3 passed, 0 failed, 0 skipped.\n'
-                'MedicationDetailAccessibilityUITests: 2 passed, 0 failed, 0 skipped.\n'
-                '24 hosted synthetic render samples: 8 states, top/middle/bottom.\n'
-                'Hosted checks cover geometry/traversal/store invariants, not accessibility semantics.\n'
-                '6 actual-app synthetic top screenshots: default/AX5, portrait/landscape/restored.\n'
-                'Actual-app assertions check content/control accessibility across orientation changes.\n'
-                'iPad rotation and hosted container evidence only; not Duo hardware/posture certification.\n'
-                'Visual review still required. Existing full verification remains mandatory.\n')
+        names = {name + '.png' for test_id in export_bundles for name in EXPECTED[test_id]}
+        require({p.name for p in staging.iterdir()} == names and len(names) in (24, 30), 'Unexpected staging contents')
+        all_passed = all(value['status'] == 'passed' for value in statuses.values())
+        require(all_passed == (exit_status == 0), 'Inconsistent native acceptance status')
+        report = {
+            'source_repository': REPO, 'source_sha': sha,
+            'destination_scope': 'A16_iPad_simulator', 'ios_runtime': runtime,
+            'required_all_passed': all_passed,
+            'native_exit_status': exit_status,
+            'suites': statuses,
+            'published_png_count': len(names),
+        }
+        status_json = json.dumps(report, sort_keys=True, indent=2) + '\n'
+        note = (('ALL THREE REQUIRED SUITES PASSED.\n' if all_passed else
+                 'PARTIAL DIAGNOSTIC EVIDENCE ONLY. REQUIRED NATIVE ACCEPTANCE FAILED.\n')
+                + f'Source: {REPO}@{sha}\n{version}\niOS Simulator runtime: {runtime}; installed iPad destination.\n'
+                + ''.join(f'{label}: {value["status"]}\n' for label, value in statuses.items())
+                + f'{len(names)} PNGs from independently validated passing suites only.\n'
+                'Hosted PNGs: 24 top/middle/bottom render samples, geometry/traversal/store checks.\n'
+                'Hosted images and tests do not prove accessibility semantics or all scrollable pixels.\n'
+                'Actual-app PNGs appear ONLY when accessibility passed: 6 synthetic top screenshots.\n'
+                'Actual-app assertions cover selected text/control accessibility and orientation changes.\n'
+                'A16 iPad destination only; does not close ordinary iPhone unit-test or full-native gates.\n'
+                'No Duo hardware/posture certification. Visual review and all required gates remain mandatory.\n')
         (staging / 'README.txt').write_text(note)
-        require(total + len(note.encode()) <= LIMIT, 'Evidence exceeds 20MB')
+        (staging / 'evidence-status.json').write_text(status_json)
+        require(total + len(note.encode()) + len(status_json.encode()) <= LIMIT, 'Evidence exceeds 20MB')
         public_repo()  # Recheck immediately before publishing only fresh sanitized files.
-        final = Path(os.environ['RUNNER_TEMP']).resolve() / 'medcue-visual-evidence'
         require(not final.exists() and not final.is_symlink(), 'Stale staging forbidden')
+        require({p.name for p in staging.iterdir()} == names | {'README.txt', 'evidence-status.json'}, 'Unexpected final inventory')
         staging.rename(final)
-        print(f'Exact source {sha}: 3+3+2 passed, zero skips; 30 sanitized PNGs ready. iPad evidence only.')
-    return 0
+        print(f'Exact source {sha}: {len(names)} sanitized PNGs ready; required_all_passed={all_passed}. iPad only.')
+        # This is the ONLY upload authorization signal. Never set it before all
+        # selected-suite identities, images, bounds and visibility checks pass.
+        with output_path.open('a', encoding='utf-8') as output:
+            output.write('evidence_ready=true\n')
+    return exit_status
 
 if __name__ == '__main__':
     try:

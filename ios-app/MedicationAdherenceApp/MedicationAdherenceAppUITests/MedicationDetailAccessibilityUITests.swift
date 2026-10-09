@@ -74,17 +74,39 @@ final class MedicationDetailAccessibilityUITests: XCTestCase {
         try reveal(selector, in: app, stage: "nonempty-lifecycle-selector",
                    expected: "button label MATCHES (正在服用|服用中断|归档药物)，1 个药品", maxSteps: 15)
         selector.tap()
-        let group = app.buttons.matching(NSPredicate(
-            format: "label CONTAINS %@ AND label CONTAINS %@", "药品，1 个", "布洛芬"
-        )).firstMatch
-        try reveal(group, in: app, stage: "expand-medication-group",
-                   expected: "button label contains 药品，1 个 AND 布洛芬", maxSteps: 15)
-        if (group.value as? String) != "已展开" { group.tap() }
-        let medication = app.buttons.matching(NSPredicate(
-            format: "label CONTAINS %@ AND NOT (label CONTAINS %@)", "布洛芬", "药品，1 个"
-        )).firstMatch
+        let scope = app.descendants(matching: .any)["tab.medications"].firstMatch
+        // Native 466c55 evidence: the explicit group label/value belongs to an
+        // Other container; its actionable child Button has a different label.
+        let groups = scope.otherElements.matching(NSPredicate(
+            format: "label CONTAINS %@ AND label CONTAINS %@ AND (value == %@ OR value == %@)",
+            "药品，1 个", "布洛芬", "已折叠", "已展开"
+        ))
+        let group = groups.firstMatch
+        let toggles = group.buttons.matching(NSPredicate(format: "label CONTAINS %@", "布洛芬"))
+        let toggle = toggles.firstMatch
+        try reveal(toggle, in: app, stage: "expand-medication-group",
+                   expected: "single group container 药品，1 个/布洛芬 with actionable child button", maxSteps: 15)
+        try require(groups.count == 1 && toggles.count == 1, "Medication group/toggle must resolve uniquely")
+        let groupButtonLabel = toggle.label
+        if (group.value as? String) == "已折叠" { toggle.tap() }
+        let expanded = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "value == %@", "已展开"), object: group
+        )
+        let expandedInTime = XCTWaiter.wait(for: [expanded], timeout: 5) == .completed
+        if !expandedInTime {
+            navigationDiagnostic(in: app, stage: "confirm-group-expanded",
+                                 expected: "group value 已展开", phase: "exhausted")
+        }
+        try require(expandedInTime, "Medication group did not expose expanded state after its toggle")
+        // Exclude the observed group toggle's actual label, not the label carried
+        // by its parent container. The sole synthetic medication must be unique.
+        let medications = scope.buttons.matching(NSPredicate(
+            format: "label CONTAINS %@ AND label != %@", "布洛芬", groupButtonLabel
+        ))
+        let medication = medications.firstMatch
         try reveal(medication, in: app, stage: "open-medication-row",
-                   expected: "button label contains 布洛芬 AND excludes 药品，1 个", maxSteps: 15)
+                   expected: "unique 布洛芬 button distinct from the observed group toggle", maxSteps: 15)
+        try require(medications.count == 1, "Synthetic medication row must resolve uniquely")
         medication.tap()
         try require(detail(in: app).waitForExistence(timeout: 10), "Real MedicationDetailView did not open")
     }

@@ -368,7 +368,7 @@ class EvidenceTests(unittest.TestCase):
             native_calls.append(args)
             return Mock(returncode=0)
         with ExitStack() as stack:
-            stack.enter_context(patch.dict(runner.os.environ, {'RUNNER_TEMP': str(self.root)}))
+            stack.enter_context(patch.dict(runner.os.environ, {'RUNNER_TEMP': str(self.root), 'GITHUB_OUTPUT': str(self.root / 'outputs')}))
             stack.enter_context(patch.object(runner, 'trusted_event', return_value='a' * 40))
             stack.enter_context(patch.object(runner, 'synthetic_sources'))
             stack.enter_context(patch.object(runner, 'preflight'))
@@ -441,6 +441,151 @@ class EvidenceTests(unittest.TestCase):
             'STATIC xcresulttool summary --schema: {"type":"array"}',
             'STATIC xcresulttool tests --schema: {"type":"array"}',
         ])
+
+class PartialRunTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name).resolve()
+        self.output = self.root / 'outputs'
+        self.final = self.root / 'medcue-visual-evidence'
+        self.exports = []
+        self.native_count = 0
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def exercise(self, statuses, guard=None):
+        suites = {
+            'detail': (e.DETAIL_CLASS, list(e.DETAIL), 'MedicationAdherenceAppTests'),
+            'window': (e.WINDOW_CLASS, e.WINDOW, 'MedicationAdherenceAppUITests'),
+            'accessibility': (e.AX_CLASS, list(e.AX), 'MedicationAdherenceAppUITests'),
+        }
+        image_bytes = {}
+        handles = ('GITHUB_OUTPUT', 'GITHUB_ENV', 'GITHUB_PATH', 'GITHUB_STEP_SUMMARY', 'GITHUB_STATE')
+        def native(args, **kwargs):
+            self.assertTrue(all(handle not in kwargs['env'] for handle in handles))
+            result = statuses[self.native_count]
+            self.native_count += 1
+            return Mock(returncode=result)
+        def command(args):
+            if args == ['xcodebuild', '-version']:
+                return b'Xcode 26.6\nBuild version 17A1'
+            if args[:2] == ['xcrun', 'swiftc']:
+                return b''
+            if args[:4] == ['xcrun', 'xcresulttool', 'get', 'test-results']:
+                label = Path(args[args.index('--path') + 1]).stem
+                cls, methods, target = suites[label]
+                if args[4] == 'summary':
+                    value = dict(passedTests=len(methods), failedTests=0, skippedTests=0,
+                                 totalTestCount=len(methods), expectedFailures=0, result='Passed')
+                    if guard == 'identity': value['skippedTests'] = 1
+                else:
+                    cases = [{'nodeType': 'Test Case', 'nodeIdentifier': f'{cls}/{method}()', 'result': 'Passed'} for method in methods]
+                    value = {'testNodes': [{'nodeType': 'Unit test bundle' if label == 'detail' else 'UI test bundle',
+                        'name': target, 'children': [{'nodeType': 'Test Suite', 'name': cls, 'children': cases}]}]}
+                return json.dumps(value).encode()
+            if args[:3] == ['xcrun', 'xcresulttool', 'export']:
+                test_id = args[args.index('--test-id') + 1]
+                self.exports.append(test_id)
+                root = Path(args[args.index('--output-path') + 1])
+                root.mkdir()
+                inventory = []
+                for offset, (name, dimensions) in enumerate(e.EXPECTED[test_id].items()):
+                    dim = min(dimensions)
+                    if dim not in image_bytes: image_bytes[dim] = png(*dim)
+                    filename = f'{offset}.png'
+                    (root / filename).write_bytes(b'corrupt' if guard == 'png' else image_bytes[dim])
+                    inventory.append({'exportedFileName': filename,
+                        'suggestedHumanReadableName': f'{name}_0_00000000-0000-0000-0000-000000000000.png'})
+                (root / 'manifest.json').write_text(json.dumps([{'testIdentifier': test_id, 'attachments': inventory}]))
+                return b''
+            if Path(args[0]).name == 'sanitize':
+                Path(args[2]).write_bytes(Path(args[1]).read_bytes())
+                return b''
+            self.fail('Unexpected tool invocation')
+        with ExitStack() as stack:
+            stack.enter_context(patch.dict(runner.os.environ, {
+                'RUNNER_TEMP': str(self.root), **{handle: str(self.output) for handle in handles}}))
+            stack.enter_context(patch.object(runner, 'trusted_event', return_value='a' * 40))
+            stack.enter_context(patch.object(runner, 'synthetic_sources'))
+            stack.enter_context(patch.object(runner, 'preflight'))
+            stack.enter_context(patch.object(runner, 'destination', return_value=('00000000-0000-0000-0000-000000000000', '26.5')))
+            stack.enter_context(patch.object(runner, 'command', side_effect=command))
+            stack.enter_context(patch.object(runner.subprocess, 'run', side_effect=native))
+            stack.enter_context(patch.object(runner, 'public_repo', side_effect=e.InvalidEvidence('Repository must remain public') if guard == 'public' else None))
+            stack.enter_context(redirect_stdout(io.StringIO()))
+            return runner.run()
+
+    def test_ax_failure_publishes_only_24_validated_hosted_images_and_stays_failed(self):
+        self.assertEqual(self.exercise([0, 0, 65]), 65)
+        self.assertEqual(len(list(self.final.glob('*.png'))), 24)
+        self.assertEqual(len(self.exports), 3)
+        self.assertTrue(all(test.startswith(e.DETAIL_CLASS + '/') for test in self.exports))
+        report = json.loads((self.final / 'evidence-status.json').read_text())
+        self.assertFalse(report['required_all_passed'])
+        self.assertEqual(report['native_exit_status'], 65)
+        self.assertEqual(report['suites']['accessibility'], {'status': 'failed', 'verified_passed_tests': None, 'verified_skipped_tests': None})
+        self.assertEqual(report['suites']['detail']['verified_passed_tests'], 3)
+        self.assertTrue((self.final / 'README.txt').read_text().startswith('PARTIAL'))
+        self.assertEqual(self.output.read_text(), 'evidence_ready=false\nevidence_ready=true\n')
+        self.assertEqual(report['destination_scope'], 'A16_iPad_simulator')
+        self.assertEqual(report['ios_runtime'], '26.5')
+        self.assertNotIn('00000000-', json.dumps(report))
+
+    def test_window_failure_does_not_run_or_claim_ax(self):
+        self.assertEqual(self.exercise([0, 65]), 65)
+        self.assertEqual(self.native_count, 2)
+        report = json.loads((self.final / 'evidence-status.json').read_text())
+        self.assertEqual(report['suites']['accessibility']['status'], 'not_run')
+        self.assertIsNone(report['suites']['accessibility']['verified_passed_tests'])
+        self.assertEqual(report['published_png_count'], 24)
+
+    def test_detail_failure_publishes_nothing(self):
+        self.assertEqual(self.exercise([65]), 65)
+        self.assertEqual(self.native_count, 1)
+        self.assertFalse(self.final.exists())
+        self.assertEqual(self.exports, [])
+        self.assertEqual(self.output.read_text(), 'evidence_ready=false\n')
+
+    def test_zero_exit_without_verified_identity_never_publishes(self):
+        with self.assertRaises(e.InvalidEvidence): self.exercise([0, 0, 0], guard='identity')
+        self.assertEqual(self.native_count, 1)
+        self.assertEqual(self.exports, [])
+        self.assertFalse(self.final.exists())
+        self.assertEqual(self.output.read_text(), 'evidence_ready=false\n')
+
+    def test_partial_png_guard_failure_never_authorizes_upload(self):
+        with self.assertRaises(e.InvalidEvidence): self.exercise([0, 0, 65], guard='png')
+        self.assertFalse(self.final.exists())
+        self.assertEqual(self.output.read_text(), 'evidence_ready=false\n')
+
+    def test_final_public_guard_failure_never_authorizes_upload(self):
+        with self.assertRaises(e.InvalidEvidence): self.exercise([0, 0, 65], guard='public')
+        self.assertFalse(self.final.exists())
+        self.assertEqual(self.output.read_text(), 'evidence_ready=false\n')
+
+    def test_all_passed_requires_all_30_images(self):
+        self.assertEqual(self.exercise([0, 0, 0]), 0)
+        self.assertEqual(len(list(self.final.glob('*.png'))), 30)
+        report = json.loads((self.final / 'evidence-status.json').read_text())
+        self.assertTrue(report['required_all_passed'])
+        self.assertTrue(all(value['status'] == 'passed' for value in report['suites'].values()))
+        self.assertEqual(len(self.exports), 5)
+        self.assertEqual(self.output.read_text(), 'evidence_ready=false\nevidence_ready=true\n')
+
+    def test_stale_staging_blocks_before_native_and_resets_marker(self):
+        self.output.write_text('evidence_ready=true\n')
+        self.final.mkdir()
+        with self.assertRaisesRegex(e.InvalidEvidence, 'Stale staging'): self.exercise([0, 0, 0])
+        self.assertEqual(self.native_count, 0)
+        self.assertEqual(self.output.read_text().splitlines()[-1], 'evidence_ready=false')
+
+    def test_native_metadata_tools_cannot_write_actions_output_handles(self):
+        handles = ('GITHUB_OUTPUT', 'GITHUB_ENV', 'GITHUB_PATH', 'GITHUB_STEP_SUMMARY', 'GITHUB_STATE')
+        with patch.dict(e.os.environ, {handle: 'forbidden' for handle in handles}):
+            with patch.object(e.subprocess, 'run', return_value=Mock(returncode=0, stdout=b'{}')) as native:
+                e.command(['xcrun', 'xcresulttool', 'get', 'test-results', 'summary', '--schema'])
+        self.assertTrue(all(handle not in native.call_args.kwargs['env'] for handle in handles))
 
 if __name__ == '__main__':
     unittest.main()

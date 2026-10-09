@@ -38,9 +38,12 @@ jobs:
       - name: Verify evidence boundary tests
         run: python3 -m unittest discover -s tools/iphone-duo-evidence -p 'test_*.py' -v
       - name: Run exact native tests and sanitize synthetic screenshots
+        id: native
         run: python3 tools/iphone-duo-evidence/run.py
       - name: Upload only sanitized visual evidence
-        # Default success() is deliberate. Never publish on test/export failure.
+        # A failed required suite keeps this job red. Only the helper
+        # authorizes independently validated complete passing-suite images.
+        if: ${{ !cancelled() && steps.native.outputs.evidence_ready == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2; MIT
         with:
           name: adaptive-visual-evidence-${{ github.event.pull_request.head.sha }}-${{ github.run_id }}-${{ github.run_attempt }}

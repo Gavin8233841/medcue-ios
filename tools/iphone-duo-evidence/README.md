@@ -27,8 +27,9 @@ There is a 40-minute job limit and 15-minute limit per native test invocation.
   two `MedicationDetailAccessibilityUITests` allowlisted methods. Each must have
   its exact 3/3/2 passes, zero failures, zero skips and zero expected failures,
   with exact suite/bundle/test identities and no repetitions. A failing
-  xcodebuild status returns immediately unchanged. Missing AX coverage cannot
-  be replaced by successful hosted rendering.
+  xcodebuild status stops later suites and remains the final nonzero exit
+  status after any safe diagnostic export. Missing AX coverage cannot be
+  replaced by successful hosted rendering.
 - Hosted detail tests check mounted-list geometry, scroll traversal, trait
   transitions, render success and unchanged synthetic store state. They do not
   assert accessibility text/control semantics, column arrangement or RTL
@@ -42,7 +43,9 @@ There is a 40-minute job limit and 15-minute limit per native test invocation.
   actions, prove every stored field unchanged, or add RTL/long-text semantic
   coverage. Six explicit top-only screenshots provide visual samples; traversal
   and controls are verified through assertions, not those top images.
-- Only those 30 exact named synthetic PNGs are staged. Per-test exports are
+- Only complete passing-suite image sets are staged: 24 hosted PNGs when
+  later native execution fails, or all 30 exact named synthetic PNGs when
+  every suite passes. Per-test exports are
   routed to the matching validated hosted or actual-app result bundle. The
   export tool can emit automatic attachments into private temporary scratch;
   automatic screenshots/diagnostics are ignored and never published. Unknown
@@ -71,9 +74,45 @@ There is a 40-minute job limit and 15-minute limit per native test invocation.
   re-encodes to a new PNG. The output's ancillary chunks are stripped and its
   pixels validated again. No metadata is copied from the original source.
 - Raw input screenshots and final staged evidence each have a 20,000,000-byte
-  total ceiling. Only 30 fixed-name PNGs and a small README are uploaded, with
+  total ceiling. Only 24 or 30 fixed-name PNGs, a small README, and reconstructed
+  `evidence-status.json` are uploaded, with
   one-day retention. No xcresult, log, database, manifest, device identifier,
   automatic screenshot or image-in-log fallback leaves the ephemeral runner.
+
+## Partial diagnostics never replace native acceptance
+
+The fixed execution order remains hosted detail, window-state UI, then actual-app
+accessibility UI. Every exit-zero suite must immediately pass the exact existing
+summary/tree identity checks (including zero skips) before its images are eligible.
+Execution stops at the first native nonzero exit; later suites are `not_run`.
+A failed suite is never exported. In this order only complete hosted evidence
+(24 images) or complete combined evidence (30 images) can exist; no arbitrary
+partial image inventory or AX-only fallback is accepted.
+
+The machine-readable report contains only reconstructed repository/SHA, fixed
+A16 simulator scope, validated iOS runtime, native exit code, per-suite
+`passed`/`failed`/`not_run`, verified pass/skip counts (null for unverified suites),
+PNG count and `required_all_passed`. A partial README starts with `PARTIAL` and
+states that required acceptance failed. This report describes these three A16
+suites only, never ordinary iPhone unit CI or the full-native gate.
+
+A native failure may still provide previously validated synthetic images for
+human visual diagnosis. Any schema, identity, export, pixel, size, staging or
+public-repository guard failure aborts all publication. Image validation and
+privacy controls are identical for partial and complete evidence. No artifact
+is made when the first suite fails. A timeout/tool exception also aborts
+publication rather than guessing a completed subset.
+
+The helper initializes the Actions output `evidence_ready=false` and rejects
+stale final staging before native execution. Child processes do not receive
+Actions output/environment command-file handles. Only after exact final
+inventory, total-size and live public-repository checks, and atomic rename into
+fresh final staging, does the helper set `evidence_ready=true`. The upload step
+requires this output and a non-cancelled job. It does not use `continue-on-error`;
+a failed native step and the job remain failed even when diagnostic upload
+succeeds. No output signal is inferred from filesystem existence or native exit
+zero. The original native failure code is retained after a successful partial
+export, and PR acceptance still requires every required suite and full gate.
 
 ## Native schema validation is intentionally conservative
 

@@ -70,9 +70,15 @@ def decode_json(data):
     return json.loads(data, object_pairs_hook=unique_object)
 
 
+def subprocess_environment():
+    # Child tools may never authorize later Actions steps or mutate their env.
+    handles = {'GITHUB_OUTPUT', 'GITHUB_ENV', 'GITHUB_PATH', 'GITHUB_STEP_SUMMARY', 'GITHUB_STATE'}
+    return {key: value for key, value in os.environ.items() if key not in handles}
+
+
 def command(args):
     # Native tool diagnostics can contain device identifiers; never echo them.
-    result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+    result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120, env=subprocess_environment())
     require(result.returncode == 0, 'Native evidence command failed; no export')
     require(len(result.stdout) <= 2_000_000, 'Oversized native metadata')
     return result.stdout
