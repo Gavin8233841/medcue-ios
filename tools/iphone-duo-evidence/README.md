@@ -54,6 +54,10 @@ output format inspection in its
 [Xcode 16.3 release notes](https://developer.apple.com/documentation/xcode-release-notes/xcode-16_3-release-notes).
 The runner reads actual command help and JSON schema before using the modern
 `get test-results summary/tests` and per-test `export attachments` commands.
+On schema rejection, a bounded diagnostic (under 64KB combined) reports only
+SDK-provided static schema JSON obtained with the fixed `--schema` commands,
+without any result-bundle path. Actual result metadata, manifests and logs are
+never sent through this diagnostic. It does not accept or guess a new schema.
 The helper supports one explicit tree/manifest contract; unknown formats,
 unexpected test nodes, unidentified explicit images, missing fields, renamed
 fields or export naming changes stop without publishing. It does not infer a

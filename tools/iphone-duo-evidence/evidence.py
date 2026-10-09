@@ -68,16 +68,40 @@ def preflight():
                         (['export', 'attachments'], ['--path', '--output-path', '--test-id'])]:
         help_text = command(['xcrun', 'xcresulttool', 'help', *verb]).decode('utf-8')
         require(all(flag in help_text for flag in flags), 'Unsupported xcresulttool command contract')
-    for kind, properties in [('summary', {'passedTests', 'failedTests', 'skippedTests', 'totalTestCount'}),
-                             ('tests', {'testNodes'})]:
-        schema = decode_json(command(['xcrun', 'xcresulttool', 'get', 'test-results', kind, '--schema']))
-        require(isinstance(schema, dict) and schema.get('type') == 'object', 'Unknown result schema root')
-        props = schema.get('properties')
-        require(isinstance(props, dict) and properties <= props.keys(), 'Unknown result schema fields')
-        if kind == 'summary':
-            require(all(props[key].get('type') == 'integer' for key in properties), 'Unknown counter schema')
-        else:
-            require(props['testNodes'].get('type') == 'array', 'Unknown test tree schema')
+    # This helper has no path/result input. Diagnostics can only originate from
+    # the SDK's fixed --schema commands, never from a result bundle or manifest.
+    inspect_static_schemas()
+
+
+def inspect_static_schemas():
+    schemas = {
+        kind: decode_json(command(['xcrun', 'xcresulttool', 'get', 'test-results', kind, '--schema']))
+        for kind in ('summary', 'tests')
+    }
+    try:
+        for kind, properties in [('summary', {'passedTests', 'failedTests', 'skippedTests', 'totalTestCount'}),
+                                 ('tests', {'testNodes'})]:
+            schema = schemas[kind]
+            require(isinstance(schema, dict) and schema.get('type') == 'object', 'Unknown result schema root')
+            props = schema.get('properties')
+            require(isinstance(props, dict) and properties <= props.keys(), 'Unknown result schema fields')
+            if kind == 'summary':
+                require(all(props[key].get('type') == 'integer' for key in properties), 'Unknown counter schema')
+            else:
+                require(props['testNodes'].get('type') == 'array', 'Unknown test tree schema')
+    except InvalidEvidence:
+        # ASCII JSON escapes line breaks/control characters. A 60KB combined
+        # payload budget keeps all framing comfortably below 64KB. Unknown
+        # schema remains a failure: this is observation, not a parser fallback.
+        budget = 60_000
+        for kind, schema in schemas.items():
+            payload = json.dumps(schema, ensure_ascii=True, separators=(',', ':'), sort_keys=True)
+            shown = payload[:budget]
+            budget -= len(shown)
+            print(f'STATIC xcresulttool {kind} --schema: {shown}', flush=True)
+            if len(shown) < len(payload):
+                print('STATIC schema diagnostic truncated at combined 60KB limit.', flush=True)
+        raise
 
 
 def validate_results(summary, tree, class_name, methods, bundle):

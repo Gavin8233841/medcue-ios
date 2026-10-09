@@ -1,5 +1,7 @@
 import copy
 import json
+import io
+from contextlib import redirect_stdout
 from pathlib import Path
 import struct
 import tempfile
@@ -169,13 +171,16 @@ class EvidenceTests(unittest.TestCase):
 
     def test_failure_diagnostics_reconstruct_only_allowlisted_fields(self):
         path = self.root / 'failure.log'
-        path.write_text('/Users/private/secret/MedicationDetailAdaptiveLayoutTests.swift:359: error: '
+        detail_source = self.root / 'private' / 'MedicationDetailAdaptiveLayoutTests.swift'
+        view_source = self.root / 'MedicationDetailView.swift'
+        self.assertTrue(detail_source.is_absolute())
+        path.write_text(f'{detail_source}:359: error: '
                         'MedicationDetailAdaptiveLayoutTests.testAX5UsesOneColumnEvenInRegularWideContainer '
                         'failed: visibleAccessibilityDidNotStabilize token=SECRET UUID=DEADBEEF-DEAD-BEEF-DEAD-BEEFDEADBEEF device=iPad Secret\n'
                         'label="patient health SECRET" polls=11, rawAX=0, visibleAX=0, sceneAttached=true\n'
-                        '/Users/private/MedicationDetailView.swift:42:4: error: cannot find SECRET in scope\n')
+                        f'{view_source}:42:4: error: cannot find SECRET in scope\n')
         result = '\n'.join(e.failure_diagnostics(path))
-        for forbidden in ('SECRET', 'private', '/Users', 'patient', 'DEADBEEF', 'iPad'):
+        for forbidden in ('SECRET', 'private', str(self.root), str(detail_source), str(view_source), 'patient', 'DEADBEEF', 'iPad'):
             self.assertNotIn(forbidden, result)
         for required in ('MedicationDetailAdaptiveLayoutTests.swift:359', 'visibleAccessibilityDidNotStabilize',
                          'polls=11', 'rawAX=0', 'sceneAttached=true', 'Compiler category: cannot find'):
@@ -185,10 +190,42 @@ class EvidenceTests(unittest.TestCase):
         path = self.root / 'failure.log'
         path.write_text('PRIVATE DATA ' * 20000)
         self.assertEqual(e.failure_diagnostics(path), ['No allowlisted failure detail found; raw diagnostics remain private.'])
-        path.write_text('\n'.join(f'/tmp/MedicationDetailView.swift:{i}: error: SECRET' for i in range(100)))
+        path.write_text('\n'.join(f'{self.root / "MedicationDetailView.swift"}:{i}: error: SECRET' for i in range(100)))
         result = e.failure_diagnostics(path)
         self.assertEqual(len(result), 20)
         self.assertTrue(all(len(line) <= 400 and 'SECRET' not in line for line in result))
+
+    def test_schema_diagnostics_only_invoke_static_no_bundle_commands(self):
+        calls = []
+        def output(args):
+            calls.append(args)
+            self.assertEqual(args[:4], ['xcrun', 'xcresulttool', 'get', 'test-results'])
+            self.assertIn(args[4], ('summary', 'tests'))
+            self.assertEqual(args[5:], ['--schema'])
+            if '--schema' not in args or '--path' in args:
+                return b'{"privateResult":"DO_NOT_PRINT_RUNTIME_CONTENT"}'
+            return json.dumps({'$ref': '#/definitions/StaticSDKType', 'definitions': {'StaticSDKType': {'type': 'object'}}}).encode()
+        captured = io.StringIO()
+        with patch.object(e, 'command', side_effect=output), redirect_stdout(captured):
+            with self.assertRaisesRegex(e.InvalidEvidence, 'Unknown result schema root'):
+                e.inspect_static_schemas()
+        self.assertEqual(len(calls), 2)
+        text = captured.getvalue()
+        self.assertIn('StaticSDKType', text)
+        self.assertIn('summary --schema', text)
+        self.assertIn('tests --schema', text)
+        self.assertNotIn('DO_NOT_PRINT_RUNTIME_CONTENT', text)
+
+    def test_schema_diagnostic_bound_and_control_character_escaping(self):
+        captured = io.StringIO()
+        fixture = {'$ref': 'unknown', 'staticDescription': '\n::warning::' + 'x' * 100_000}
+        with patch.object(e, 'command', return_value=json.dumps(fixture).encode()), redirect_stdout(captured):
+            with self.assertRaises(e.InvalidEvidence):
+                e.inspect_static_schemas()
+        text = captured.getvalue()
+        self.assertLess(len(text.encode()), 64_000)
+        self.assertNotIn('\n::warning::', text)
+        self.assertIn('truncated', text)
 
     def test_duplicate_json_keys_rejected(self):
         with self.assertRaises(e.InvalidEvidence):
@@ -232,9 +269,14 @@ class EvidenceTests(unittest.TestCase):
             if 'help' in args:
                 return b'--path --schema --test-id --output-path'
             return b'{"type":"array"}'
-        with patch.object(e, 'command', side_effect=output):
+        captured = io.StringIO()
+        with patch.object(e, 'command', side_effect=output), redirect_stdout(captured):
             with self.assertRaises(e.InvalidEvidence):
                 e.preflight()
+        self.assertEqual(captured.getvalue().splitlines(), [
+            'STATIC xcresulttool summary --schema: {"type":"array"}',
+            'STATIC xcresulttool tests --schema: {"type":"array"}',
+        ])
 
 if __name__ == '__main__':
     unittest.main()
