@@ -61,9 +61,7 @@ final class MedicationDetailAdaptiveLayoutTests: XCTestCase {
     private func inspect(_ harness: DetailLayoutHarness, name: String) throws {
         let scroll = try harness.waitForMountedList()
         _ = try harness.waitForStableGeometry(in: scroll)
-        scroll.setContentOffset(CGPoint(x: -scroll.adjustedContentInset.left,
-                                        y: -scroll.adjustedContentInset.top), animated: false)
-        let initial = try harness.waitForStableGeometry(in: scroll)
+        let initial = try harness.waitForStableGeometry(in: scroll, seeking: .top)
         XCTAssertEqual(initial.offset.y, initial.top, accuracy: 1, "\(name): must start at List top")
         XCTAssertGreaterThan(initial.bottom - initial.top, 1,
                              "\(name): fixture must exercise vertical scrolling")
@@ -81,9 +79,12 @@ final class MedicationDetailAdaptiveLayoutTests: XCTestCase {
                                      "\(name): List must not require horizontal scrolling")
             XCTAssertEqual(geometry.offset.x, -geometry.insets.left, accuracy: 1,
                            "\(name): horizontal offset must stay at its leading boundary")
-            if !capturedMiddle && geometry.offset.y >= geometry.top + (geometry.bottom - geometry.top) / 2 {
-                XCTAssertLessThan(geometry.offset.y, geometry.bottom,
-                                  "\(name): middle sample must be distinct from bottom")
+            // UIScrollView quantizes offsets to device pixels. Use the same 1pt
+            // position tolerance as top/bottom/seek, while requiring an interior sample.
+            if !capturedMiddle && geometry.offset.y >= geometry.midpoint - 1 {
+                guard geometry.offset.y > geometry.top && geometry.offset.y < geometry.bottom else {
+                    throw harness.traversalFailure("\(name): middle sample must be strictly interior", scroll: scroll)
+                }
                 attach(harness, name: name + "-middle")
                 capturedMiddle = true
             }
@@ -95,27 +96,34 @@ final class MedicationDetailAdaptiveLayoutTests: XCTestCase {
             var target = min(previous.bottom, previous.offset.y + previous.viewport.height * 0.55)
             // Stop exactly at the current range midpoint before crossing it, even when
             // the entire range is shorter than one step. Middle must not mean bottom.
-            let midpoint = previous.top + (previous.bottom - previous.top) / 2
+            let midpoint = previous.midpoint
             if !capturedMiddle && previous.offset.y < midpoint {
                 target = min(target, midpoint)
             }
-            scroll.setContentOffset(CGPoint(x: -previous.insets.left, y: target), animated: false)
-            geometry = try harness.waitForStableGeometry(in: scroll)
-            XCTAssertEqual(geometry.offset.y, target, accuracy: 1,
-                           "\(name): requested scroll position must actually be reached")
-            XCTAssertGreaterThan(geometry.offset.y, previous.offset.y,
-                                 "\(name): scrolling must make forward progress")
-            XCTAssertLessThanOrEqual(geometry.offset.y - previous.offset.y, previous.viewport.height + 1,
-                                     "\(name): traversal must not leave a gap between viewports")
+            let destination: DetailLayoutHarness.ScrollPosition
+            if !capturedMiddle && target == midpoint {
+                destination = .middle
+            } else if target == previous.bottom {
+                destination = .bottom
+            } else {
+                destination = .offset(target)
+            }
+            geometry = try harness.waitForStableGeometry(in: scroll, seeking: destination)
+            guard geometry.offset.y > previous.offset.y else {
+                throw harness.traversalFailure("\(name): no forward progress from \(previous.offset.y)", scroll: scroll)
+            }
+            guard geometry.offset.y - previous.offset.y <= previous.viewport.height + 1 else {
+                throw harness.traversalFailure("\(name): viewport gap after \(previous.offset.y), previous height=\(previous.viewport.height)", scroll: scroll)
+            }
         }
-        XCTAssertTrue(reachedEnd, "\(name): failed to traverse the full real List scroll range")
-        XCTAssertTrue(capturedMiddle, "\(name): no middle-range screenshot was captured")
+        guard reachedEnd && capturedMiddle else {
+            throw harness.traversalFailure("\(name): incomplete traversal; reachedEnd=\(reachedEnd), capturedMiddle=\(capturedMiddle)", scroll: scroll)
+        }
         XCTAssertEqual(geometry.offset.y, geometry.bottom, accuracy: 1,
                        "\(name): final viewport must reach List bottom")
         attach(harness, name: name + "-bottom")
         // Explicit return to top also checks that the same mounted List remains scrollable.
-        scroll.setContentOffset(CGPoint(x: -geometry.insets.left, y: geometry.top), animated: false)
-        let restored = try harness.waitForStableGeometry(in: scroll)
+        let restored = try harness.waitForStableGeometry(in: scroll, seeking: .top)
         XCTAssertEqual(restored.offset.y, restored.top, accuracy: 1,
                        "\(name): List must return to its top boundary")
         try harness.assertFixtureUnchanged()
@@ -270,6 +278,7 @@ private final class DetailLayoutHarness {
 
         var top: CGFloat { -insets.top }
         var bottom: CGFloat { max(top, size.height - bounds.height + insets.bottom) }
+        var midpoint: CGFloat { top + (bottom - top) / 2 }
         var scalars: [CGFloat] {
             [bounds.minX, bounds.minY, bounds.width, bounds.height, size.width, size.height,
              offset.x, offset.y, insets.top, insets.left, insets.bottom, insets.right,
@@ -303,16 +312,51 @@ private final class DetailLayoutHarness {
             .intersection(window.bounds)
     }
 
-    func waitForStableGeometry(in scroll: UIScrollView) throws -> ListGeometry {
+    enum ScrollPosition {
+        case top, middle, bottom
+        case offset(CGFloat)
+
+        func target(in geometry: ListGeometry) -> CGFloat {
+            switch self {
+            case .top: geometry.top
+            case .middle: geometry.midpoint
+            case .bottom: geometry.bottom
+            case .offset(let value): value
+            }
+        }
+    }
+
+    func waitForStableGeometry(in scroll: UIScrollView, seeking position: ScrollPosition? = nil) throws -> ListGeometry {
+        // One deadline covers layout and target reacquisition together. Lazy row
+        // measurement may rebase an initially requested offset; never accept a stable
+        // but wrong position or broaden tolerance to hide that correction.
         let deadline = Date(timeIntervalSinceNow: 3)
         var previous: ListGeometry?
         var stableSamples = 0
+        var corrections: [String] = []
         repeat {
             settle()
             let current = ListGeometry(bounds: scroll.bounds, size: scroll.contentSize,
                                        offset: scroll.contentOffset, insets: scroll.adjustedContentInset,
                                        viewport: contentViewport(of: scroll))
             if current.isValid && scroll.window === window && !scroll.isHidden && scroll.alpha > 0 {
+                if let position {
+                    // Named boundaries track measured extents. Ordinary steps keep
+                    // their original coordinate and fail if it becomes unreachable.
+                    let target = position.target(in: current)
+                    guard target.isFinite && target >= current.top - 1 && target <= current.bottom + 1 else {
+                        throw traversalFailure("Invalid seek target=\(target), top=\(current.top), bottom=\(current.bottom)", scroll: scroll)
+                    }
+                    if abs(current.offset.y - target) > 1 || abs(current.offset.x + current.insets.left) > 1 {
+                        if corrections.count < 8 {
+                            corrections.append("target=\(target), actual=\(current.offset), size=\(current.size), insets=\(current.insets)")
+                        }
+                        scroll.setContentOffset(CGPoint(x: -current.insets.left, y: target), animated: false)
+                        stableSamples = 0
+                        previous = nil
+                        continue
+                    }
+                }
                 stableSamples = previous.map { current.isClose(to: $0) } == true ? stableSamples + 1 : 1
                 if stableSamples >= 3 { return current }
                 previous = current
@@ -321,7 +365,12 @@ private final class DetailLayoutHarness {
                 previous = nil
             }
         } while Date() < deadline
-        throw HarnessFailure.listGeometryDidNotStabilize(diagnostics(scroll: scroll))
+        let seekDetails = "seek=\(String(describing: position)), stableSamples=\(stableSamples), corrections=\(corrections)"
+        throw HarnessFailure.listGeometryDidNotStabilize(seekDetails + "\n" + diagnostics(scroll: scroll))
+    }
+
+    func traversalFailure(_ message: String, scroll: UIScrollView) -> Error {
+        HarnessFailure.listTraversalFailed(message + "\n" + diagnostics(scroll: scroll))
     }
 
     private func diagnostics(scroll: UIScrollView?) -> String {
@@ -347,12 +396,14 @@ private final class DetailLayoutHarness {
         case noForegroundWindowScene(String)
         case listDidNotMount(String)
         case listGeometryDidNotStabilize(String)
+        case listTraversalFailed(String)
 
         var description: String {
             switch self {
             case .noForegroundWindowScene(let details): "noForegroundWindowScene: " + details
             case .listDidNotMount(let details): "listDidNotMount: " + details
             case .listGeometryDidNotStabilize(let details): "listGeometryDidNotStabilize: " + details
+            case .listTraversalFailed(let details): "listTraversalFailed: " + details
             }
         }
 

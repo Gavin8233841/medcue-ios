@@ -38,9 +38,9 @@ def trusted_event():
 
 # Reviewed synthetic source: a test-source change requires re-review and new hashes.
 SOURCE_HASHES = {
-    'ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/MedicationDetailAdaptiveLayoutTests.swift': 'd3ad82df4c9486e2cd4de15304b9f5ab29d4acdebdaf4c6778dc70d4adead0a2',
+    'ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/MedicationDetailAdaptiveLayoutTests.swift': '6ca65ac4c148e461c69a112c7ae8b7718546702b0f6792b8e13373f651eaf8ff',
     'ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/AdaptiveWindowStateUITests.swift': '114b4fe068a838395090932a68a563ca24cf4b4a5ae3b4067636564926beb9ed',
-    'ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/MedicationDetailAccessibilityUITests.swift': 'ca885b70c979a8a293606ec5b0e88bd93f4e0c08b8ed7aa95eea3f82ed7f1c56',
+    'ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/MedicationDetailAccessibilityUITests.swift': '6f7429ed6f1b50e54bbb9263e8c4ad4d21e0f873eafaaa958ee774819ff6e6a6',
 }
 
 def synthetic_sources():

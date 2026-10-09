@@ -71,17 +71,20 @@ final class MedicationDetailAccessibilityUITests: XCTestCase {
         let selector = app.buttons.matching(NSPredicate(
             format: "label MATCHES %@", "(正在服用|服用中断|归档药物)，1 个药品"
         )).firstMatch
-        try reveal(selector, in: app, maxSteps: 15)
+        try reveal(selector, in: app, stage: "nonempty-lifecycle-selector",
+                   expected: "button label MATCHES (正在服用|服用中断|归档药物)，1 个药品", maxSteps: 15)
         selector.tap()
         let group = app.buttons.matching(NSPredicate(
             format: "label CONTAINS %@ AND label CONTAINS %@", "药品，1 个", "布洛芬"
         )).firstMatch
-        try reveal(group, in: app, maxSteps: 15)
+        try reveal(group, in: app, stage: "expand-medication-group",
+                   expected: "button label contains 药品，1 个 AND 布洛芬", maxSteps: 15)
         if (group.value as? String) != "已展开" { group.tap() }
         let medication = app.buttons.matching(NSPredicate(
             format: "label CONTAINS %@ AND NOT (label CONTAINS %@)", "布洛芬", "药品，1 个"
         )).firstMatch
-        try reveal(medication, in: app, maxSteps: 15)
+        try reveal(medication, in: app, stage: "open-medication-row",
+                   expected: "button label contains 布洛芬 AND excludes 药品，1 个", maxSteps: 15)
         medication.tap()
         try require(detail(in: app).waitForExistence(timeout: 10), "Real MedicationDetailView did not open")
     }
@@ -217,12 +220,55 @@ final class MedicationDetailAccessibilityUITests: XCTestCase {
         return frame
     }
 
-    private func reveal(_ element: XCUIElement, in app: XCUIApplication, maxSteps: Int) throws {
-        for _ in 0..<maxSteps {
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication,
+                        stage: String, expected: String, maxSteps: Int) throws {
+        for step in 0..<maxSteps {
             if element.exists && element.isHittable { return }
+            if step == 0 { navigationDiagnostic(in: app, stage: stage, expected: expected, phase: "before-scroll") }
             app.swipeUp(velocity: .slow)
         }
-        try require(element.exists && element.isHittable, "Could not reach navigation element: \(element)")
+        if element.exists && element.isHittable { return }
+        navigationDiagnostic(in: app, stage: stage, expected: expected, phase: "exhausted")
+        try require(false, "Navigation stage \(stage) failed after \(maxSteps) scrolls; expected \(expected)")
+    }
+
+    private func navigationDiagnostic(in app: XCUIApplication, stage: String,
+                                      expected: String, phase: String) {
+        // This helper is reached only after the synthetic session's read-only
+        // store check and real medication-tab navigation succeeded. Restrict the
+        // snapshot to that tab subtree: never dump another window or OS hierarchy.
+        let scope = app.descendants(matching: .any)["tab.medications"].firstMatch
+        guard scope.exists else {
+            print("DetailNavigation stage=\(stage) phase=\(phase) expected=\(expected); medication-tab-subtree absent")
+            return
+        }
+        do {
+            let snapshot = try scope.snapshot()
+            let nodes = descendants(snapshot).filter {
+                !$0.label.isEmpty || ($0.value as? String)?.isEmpty == false
+                    || $0.elementType == .button || $0.elementType == .staticText
+            }.sorted { diagnosticPriority($0) > diagnosticPriority($1) }
+            print("DetailNavigation stage=\(stage) phase=\(phase) expected=\(expected); subtreeNodes=\(nodes.count), sampled=\(min(nodes.count, 20))")
+            for (index, node) in nodes.prefix(20).enumerated() {
+                func bounded(_ value: String) -> String {
+                    String(value.prefix(120)).replacingOccurrences(of: "\n", with: " ")
+                }
+                let value = (node.value as? String).map(bounded) ?? ""
+                print("DetailNavigation[\(index)] type=\(node.elementType.rawValue) label=\(bounded(node.label).debugDescription) identifier=\(bounded(node.identifier).debugDescription) value=\(value.debugDescription) enabled=\(node.isEnabled) finiteFrame=\(finite(node.frame)) frame=\(node.frame)")
+            }
+        } catch {
+            // Diagnostics are not evidence of success; reveal still fails closed.
+            print("DetailNavigation stage=\(stage) phase=\(phase); scoped snapshot unavailable")
+        }
+    }
+
+    private func diagnosticPriority(_ node: any XCUIElementSnapshot) -> Int {
+        // Put the precise missing group's evidence first within the 20-node cap.
+        if let value = node.value as? String, value == "已折叠" || value == "已展开" { return 4 }
+        if node.label.contains("布洛芬") { return 3 }
+        if node.elementType == .button { return 2 }
+        if node.elementType == .staticText { return 1 }
+        return 0
     }
 
     private func scroll(_ list: XCUIElement, upward: Bool) {
