@@ -1,0 +1,426 @@
+{
+  "repository": "Gavin8233841/medcue-ios",
+  "checked_at_utc": "2026-10-09T02:21:35.670Z",
+  "main_sha": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+  "open_pr_count": 18,
+  "open_prs": [
+    {
+      "number": 160,
+      "title": "feat(health): add bounded SwiftData window adapter (#159)",
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/160",
+      "head_sha": "5305d446c144194ec4e84390ab1cafa5566b8129",
+      "base_sha": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "head_branch": "codex/159-health-window-adapter",
+      "paths": [
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj/project.pbxproj",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/HealthMedicationWindowAdapter.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/HealthMedicationWindowAdapterTests.swift",
+        "swift-core/Sources/MedicationAdherenceCore/HealthMedicationWindowReview.swift",
+        "swift-core/Tests/MedicationAdherenceCoreTests/HealthMedicationWindowReviewTests.swift"
+      ]
+    },
+    {
+      "number": 158,
+      "title": "feat(core): 按明确时间窗投影原始用药记录（#157）",
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/158",
+      "head_sha": "f66232f8d983ebb53dcd8cdeefaab8abf930746e",
+      "base_sha": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "head_branch": "codex/157-health-medication-window",
+      "paths": [
+        "swift-core/Sources/MedicationAdherenceCore/HealthMedicationWindowReview.swift",
+        "swift-core/Tests/MedicationAdherenceCoreTests/HealthMedicationWindowReviewTests.swift"
+      ]
+    },
+    {
+      "number": 156,
+      "title": "docs: 复诊导出契约与最小原生接力验收",
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/156",
+      "head_sha": "62059f1a66cc08fe91a03bc01f6064389d1b4ea9",
+      "base_sha": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "head_branch": "docs/visit-export-contract-20261005",
+      "paths": [
+        "docs/visit-export-contract-20261005/DIRECTORY_SHA256.txt",
+        "docs/visit-export-contract-20261005/MANIFEST.sha256",
+        "docs/visit-export-contract-20261005/NATIVE_ACCEPTANCE.md",
+        "docs/visit-export-contract-20261005/README.md",
+        "docs/visit-export-contract-20261005/checks/check_contract.py",
+        "docs/visit-export-contract-20261005/evidence/run-receipt.json",
+        "docs/visit-export-contract-20261005/evidence/source-manifest.json",
+        "docs/visit-export-contract-20261005/fixtures/00_medications.json",
+        "docs/visit-export-contract-20261005/fixtures/04_medications.json",
+        "docs/visit-export-contract-20261005/fixtures/05_medications.json",
+        "docs/visit-export-contract-20261005/fixtures/06_medications.json",
+        "docs/visit-export-contract-20261005/fixtures/correction_after.json",
+        "docs/visit-export-contract-20261005/fixtures/correction_before.json",
+        "docs/visit-export-contract-20261005/fixtures/event_only_scope.json",
+        "docs/visit-export-contract-20261005/fixtures/selected_end_boundary.json"
+      ]
+    },
+    {
+      "number": 154,
+      "title": "docs: 决赛范围与待办收口评估",
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/154",
+      "head_sha": "6731df9bfe81caa5fdfd9e598c430eaf18903e69",
+      "base_sha": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "head_branch": "docs/finals-scope-20261005",
+      "paths": [
+        "docs/FINALS_SCOPE_REVIEW_20261005.md"
+      ]
+    },
+    {
+      "number": 150,
+      "title": "fix: preserve full selected days in visit-summary exports",
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/150",
+      "head_sha": "683c54c4a808560b4b7c0350c9e1b1b9e25a6893",
+      "base_sha": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "head_branch": "codex/149-visit-summary-day-boundary",
+      "paths": [
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/VisitSummaryDataPipeline.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/VisitSummarySnapshotRevision.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/VisitSummaryPDFViews.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/VisitSummaryTextBuilder.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/VisitSummaryView.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/VisitSummaryDataPipelineTests.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/VisitSummaryDateRangeTests.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/VisitSummaryPDFLifecycleTests.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/VisitSummarySnapshotRevisionTests.swift"
+      ]
+    },
+    {
+      "number": 148,
+      "title": "fix(stock): recognize existing dose unit aliases",
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/148",
+      "head_sha": "77452f5882fa2b111b9e2fb04d48d857db9797fc",
+      "base_sha": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "head_branch": "codex/147-stock-unit-aliases",
+      "paths": [
+        "swift-core/Sources/MedicationAdherenceCore/MedicationStock.swift",
+        "swift-core/Tests/MedicationAdherenceCoreTests/MedicationStockTests.swift"
+      ]
+    },
+    {
+      "number": 146,
+      "title": "fix(import): prefer complete strength labels",
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/146",
+      "head_sha": "858f8a277415daa5ea373ea43c9bace0f79ac8d6",
+      "base_sha": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "head_branch": "codex/145-import-strength-label",
+      "paths": [
+        "swift-core/Sources/MedicationAdherenceCore/MedicationImportReview.swift",
+        "swift-core/Tests/MedicationAdherenceCoreTests/MedicationImportReviewTests.swift"
+      ]
+    },
+    {
+      "number": 144,
+      "title": "fix: unlock plan saving after permission-primer cancellation",
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/144",
+      "head_sha": "b07a21a08c14b9b25dd2e3adc2dd62b90b21cda3",
+      "base_sha": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "head_branch": "codex/143-plan-permission-cancel",
+      "paths": [
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/MedicationPlanEditorView.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/SharedViews.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/PlanPermissionPrimerUITests.swift"
+      ]
+    },
+    {
+      "number": 142,
+      "title": "refactor(ai): split local reply cleanup for portable compilation",
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/142",
+      "head_sha": "18cce1ff0b1134bc06ad51af79093b362ca392c7",
+      "base_sha": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "head_branch": "codex/141-local-reply-typecheck",
+      "paths": [
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/LocalMedicalResponsePolicy.swift"
+      ]
+    },
+    {
+      "number": 140,
+      "title": "fix(ai): preserve Unicode indices in local reply parsing",
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/140",
+      "head_sha": "d62501be2d6282290aec06e54edd8db4126d1719",
+      "base_sha": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "head_branch": "codex/139-unicode-parser-indices",
+      "paths": [
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/LocalLLMStreamParser.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/LocalLLMStreamParserTests.swift"
+      ]
+    },
+    {
+      "number": 138,
+      "title": "feat: add truthful post-commit Today haptics",
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/138",
+      "head_sha": "96ec3bc80a30f35507f7489e6d52c0ecc7f34cf9",
+      "base_sha": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "head_branch": "codex/137-today-action-haptics",
+      "paths": [
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayDoseInteractionState.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayView.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/TodayDoseFeedbackTests.swift"
+      ]
+    },
+    {
+      "number": 136,
+      "title": "HealthKit 本地回顾与证据摘要链路（#135）",
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/136",
+      "head_sha": "85f7cd630d9b15267a10b7d7a622f47e028d30ac",
+      "base_sha": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "head_branch": "codex/135-healthkit-evidence-review",
+      "paths": [
+        "README.md",
+        "README.zh-CN.md",
+        "docs/HEALTH_EVIDENCE_REVIEW.md",
+        "docs/PROJECT_STATUS.md",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Models/StoredModels.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/AIConsentRevocationCommand.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/AIConversationPersistenceCommand.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/AIConversationSendPlanner.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/CloudBaseMedicalAIClient.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/HealthKitService.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/LocalMedicalAIClient.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/MedicalAIContextBuilder.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/AIAssistantRuntimeViews.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/AIAssistantView.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/HealthPrivacySettingsViews.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/SettingsView.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/HealthEvidenceIntegrationTests.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/HealthReviewFixtureBoundaryTests.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/HealthEvidenceReviewUITests.swift",
+        "swift-core/Sources/MedicationAdherenceCore/HealthEvidence.swift",
+        "swift-core/Sources/MedicationAdherenceCore/MedicalAIModels.swift",
+        "swift-core/Sources/MedicationAdherenceCore/MedicalAIPromptBuilder.swift",
+        "swift-core/Tests/MedicationAdherenceCoreTests/HealthEvidenceTests.swift"
+      ]
+    },
+    {
+      "number": 132,
+      "title": "Block colloquial dose multiplier advice at AI response boundary",
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/132",
+      "head_sha": "727ba4377321eb83edeb4302516084fde9171638",
+      "base_sha": "85e8d81b47d1e79faaa22b16308e1c85d6d66456",
+      "head_branch": "codex/9-dose-phrase-boundary",
+      "paths": [
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/MedicalAIRequestOrchestratorTests.swift",
+        "swift-core/Sources/MedicationAdherenceCore/MedicalAIResponseBoundary.swift",
+        "swift-core/Tests/MedicationAdherenceCoreTests/MedicalAIResponseBoundaryHardeningTests.swift"
+      ]
+    },
+    {
+      "number": 114,
+      "title": "Watch: carry semantic dose for local display (Issue #20)",
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/114",
+      "head_sha": "c3d0b5ddc6c97932a2686156c96c842ea13899a3",
+      "base_sha": "ba363f12b5b4dd563ca3d97b94a87c4bcc6360a6",
+      "head_branch": "codex/20-watch-semantic-dose",
+      "paths": [
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/MedicationWatchSnapshotBridge.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/WatchSupport/MedicationWatchSnapshot.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/PlatformBehaviorTests.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceWatchApp/MedicationAdherenceWatchApp.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceWatchApp/WatchTodayView.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceWatchWidget/MedicationWatchComplicationLogic.swift"
+      ]
+    },
+    {
+      "number": 113,
+      "title": "test: verify persistent medication journey with isolated UI fixture",
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/113",
+      "head_sha": "2a96d8d89b51fc5c25d364e2f19960ab65e6cb6d",
+      "base_sha": "8c49fe53bfd5ed6ae35d0710144fce31a7e0ea01",
+      "head_branch": "codex/7-medication-journey-current",
+      "paths": [
+        ".github/workflows/native-verification.yml",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/AppRootView.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/MedicationCreationViews.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/MedicationDashboardViews.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayDoseTimelineViews.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayScreen.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/MedicationAdherenceAppUITests.swift"
+      ]
+    },
+    {
+      "number": 112,
+      "title": "Issue #28: private R2 model delivery pilot",
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/112",
+      "head_sha": "7425ca66f0306d48ecef0bc59b9545ee401bd906",
+      "base_sha": "ba363f12b5b4dd563ca3d97b94a87c4bcc6360a6",
+      "head_branch": "codex/28-r2-model-delivery",
+      "paths": [
+        ".gitignore",
+        "cloudfunctions/medcue-model-delivery/README.md",
+        "cloudfunctions/medcue-model-delivery/package.json",
+        "cloudfunctions/medcue-model-delivery/src/index.mjs",
+        "cloudfunctions/medcue-model-delivery/test/index.test.mjs",
+        "cloudfunctions/medcue-model-delivery/wrangler.jsonc",
+        "docs/24-privacy-data-flow-audit-20260727.md",
+        "docs/ISSUE28_LOCAL_MODEL_ACCEPTANCE.md",
+        "docs/PROJECT_STATUS.md",
+        "docs/SOURCE_PACKAGE_POLICY.md",
+        "docs/pre-commit-checks.md",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/LocalMedicalModelStore.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/AIAssistantRuntimeViews.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/AIAssistantScreen.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/AIAssistantView.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/LocalMedicalModelIntegrityTests.swift",
+        "ios-app/MedicationAdherenceApp/README.md",
+        "tools/build-source-package.py",
+        "tools/pre-commit-checks.json",
+        "tools/run-pre-commit-checks.sh",
+        "tools/test-pre-commit-system.sh",
+        "tools/test-source-package.py"
+      ]
+    },
+    {
+      "number": 90,
+      "title": "【P2】【治理】建立可复核的 GitHub Issue 健康度审计（干净替代）",
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/90",
+      "head_sha": "ff0c5324fc3b13db5158480e0f099cbb0226d574",
+      "base_sha": "4d9c6d50d46a5735dc014da5434e1063d8cf7493",
+      "head_branch": "codex/61-issue-health-audit",
+      "paths": [
+        "docs/governance-issue-health-audit.md",
+        "tools/audit-issue-health.py",
+        "tools/test-audit-issue-health.py"
+      ]
+    },
+    {
+      "number": 73,
+      "title": "feat: 为药品与风险列表添加局部搜索功能 (Issue #62)",
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/73",
+      "head_sha": "903f67ee1a77531c5874f5638688de39ab6a851e",
+      "base_sha": "abda9e83874b01060a07fc3262a511f81f8ef83e",
+      "head_branch": "feature/local-search-medication-risk",
+      "paths": [
+        "docs/24-privacy-data-flow-audit-20260727.md",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj/project.pbxproj",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/MedicationAdherenceApp.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/MedicationSearchIndex.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/RiskSearchIndex.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/SearchTextNormalizer.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/MedicationsView.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/RiskListViews.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/RisksView.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/MedicationSearchIndexTests.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/RiskSearchIndexTests.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/SearchTextNormalizerTests.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/MedicationAdherenceAppUITests.swift"
+      ]
+    }
+  ],
+  "freeze": {
+    "pr_numbers": [
+      136,
+      138,
+      140,
+      142,
+      144,
+      146,
+      148,
+      150
+    ],
+    "unique_path_count": 45,
+    "paths": [
+      "README.md",
+      "README.zh-CN.md",
+      "docs/HEALTH_EVIDENCE_REVIEW.md",
+      "docs/PROJECT_STATUS.md",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Models/StoredModels.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/AIConsentRevocationCommand.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/AIConversationPersistenceCommand.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/AIConversationSendPlanner.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/CloudBaseMedicalAIClient.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/HealthKitService.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/LocalLLMStreamParser.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/LocalMedicalAIClient.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/LocalMedicalResponsePolicy.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/MedicalAIContextBuilder.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/VisitSummaryDataPipeline.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/VisitSummarySnapshotRevision.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/AIAssistantRuntimeViews.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/AIAssistantView.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/HealthPrivacySettingsViews.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/MedicationPlanEditorView.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/SettingsView.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/SharedViews.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayDoseInteractionState.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayView.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/VisitSummaryPDFViews.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/VisitSummaryTextBuilder.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/VisitSummaryView.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/HealthEvidenceIntegrationTests.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/HealthReviewFixtureBoundaryTests.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/LocalLLMStreamParserTests.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/TodayDoseFeedbackTests.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/VisitSummaryDataPipelineTests.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/VisitSummaryDateRangeTests.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/VisitSummaryPDFLifecycleTests.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/VisitSummarySnapshotRevisionTests.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/HealthEvidenceReviewUITests.swift",
+      "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/PlanPermissionPrimerUITests.swift",
+      "swift-core/Sources/MedicationAdherenceCore/HealthEvidence.swift",
+      "swift-core/Sources/MedicationAdherenceCore/MedicalAIModels.swift",
+      "swift-core/Sources/MedicationAdherenceCore/MedicalAIPromptBuilder.swift",
+      "swift-core/Sources/MedicationAdherenceCore/MedicationImportReview.swift",
+      "swift-core/Sources/MedicationAdherenceCore/MedicationStock.swift",
+      "swift-core/Tests/MedicationAdherenceCoreTests/HealthEvidenceTests.swift",
+      "swift-core/Tests/MedicationAdherenceCoreTests/MedicationImportReviewTests.swift",
+      "swift-core/Tests/MedicationAdherenceCoreTests/MedicationStockTests.swift"
+    ]
+  },
+  "candidate_intersections": [
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/BarcodeScannerView.swift",
+      "frozen": false,
+      "open_prs": []
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/MedicationDetailView.swift",
+      "frozen": false,
+      "open_prs": []
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/MedicationEditView.swift",
+      "frozen": false,
+      "open_prs": []
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/MedicationOverviewDetailViews.swift",
+      "frozen": false,
+      "open_prs": []
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/MedicationOverviewViews.swift",
+      "frozen": false,
+      "open_prs": []
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/AIAssistantConversationViews.swift",
+      "frozen": false,
+      "open_prs": []
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/AIAssistantInputViews.swift",
+      "frozen": false,
+      "open_prs": []
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayDoseComponents.swift",
+      "frozen": false,
+      "open_prs": []
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayDoseRowViews.swift",
+      "frozen": false,
+      "open_prs": []
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/VisitSummaryPDFExportViews.swift",
+      "frozen": false,
+      "open_prs": []
+    }
+  ],
+  "limitations": [
+    "Read-only public GitHub snapshot; no local worktrees or unpushed changes inspected.",
+    "An empty path intersection is not approval to broaden scope or modify another contributor's branch."
+  ]
+}
