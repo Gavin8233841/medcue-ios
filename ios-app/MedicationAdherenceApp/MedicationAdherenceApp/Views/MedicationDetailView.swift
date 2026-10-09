@@ -8,6 +8,9 @@ import UIKit
 struct MedicationDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .body) private var minimumDetailColumnWidth: CGFloat = 260
     let medication: StoredMedication
     @Query(sort: \StoredMedicationPlan.createdAt) private var plans: [StoredMedicationPlan]
     @Query(sort: \StoredDoseTask.dueAt, order: .reverse) private var tasks: [StoredDoseTask]
@@ -122,79 +125,20 @@ struct MedicationDetailView: View {
         )
     }
 
-    var body: some View {
-        let hasPhoto = medication.photoData != nil
+    private var allowsDetailColumns: Bool {
+        horizontalSizeClass == .regular && !dynamicTypeSize.isAccessibilitySize
+    }
 
+    var body: some View {
         List {
             Section {
-                VStack(alignment: .leading, spacing: 14) {
-                    MedicationHeroPhotoView(
-                        photoData: medication.photoData,
-                        symbolName: medication.photoSymbolName,
-                        tint: medicationColor(for: medication),
-                        title: medication.photoData == nil ? "添加药盒或药品照片" : "药盒或药品照片",
-                        subtitle: medication.photoData == nil ? "建议拍药盒正面或药品实物，提醒时便于核对。" : "提醒和记录中会优先显示这张本机照片。",
-                        boxNumber: medication.boxNumber
-                    )
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 8) {
-                            MedicationColorMarker(color: medicationColor(for: medication), size: 11)
-                            Text(userFacingMedicationName(for: medication))
-                                .font(.title2.weight(.semibold))
-                        }
-                        if !medication.genericName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                           medication.genericName != medication.displayName {
-                            Text("通用名 \(medication.genericName)")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                        if medicationNeedsNameReview(medication) {
-                            Label(medicationNameReviewHint(for: medication), systemImage: "exclamationmark.triangle")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.orange)
-                        }
-                        Text([medication.strength, medication.form].filter { !$0.isEmpty }.joined(separator: " · "))
-                            .foregroundStyle(.secondary)
-                        StatusBadgeFlow {
-                            StatusBadge(text: medication.kindDisplayName, color: .green)
-                            StatusBadge(
-                                text: lifecycleClassification.displayStatus.displayName,
-                                color: badgeColor(for: lifecycleClassification.displayStatus)
-                            )
-                            if !medication.boxNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                StatusBadge(text: "编号 \(medication.boxNumber)", color: .blue)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        HStack {
-                            PhotosPicker(selection: $selectedDetailPhotoItem, matching: .images) {
-                                Label(hasPhoto ? "更换照片" : "选择照片", systemImage: "photo")
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            Button {
-                                startDetailPhotoCameraFlow()
-                            } label: {
-                                Label("拍照", systemImage: "camera")
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
-                            if hasPhoto {
-                                Button(role: .destructive) {
-                                    saveDetailPhoto(
-                                        nil,
-                                        successMessage: "已清除药品照片。",
-                                        failureMessage: "药品照片未能清除，请重试。"
-                                    )
-                                } label: {
-                                    Label("清除", systemImage: "trash")
-                                }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                            }
-                        }
-                    }
+                MedicationDetailColumnsLayout(
+                    allowsColumns: allowsDetailColumns,
+                    minimumColumnWidth: minimumDetailColumnWidth,
+                    spacing: 24
+                ) {
+                    detailPhoto
+                    detailIdentity
                 }
                 .padding(.vertical, 8)
                 if !photoStatusMessage.isEmpty {
@@ -204,50 +148,24 @@ struct MedicationDetailView: View {
                 }
             }
 
-            Section("药品信息") {
-                HStack {
-                    Text("颜色标识")
-                    Spacer()
-                    HStack(spacing: 8) {
-                        MedicationColorMarker(color: medicationColor(for: medication), size: 12)
-                        Text(medicationColorOption(for: medication).displayName)
-                            .foregroundStyle(.secondary)
+            Section {
+                MedicationDetailColumnsLayout(
+                    allowsColumns: allowsDetailColumns,
+                    minimumColumnWidth: minimumDetailColumnWidth,
+                    spacing: 24
+                ) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        detailSectionHeading("药品信息")
+                        medicationInformation
                     }
-                }
-                InfoRow(title: "通用名", value: medication.genericName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "未填写" : medication.genericName)
-                InfoRow(title: "规格", value: medication.strength.isEmpty ? "未填写" : medication.strength)
-                InfoRow(title: "剂型", value: medication.form.isEmpty ? "未填写" : medication.form)
-                InfoRow(title: "药盒编号", value: medication.boxNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "未填写" : medication.boxNumber)
-                InfoRow(title: "来源", value: sourceDisplayName(medication.inputSourceRaw))
-                if let visibleNotes = MedicationNotesDisplayPolicy.visibleText(from: medication.notes) {
-                    Text(visibleNotes)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section("疗程与提醒") {
-                if relatedPlans.isEmpty {
-                    Text("尚未建立提醒计划。")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(relatedPlans) { plan in
-                        VStack(alignment: .leading, spacing: 8) {
-                            InfoRow(title: "剂量", value: "\(plan.doseValue.formatted()) \(localizedMedicationUnit(plan.doseUnit))")
-                            InfoRow(title: "疗程", value: courseSummary(for: plan))
-                            InfoRow(title: "时间", value: reminderSummary(for: plan, tasks: relatedTasks))
-                            InfoRow(title: "时区规则", value: timeZonePolicyDisplayName(plan.timeZonePolicyRaw))
-                            if let visiblePlanNote = userVisiblePlanSourceNote(plan.sourceNote) {
-                                InfoRow(title: "备注", value: visiblePlanNote)
-                            }
-                        }
-                        .padding(.vertical, 6)
+                    .accessibilityIdentifier("medicationDetail.information")
+                    VStack(alignment: .leading, spacing: 12) {
+                        detailSectionHeading("疗程与提醒")
+                        medicationPlans
                     }
+                    .accessibilityIdentifier("medicationDetail.plans")
                 }
-                Button {
-                    showingPlanEditor = true
-                } label: {
-                    Label(relatedPlans.isEmpty ? "建立疗程与提醒" : "修改疗程与提醒", systemImage: "calendar.badge.clock")
-                }
+                .padding(.vertical, 8)
             }
 
             Section("剂量变化记录") {
@@ -285,7 +203,7 @@ struct MedicationDetailView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(Array(relatedMeasurableTasks.prefix(5))) { task in
-                        HStack(spacing: 12) {
+                        MedicationDetailFlowLayout(spacing: 12, stacksVertically: dynamicTypeSize.isAccessibilitySize) {
                             MedicationPhotoView(
                                 photoData: medication.photoData,
                                 symbolName: medication.photoSymbolName,
@@ -299,8 +217,7 @@ struct MedicationDetailView: View {
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
                             }
-                            Spacer()
-                            StatusBadge(text: task.status.displayName, color: task.status == .taken ? .green : .orange)
+                            detailStatusBadge(text: task.status.displayName, color: task.status == .taken ? .green : .orange)
                         }
                         .padding(.vertical, 6)
                     }
@@ -459,6 +376,7 @@ struct MedicationDetailView: View {
                 }
             }
         }
+        .accessibilityIdentifier("medicationDetail")
         .navigationTitle("药品详情")
         .sheet(isPresented: $showingEditor) {
             EditMedicationView(medication: medication)
@@ -511,6 +429,170 @@ struct MedicationDetailView: View {
         } message: {
             Text("会删除该药物的提醒、记录、说明书、风险提醒、库存和剂量变化。")
         }
+    }
+
+    private var detailPhoto: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            MedicationPhotoView(
+                photoData: medication.photoData,
+                symbolName: medication.photoSymbolName,
+                tint: medicationColor(for: medication),
+                size: 160,
+                usesPhotoAspectRatio: true,
+                contentMode: .fit,
+                accessibilityLabel: "药盒或药品照片"
+            )
+            Text(medication.photoData == nil ? "添加药盒或药品照片" : "药盒或药品照片")
+                .font(.subheadline.weight(.semibold))
+            Text(medication.photoData == nil ? "建议拍药盒正面或药品实物，提醒时便于核对。" : "提醒和记录中会优先显示这张本机照片。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var detailIdentity: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                MedicationColorMarker(color: medicationColor(for: medication), size: 11)
+                Text(userFacingMedicationName(for: medication))
+                    .font(.title2.weight(.semibold))
+            }
+            if !medication.genericName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               medication.genericName != medication.displayName {
+                Text("通用名 \(medication.genericName)")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            if medicationNeedsNameReview(medication) {
+                Label(medicationNameReviewHint(for: medication), systemImage: "exclamationmark.triangle")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.orange)
+            }
+            Text([medication.strength, medication.form].filter { !$0.isEmpty }.joined(separator: " · "))
+                .foregroundStyle(.secondary)
+            MedicationDetailFlowLayout(spacing: 8, stacksVertically: dynamicTypeSize.isAccessibilitySize) {
+                detailStatusBadge(text: medication.kindDisplayName, color: .green)
+                detailStatusBadge(
+                    text: lifecycleClassification.displayStatus.displayName,
+                    color: badgeColor(for: lifecycleClassification.displayStatus)
+                )
+                if !medication.boxNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    detailStatusBadge(text: "编号 \(medication.boxNumber)", color: .blue)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            detailPhotoActions
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var detailPhotoActions: some View {
+        let hasPhoto = medication.photoData != nil
+        MedicationDetailFlowLayout(spacing: 8, stacksVertically: dynamicTypeSize.isAccessibilitySize) {
+            PhotosPicker(selection: $selectedDetailPhotoItem, matching: .images) {
+                Label(hasPhoto ? "更换照片" : "选择照片", systemImage: "photo")
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            Button {
+                startDetailPhotoCameraFlow()
+            } label: {
+                Label("拍照", systemImage: "camera")
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: 44)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+            .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
+            if hasPhoto {
+                Button(role: .destructive) {
+                    saveDetailPhoto(
+                        nil,
+                        successMessage: "已清除药品照片。",
+                        failureMessage: "药品照片未能清除，请重试。"
+                    )
+                } label: {
+                    Label("清除", systemImage: "trash")
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+            }
+        }
+    }
+
+    private func detailStatusBadge(text: String, color: Color) -> some View {
+        Text(text)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.primary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func detailSectionHeading(_ title: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
+            Divider()
+        }
+    }
+
+    @ViewBuilder
+    private var medicationInformation: some View {
+        HStack(alignment: .top, spacing: 8) {
+            MedicationColorMarker(color: medicationColor(for: medication), size: 12)
+                .padding(.top, 4)
+            MedicationDetailInfoRow(title: "颜色标识", value: medicationColorOption(for: medication).displayName)
+        }
+        MedicationDetailInfoRow(title: "通用名", value: medication.genericName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "未填写" : medication.genericName)
+        MedicationDetailInfoRow(title: "规格", value: medication.strength.isEmpty ? "未填写" : medication.strength)
+        MedicationDetailInfoRow(title: "剂型", value: medication.form.isEmpty ? "未填写" : medication.form)
+        MedicationDetailInfoRow(title: "药盒编号", value: medication.boxNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "未填写" : medication.boxNumber)
+        MedicationDetailInfoRow(title: "来源", value: sourceDisplayName(medication.inputSourceRaw))
+        if let visibleNotes = MedicationNotesDisplayPolicy.visibleText(from: medication.notes) {
+            Text(visibleNotes)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var medicationPlans: some View {
+        if relatedPlans.isEmpty {
+            Text("尚未建立提醒计划。")
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach(relatedPlans) { plan in
+                VStack(alignment: .leading, spacing: 8) {
+                    MedicationDetailInfoRow(title: "剂量", value: "\(plan.doseValue.formatted()) \(localizedMedicationUnit(plan.doseUnit))")
+                    MedicationDetailInfoRow(title: "疗程", value: courseSummary(for: plan))
+                    MedicationDetailInfoRow(title: "时间", value: reminderSummary(for: plan, tasks: relatedTasks))
+                    MedicationDetailInfoRow(title: "时区规则", value: timeZonePolicyDisplayName(plan.timeZonePolicyRaw))
+                    if let visiblePlanNote = userVisiblePlanSourceNote(plan.sourceNote) {
+                        MedicationDetailInfoRow(title: "备注", value: visiblePlanNote)
+                    }
+                }
+                .padding(.vertical, 6)
+                if plan.id != relatedPlans.last?.id {
+                    Divider()
+                }
+            }
+        }
+        Button {
+            showingPlanEditor = true
+        } label: {
+            Label(relatedPlans.isEmpty ? "建立疗程与提醒" : "修改疗程与提醒", systemImage: "calendar.badge.clock")
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(minHeight: 44, alignment: .leading)
+        }
+        .buttonStyle(.borderless)
     }
 
     private func startDetailPhotoCameraFlow() {
@@ -704,6 +786,135 @@ struct MedicationDetailView: View {
         }
     }
 }
+
+// Keeps the same child identities while available space changes. The minimum is a
+// Dynamic Type-scaled reading measure, not a screen/device breakpoint. Measuring
+// each proposed column also rejects children that cannot fit that measure.
+private struct MedicationDetailColumnsLayout: Layout {
+    var allowsColumns: Bool
+    var minimumColumnWidth: CGFloat
+    var spacing: CGFloat
+
+    private func usesColumns(width: CGFloat, subviews: Subviews) -> Bool {
+        guard allowsColumns, subviews.count == 2 else { return false }
+        let columnWidth = max(0, (width - spacing) / 2)
+        guard columnWidth >= minimumColumnWidth else { return false }
+        return subviews.allSatisfy {
+            $0.sizeThatFits(ProposedViewSize(width: columnWidth, height: nil)).width <= columnWidth
+        }
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil }
+            ?? subviews.map { $0.sizeThatFits(.unspecified).width }.max() ?? 0
+        let horizontal = usesColumns(width: width, subviews: subviews)
+        let childWidth = horizontal ? max(0, (width - spacing) / 2) : width
+        let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: childWidth, height: nil)) }
+        let height = horizontal ? (sizes.map(\.height).max() ?? 0)
+            : sizes.reduce(0) { $0 + $1.height } + spacing * CGFloat(max(0, sizes.count - 1))
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let horizontal = usesColumns(width: bounds.width, subviews: subviews)
+        let childWidth = horizontal ? max(0, (bounds.width - spacing) / 2) : bounds.width
+        let childProposal = ProposedViewSize(width: childWidth, height: nil)
+        var origin = bounds.origin
+        for subview in subviews {
+            subview.place(at: origin, anchor: .topLeading, proposal: childProposal)
+            if horizontal {
+                origin.x += childWidth + spacing
+            } else {
+                origin.y += subview.sizeThatFits(childProposal).height + spacing
+            }
+        }
+    }
+}
+
+// Wrap actions and record contents without duplicating controls in fit/fallback
+// branches. Accessibility sizes always use the original reading order vertically.
+private struct MedicationDetailFlowLayout: Layout {
+    var spacing: CGFloat
+    var stacksVertically: Bool
+
+    private func arrangement(width: CGFloat, subviews: Subviews) -> (origins: [CGPoint], sizes: [CGSize], height: CGFloat) {
+        var origins: [CGPoint] = []
+        var sizes: [CGSize] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        for subview in subviews {
+            let idealWidth = subview.sizeThatFits(.unspecified).width
+            let size = subview.sizeThatFits(ProposedViewSize(width: min(width, idealWidth), height: nil))
+            if x > 0 && (stacksVertically || x + size.width > width) {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            origins.append(CGPoint(x: x, y: y))
+            sizes.append(size)
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        return (origins, sizes, y + rowHeight)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil }
+            ?? subviews.map { $0.sizeThatFits(.unspecified).width }.reduce(0, +)
+                + spacing * CGFloat(max(0, subviews.count - 1))
+        return CGSize(width: width, height: arrangement(width: width, subviews: subviews).height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = arrangement(width: bounds.width, subviews: subviews)
+        for index in subviews.indices {
+            subviews[index].place(
+                at: CGPoint(x: bounds.minX + result.origins[index].x, y: bounds.minY + result.origins[index].y),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: result.sizes[index].width, height: result.sizes[index].height)
+            )
+        }
+    }
+}
+
+private struct MedicationDetailInfoRow: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    let title: String
+    let value: String
+
+    private var stacked: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .foregroundStyle(.secondary)
+            Text(value)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    var body: some View {
+        Group {
+            if dynamicTypeSize.isAccessibilitySize {
+                stacked
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(title)
+                            .foregroundStyle(.secondary)
+                            .fixedSize()
+                        Spacer(minLength: 0)
+                        Text(value)
+                            .fixedSize()
+                    }
+                    stacked
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 
 func userVisiblePlanSourceNote(_ note: String) -> String? {
     let trimmedNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
