@@ -490,7 +490,7 @@ struct MedicationDetailView: View {
 
     private var detailPhotoActions: some View {
         let hasPhoto = medication.photoData != nil
-        MedicationDetailFlowLayout(spacing: 8, stacksVertically: dynamicTypeSize.isAccessibilitySize) {
+        return MedicationDetailFlowLayout(spacing: 8, stacksVertically: dynamicTypeSize.isAccessibilitySize) {
             PhotosPicker(selection: $selectedDetailPhotoItem, matching: .images) {
                 Label(hasPhoto ? "更换照片" : "选择照片", systemImage: "photo")
                     .fixedSize(horizontal: false, vertical: true)

@@ -35,3 +35,9 @@ These content hashes bind the completed static reviews, not successful native re
 | `ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/BarcodeScannerGeometryTests.swift` | `70bc00c5f6ba33bf094e61841bd5e8280b597e6694d52f0e781c366b30f0b842` |
 | `ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/MedicationDetailAdaptiveLayoutTests.swift` | `77b5993d9d70f09898d82aa9dc1e53ec599bcbd1caebaaef6a62e8569b9fedbb` |
 | `ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/AdaptiveWindowStateUITests.swift` | `114b4fe068a838395090932a68a563ca24cf4b4a5ae3b4067636564926beb9ed` |
+
+## First native attempt and corrective candidate
+
+Run [37875757005](https://github.com/Gavin8233841/medcue-ios/actions/runs/37875757005), attempt 1, failed in the main App Release build on 2026-10-09. `MedicationDetailView.detailPhotoActions` contained a local declaration followed by a view expression without an explicit return. No new native test suite executed; Broker tests passed 38/38. The failure is retained and is not reclassified as a successful validation.
+
+The corrective candidate adds only `return` to that getter. Its source SHA-256 is `fff0e28dad70131c2d560108ac7d2bd15be4d1ef237e35f1d5e540b307d96ac5`; the earlier table binds the original candidate. All test contents and the scanner source are unchanged. A new commit and new CI result are required before claiming the compile error is resolved.
