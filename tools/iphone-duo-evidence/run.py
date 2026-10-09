@@ -145,7 +145,7 @@ def run():
             command(['xcrun', 'xcresulttool', 'export', 'attachments', '--path', str(export_bundles[test_id]),
                      '--output-path', str(exported), '--test-id', test_id])
             manifest = decode_json(safe_file(exported, 'manifest.json', 2_000_000).read_bytes())
-            selected = select_manifest(manifest, test_id, exported)
+            selected = select_manifest(manifest, test_id, exported, diagnose_contract=True)
             for fixed, source in selected.items():
                 input_total += source.stat().st_size
                 require(input_total <= LIMIT, 'Input screenshots exceed 20MB')

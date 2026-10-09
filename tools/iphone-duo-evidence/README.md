@@ -52,7 +52,11 @@ There is a 40-minute job limit and 15-minute limit per native test invocation.
   explicit MedicationDetail/MedicationDetailAX attachment names fail closed.
 - Up to 20 bounded diagnostic lines are reconstructed from fixed failure
   categories, five allowlisted source filenames/line numbers, exact test IDs
-  and numeric/Boolean harness counters. Raw log lines, arbitrary messages,
+  and numeric/Boolean harness counters. For failed actual-app test lines only,
+  exact source message prefixes and three fixed navigation-stage spellings map
+  to fixed reason codes (tab/group/row/detail/text/control/rotation/store). No
+  interpolated label, expected element, scroll count or arbitrary suffix is
+  forwarded by this mapping. Raw log lines, arbitrary messages,
   labels, values, UUIDs, paths and device names are never echoed.
 - Strict JSON duplicate-key/schema, name, path, regular-file, no-symlink,
   no-hardlink, count, uniqueness and size checks precede decoding. Hosted PNGs
@@ -146,10 +150,31 @@ Observed static SDK provenance (not xcresult payloads):
   canonical sorted compact ASCII JSON digests (without a trailing newline),
   rather than assuming diagnostic serialization matches native stdout bytes.
 
-The helper supports one explicit tree/manifest contract; unknown formats,
-unexpected test nodes, unidentified explicit images, missing fields, renamed
-fields or export naming changes stop without publishing. It does not infer a
-schema from arbitrary recursive keys or fall back to a legacy parser.
+The test tree and manifest root/row contracts remain exact and fail closed.
+Attachment items use a deliberately narrow **positive projection**, not an exact
+key-set match: a string `suggestedHumanReadableName` selects only a fixed
+explicit synthetic image identity. Every selected image additionally requires
+string `exportedFileName` and an explicitly present Boolean
+`isAssociatedWithFailure: false`. Missing, null, numeric zero, string false or
+true flags fail. Exact test identity, complete image inventories, file safety,
+PNG validation, fresh pixel re-encoding and final publication guards are unchanged.
+Automatic attachments never become selected evidence.
+
+All other attachment-item metadata is opaque and discarded, including timestamp
+or future SDK extensions. It is never traversed, used to infer fields, select
+paths, authorize publication, or copied to artifacts/logs. This is an intentionally
+reviewed forward-compatible projection of the fields we actually consume, not a
+claim that new SDK fields were observed or their semantics understood. Unknown
+manifest root/row fields, renamed/missing consumed fields, unexpected test nodes
+and unidentified explicit images still stop publication. No recursive generic
+schema search or legacy fallback is added.
+
+If a consumed attachment-field type/presence check fails during native export,
+a bounded diagnostic reports only three fixed field names with fixed type or
+`missing` labels, plus an ignored-field count capped at 100. Non-object records
+report only a fixed type label. No arbitrary key names, field values, nested
+metadata, filenames, paths, labels, UUIDs or raw JSON are printed. This diagnostic
+cannot accept an attachment or set the upload-readiness signal.
 
 Linux tests use synthetic result metadata/PNGs plus the sourced static SDK
 schema fixtures above. They do **not** prove actual native result/attachment
@@ -183,6 +208,7 @@ repository. Preserve each action's upstream license with any redistribution.
 
 The fixture tests include complete selection, automatic-image exclusion,
 traversal, symlinks/hardlinks, malformed and animated PNGs, bounded pixel decode,
-metadata removal before native decoding, duplicate/missing images, incorrect
+metadata removal before native decoding, opaque nested SDK metadata exclusion,
+explicit Boolean failure flags, bounded fixed-field diagnostics, duplicate/missing images, incorrect
 test identity, skips/failures/repetitions and unknown schemas. Native validation
 and the unchanged full native gate remain required before completion.

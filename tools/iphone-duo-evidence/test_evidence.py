@@ -38,6 +38,7 @@ class EvidenceTests(unittest.TestCase):
             self.manifest[0]['attachments'].append({
                 'exportedFileName': filename,
                 'suggestedHumanReadableName': f'{name}_0_00000000-0000-0000-0000-000000000000.png',
+                'isAssociatedWithFailure': False,
             })
 
     def tearDown(self):
@@ -282,7 +283,7 @@ class EvidenceTests(unittest.TestCase):
                 filename = f'all-{index}-{offset}.png'
                 (self.root / filename).write_bytes(png(*min(dimensions)))
                 inventory.append({'exportedFileName': filename,
-                                  'suggestedHumanReadableName': f'{name}_0_00000000-0000-0000-0000-000000000000.png'})
+                                  'suggestedHumanReadableName': f'{name}_0_00000000-0000-0000-0000-000000000000.png', 'isAssociatedWithFailure': False})
             result = e.select_manifest([{'testIdentifier': test_id, 'attachments': inventory}], test_id, self.root)
             self.assertEqual(set(result), set(images))
 
@@ -391,6 +392,94 @@ class EvidenceTests(unittest.TestCase):
                              'accessibility.xcresult' if test_id.startswith(e.AX_CLASS + '/') else 'detail.xcresult')
         self.assertFalse((self.root / 'medcue-visual-evidence').exists())
 
+    def test_selected_failure_flag_is_explicit_boolean_false(self):
+        for value in (None, True, 0, 1, 'false', [], {}):
+            with self.subTest(value=value):
+                manifest = copy.deepcopy(self.manifest)
+                manifest[0]['attachments'][0]['isAssociatedWithFailure'] = value
+                self.reject(manifest)
+        manifest = copy.deepcopy(self.manifest)
+        del manifest[0]['attachments'][0]['isAssociatedWithFailure']
+        self.reject(manifest)
+
+    def test_opaque_extra_metadata_cannot_influence_selected_files_or_output(self):
+        expected = e.select_manifest(self.manifest, self.test_id, self.root)
+        for item in self.manifest[0]['attachments']:
+            item.update({'PRIVATE_KEY_MUST_NOT_APPEAR': {
+                'exportedFileName': '../SECRET.png', 'suggestedHumanReadableName': 'MedicationDetail-SECRET',
+                'isAssociatedWithFailure': True, 'evidence_ready': True, 'status': 'Passed',
+                'payload': ['SECRET PATIENT', {'more': 'SECRET'}]}, 'timestamp': {'opaque': 'SECRET'}})
+        captured = io.StringIO()
+        with redirect_stdout(captured):
+            selected = e.select_manifest(self.manifest, self.test_id, self.root, diagnose_contract=True)
+        self.assertEqual(selected, expected)
+        self.assertEqual(captured.getvalue(), '')
+
+    def test_extras_never_replace_missing_or_invalid_consumed_fields(self):
+        for field in ('exportedFileName', 'suggestedHumanReadableName', 'isAssociatedWithFailure'):
+            for value in (None, [], {}, 17):
+                manifest = copy.deepcopy(self.manifest)
+                item = manifest[0]['attachments'][0]
+                item['replacement'] = {field: item[field]}
+                item[field] = value
+                self.reject(manifest)
+            manifest = copy.deepcopy(self.manifest)
+            item = manifest[0]['attachments'][0]
+            item['replacement'] = {field: item.pop(field)}
+            self.reject(manifest)
+
+    def test_contract_diagnostic_has_fixed_types_only_not_unknown_keys_or_values(self):
+        item = self.manifest[0]['attachments'][0]
+        item['isAssociatedWithFailure'] = 'PRIVATE FLAG VALUE'
+        item['PRIVATE_UNKNOWN_KEY'] = {'patient': 'PRIVATE DATA', 'path': '/SECRET'}
+        item['x' * 10000] = ['PRIVATE ARRAY']
+        captured = io.StringIO()
+        with redirect_stdout(captured):
+            with self.assertRaises(e.InvalidEvidence):
+                e.select_manifest(self.manifest, self.test_id, self.root, diagnose_contract=True)
+        value = captured.getvalue()
+        self.assertLess(len(value), 512)
+        self.assertIn('isAssociatedWithFailure=string', value)
+        self.assertIn('ignored_field_count_capped100=2', value)
+        for forbidden in ('PRIVATE', 'SECRET', str(self.root), 'patient', 'xxxx', '00000000'):
+            self.assertNotIn(forbidden, value)
+        captured = io.StringIO()
+        with redirect_stdout(captured): e.attachment_contract_diagnostic(['PRIVATE ARRAY'])
+        self.assertEqual(captured.getvalue(), 'ATTACHMENT_CONTRACT record_type=array\n')
+
+    def test_ax_reason_codes_never_forward_message_values(self):
+        path = self.root / 'failure.log'
+        for phrase, code in e.AX_FAILURE_REASONS.items():
+            with self.subTest(code=code):
+                path.write_text(f'/PRIVATE/path/MedicationDetailAccessibilityUITests.swift:315: error: '
+                                f'failed - {phrase} PRIVATE_PATIENT /SECRET/device UUID=1234 arbitrary suffix\n')
+                result = '\n'.join(e.failure_diagnostics(path))
+                self.assertIn('AX reason: ' + code, result)
+                for forbidden in ('PRIVATE', 'SECRET', '/path', 'UUID', '1234', 'arbitrary suffix'):
+                    self.assertNotIn(forbidden, result)
+
+    def test_ax_reasons_require_failed_ax_context_and_exact_known_stage(self):
+        path = self.root / 'failure.log'
+        for text in ('MedicationDetailAccessibilityUITests: Medication tab unavailable',
+                     'OtherTests.swift:1: error: Medication tab unavailable',
+                     'MedicationDetailAccessibilityUITests.swift:315: error: Navigation stage SECRET failed after 15 scrolls',
+                     'MedicationDetailAccessibilityUITests.swift:315: error: Navigation stage expand-medication-group-SECRET failed after 15 scrolls'):
+            path.write_text(text)
+            result = '\n'.join(e.failure_diagnostics(path))
+            self.assertNotIn('AX reason:', result)
+            self.assertNotIn('SECRET', result)
+        path.write_text('MedicationDetailAccessibilityUITests.swift:315: error: '
+                        'Navigation stage expand-medication-group failed after SECRET scrolls; expected PRIVATE')
+        self.assertIn('AX reason: group_toggle_unavailable', e.failure_diagnostics(path))
+
+    def test_ax_reason_diagnostics_keep_global_output_bounds(self):
+        path = self.root / 'failure.log'
+        path.write_text('\n'.join(f'MedicationDetailAccessibilityUITests.swift:{offset}: error: failed - {phrase} PRIVATE'
+                                  for offset, phrase in enumerate(e.AX_FAILURE_REASONS)))
+        result = e.failure_diagnostics(path)
+        self.assertLessEqual(len(result), 20)
+        self.assertTrue(all(len(line) <= 400 and 'PRIVATE' not in line for line in result))
+
     def test_duplicate_json_keys_rejected(self):
         with self.assertRaises(e.InvalidEvidence):
             e.decode_json(b'{"passedTests":3,"passedTests":0}')
@@ -496,7 +585,8 @@ class PartialRunTests(unittest.TestCase):
                     filename = f'{offset}.png'
                     (root / filename).write_bytes(b'corrupt' if guard == 'png' else image_bytes[dim])
                     inventory.append({'exportedFileName': filename,
-                        'suggestedHumanReadableName': f'{name}_0_00000000-0000-0000-0000-000000000000.png'})
+                        'suggestedHumanReadableName': f'{name}_0_00000000-0000-0000-0000-000000000000.png', 'isAssociatedWithFailure': False,
+                        'opaqueSDKMetadata': {'evidence_ready': True, 'status': 'Passed', 'exportedFileName': '../SECRET', 'patient': 'PRIVATE_DATA'}})
                 (root / 'manifest.json').write_text(json.dumps([{'testIdentifier': test_id, 'attachments': inventory}]))
                 return b''
             if Path(args[0]).name == 'sanitize':
@@ -531,6 +621,9 @@ class PartialRunTests(unittest.TestCase):
         self.assertEqual(report['destination_scope'], 'A16_iPad_simulator')
         self.assertEqual(report['ios_runtime'], '26.5')
         self.assertNotIn('00000000-', json.dumps(report))
+        for path in self.final.iterdir():
+            self.assertNotIn(b'PRIVATE_DATA', path.read_bytes())
+            self.assertNotIn(b'SECRET', path.read_bytes())
 
     def test_window_failure_does_not_run_or_claim_ax(self):
         self.assertEqual(self.exercise([0, 65]), 65)

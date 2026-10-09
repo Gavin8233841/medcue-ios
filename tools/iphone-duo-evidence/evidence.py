@@ -242,7 +242,22 @@ def png_dimensions(path, allowed_dimensions):
     return dimensions
 
 
-def select_manifest(manifest, test_id, root):
+def attachment_contract_diagnostic(item):
+    """Fixed field presence/types only; never keys, values or nested metadata."""
+    types = {str: 'string', bool: 'boolean', int: 'integer', float: 'number',
+             dict: 'object', list: 'array', type(None): 'null'}
+    fields = ('exportedFileName', 'suggestedHumanReadableName', 'isAssociatedWithFailure')
+    if type(item) is not dict:
+        print('ATTACHMENT_CONTRACT record_type=' + types.get(type(item), 'unknown'), flush=True)
+        return
+    shape = [key + '=' + (types.get(type(item[key]), 'unknown') if key in item else 'missing')
+             for key in fields]
+    # Only the count is observed; unknown keys and values are never rendered.
+    count = min(100, len(item) - sum(key in item for key in fields))
+    print('ATTACHMENT_CONTRACT ' + ' '.join(shape) + ' ignored_field_count_capped100=' + str(count), flush=True)
+
+
+def select_manifest(manifest, test_id, root, *, diagnose_contract=False):
     require(isinstance(manifest, list) and len(manifest) == 1, 'Unknown attachment manifest')
     row = manifest[0]
     require(isinstance(row, dict) and set(row) <= {'testIdentifier', 'testIdentifierURL', 'attachments'}, 'Unknown manifest row schema')
@@ -253,14 +268,22 @@ def select_manifest(manifest, test_id, root):
     expected = EXPECTED[test_id]
     selected, paths = {}, set()
     for item in attachments:
-        require(isinstance(item, dict) and set(item) <= {'exportedFileName', 'suggestedHumanReadableName', 'timestamp', 'isAssociatedWithFailure'}, 'Unknown attachment schema')
-        require(item.get('isAssociatedWithFailure', False) is False, 'Failure attachment forbidden')
-        name = item.get('suggestedHumanReadableName')
-        require(isinstance(name, str), 'Missing attachment name')
+        named_record = type(item) is dict and type(item.get('suggestedHumanReadableName')) is str
+        if not named_record and diagnose_contract:
+            attachment_contract_diagnostic(item)
+        require(named_record, 'Invalid attachment name contract')
+        name = item['suggestedHumanReadableName']
         # Known xcresult export spelling: explicit attachment name, ordinal, UUID.
         match = re.fullmatch(r'(MedicationDetail(?:AX)?-[A-Za-z0-9-]+)_\d+_[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}\.png', name)
         if not name.startswith(('MedicationDetail-', 'MedicationDetailAX-')):
             continue  # Automatic screenshots and diagnostics are never staged.
+        # Positive projection: opaque SDK metadata cannot affect identity,
+        # selection, paths, pixels or publication. Never recurse into it.
+        selected_contract = (type(item.get('exportedFileName')) is str
+                             and item.get('isAssociatedWithFailure') is False)
+        if not selected_contract and diagnose_contract:
+            attachment_contract_diagnostic(item)
+        require(selected_contract, 'Invalid explicit attachment contract')
         require(match and match[1] in expected, 'Unknown explicit screenshot')
         fixed = match[1]
         require(fixed not in selected, 'Duplicate screenshot name')
@@ -299,6 +322,37 @@ def prepare_decode_input(source, destination, allowed_dimensions):
     png_dimensions(destination, allowed_dimensions)
 
 
+# Exact fixed message prefixes from MedicationDetailAccessibilityUITests.
+# Only the mapped code is public; interpolation/suffixes are never forwarded.
+AX_FAILURE_REASONS = {
+    'This synthetic fixture must run on Simulator; physical-device execution is not allowed': 'simulator_required',
+    'Medication tab unavailable': 'medication_tab_unavailable',
+    'Medication tab did not open': 'medication_tab_did_not_open',
+    'Medication group/toggle must resolve uniquely': 'group_toggle_not_unique',
+    'Medication group did not expose expanded state after its toggle': 'group_not_expanded',
+    'Synthetic medication row must resolve uniquely': 'medication_row_not_unique',
+    'Real MedicationDetailView did not open': 'detail_target_unavailable',
+    'Detail has no visible viewport': 'detail_viewport_unavailable',
+    'Leading overflow: ': 'leading_overflow',
+    'Trailing overflow: ': 'trailing_overflow',
+    'Must scroll to the final edit control, without activating it': 'last_control_unreachable',
+    'Missing visible real detail content': 'detail_text_missing',
+    'Missing enabled, hittable, fully visible real controls': 'detail_controls_unavailable',
+    'Detail route was lost': 'detail_route_lost',
+    'Could not return to the stationary real detail photo section': 'detail_top_unreachable',
+    'iPad rotation did not cause a measured window geometry change': 'rotation_geometry_unchanged',
+    'Rotation lost the real detail route': 'rotation_route_lost',
+    'Existing read-only store inspection unavailable': 'store_inspection_unavailable',
+    'Store inspection reported an error': 'store_inspection_error',
+    'Missing observable store field: ': 'store_field_missing',
+    'Task identifier is not a UUID': 'store_task_identifier_invalid',
+    "Viewing/scrolling/rotation must preserve the fixture's observable persisted state": 'store_state_changed',
+    'Navigation stage nonempty-lifecycle-selector failed after ': 'lifecycle_selector_unavailable',
+    'Navigation stage expand-medication-group failed after ': 'group_toggle_unavailable',
+    'Navigation stage open-medication-row failed after ': 'medication_row_unavailable',
+}
+
+
 def failure_diagnostics(log_path):
     """Return bounded, reconstructed technical diagnostics, never raw log lines.
 
@@ -319,6 +373,10 @@ def failure_diagnostics(log_path):
              'MedicationDetailAccessibilityUITests.swift')
     for line in text.splitlines():
         if 'error:' in line or 'failed' in line.lower():
+            if AX_CLASS in line:
+                for phrase, code in AX_FAILURE_REASONS.items():
+                    if phrase in line:
+                        add('AX reason: ' + code)
             for filename in files:
                 match = re.search(re.escape(filename) + r':([0-9]{1,6})(?::[0-9]{1,6})?:', line)
                 if match:
