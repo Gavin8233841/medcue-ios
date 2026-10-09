@@ -493,8 +493,9 @@ struct MedicationDetailView: View {
         return MedicationDetailFlowLayout(spacing: 8, stacksVertically: dynamicTypeSize.isAccessibilitySize) {
             PhotosPicker(selection: $selectedDetailPhotoItem, matching: .images) {
                 Label(hasPhoto ? "更换照片" : "选择照片", systemImage: "photo")
+                    .labelStyle(.iconOnly)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(minHeight: 44)
+                    .frame(minWidth: 44, minHeight: 44)
             }
             .buttonStyle(.bordered)
             .controlSize(.regular)
@@ -502,8 +503,9 @@ struct MedicationDetailView: View {
                 startDetailPhotoCameraFlow()
             } label: {
                 Label("拍照", systemImage: "camera")
+                    .labelStyle(.iconOnly)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(minHeight: 44)
+                    .frame(minWidth: 44, minHeight: 44)
             }
             .buttonStyle(.bordered)
             .controlSize(.regular)
@@ -517,8 +519,9 @@ struct MedicationDetailView: View {
                     )
                 } label: {
                     Label("清除", systemImage: "trash")
+                        .labelStyle(.iconOnly)
                         .fixedSize(horizontal: false, vertical: true)
-                        .frame(minHeight: 44)
+                        .frame(minWidth: 44, minHeight: 44)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.regular)

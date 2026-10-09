@@ -43,14 +43,18 @@ final class MedicationDetailAccessibilityUITests: XCTestCase {
         XCTAssertEqual(initialStore["log-count"], "0")
         relaunch(app, inspecting: false)
         try openDetail(in: app)
-        try inspectDetail(in: app, name: name + "-portrait-initial")
+        let stacksPhotoActionsVertically = category == "UICTContentSizeCategoryAccessibilityXXXL"
+        try inspectDetail(in: app, name: name + "-portrait-initial",
+                          stacksPhotoActionsVertically: stacksPhotoActionsVertically)
 
         if UIDevice.current.userInterfaceIdiom == .pad {
             // Actual iPad window rotation, never a simulated 1024pt iPhone window.
             try rotate(app, to: .landscapeLeft)
-            try inspectDetail(in: app, name: name + "-landscape")
+            try inspectDetail(in: app, name: name + "-landscape",
+                              stacksPhotoActionsVertically: stacksPhotoActionsVertically)
             try rotate(app, to: .portrait)
-            try inspectDetail(in: app, name: name + "-portrait-restored")
+            try inspectDetail(in: app, name: name + "-portrait-restored",
+                              stacksPhotoActionsVertically: stacksPhotoActionsVertically)
         }
         // The same process/detail route survives every scroll and optional rotation.
         // Relaunch ONLY after those observations, to inspect the same session's store.
@@ -111,7 +115,8 @@ final class MedicationDetailAccessibilityUITests: XCTestCase {
         try require(detail(in: app).waitForExistence(timeout: 10), "Real MedicationDetailView did not open")
     }
 
-    private func inspectDetail(in app: XCUIApplication, name: String) throws {
+    private func inspectDetail(in app: XCUIApplication, name: String,
+                               stacksPhotoActionsVertically: Bool) throws {
         let list = detail(in: app)
         try returnToPhotoTop(in: app, list: list)
         let requiredText = ["布洛芬", "药品信息", "疗程与提醒", "暂无剂量变化记录。",
@@ -121,6 +126,11 @@ final class MedicationDetailAccessibilityUITests: XCTestCase {
         var seenButtons = Set<String>()
         var reachedLastControl = false
         attach(app, name: name + "-top")
+        // ElderUITestFixture.seed requires a synthetic JPEG before constructing
+        // the due medication with photoData, so this fixture must expose Clear.
+        try inspectPhotoActions(in: app, list: list, name: name, hasPhoto: true,
+                                stacksVertically: stacksPhotoActionsVertically)
+        try returnToPhotoTop(in: app, list: list)
         for _ in 0..<60 {
             let viewport = contentViewport(in: app, list: list)
             try require(!viewport.isEmpty && !viewport.isNull, "Detail has no visible viewport")
@@ -159,6 +169,63 @@ final class MedicationDetailAccessibilityUITests: XCTestCase {
         // Return in the same live detail route before any rotation or store inspection.
         try returnToPhotoTop(in: app, list: list)
         try require(detail(in: app).exists, "Detail route was lost")
+    }
+
+    private func inspectPhotoActions(in app: XCUIApplication, list: XCUIElement,
+                                     name: String, hasPhoto: Bool, stacksVertically: Bool) throws {
+        let labels = [hasPhoto ? "更换照片" : "选择照片", "拍照"] + (hasPhoto ? ["清除"] : [])
+        for _ in 0..<60 {
+            let viewport = contentViewport(in: app, list: list)
+            let nodes = descendants(try list.snapshot()).filter { $0.elementType == .button }
+            let matches = labels.map { label in nodes.filter { $0.label == label } }
+            if matches.allSatisfy({ $0.count == 1 }) {
+                // Use a single AX snapshot so every comparison shares the same scroll position.
+                let buttons = matches.map { $0[0] }
+                let frames = buttons.map(\.frame)
+                if frames.allSatisfy({ finite($0) && !$0.isEmpty && viewport.contains($0) }) {
+                    // Capture the actual action region at both text sizes, before
+                    // assertions, so a geometry failure retains its visual evidence.
+                    attach(app, name: name + "-photo-actions")
+                    for (index, button) in buttons.enumerated() {
+                        XCTAssertEqual(button.label, labels[index], "Photo action lost its accessible title")
+                        XCTAssertGreaterThanOrEqual(button.frame.width, 44, "Photo action width: \(button.label)")
+                        XCTAssertGreaterThanOrEqual(button.frame.height, 44, "Photo action height: \(button.label)")
+                        // A Simulator may legitimately disable Camera. Its presence,
+                        // label and geometry are still required; no action is activated.
+                        if button.label != "拍照" {
+                            XCTAssertTrue(button.isEnabled, "Photo action disabled: \(button.label)")
+                            XCTAssertTrue(list.buttons[button.label].firstMatch.isHittable,
+                                          "Photo action not hittable: \(button.label)")
+                        }
+                    }
+                    if !hasPhoto {
+                        XCTAssertFalse(nodes.contains { $0.label == "清除" }, "No-photo state must omit Clear")
+                    }
+                    for index in 1..<frames.count {
+                        let previous = frames[index - 1]
+                        let current = frames[index]
+                        if stacksVertically {
+                            XCTAssertGreaterThanOrEqual(current.minY, previous.maxY,
+                                                        "AX photo actions overlap or changed reading order")
+                        } else {
+                            XCTAssertEqual(current.height, frames[0].height, accuracy: 2,
+                                           "Photo actions must have equal heights")
+                            XCTAssertEqual(current.midY, frames[0].midY, accuracy: 2,
+                                           "Photo actions must share a vertical center")
+                            XCTAssertGreaterThanOrEqual(current.minX, previous.maxX,
+                                                        "Photo actions overlap or changed reading order")
+                        }
+                    }
+                    return
+                }
+            }
+            // Short steps avoid skipping the fully visible window for the AX5 stack.
+            let start = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.65))
+            let end = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+            start.press(forDuration: 0.05, thenDragTo: end)
+        }
+        attach(app, name: name + "-photo-actions-unavailable")
+        try require(false, "Could not reveal all expected photo actions with retained labels and complete frames")
     }
 
     private func returnToPhotoTop(in app: XCUIApplication, list: XCUIElement) throws {
