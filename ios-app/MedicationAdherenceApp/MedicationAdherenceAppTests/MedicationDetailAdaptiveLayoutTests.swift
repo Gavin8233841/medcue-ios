@@ -221,11 +221,22 @@ private final class DetailLayoutHarness {
             .environment(\.layoutDirection, rightToLeft ? .rightToLeft : .leftToRight)
         ))
         parent = UIViewController()
-        previousKeyWindow = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows).first(where: \.isKeyWindow)
-        // An explicit offscreen-capable window permits a real 1024pt container on iPhone CI.
-        // Bounds and traits are asserted below; no reliance on the simulator's device idiom.
-        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 320, height: 900))
+        // A scene-based app must attach the synthetic window to an existing foreground scene.
+        // Read only scene/window metadata here, never the existing windows' view/AX contents.
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first { $0.activationState == .foregroundActive && $0.keyWindow != nil }
+            ?? scenes.first { $0.activationState == .foregroundActive }
+            ?? scenes.first { $0.activationState == .foregroundInactive }
+        guard let scene else {
+            throw HarnessFailure.noForegroundWindowScene(
+                "connectedWindowScenes=\(scenes.count), activationStates=\(scenes.map { $0.activationState.rawValue })"
+            )
+        }
+        previousKeyWindow = scene.keyWindow
+        // The existing scene owns this window. Explicit bounds still exercise a 1024pt
+        // container on iPhone CI; this is not a physical-screen visibility assertion.
+        window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 320, height: 900)
         window.rootViewController = parent
         parent.loadViewIfNeeded()
         parent.addChild(host)
@@ -246,6 +257,7 @@ private final class DetailLayoutHarness {
         parent.view.frame = window.bounds
         host.view.frame = parent.view.bounds
         settle()
+        XCTAssertNotNil(window.windowScene)
         XCTAssertTrue(host.view.window === window)
         XCTAssertFalse(window.isHidden || host.view.isHidden)
         XCTAssertEqual(host.view.bounds.width, width, accuracy: 0.5)
@@ -312,7 +324,7 @@ private final class DetailLayoutHarness {
                 .filter({ $0.bounds.width > 100 && $0.bounds.height > 100 && $0.contentSize.height > 0 })
                 .max(by: { $0.bounds.height < $1.bounds.height }) { return list }
         } while Date() < deadline
-        throw HarnessFailure.listDidNotMount
+        throw HarnessFailure.listDidNotMount(diagnostics(scroll: nil, raw: accessibilityItems(), visible: []))
     }
 
     func contentViewport(of scroll: UIScrollView) -> CGRect {
@@ -324,21 +336,75 @@ private final class DetailLayoutHarness {
     func waitForStableAccessibility(in scroll: UIScrollView) throws -> [AccessibilityItem] {
         let deadline = Date(timeIntervalSinceNow: 3)
         var previous: [AccessibilityItem] = []
+        var raw: [AccessibilityItem] = []
+        var current: [AccessibilityItem] = []
+        var polls = 0
+        var maxRawCount = 0
+        var maxVisibleCount = 0
+        var lastPrevious: [AccessibilityItem] = []
         repeat {
             settle()
             let viewport = contentViewport(of: scroll)
-            let current = accessibilityItems().filter {
-                window.convert($0.frame, from: nil).intersects(viewport)
-            }
+            raw = accessibilityItems()
+            current = raw.filter { window.convert($0.frame, from: nil).intersects(viewport) }
+            polls += 1
+            maxRawCount = max(maxRawCount, raw.count)
+            maxVisibleCount = max(maxVisibleCount, current.count)
             if !current.isEmpty && current == previous { return current }
+            lastPrevious = previous
             previous = current
         } while Date() < deadline
-        throw HarnessFailure.visibleAccessibilityDidNotStabilize
+        // Keep the original exact comparison until native evidence identifies order/jitter
+        // as the cause. Neither an empty tree nor a timeout is accepted as layout coverage.
+        let stability = "polls=\(polls), maxRaw=\(maxRawCount), maxVisible=\(maxVisibleCount), "
+            + "previousVisible=\(lastPrevious.count), "
+            + "sameOrderedLabels=\(lastPrevious.map(\.label) == current.map(\.label)), "
+            + "sameLabelMultiset=\(lastPrevious.map(\.label).sorted() == current.map(\.label).sorted())"
+        throw HarnessFailure.visibleAccessibilityDidNotStabilize(
+            stability + "\n" + diagnostics(scroll: scroll, raw: raw, visible: current)
+        )
     }
 
-    private enum HarnessFailure: Error {
-        case listDidNotMount
-        case visibleAccessibilityDidNotStabilize
+    private func diagnostics(scroll: UIScrollView?, raw: [AccessibilityItem], visible: [AccessibilityItem]) -> String {
+        // Only the synthetic hosting subtree is sampled; never inspect another app window.
+        let samples = raw.prefix(8).map { item in
+            let label = String(item.label.prefix(120)).replacingOccurrences(of: "\n", with: " ")
+            return "label=\(label.debugDescription), screenFrame=\(item.frame), "
+                + "windowFrame=\(window.convert(item.frame, from: nil)), button=\(item.isButton), disabled=\(item.isDisabled)"
+        }.joined(separator: "\n")
+        let sceneState = window.windowScene.map { String($0.activationState.rawValue) } ?? "none"
+        let geometry = [
+            "rawAX=\(raw.count), visibleAX=\(visible.count)",
+            "sceneAttached=\(window.windowScene != nil), sceneActivationState=\(sceneState)",
+            "window.frame=\(window.frame), window.bounds=\(window.bounds), hidden=\(window.isHidden), alpha=\(window.alpha), key=\(window.isKeyWindow)",
+            "host.frame=\(host.view.frame), host.bounds=\(host.view.bounds), attachedToTestWindow=\(host.view.window === window)",
+            "host.hidden=\(host.view.isHidden), host.alpha=\(host.view.alpha), host.AXHidden=\(host.view.accessibilityElementsHidden)",
+            "parent.frame=\(parent.view.frame), parent.bounds=\(parent.view.bounds), descendantViews=\(descendantViews.count)"
+        ].joined(separator: "\n")
+        let scrollGeometry: String
+        if let scroll {
+            scrollGeometry = "viewport=\(contentViewport(of: scroll)), scroll.frame=\(scroll.frame), scroll.bounds=\(scroll.bounds), "
+                + "contentSize=\(scroll.contentSize), contentOffset=\(scroll.contentOffset), adjustedInsets=\(scroll.adjustedContentInset)"
+        } else {
+            scrollGeometry = "viewport=unavailable; no mounted nonzero List"
+        }
+        return geometry + "\n" + scrollGeometry + "\nsyntheticHostSamples(up to 8):\n" + samples
+    }
+
+    private enum HarnessFailure: LocalizedError, CustomStringConvertible {
+        case noForegroundWindowScene(String)
+        case listDidNotMount(String)
+        case visibleAccessibilityDidNotStabilize(String)
+
+        var description: String {
+            switch self {
+            case .noForegroundWindowScene(let details): "noForegroundWindowScene: " + details
+            case .listDidNotMount(let details): "listDidNotMount: " + details
+            case .visibleAccessibilityDidNotStabilize(let details): "visibleAccessibilityDidNotStabilize: " + details
+            }
+        }
+
+        var errorDescription: String? { description }
     }
 
     func assertFixtureUnchanged() throws {

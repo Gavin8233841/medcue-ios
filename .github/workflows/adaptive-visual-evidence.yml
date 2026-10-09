@@ -1,0 +1,52 @@
+name: Adaptive Visual Evidence
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/adaptive-visual-evidence.yml'
+      - 'tools/iphone-duo-evidence/**'
+      - 'ios-app/MedicationAdherenceApp/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: adaptive-visual-evidence-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  synthetic-native-evidence:
+    if: >-
+      github.repository == 'Gavin8233841/medcue-ios' &&
+      github.event.repository.private == false &&
+      github.event.pull_request.number == 162 &&
+      github.event.pull_request.head.repo.full_name == 'Gavin8233841/medcue-ios' &&
+      github.event.pull_request.head.ref == 'codex/161-iphone-duo-adaptation'
+    runs-on: macos-26
+    timeout-minutes: 40
+    env:
+      MEDCUE_DISABLE_LOCAL_LLAMA: '1'
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - name: Check out exact same-repository head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5; MIT
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify evidence boundary tests
+        run: python3 -m unittest discover -s tools/iphone-duo-evidence -p 'test_*.py' -v
+      - name: Run exact native tests and sanitize synthetic screenshots
+        run: python3 tools/iphone-duo-evidence/run.py
+      - name: Upload only sanitized visual evidence
+        # Default success() is deliberate. Never publish on test/export failure.
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2; MIT
+        with:
+          name: adaptive-visual-evidence-${{ github.event.pull_request.head.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/medcue-visual-evidence/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          include-hidden-files: false
+          overwrite: false

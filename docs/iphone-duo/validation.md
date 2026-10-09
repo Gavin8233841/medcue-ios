@@ -47,3 +47,23 @@ The corrective candidate adds only `return` to that getter. Its source SHA-256 i
 Run [37876262950](https://github.com/Gavin8233841/medcue-ios/actions/runs/37876262950), attempt 1, passed the native build suite and Swift Core 161/161, plus Broker 38/38. The iOS test targets then failed to compile two ambiguous `.infinity` expressions in `BarcodeScannerGeometryTests`; none of the 20 new tests executed. These were compile failures, not test skips.
 
 The next candidate qualifies the two constants as `CGFloat.infinity` and the adjacent `.nan` as `CGFloat.nan`. Independent review confirmed exactly these three type qualifications, with all product code unchanged. New scanner-test SHA-256: `1b49285f0b77f346d3ba4652af10cf00620273b10c3ab82ba6db44750e885d15`. New-revision CI remains required; prior build results do not substitute for it.
+
+## Third native attempt: product build and scanner proof; hosted AX gap
+
+Run [37877340598](https://github.com/Gavin8233841/medcue-ios/actions/runs/37877340598), attempt 1, completed with overall failure at branch `539da969e24531ef1e1cd2b05515043eaa072707`; actual checkout was merge `851964685334967c3e8969e4c54ce0dd14b52753`, with the same tree `6f2e72d694b2486ddc82a6f908e0494d1977b06c`.
+
+- All native build stages passed; Broker 38/38 and Swift Core 161/161 passed.
+- All 14 new BarcodeScannerGeometryTests ran and passed. iOS Swift Testing total: 327/327.
+- Hosted XCTest total: 7 executed, 4 passed and 3 new detail tests failed with `visibleAccessibilityDidNotStabilize`. Combined iOS unit count: 334 executed, 331 passed, 3 failed; the existing 317-test baseline passed.
+- UI: 40 test entries, 37 baseline passes and 3 actual iPad-only skips on iPhone 17 Pro/iOS 26.5. This is not iPad coverage.
+- No artifacts were uploaded. The AX-helper failure lacks enough observations to assign a product-layout root cause.
+
+The follow-on candidate binds the synthetic test window to an existing foreground UIWindowScene and adds bounded AX/geometry diagnostics. It preserves the original three-second deadline, stable-array requirement, test assertions, fixture checks and screenshot names. New detail-test SHA-256: `3ef6800b9ad12809db196a835c07a34de6b4c100de4f203dddc12c9189ec523b`. It has only static review so far; it is not yet a proven fix.
+
+## Additive iPad and image-evidence lane
+
+Issue161 authorizes the new `adaptive-visual-evidence.yml` and `tools/iphone-duo-evidence/` slice. The existing full workflow/classifier is unchanged and still required. The additive lane only runs this public repository's same-branch PR162, on standard macos-26 with preinstalled Xcode26.6/iOS26 iPad, using read-only permissions and non-persistent checkout credentials.
+
+The helper requires 3 real-detail tests plus 3 iPad window tests to execute and pass without skips; validates exact test identities and 24 explicit synthetic screenshots; rejects unknown schemas/paths/links/invalid PNGs; sanitizes into fresh staging; and retains at most20MB for one day. It does not publish raw result bundles, logs, device metadata, databases, or automatic screenshots. Test-source changes require a reviewed fingerprint update. Original test failures are retained, with only bounded reconstructed diagnostics.
+
+Independent security review and 25 standard-library positive/negative tests passed in Linux. Actual macOS CLI/schema/ImageIO, iPad test execution, image generation and visual review remain pending. Any unknown format or failed test stops publication. This lane provides iPad rotation/native hosted-view evidence, not Duo posture or hardware certification.
