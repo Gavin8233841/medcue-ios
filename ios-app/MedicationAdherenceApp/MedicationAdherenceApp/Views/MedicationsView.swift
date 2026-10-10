@@ -143,6 +143,7 @@ struct MedicationsView: View {
         }
     }
 
+    @ViewBuilder
     private var medicationList: some View {
         let snapshot = listSnapshot
         let activeRiskCards = activeRiskCards
