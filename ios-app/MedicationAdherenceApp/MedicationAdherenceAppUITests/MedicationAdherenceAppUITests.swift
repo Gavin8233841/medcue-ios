@@ -303,9 +303,11 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         addScreenshot(named: "elder-default-actions", from: app)
 
         app.buttons["elder.switch-to-complete"].tap()
-        let exit = app.alerts.buttons["返回完整模式"]
-        XCTAssertTrue(exit.waitForExistence(timeout: 5))
+        let exitAlert = try NativeAlertTestActions.alert(in: app, title: "返回完整模式？")
+        let exit = try NativeAlertTestActions.button(in: exitAlert, label: "返回完整模式", diagnosticApp: app)
+        XCTAssertEqual(exit.identifier, "experience-mode.confirm")
         exit.tap()
+        NativeAlertTestActions.waitForDismissal(of: exitAlert)
         CompleteModeTestNavigation.assertToday(in: app)
         XCTAssertFalse(app.buttons["today.elder-mode-entry"].exists)
         restartElderFixture(app)
