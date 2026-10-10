@@ -167,3 +167,46 @@ At `c56c927e6e5b04e17a59a9120bd815fe7b554160`, [Native37894657868](https://githu
 - Visual37894658067 was cancelled to honor the Device Hub direction. No artifacts were uploaded by either run, and no iPad/Duo acceptance is claimed.
 
 This passing revision proves its ordinary native gate only. Device Hub screenshots, true Duo runtime/posture behavior and visual review remain outstanding. The following workflow/docs-only pause revision does not alter product or test source; its own exact-head checks are tracked separately.
+
+## 2026-10-10 根导航独立候选：源码与测试准备
+
+基线 `dbb67d8aa17487ca096fba7f86fc557de1596880` / tree `ef0aa8bb3b5b69c0fe42cf1a1e6933a827019ab9`。本轮在独立 `codex/161-duo-navigation-candidate-20261010` 候选工作目录进行，未改原 PR 分支、未推送、未合并、未发布。此前 helper/patch 在当前执行器缺失，本轮 session 为重新实现，不能沿用此前8项检查结论。
+
+### 范围及协作
+
+- 当前 #113 HEAD 经 GitHub 核实仍为 `2a96d8d89b51fc5c25d364e2f19960ab65e6cb6d`；AppRoot 的 DEBUG fixture 段相对本轮基线逐字节不变，只有药品 tab 的宿主改动。#113 未被合并或完整导入。
+- 当前 #73 HEAD 仍为 `903f67ee1a77531c5874f5638688de39ab6a851e`。保留其药品搜索增量和两个搜索算法，未导入风险页、App 初始化、UI fixture 或 workflow。生产 helper 因 PBX 独立所有权而临时放在已编译 MedicationsView 内，用 `MedicationBrowseSearchTextNormalizer` / `MedicationBrowseSearchIndex` 命名，算法经去 imports/类型名映射后与该 SHA 相同；对应原测试仅重命名。日后正式串行集成 #73 时用其正式 helper 替换并删除这些临时类型，避免重复定义。#73 尚未合并。
+- 单一 NavigationSplitView 使用 preferredCompactColumn 的系统 Back，真实 MedicationDetailView 仅按药品 UUID 改身份。过滤列表不作为删除依据；全量 @Query 的 ID 移除才清除失效选择。没有新增保存、网络、医疗建议或持久化状态。
+- Tests 和 UITests 均为现有文件系统同步根组，因此新增测试无需 PBX 修改；这证明发现机制，不代表已经编译或执行。
+
+### 已执行的云端检查
+
+- `git diff --check`：通过。
+- `tools/swift-source-size-check.sh`：通过，1400行门槛不变。
+- `python -B tools/test-source-package.py`：9/9 通过。此为打包工具回归，不是 Swift 测试。
+- 45 个冻结路径零交集；`native-verification.yml`、暂停的 `adaptive-visual-evidence.yml`、PBX 与基线字节相同。
+- `tools/verify-native.sh --quick`：未通过启动前置条件，实际报 `required command not found: plutil`。当前执行器没有 Swift、Xcode 或 iOS runtime；未绕过此门禁，未执行原生编译/测试。
+
+### 已编写但尚未执行
+
+- 14项 session 状态测试：选择/返回锚点、搜索/生命周期过滤、折叠状态、隐藏与显式删除、无自动选中、重复事件和重新选择。
+- 从 #73 精确来源改名的搜索算法回归测试。
+- 4项普通 iPhone Simulator 真实 App 测试：默认字号搜索—详情—返回—同 UUID 再选—清除恢复折叠；AX5 恢复展开；编辑名称后取消、返回、现有存储检查、重启检查原名称与 UUID；两药 fixture 中返回后选择不同 UUID，核对真实详情名及两个任务。仅使用合成 fixture，没有真实健康数据。
+
+### 必须保留的原生验收缺口
+
+本轮不能声称原生“主流程已接入通过”。候选需准确修订的完整 native CI 及独立审查；之后通过现有 Device Hub 验证实际 Duo SDK/runtime 支持的宽窄与 AX 转换。iPad专项继续暂停，不以 iPad 旋转代替。
+
+重点原生脚本：
+1. 默认与 AX5 完成四项新 App 测试，确认系统 Back 实际返回、搜索不丢、重复选择同 ID 可再次进入。
+2. 有足够内容预算的 regular 容器实际并列显示列表与真实详情；窄容器/AX字号单栏，药名、按钮及侧边系统控件不裁切。实际列宽由系统决定，源码阈值不是设备尺寸；核验首次宽窗口展示及用户隐藏 sidebar 后的行为，保留系统控制。
+3. 已选药品进入其风险详情等更深页面，Back 后选择另一药品，再重复开合；旧详情路径不得遮盖新选择或残留上一药品 sheet。
+4. 编辑草稿、系统权限说明和添加流程的弹层打开时改变尺寸；检查同一草稿、操作目标、取消零写入及保存恰一次。仅保持同一 `.id` 不能证明 SwiftUI 系统宿主不会重建。
+5. 筛选隐藏已选药品时详情保留；归档不是删除；实际删除成功后不再显示失效详情，失败不能伪装成成功。
+6. 长列表返回锚点、VoiceOver 焦点、RTL、后台/恢复和 tab 往返需要实际证据。新单药品fixture只能检查选中行可见，不证明任意长列表滚动精度。现有检查器只能观察 task/log/counter 与取消后的药名，不能证明完整数据库无变化。
+
+硬件姿态、相机、系统栏、物理性能和真实用户体验仍未验收；不增加新依赖、凭据或付费资源。对比基线的独立提交可回退。
+
+独立新上下文生产源码审查：Blocker 0 / Required 0，仅为源码候选审查，不是原生验收。审查文件 SHA-256：AppRootView `81f470f044a439b376345d92226d4f4bb5acc4320ea2346caf681700919c8fe7`；MedicationsView `7a271244f13dda8467b5e56cbe623eae7fda9af9e5e357d1dd5b845c5ba279e8`。累计源码与最终测试仍须准确提交的完整门禁。
+
+最终4项 UI 测试源码另经独立新上下文复核：Blocker 0 / Required 0，文件 SHA-256 `98580e7c95e4c207b5f313b3d55f5422c0a507a3b9ac194851568b68ec343f1c`；这仍不证明编译、运行或界面验收。
