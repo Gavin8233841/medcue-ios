@@ -105,6 +105,7 @@ struct TimelineDoseTaskRow: View {
                 if isOpen {
                     TodayDoseActionsView(
                         taskID: task.id, completionText: completionText,
+                        accessibilityContext: todayDoseAccessibilityContext(task: task, medication: medication),
                         feedbackAction: feedbackAction, confirmationKind: confirmationKind,
                         isActionInFlight: isActionInFlight,
                         markTaken: markTaken, delay: delay, skip: skip,
@@ -206,6 +207,7 @@ struct TodayDoseActionsView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let taskID: UUID
     let completionText: String
+    let accessibilityContext: DoseActionAccessibilityContext
     let feedbackAction: PendingDoseFeedback.Action?
     let confirmationKind: PendingDoseConfirmation.Kind?
     let isActionInFlight: Bool
@@ -220,20 +222,23 @@ struct TodayDoseActionsView: View {
         VStack(alignment: .leading, spacing: 10) {
             (dynamicTypeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))) {
                 CompactDoseActionButton(
-                    title: completionText, accessibilityIdentifier: AppAccessibilityID.todayTimelineTaken,
+                    title: completionText, spokenLabel: accessibilityContext.label(for: completionText),
+                    accessibilityIdentifier: AppAccessibilityID.todayTimelineTaken,
                     confirmationIconName: "checkmark", tint: TodayDoseActionPalette.primary,
                     isProminent: true, isConfirming: feedbackAction == .taken,
                     usesPanelStyle: isTaskPanel, action: markTaken
                 )
                 .id("\(taskID.uuidString)-taken")
                 CompactDoseActionButton(
-                    title: "稍后", accessibilityIdentifier: AppAccessibilityID.todayTimelineDelay,
+                    title: "稍后", spokenLabel: accessibilityContext.label(for: "稍后"),
+                    accessibilityIdentifier: AppAccessibilityID.todayTimelineDelay,
                     confirmationIconName: "clock", tint: .gray, isProminent: false,
                     isConfirming: feedbackAction == .delay, usesPanelStyle: isTaskPanel, action: delay
                 )
                 .id("\(taskID.uuidString)-delay")
                 CompactDoseActionButton(
-                    title: "忽略", accessibilityIdentifier: AppAccessibilityID.todayTimelineSkip,
+                    title: "忽略", spokenLabel: accessibilityContext.label(for: "忽略"),
+                    accessibilityIdentifier: AppAccessibilityID.todayTimelineSkip,
                     confirmationIconName: "minus.circle", tint: .orange, isProminent: false,
                     isConfirming: feedbackAction == .skip, usesPanelStyle: isTaskPanel, action: skip
                 )
@@ -242,7 +247,8 @@ struct TodayDoseActionsView: View {
             .disabled(isActionInFlight)
             if let confirmationKind {
                 InlineDoseConfirmationCard(
-                    kind: confirmationKind, delayDurationText: "\(DoseDelayPolicy.delayMinutes) 分钟",
+                    kind: confirmationKind, accessibilityContext: accessibilityContext,
+                    delayDurationText: "\(DoseDelayPolicy.delayMinutes) 分钟",
                     confirm: confirm, cancel: cancel
                 )
                 .transition(.asymmetric(
@@ -259,6 +265,7 @@ struct InlineDoseConfirmationCard: View {
     @AccessibilityFocusState private var confirmationTitleFocused: Bool
 
     let kind: PendingDoseConfirmation.Kind
+    let accessibilityContext: DoseActionAccessibilityContext
     let delayDurationText: String
     let confirm: () -> Void
     let cancel: () -> Void
@@ -298,6 +305,7 @@ struct InlineDoseConfirmationCard: View {
                         .contentShape(Rectangle())
                 }
                 .accessibilityIdentifier(AppAccessibilityID.todayTimelineConfirmationCancel)
+                .accessibilityLabel(accessibilityContext.label(for: "取消"))
 
                 Button(action: confirm) {
                     Text(kind.confirmTitle)
@@ -311,6 +319,7 @@ struct InlineDoseConfirmationCard: View {
                         .contentShape(Rectangle())
                 }
                 .accessibilityIdentifier(AppAccessibilityID.todayTimelineConfirmationConfirm)
+                .accessibilityLabel(accessibilityContext.label(for: kind.confirmTitle))
             }
             .buttonStyle(.plain)
         }
@@ -457,6 +466,10 @@ struct HandledDoseTaskRow: View {
     let undo: () -> Void
     let archive: () -> Void
 
+    private var accessibilityContext: DoseActionAccessibilityContext {
+        todayDoseAccessibilityContext(task: task, medication: medication)
+    }
+
     private var tint: Color {
         switch task.status {
         case .taken, .corrected:
@@ -502,7 +515,7 @@ struct HandledDoseTaskRow: View {
             .font(.caption.weight(.semibold))
             .foregroundStyle(.orange)
             .buttonStyle(.borderless)
-            .accessibilityLabel("撤销\(medication.map(userFacingMedicationName(for:)) ?? "这条记录")")
+            .accessibilityLabel(accessibilityContext.label(for: "撤销"))
             .disabled(!allowsExternalActions)
         }
         .padding(.vertical, 7)
@@ -513,6 +526,7 @@ struct HandledDoseTaskRow: View {
             } label: {
                 Label("撤销", systemImage: "arrow.uturn.backward")
             }
+            .accessibilityLabel(accessibilityContext.label(for: "撤销"))
             .tint(.orange)
             .disabled(!allowsExternalActions)
 
@@ -521,6 +535,7 @@ struct HandledDoseTaskRow: View {
             } label: {
                 Label("归档", systemImage: "archivebox")
             }
+            .accessibilityLabel(accessibilityContext.label(for: "归档"))
             .tint(.gray)
             .disabled(!allowsExternalActions)
         }
@@ -531,6 +546,7 @@ struct CompactDoseActionButton: View {
     @Environment(\.medcueReduceMotionEnabled) private var reduceMotionEnabled
     @AppStorage("usesLargeTouchTargets") private var usesLargeTouchTargets = true
     let title: String
+    let spokenLabel: String
     let accessibilityIdentifier: String
     let confirmationIconName: String
     let tint: Color
@@ -567,7 +583,7 @@ struct CompactDoseActionButton: View {
         }
         .buttonStyle(CompactDoseActionButtonStyle())
         .disabled(isConfirming)
-        .accessibilityLabel(title)
+        .accessibilityLabel(spokenLabel)
         .accessibilityIdentifier(accessibilityIdentifier)
     }
 

@@ -617,7 +617,8 @@ private struct TodayContentView: View {
                     elderDoseSuccessFeedback = ElderDoseSuccessState(
                         message: "已设置 \(delayDurationText)后提醒",
                         taskID: task.recordedAt == nil ? nil : task.id,
-                        undoExpiresAt: task.recordedAt?.addingTimeInterval(DoseActionTransitionPlanner.undoWindow)
+                        undoExpiresAt: task.recordedAt?.addingTimeInterval(DoseActionTransitionPlanner.undoWindow),
+                        accessibilityContext: todayDoseAccessibilityContext(task: task, medication: self.medication(for: task))
                     )
                 case .reminder(.unavailable(let message)):
                     elderDoseSuccessFeedback = nil
@@ -884,7 +885,8 @@ private struct TodayContentView: View {
             elderDoseSuccessFeedback = ElderDoseSuccessState(
                 message: message,
                 taskID: task.recordedAt == nil ? nil : task.id,
-                undoExpiresAt: task.recordedAt?.addingTimeInterval(DoseActionTransitionPlanner.undoWindow)
+                undoExpiresAt: task.recordedAt?.addingTimeInterval(DoseActionTransitionPlanner.undoWindow),
+                accessibilityContext: todayDoseAccessibilityContext(task: task, medication: self.medication(for: task))
             )
         }
         if reduceMotionEnabled {
@@ -1049,6 +1051,7 @@ private struct TodayContentView: View {
         let banner = DoseUndoBanner(
             taskID: task.id,
             medicationName: medicationName,
+            accessibilityContext: todayDoseAccessibilityContext(task: task, medication: medication(for: task)),
             rollbackToken: rollbackToken
         )
         if reduceMotionEnabled {

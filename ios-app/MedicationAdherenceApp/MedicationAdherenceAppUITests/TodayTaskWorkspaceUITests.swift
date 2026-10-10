@@ -37,11 +37,15 @@ final class TodayTaskWorkspaceUITests: XCTestCase {
         XCTAssertFalse(first.isSelected)
         let taken = app.buttons.matching(identifier: "today.timeline.action.taken")
         XCTAssertEqual(taken.count, 1)
-        XCTAssertEqual(taken.firstMatch.label, "已使用")
-        XCTAssertTrue(taken.firstMatch.isHittable)
+        XCTAssertTrue(taken.element(boundBy: 0).label.hasPrefix("已使用，人工泪液，计划时间"))
+        XCTAssertTrue(taken.element(boundBy: 0).label.hasSuffix(" 11:58"))
+        XCTAssertTrue(taken.element(boundBy: 0).isHittable)
         XCTAssertTrue(first.isEnabled)
         first.tap()
         assertIdentity(firstID, name: "布洛芬", unit: "片", time: "11:55", in: app)
+        XCTAssertEqual(taken.count, 1)
+        XCTAssertTrue(taken.element(boundBy: 0).label.hasPrefix("已服用，布洛芬，计划时间"))
+        XCTAssertTrue(taken.element(boundBy: 0).label.hasSuffix(" 11:55"))
         inspectStore(app)
         XCTAssertEqual(readStore(app, count: 2), baseline,
                        "Browsing must not alter tasks, logs or side-effect counters")
@@ -65,6 +69,10 @@ final class TodayTaskWorkspaceUITests: XCTestCase {
         for identifier in ["today.timeline.confirmation.confirm", "today.timeline.confirmation.cancel"] {
             XCTAssertEqual(viewport.buttons.matching(identifier: identifier).count, 1,
                            "The current Today viewport must own both confirmation leaves")
+            XCTAssertTrue(viewport.buttons.matching(identifier: identifier).element(boundBy: 0)
+                .label.contains("，布洛芬，计划时间"))
+            XCTAssertTrue(viewport.buttons.matching(identifier: identifier).element(boundBy: 0)
+                .label.hasSuffix(" 18:00"))
             XCTAssertEqual(viewport.buttons.matching(identifier: identifier).element(boundBy: 0)
                 .descendants(matching: .button).count, 0, "Confirmation identifiers belong to the actionable leaf")
         }

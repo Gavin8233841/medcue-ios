@@ -1103,10 +1103,12 @@ struct ElderTodayScreen: View {
 
     @ViewBuilder
     private func taskActions(_ task: StoredDoseTask) -> some View {
+        let accessibilityContext = todayDoseAccessibilityContext(task: task, medication: snapshot.currentMedication)
         if let confirmationKind = activeConfirmation {
             ElderDoseConfirmationPanel(
                 kind: confirmationKind,
                 completionVerb: actions.completionVerb(snapshot.currentMedication),
+                accessibilityContext: accessibilityContext,
                 confirm: { actions.confirm(task) },
                 cancel: { actions.cancelConfirmation(task) }
             )
@@ -1119,6 +1121,7 @@ struct ElderTodayScreen: View {
                     tone: .completion,
                     prominence: .primary,
                     accessibilityIdentifier: AppAccessibilityID.elderMarkTaken,
+                    accessibilityContext: accessibilityContext,
                     action: { actions.markTaken(task) }
                 )
                 ElderDoseActionButton(
@@ -1127,15 +1130,17 @@ struct ElderTodayScreen: View {
                     tone: .reminder,
                     prominence: .secondary,
                     accessibilityIdentifier: AppAccessibilityID.elderDelay,
+                    accessibilityContext: accessibilityContext,
                     action: { actions.delay(task) }
                 )
-                .accessibilityLabel("\(DoseDelayPolicy.delayMinutes) 分钟后提醒")
+                .accessibilityLabel(accessibilityContext.label(for: "\(DoseDelayPolicy.delayMinutes) 分钟后提醒"))
                 ElderDoseActionButton(
                     title: "需要帮助",
                     systemImage: "phone.fill",
                     tone: .help,
                     prominence: .tertiary,
                     accessibilityIdentifier: AppAccessibilityID.elderRequestHelp,
+                    accessibilityContext: accessibilityContext,
                     action: actions.requestHelp
                 )
             }
@@ -1286,6 +1291,7 @@ private struct ElderDoseActionButton: View {
     let tone: ElderDoseActionTone
     let prominence: ElderDoseActionProminence
     let accessibilityIdentifier: String
+    var accessibilityContext: DoseActionAccessibilityContext? = nil
     let action: () -> Void
 
     var body: some View {
@@ -1304,7 +1310,7 @@ private struct ElderDoseActionButton: View {
         .buttonStyle(CompactDoseActionButtonStyle())
         .frame(maxWidth: .infinity, minHeight: prominence.minimumHeight)
         .contentShape(Rectangle())
-        .accessibilityLabel(title)
+        .accessibilityLabel(accessibilityContext?.label(for: title) ?? title)
         .accessibilityIdentifier(accessibilityIdentifier)
     }
 
@@ -1329,6 +1335,7 @@ private struct ElderDoseConfirmationPanel: View {
     @Environment(\.colorScheme) private var colorScheme
     let kind: PendingDoseConfirmation.Kind
     let completionVerb: String
+    let accessibilityContext: DoseActionAccessibilityContext
     let confirm: () -> Void
     let cancel: () -> Void
 
@@ -1353,6 +1360,7 @@ private struct ElderDoseConfirmationPanel: View {
                 tone: tone,
                 prominence: .primary,
                 accessibilityIdentifier: AppAccessibilityID.elderConfirmationConfirm,
+                accessibilityContext: accessibilityContext,
                 action: confirm
             )
             ElderDoseActionButton(
@@ -1361,6 +1369,7 @@ private struct ElderDoseConfirmationPanel: View {
                 tone: .neutral,
                 prominence: .secondary,
                 accessibilityIdentifier: AppAccessibilityID.elderConfirmationCancel,
+                accessibilityContext: accessibilityContext,
                 action: cancel
             )
         }

@@ -239,7 +239,7 @@ struct TodayTaskWorkspaceView<Supplementary: View>: View {
                 .font(.headline)
                 .accessibilityIdentifier(AppAccessibilityID.todayOpenTimeline)
             if isSelectionLocked {
-                Text("请先完成右侧确认或等待当前操作结束，再选择其他任务。")
+                Text("请先完成当前用药确认或等待当前操作结束，再选择其他任务。")
                     .font(.footnote).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -305,6 +305,7 @@ struct TodayTaskWorkspaceView<Supplementary: View>: View {
     @ViewBuilder
     private func taskActions(_ task: StoredDoseTask) -> some View {
         let key = actions.logicalDoseKey(task)
+        let accessibilityContext = todayDoseAccessibilityContext(task: task, medication: actions.medication(task))
         let isArchived = snapshot.archivedTodayTasks.contains { $0.id == task.id }
         let isOpen = !isArchived && (task.status == .pending || task.status == .delayed
             || closingDoseKeys.contains(key) || pendingDoseFeedback?.doseKey == key)
@@ -312,6 +313,7 @@ struct TodayTaskWorkspaceView<Supplementary: View>: View {
             if isOpen {
                 TodayDoseActionsView(
                     taskID: task.id, completionText: actions.completionVerb(actions.medication(task)),
+                    accessibilityContext: accessibilityContext,
                     feedbackAction: pendingDoseFeedback?.doseKey == key ? pendingDoseFeedback?.action : nil,
                     confirmationKind: pendingDoseConfirmation?.doseKey == key ? pendingDoseConfirmation?.kind : nil,
                     isActionInFlight: inFlightDoseKeys.contains(key), isTaskPanel: true,
@@ -325,10 +327,13 @@ struct TodayTaskWorkspaceView<Supplementary: View>: View {
                 HStack(spacing: 12) {
                     if snapshot.archivedTodayTasks.contains(where: { $0.id == task.id }) {
                         Button("恢复记录") { actions.unarchive(task) }
+                            .accessibilityLabel(accessibilityContext.label(for: "恢复记录"))
                     } else {
                         Button("归档记录") { archive(task) }
+                            .accessibilityLabel(accessibilityContext.label(for: "归档记录"))
                     }
                     Button("撤销") { perform(task, action: actions.undoOrReopen) }
+                        .accessibilityLabel(accessibilityContext.label(for: "撤销"))
                 }
                 .buttonStyle(.bordered)
                 .disabled(isSelectionLocked || !allowsExternalActions)
@@ -422,7 +427,7 @@ private struct TodayTaskSelectorRow: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityHint("在右侧核对这次用药，不会记录服用")
+        .accessibilityHint("核对这次用药详情，不会记录服用")
         .accessibilityIdentifier("today.workspace.select.\(task.id.uuidString)")
     }
 }

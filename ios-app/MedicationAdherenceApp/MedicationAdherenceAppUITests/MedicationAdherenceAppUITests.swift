@@ -486,13 +486,15 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         let app = launchElderFixture(scenario: "multiple")
         assertCurrentTask("布洛芬", status: "未确认", in: app)
         XCTAssertEqual(app.otherElements.matching(identifier: "elder.current-task").count, 1)
+        assertDoseActionLabel("elder.action.taken", action: "已服用", medication: "布洛芬", in: app)
         XCTAssertFalse(currentTaskText(containing: "人工泪液", in: app).exists)
         addScreenshot(named: "elder-flow-first-task", from: app)
 
         tapElderAction("elder.action.taken", in: app)
         assertCurrentTask("人工泪液", status: "未确认", in: app)
         XCTAssertTrue(app.descendants(matching: .any)["elder.feedback.success"].waitForExistence(timeout: 5))
-        XCTAssertEqual(app.buttons["elder.action.taken"].label, "已使用")
+        assertDoseActionLabel("elder.action.taken", action: "已使用", medication: "人工泪液", in: app)
+        assertDoseActionLabel("elder.feedback.undo", action: "10 分钟内撤销本次操作", medication: "布洛芬", in: app)
         XCTAssertFalse(currentTaskText(containing: "布洛芬", in: app).exists)
         addScreenshot(named: "elder-flow-next-task", from: app)
 
@@ -687,8 +689,9 @@ final class MedicationAdherenceAppUITests: XCTestCase {
     func testCompleteModeLargeTouchSettingChangesActionHeightAndPersists() {
         continueAfterFailure = false
         let app = launchElderFixture(mode: "complete")
-        let delay = app.buttons["稍后"].firstMatch
+        let delay = app.buttons.matching(identifier: "today.timeline.action.delay").element(boundBy: 0)
         scrollToHittable(delay, in: app)
+        assertDoseActionLabel("today.timeline.action.delay", action: "稍后", medication: "布洛芬", in: app)
         let largeHeight = delay.frame.height
         XCTAssertGreaterThanOrEqual(largeHeight, 48)
 
@@ -775,6 +778,18 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         XCTAssertTrue(app.buttons["elder.help.error.dismiss"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.descendants(matching: .any)["elder.feedback.success"].exists)
         assertStoredState(in: app, statuses: ["pending"], logCount: 0, saveAttempts: 0, helpAttempts: 1)
+    }
+
+    private func assertDoseActionLabel(
+        _ identifier: String, action: String, medication: String, in app: XCUIApplication,
+        file: StaticString = #filePath, line: UInt = #line
+    ) {
+        let candidates = app.buttons.matching(identifier: identifier)
+        XCTAssertEqual(candidates.count, 1, "The contextual action must have one owner", file: file, line: line)
+        let button = candidates.element(boundBy: 0)
+        XCTAssertEqual(button.descendants(matching: .button).count, 0, file: file, line: line)
+        XCTAssertTrue(button.label.hasPrefix("\(action)，\(medication)，计划时间"), file: file, line: line)
+        XCTAssertNotNil(button.label.range(of: #"\d{2}:\d{2}$"#, options: .regularExpression), file: file, line: line)
     }
 
     private func assertElderActionsVisible(

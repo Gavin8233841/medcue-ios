@@ -261,6 +261,7 @@ struct DoseUndoBanner: Identifiable, Equatable {
     let id = UUID()
     let taskID: UUID
     let medicationName: String
+    let accessibilityContext: DoseActionAccessibilityContext
     let rollbackToken: DoseReopenRollbackToken
 }
 
@@ -310,8 +311,8 @@ struct DoseUndoBannerView: View {
         .onTapGesture(perform: undoRollback)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("已恢复到待处理，\(banner.medicationName)，撤回")
-        .accessibilityAction(named: Text("撤回"), undoRollback)
+        .accessibilityLabel(banner.accessibilityContext.label(for: "已恢复到待处理，撤回"))
+        .accessibilityAction(named: Text(banner.accessibilityContext.label(for: "撤回")), undoRollback)
     }
 }
 
@@ -603,6 +604,8 @@ struct ElderDoseSuccessState: Equatable {
     let message: String
     let taskID: UUID?
     let undoExpiresAt: Date?
+    // Snapshot the original action target, rather than the next current task.
+    var accessibilityContext: DoseActionAccessibilityContext? = nil
 
     func canUndo(at date: Date) -> Bool {
         taskID != nil && undoExpiresAt.map { date <= $0 } == true
@@ -622,6 +625,9 @@ struct ElderDoseSuccessFeedback: View {
                 Button("10 分钟内撤销本次操作") { undo(taskID) }
                     .buttonStyle(.bordered)
                     .accessibilityIdentifier("elder.feedback.undo")
+                    .accessibilityLabel((feedback.accessibilityContext ?? DoseActionAccessibilityContext(
+                        medicationName: nil, scheduledTime: nil
+                    )).label(for: "10 分钟内撤销本次操作"))
             }
         }
         .font(.headline.weight(.semibold))
