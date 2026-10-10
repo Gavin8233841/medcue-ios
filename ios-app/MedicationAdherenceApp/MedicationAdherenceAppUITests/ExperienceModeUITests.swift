@@ -238,7 +238,7 @@ final class ExperienceModeUITests: XCTestCase {
         let help = try NativeAlertTestActions.alert(in: app, title: "联系帮助？")
         XCTAssertFalse(app.buttons["elder.settings"].isHittable)
         XCTAssertFalse(app.buttons["elder.switch-to-complete"].isHittable)
-        try NativeAlertTestActions.button(in: help, label: "取消").tap()
+        try NativeAlertTestActions.button(in: help, label: "取消", diagnosticApp: app).tap()
         assertElder(app)
         app.buttons["elder.switch-to-complete"].tap()
         try cancelMode(app)
@@ -312,13 +312,13 @@ final class ExperienceModeUITests: XCTestCase {
 
     private func cancelMode(_ app: XCUIApplication) throws {
         let alert = try NativeAlertTestActions.modeAlert(in: app)
-        try NativeAlertTestActions.button(in: alert, label: "取消").tap()
+        try NativeAlertTestActions.button(in: alert, label: "取消", diagnosticApp: app).tap()
         NativeAlertTestActions.waitForDismissal(of: alert)
     }
 
     private func confirmMode(_ app: XCUIApplication, title: String) throws {
         let alert = try NativeAlertTestActions.alert(in: app, title: title + "？")
-        try NativeAlertTestActions.button(in: alert, label: title).tap()
+        try NativeAlertTestActions.button(in: alert, label: title, diagnosticApp: app).tap()
         NativeAlertTestActions.waitForDismissal(of: alert)
     }
 
@@ -431,7 +431,9 @@ enum CompleteModeTestNavigation {
             let sideHittable = side.count == 1 && side.firstMatch.isHittable
             return bottomHittable != sideHittable
         }, object: nil)
-        XCTAssertEqual(XCTWaiter.wait(for: [available], timeout: 10), .completed,
+        let readiness = XCTWaiter.wait(for: [available], timeout: 10)
+        if readiness != .completed { SyntheticCompatibilityDiagnostics.navigation(label: label, app: app) }
+        XCTAssertEqual(readiness, .completed,
                        "Exactly one hittable native \(label) entry must exist in TabBar or Toolbar",
                        file: file, line: line)
         let entries = bottom.count == 1 && bottom.firstMatch.isHittable ? bottom : side

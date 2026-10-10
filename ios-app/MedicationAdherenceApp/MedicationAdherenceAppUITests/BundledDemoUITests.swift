@@ -33,11 +33,11 @@ final class BundledDemoUITests: XCTestCase {
         openSettings(app)
         try toggleMode(app, before: "0")
         let enable = try NativeAlertTestActions.alert(in: app, title: "启用适老模式？")
-        try NativeAlertTestActions.button(in: enable, label: "取消").tap()
+        try NativeAlertTestActions.button(in: enable, label: "取消", diagnosticApp: app).tap()
         XCTAssertEqual(try modeSwitch(app).value as? String, "0")
         try toggleMode(app, before: "0")
         let confirmed = try NativeAlertTestActions.alert(in: app, title: "启用适老模式？")
-        try NativeAlertTestActions.button(in: confirmed, label: "启用适老模式").tap()
+        try NativeAlertTestActions.button(in: confirmed, label: "启用适老模式", diagnosticApp: app).tap()
         XCTAssertTrue(app.buttons["elder.action.taken"].waitForExistence(timeout: 5))
         try assertHeaderEnabled(true, in: app)
         let arguments = app.launchArguments
@@ -50,7 +50,7 @@ final class BundledDemoUITests: XCTestCase {
         openSettings(app)
         try toggleMode(app, before: "1")
         let exit = try NativeAlertTestActions.alert(in: app, title: "返回完整模式？")
-        try NativeAlertTestActions.button(in: exit, label: "返回完整模式").tap()
+        try NativeAlertTestActions.button(in: exit, label: "返回完整模式", diagnosticApp: app).tap()
         XCTAssertFalse(app.buttons["elder.action.taken"].exists)
         XCTAssertTrue(app.staticTexts["demo.synthetic-marker"].exists)
         try assertHeaderEnabled(true, in: app)
@@ -66,8 +66,8 @@ final class BundledDemoUITests: XCTestCase {
                 let menu = app.buttons["elder.moreActions"]
                 XCTAssertTrue(menu.isHittable)
                 menu.tap()
-                try uniqueLeaf(label: "这次不吃", in: app).tap()
-                try uniqueLeaf(label: "确认这次不吃", in: app).tap()
+                try uniqueLeaf(label: "这次不吃", in: app, diagnosticApp: app).tap()
+                try uniqueLeaf(label: "确认这次不吃", in: app, diagnosticApp: app).tap()
             } else {
                 let button = app.buttons["elder.action." + (action == "taken" ? "taken" : "delay")]
                 XCTAssertTrue(button.isHittable)
@@ -106,7 +106,7 @@ final class BundledDemoUITests: XCTestCase {
         XCTAssertNotNil(baseline)
         try assertHeaderEnabled(true, in: app)
         app.buttons["elder.moreActions"].tap()
-        try uniqueLeaf(label: "这次不吃", in: app).tap()
+        try uniqueLeaf(label: "这次不吃", in: app, diagnosticApp: app).tap()
         XCTAssertTrue(app.buttons["确认这次不吃"].waitForExistence(timeout: 5))
         // Covered controls are not sufficient evidence: require the actual
         // header controls to be present and explicitly disabled by their guard.
@@ -122,11 +122,11 @@ final class BundledDemoUITests: XCTestCase {
         XCTAssertEqual(app.staticTexts["demo.store.inspection"].value as? String, baseline)
         app.buttons["demo.exit.open"].tap()
         let cancel = try NativeAlertTestActions.alert(in: app, title: "退出合成演示？")
-        try uniqueLeaf(label: "取消", in: cancel).tap()
+        try uniqueLeaf(label: "取消", in: cancel, diagnosticApp: app).tap()
         XCTAssertFalse(app.staticTexts["demo.closed"].exists)
         app.buttons["demo.exit.open"].tap()
         let exit = try NativeAlertTestActions.alert(in: app, title: "退出合成演示？")
-        try uniqueLeaf(label: "退出演示", in: exit).tap()
+        try uniqueLeaf(label: "退出演示", in: exit, diagnosticApp: app).tap()
         XCTAssertTrue(app.staticTexts["demo.closed"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["demo.settings.open"].exists)
         XCTAssertFalse(app.buttons["重试读取原记录"].exists)
@@ -184,14 +184,16 @@ final class BundledDemoUITests: XCTestCase {
         XCTAssertTrue(button.isEnabled, "A hittable disabled header is not usable Settings")
         XCTAssertTrue(button.isHittable)
         button.tap()
-        XCTAssertTrue(app.navigationBars["演示设置"].waitForExistence(timeout: 5))
+        let settingsReady = app.navigationBars["演示设置"].waitForExistence(timeout: 5)
+        if !settingsReady { SyntheticCompatibilityDiagnostics.demoSettings(app: app) }
+        XCTAssertTrue(settingsReady)
     }
 
     private func enterElder(_ app: XCUIApplication) throws {
         openSettings(app)
         try toggleMode(app, before: "0")
         let alert = try NativeAlertTestActions.alert(in: app, title: "启用适老模式？")
-        try NativeAlertTestActions.button(in: alert, label: "启用适老模式").tap()
+        try NativeAlertTestActions.button(in: alert, label: "启用适老模式", diagnosticApp: app).tap()
         XCTAssertTrue(app.buttons["elder.action.taken"].waitForExistence(timeout: 5))
     }
 
@@ -217,9 +219,13 @@ final class BundledDemoUITests: XCTestCase {
         return row
     }
 
-    private func uniqueLeaf(label: String, in owner: XCUIElement) throws -> XCUIElement {
+    private func uniqueLeaf(label: String, in owner: XCUIElement, diagnosticApp app: XCUIApplication) throws -> XCUIElement {
         let leaves = owner.buttons.matching(NSPredicate(format: "label == %@", label)).allElementsBoundByIndex.filter {
             $0.descendants(matching: .button).matching(NSPredicate(format: "label == %@", label)).count == 0
+        }
+        if leaves.count != 1 {
+            SyntheticCompatibilityDiagnostics.action(owner: owner, label: label, leaves: leaves.count,
+                                                     app: app, nativeIdentifierRule: false)
         }
         XCTAssertEqual(leaves.count, 1)
         guard leaves.count == 1, let leaf = leaves.first else { throw LookupFailure.ambiguous }

@@ -265,7 +265,7 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         try CompleteModeTestNavigation.openSettings(in: app)
         try NativeSettingsModeSwitchTestActions.tap(in: app, expectedValue: "0", expectingAlert: "启用适老模式？")
         let enableAlert = try NativeAlertTestActions.alert(in: app, title: "启用适老模式？")
-        try NativeAlertTestActions.button(in: enableAlert, label: "启用适老模式").tap()
+        try NativeAlertTestActions.button(in: enableAlert, label: "启用适老模式", diagnosticApp: app).tap()
 
         XCTAssertTrue(
             app.buttons["elder.switch-to-complete"].waitForExistence(timeout: 5),
