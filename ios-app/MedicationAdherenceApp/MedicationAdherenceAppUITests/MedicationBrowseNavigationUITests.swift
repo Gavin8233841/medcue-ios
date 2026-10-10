@@ -162,11 +162,28 @@ final class MedicationBrowseNavigationUITests: XCTestCase {
     }
 
     private func openMedicationTab(in app: XCUIApplication) throws {
-        let tab = app.tabBars.buttons.element(boundBy: 1)
-        try require(tab.waitForExistence(timeout: 10) && tab.isHittable, "Medication tab unavailable")
+        let bottomEntries = app.tabBars.buttons.matching(NSPredicate(format: "label == %@", "药品"))
+        // Duo's native hierarchy exposes the same app tab in a side toolbar,
+        // outside TabBar. Match its observed identity, never arbitrary drug text.
+        let sideEntries = app.toolbars.buttons.matching(NSPredicate(
+            format: "identifier == %@ AND label == %@", "pills", "药品"
+        ))
+        let available = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            guard bottomEntries.count <= 1 && sideEntries.count <= 1 else { return false }
+            return (bottomEntries.count == 1 && bottomEntries.firstMatch.isHittable)
+                || (sideEntries.count == 1 && sideEntries.firstMatch.isHittable)
+        }, object: nil)
+        try require(XCTWaiter.wait(for: [available], timeout: 10) == .completed,
+                    "A unique hittable medication tab must exist in the bottom bar or native side toolbar")
+        let entries = bottomEntries.count == 1 && bottomEntries.firstMatch.isHittable
+            ? bottomEntries : sideEntries
+        try require(entries.count == 1 && entries.firstMatch.isHittable,
+                    "Medication entry must remain unique and hittable at activation")
+        let tab = entries.firstMatch
         tab.tap()
-        try require(app.descendants(matching: .any)["tab.medications"].waitForExistence(timeout: 10),
-                    "Actual medication tab did not open")
+        try require(app.descendants(matching: .any)["tab.medications"].waitForExistence(timeout: 10)
+                    && app.navigationBars["药品"].exists && tab.isSelected,
+                    "Actual medication tab and its navigation content must become selected")
     }
 
     private func selectNonemptyLifecycle(in app: XCUIApplication, count: Int = 1) throws {
@@ -208,12 +225,14 @@ final class MedicationBrowseNavigationUITests: XCTestCase {
     }
 
     private func clearSearch(in app: XCUIApplication) throws {
-        let field = try clearSearchText(in: app, expectedQuery: "布洛芬")
-        // Observe the list only after ending text input. At AX sizes, its group
-        // can be outside the keyboard-reduced List viewport and virtualized.
-        if app.keyboards.firstMatch.exists { field.typeText("\n") }
-        try require(app.keyboards.firstMatch.waitForNonExistence(timeout: 5),
-                    "Keyboard must dismiss before observing the restored group")
+        _ = try clearSearchText(in: app, expectedQuery: "布洛芬")
+        // Exact CI AX evidence: an empty search disables the keyboard Search key.
+        // End editing with the native Close control AFTER proving the query empty.
+        let closeButtons = app.navigationBars["药品"].buttons.matching(NSPredicate(format: "label == %@", "关闭"))
+        let close = closeButtons.firstMatch
+        try require(close.waitForExistence(timeout: 5) && closeButtons.count == 1 && close.isHittable,
+                    "Exactly one native medication-search Close control must be available")
+        close.tap()
         // The return anchor can leave the group above the visible row.
         try revealRestoredGroup(in: app)
         // exerciseBrowse still asserts the ORIGINAL expansion value and UUID.
@@ -274,12 +293,25 @@ final class MedicationBrowseNavigationUITests: XCTestCase {
     }
 
     private func returnToSearch(in app: XCUIApplication, rowID: String, query: String = "布洛芬") throws {
-        let back = app.navigationBars["药品详情"].buttons.matching(NSPredicate(
+        let navigationBack = app.navigationBars["药品详情"].buttons.matching(NSPredicate(
             format: "identifier == %@ OR label == %@ OR label == %@ OR label == %@",
             "BackButton", "药品", "返回", "Back"
-        )).firstMatch
-        try require(back.waitForExistence(timeout: 5) && back.isHittable,
-                    "Native compact Back control unavailable; do not substitute another navigation action")
+        ))
+        // Native Duo AX places its BackButton in Toolbar, outside NavigationBar.
+        // Both routes must identify exactly one control; never reselect the tab.
+        let toolbarBack = app.toolbars.matching(identifier: "Toolbar").buttons.matching(identifier: "BackButton")
+        let available = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            guard navigationBack.count <= 1 && toolbarBack.count <= 1 else { return false }
+            return (navigationBack.count == 1 && navigationBack.firstMatch.isHittable)
+                || (toolbarBack.count == 1 && toolbarBack.firstMatch.isHittable)
+        }, object: nil)
+        try require(XCTWaiter.wait(for: [available], timeout: 5) == .completed,
+                    "A unique hittable native Back control must exist in the detail navigation bar or toolbar")
+        let candidates = navigationBack.count == 1 && navigationBack.firstMatch.isHittable
+            ? navigationBack : toolbarBack
+        try require(candidates.count == 1 && candidates.firstMatch.isHittable,
+                    "Native Back must remain unique and hittable at activation")
+        let back = candidates.firstMatch
         back.tap()
         let row = app.buttons[rowID]
         let returned = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
