@@ -1,6 +1,7 @@
 import Foundation
 import MedicationAdherenceCore
 import Testing
+import SwiftUI
 import UIKit
 @testable import MedicationAdherenceApp
 
@@ -56,6 +57,57 @@ struct ElderModeTests {
         }
         #expect(ElderTaskLayoutMetrics.regularPhotoWidth(for: 0) == 0)
         #expect(ElderTaskLayoutMetrics.accessibilityPhotoWidth(for: 0) == 0)
+    }
+
+    @Test
+    func wideCurrentCardRequiresRealContentBudgetAndRegularTraits() {
+        // 520 raw points do not provide 520 readable points after existing padding.
+        let insufficient: [CGFloat] = [375, 402, 520, 587]
+        for width in insufficient {
+            #expect(!ElderTaskLayoutMetrics.usesWideCurrentCard(
+                availableWidth: width, horizontalSizeClass: .regular, dynamicTypeSize: .large
+            ))
+        }
+        let wide: [CGFloat] = [588, 768, 1024]
+        for width in wide {
+            #expect(ElderTaskLayoutMetrics.usesWideCurrentCard(
+                availableWidth: width, horizontalSizeClass: .regular, dynamicTypeSize: .large
+            ))
+            #expect(!ElderTaskLayoutMetrics.usesWideCurrentCard(
+                availableWidth: width, horizontalSizeClass: .compact, dynamicTypeSize: .large
+            ))
+            #expect(!ElderTaskLayoutMetrics.usesWideCurrentCard(
+                availableWidth: width, horizontalSizeClass: nil, dynamicTypeSize: .large
+            ))
+            #expect(ElderTaskLayoutMetrics.regularPhotoWidth(for: width) == 96)
+        }
+    }
+
+    @Test
+    func wideCurrentCardAlwaysFallsBackForAccessibilityText() {
+        let standard: [DynamicTypeSize] = [.xSmall, .small, .medium, .large, .xLarge, .xxLarge, .xxxLarge]
+        for size in standard {
+            #expect(ElderTaskLayoutMetrics.usesWideCurrentCard(
+                availableWidth: 768, horizontalSizeClass: .regular, dynamicTypeSize: size
+            ))
+        }
+        let accessibility: [DynamicTypeSize] = [.accessibility1, .accessibility2, .accessibility3, .accessibility4, .accessibility5]
+        for size in accessibility {
+            #expect(!ElderTaskLayoutMetrics.usesWideCurrentCard(
+                availableWidth: 1024, horizontalSizeClass: .regular, dynamicTypeSize: size
+            ))
+            #expect(ElderTaskLayoutMetrics.accessibilityPhotoWidth(for: 1024) == 64)
+        }
+    }
+
+    @Test
+    func wideCurrentCardRejectsInvalidAndInsufficientWidth() {
+        let invalid: [CGFloat] = [-1, 0, 40, .nan, .infinity, -.infinity]
+        for width in invalid {
+            #expect(!ElderTaskLayoutMetrics.usesWideCurrentCard(
+                availableWidth: width, horizontalSizeClass: .regular, dynamicTypeSize: .large
+            ))
+        }
     }
 
     @Test

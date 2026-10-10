@@ -256,17 +256,20 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 5))
     }
 
-    func testTodayCanOpenElderMode() {
+    func testSettingsCanOpenElderMode() throws {
         continueAfterFailure = false
         let app = launchElderFixture(mode: "complete")
 
-        let elderModeEntry = app.buttons["today.elder-mode-entry"]
-        XCTAssertTrue(elderModeEntry.waitForExistence(timeout: 10))
-        elderModeEntry.tap()
+        XCTAssertFalse(app.buttons["today.elder-mode-entry"].exists)
+        CompleteModeTestNavigation.assertToday(in: app)
+        try CompleteModeTestNavigation.openSettings(in: app)
+        try NativeSettingsModeSwitchTestActions.tap(in: app, expectedValue: "0", expectingAlert: "启用适老模式？")
+        let enableAlert = try NativeAlertTestActions.alert(in: app, title: "启用适老模式？")
+        try NativeAlertTestActions.button(in: enableAlert, label: "启用适老模式").tap()
 
         XCTAssertTrue(
             app.buttons["elder.switch-to-complete"].waitForExistence(timeout: 5),
-            "The elder-mode navigation controls did not appear after selecting the Today entry"
+            "The elder-mode navigation controls did not appear after confirming the Settings entry"
         )
         XCTAssertFalse(app.tabBars.firstMatch.exists)
         XCTAssertFalse(app.staticTexts["现在只需处理一件事"].exists)
@@ -299,11 +302,14 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         addScreenshot(named: "elder-default-actions", from: app)
 
         app.buttons["elder.switch-to-complete"].tap()
-        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 5))
-        XCTAssertTrue(elderModeEntry.waitForExistence(timeout: 5))
+        let exit = app.alerts.buttons["返回完整模式"]
+        XCTAssertTrue(exit.waitForExistence(timeout: 5))
+        exit.tap()
+        CompleteModeTestNavigation.assertToday(in: app)
+        XCTAssertFalse(app.buttons["today.elder-mode-entry"].exists)
         restartElderFixture(app)
-        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 5))
-        XCTAssertTrue(elderModeEntry.waitForExistence(timeout: 5))
+        CompleteModeTestNavigation.assertToday(in: app)
+        XCTAssertFalse(app.buttons["today.elder-mode-entry"].exists)
     }
 
     func testElderPrimaryActionKeepsFullWidthHitRegion() {

@@ -518,6 +518,7 @@ private struct ProfileActionRow: View {
 
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.requestExperienceMode) private var requestExperienceMode
     @AppStorage("appColorSchemePreference") private var appColorSchemePreference = AppColorSchemePreference.system.rawValue
     @AppStorage(AppExperienceMode.storageKey) private var appExperienceModeRaw = AppExperienceMode.complete.rawValue
     @AppStorage("prefersReducedAppMotion") private var prefersReducedAppMotion = false
@@ -529,6 +530,8 @@ struct SettingsView: View {
     @State private var pendingPermissionGate: AppPermissionGate?
     @State private var isUpdatingNotificationPermission = false
     @State private var elderHelpPhoneInput = ""
+    @State private var savedElderHelpPhoneInput = ""
+    @State private var isModeChangeBlocked = false
     @State private var hasSavedElderHelpContact = false
     @State private var elderHelpContactStatus = ""
     @State private var elderHelpContactErrorMessage: String?
@@ -555,9 +558,25 @@ struct SettingsView: View {
     var body: some View {
         ScrollViewReader { scrollProxy in
             List {
-                Section("使用模式") {
+                Section("显示与操作") {
                     Toggle("使用适老模式", isOn: elderModeBinding)
                         .accessibilityHint("打开后首页只显示一个当前任务和三个大按钮")
+                        .accessibilityIdentifier(AppAccessibilityID.settingsExperienceMode)
+
+                    Picker("显示模式", selection: $appColorSchemePreference) {
+                        ForEach(AppColorSchemePreference.allCases) { preference in
+                            Text(preference.displayName).tag(preference.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    SettingsToggleRow(title: "减少动态效果", isOn: $prefersReducedAppMotion)
+                    HStack {
+                        Text("语言")
+                        Spacer()
+                        Text("中文").foregroundStyle(.secondary)
+                    }
+                    SettingsToggleRow(title: "提醒时突出药品图片", isOn: $showsMedicationPhotosInReminders)
+                    SettingsToggleRow(title: "使用更大的触控区域", isOn: $usesLargeTouchTargets)
                 }
 
                 Section("同机帮助") {
@@ -591,25 +610,6 @@ struct SettingsView: View {
                     }
                 }
                 .id("settings.elder-help")
-
-                Section("外观与交互") {
-                    Picker("显示模式", selection: $appColorSchemePreference) {
-                        ForEach(AppColorSchemePreference.allCases) { preference in
-                            Text(preference.displayName).tag(preference.rawValue)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-
-                    SettingsToggleRow(title: "减少动态效果", isOn: $prefersReducedAppMotion)
-                    HStack {
-                        Text("语言")
-                        Spacer()
-                        Text("中文")
-                            .foregroundStyle(.secondary)
-                    }
-                    SettingsToggleRow(title: "提醒时突出药品图片", isOn: $showsMedicationPhotosInReminders)
-                    SettingsToggleRow(title: "使用更大的触控区域", isOn: $usesLargeTouchTargets)
-                }
 
                 Section("用药提醒") {
                     SettingsStatusRow(
@@ -703,16 +703,26 @@ struct SettingsView: View {
             } message: {
                 Text(elderHelpContactErrorMessage ?? "")
             }
+            .appExperienceModeConfirmation(source: .settings)
+            .alert("请先完成当前操作", isPresented: $isModeChangeBlocked) {
+                Button("好", role: .cancel) {}
+            } message: {
+                Text("请先保存帮助号码或结束当前操作，再切换使用模式。未保存的号码会保留在这里。")
+            }
         }
     }
 
     private var elderModeBinding: Binding<Bool> {
         Binding(
-            get: { AppExperienceMode(rawValue: appExperienceModeRaw) == .elder },
+            get: { AppExperienceMode.resolve(appExperienceModeRaw) == .elder },
             set: { isEnabled in
-                appExperienceModeRaw = isEnabled
-                    ? AppExperienceMode.elder.rawValue
-                    : AppExperienceMode.complete.rawValue
+                requestExperienceMode(isEnabled ? .elder : .complete, .settings, .init(
+                    canCommit: {
+                        elderHelpPhoneInput == savedElderHelpPhoneInput && !isElderHelpPhoneFocused
+                            && !isUpdatingNotificationPermission && pendingPermissionGate == nil
+                    },
+                    onBlocked: { isModeChangeBlocked = true }
+                ))
             }
         )
     }
@@ -723,6 +733,7 @@ struct SettingsView: View {
         do {
             let savedPhone = try elderHelpContactStore.load()
             elderHelpPhoneInput = savedPhone?.storageValue ?? ""
+            savedElderHelpPhoneInput = elderHelpPhoneInput
             hasSavedElderHelpContact = savedPhone != nil
         } catch let error as ElderHelpContactError {
             elderHelpContactErrorMessage = error.userMessage
@@ -737,6 +748,7 @@ struct SettingsView: View {
             try elderHelpContactStore.save(phoneNumber)
             hasSavedElderHelpContact = true
             elderHelpPhoneInput = phoneNumber.storageValue
+            savedElderHelpPhoneInput = phoneNumber.storageValue
             isElderHelpPhoneFocused = false
             elderHelpContactStatus = "帮助号码已保存。"
         } catch let error as ElderHelpContactError {
@@ -752,6 +764,7 @@ struct SettingsView: View {
             hasSavedElderHelpContact = false
             isElderHelpPhoneFocused = false
             elderHelpPhoneInput = ""
+            savedElderHelpPhoneInput = ""
             elderHelpContactStatus = "本机帮助号码已移除。"
         } catch let error as ElderHelpContactError {
             elderHelpContactErrorMessage = error.userMessage

@@ -23,7 +23,7 @@ enum AppAccessibilityID {
     static let assistantSend = "assistant.send"
     static let firstLaunchSkip = "firstLaunch.skip"
     static let firstLaunchNext = "firstLaunch.next"
-    static let todayElderModeEntry = "today.elder-mode-entry"
+    static let settingsExperienceMode = "settings.experience-mode"
     static let elderHome = "elder.home"
     static let elderCurrentTask = "elder.current-task"
     static let elderMarkTaken = "elder.action.taken"
@@ -37,11 +37,16 @@ enum AppAccessibilityID {
 
 enum AppExperienceMode: String, CaseIterable, Identifiable {
     static let storageKey = "appExperienceMode"
+    static let firstLaunchChoiceKey = "hasResolvedFirstLaunchExperienceMode"
 
     case complete
     case elder
 
     var id: String { rawValue }
+
+    static func resolve(_ rawValue: String) -> Self {
+        Self(rawValue: rawValue) ?? .complete
+    }
 
     var displayName: String {
         switch self {
@@ -50,6 +55,134 @@ enum AppExperienceMode: String, CaseIterable, Identifiable {
         case .elder:
             "适老模式"
         }
+    }
+}
+
+enum AppExperienceModeRequestSource: Equatable {
+    case settings, elderExit, firstLaunch
+}
+
+struct AppExperienceModeRequest: Identifiable, Equatable {
+    let id = UUID()
+    let current: AppExperienceMode
+    let target: AppExperienceMode
+    let source: AppExperienceModeRequestSource
+
+    var title: String { target == .elder ? "启用适老模式？" : "返回完整模式？" }
+    var confirmationTitle: String { target == .elder ? "启用适老模式" : "返回完整模式" }
+    var message: String {
+        target == .elder
+            ? "首页将突出当前任务和大按钮。你可以在设置中切回完整模式。"
+            : "将显示今日、药品、智能体、记录和个人页面。用药记录不会改变。"
+    }
+}
+
+/// Owns only a UI request. Persistence and medical actions remain outside it.
+struct AppExperienceModeTransition {
+    private(set) var pending: AppExperienceModeRequest?
+
+    mutating func request(
+        _ target: AppExperienceMode,
+        current: AppExperienceMode,
+        source: AppExperienceModeRequestSource
+    ) -> AppExperienceModeRequest? {
+        guard pending == nil, target != current || (source == .firstLaunch && target == .elder) else { return nil }
+        let request = AppExperienceModeRequest(current: current, target: target, source: source)
+        pending = request
+        return request
+    }
+
+    mutating func confirm(
+        _ id: UUID,
+        current: AppExperienceMode,
+        canCommit: Bool
+    ) -> AppExperienceModeRequest? {
+        guard let request = pending, request.id == id else { return nil }
+        pending = nil
+        guard canCommit, request.current == current else { return nil }
+        return request
+    }
+
+    mutating func cancel(_ id: UUID? = nil) {
+        guard id == nil || pending?.id == id else { return }
+        pending = nil
+    }
+}
+
+/// These callbacks read live page state again when the root commits a mode.
+struct AppExperienceModeRequestGuard {
+    var canCommit: @MainActor () -> Bool = { true }
+    var onBlocked: @MainActor () -> Void = {}
+}
+
+private struct PendingExperienceModeKey: EnvironmentKey {
+    static let defaultValue: AppExperienceModeRequest? = nil
+}
+private struct RequestExperienceModeKey: EnvironmentKey {
+    static let defaultValue: @MainActor (AppExperienceMode, AppExperienceModeRequestSource, AppExperienceModeRequestGuard) -> Void = { _, _, _ in }
+}
+private struct ConfirmExperienceModeKey: EnvironmentKey {
+    static let defaultValue: @MainActor (UUID) -> Void = { _ in }
+}
+private struct CancelExperienceModeKey: EnvironmentKey {
+    static let defaultValue: @MainActor (UUID) -> Void = { _ in }
+}
+
+extension EnvironmentValues {
+    var pendingExperienceMode: AppExperienceModeRequest? {
+        get { self[PendingExperienceModeKey.self] }
+        set { self[PendingExperienceModeKey.self] = newValue }
+    }
+    var requestExperienceMode: @MainActor (AppExperienceMode, AppExperienceModeRequestSource, AppExperienceModeRequestGuard) -> Void {
+        get { self[RequestExperienceModeKey.self] }
+        set { self[RequestExperienceModeKey.self] = newValue }
+    }
+    var confirmExperienceMode: @MainActor (UUID) -> Void {
+        get { self[ConfirmExperienceModeKey.self] }
+        set { self[ConfirmExperienceModeKey.self] = newValue }
+    }
+    var cancelExperienceMode: @MainActor (UUID) -> Void {
+        get { self[CancelExperienceModeKey.self] }
+        set { self[CancelExperienceModeKey.self] = newValue }
+    }
+}
+
+private struct ExperienceModeConfirmation: ViewModifier {
+    @Environment(\.pendingExperienceMode) private var pending
+    @Environment(\.confirmExperienceMode) private var confirm
+    @Environment(\.cancelExperienceMode) private var cancel
+    let source: AppExperienceModeRequestSource
+
+    private var request: AppExperienceModeRequest? {
+        pending?.source == source ? pending : nil
+    }
+
+    func body(content: Content) -> some View {
+        content.alert(
+            request?.title ?? "切换使用模式？",
+            isPresented: Binding(
+                get: { request != nil },
+                // A native alert can clear presentation before invoking its
+                // button. Only the explicit action consumes this request;
+                // host dismissal and backgrounding cancel it separately.
+                set: { _ in }
+            ),
+            presenting: request
+        ) { request in
+            Button(request.confirmationTitle) { confirm(request.id) }
+                .accessibilityIdentifier("experience-mode.confirm")
+            Button("取消", role: .cancel) { cancel(request.id) }
+                .accessibilityIdentifier("experience-mode.cancel")
+        } message: { request in
+            Text(request.message)
+        }
+        .onDisappear { if let request { cancel(request.id) } }
+    }
+}
+
+extension View {
+    func appExperienceModeConfirmation(source: AppExperienceModeRequestSource) -> some View {
+        modifier(ExperienceModeConfirmation(source: source))
     }
 }
 
@@ -63,68 +196,6 @@ struct AppTabContentView: View, Equatable {
         } else {
             Color.clear
         }
-    }
-}
-
-struct FirstLaunchCompletionBridgeView: View {
-    @State private var didAppear = false
-
-    var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.014, green: 0.016, blue: 0.020),
-                    Color(red: 0.032, green: 0.040, blue: 0.048),
-                    Color(red: 0.010, green: 0.012, blue: 0.016)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-
-            VStack(spacing: 18) {
-                ZStack {
-                    Circle()
-                        .fill(Color(red: 0.42, green: 0.58, blue: 0.78).opacity(didAppear ? 0.18 : 0.06))
-                        .frame(width: 104, height: 104)
-                        .blur(radius: didAppear ? 18 : 26)
-                    Image(systemName: "pills.fill")
-                        .font(.system(size: 42, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 76, height: 76)
-                        .background(.white.opacity(0.075), in: Circle())
-                        .overlay(
-                            Circle()
-                                .stroke(.white.opacity(0.10), lineWidth: 1)
-                        )
-                        .medicationGlassSurface(
-                            cornerRadius: 38,
-                            tint: Color(red: 0.42, green: 0.58, blue: 0.78),
-                            fallbackMaterial: .ultraThinMaterial,
-                            isInteractive: false
-                        )
-                }
-                .scaleEffect(didAppear ? 1 : 0.92)
-                .opacity(didAppear ? 1 : 0)
-
-                VStack(spacing: 7) {
-                    Text("用药跟踪")
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                    Text("安心记录每一次用药")
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.54))
-                }
-                .opacity(didAppear ? 1 : 0)
-                .offset(y: didAppear ? 0 : 10)
-            }
-        }
-        .onAppear {
-            withAnimation(.smooth(duration: 0.56)) {
-                didAppear = true
-            }
-        }
-        .accessibilityLabel("用药跟踪")
     }
 }
 

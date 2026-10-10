@@ -1,0 +1,276 @@
+{
+  "kind": "source-derived discovery expectations; not executed tests or authoritative compiled IDs",
+  "repository": "Gavin8233841/medcue-ios",
+  "reviewed_sources": {
+    "public_base": "c791f11ad1a4e6fc4e7ff94554c05bec1f8c5119",
+    "implementation": "frozen product/test snapshot; source identity verified per blob, no execution inferred"
+  },
+  "test_scheme": "MedicationAdherenceApp",
+  "configuration": "Debug",
+  "build_setting": "MEDCUE_SIMULATOR_UNIT_TEST_BUILD=YES",
+  "execution_contract": "Native owner enumerates compiled tests against the exact frozen source and matching build artifacts; no source changes during a run. Public preparation has no own native or CI return.",
+  "hosted": [
+    {
+      "target": "MedicationAdherenceAppTests",
+      "suite": "ExperienceModeTransitionTests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/ExperienceModeTransitionTests.swift",
+      "suite_selector": "MedicationAdherenceAppTests/ExperienceModeTransitionTests",
+      "source_methods": [
+        "cancellationAndBackgroundInvalidationNeverProduceACommit",
+        "confirmationProducesExactlyOneCommitAndRepeatedRequestsKeepTheOwner",
+        "staleCallbacksCannotCancelOrConfirmANewerRequest",
+        "changedModeOrNewBusyStateInvalidatesConfirmation",
+        "guardReadsCurrentStateInsteadOfTheRequestTimeSnapshot",
+        "sameModeIsNoOpExceptExplicitFirstUseElderConfirmation",
+        "unknownPreferenceFallsBackWithoutRewritingTheStoredValue"
+      ],
+      "method_count": 7,
+      "destination": "one selected iPhone simulator; distinct owned test stores"
+    },
+    {
+      "target": "MedicationAdherenceAppTests",
+      "suite": "TodayTaskSelectionTests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/TodayTaskSelectionTests.swift",
+      "suite_selector": "MedicationAdherenceAppTests/TodayTaskSelectionTests",
+      "source_methods": [
+        "defaultWaitsForRealOpenTasksAndNeverTakesOverAManualSelection",
+        "refreshAndDelayKeepTheSameIdentityEvenWhenItsLogicalKeyChanges",
+        "selectingTheSameTaskAgainRequestsAVisibleReveal",
+        "busySelectionAndResetCannotChangeTheConfirmationContext",
+        "pendingConfirmationNeverMovesToAnotherUUIDWithTheSameKey",
+        "unknownOrAmbiguousConfirmationHasNoActionableFallback",
+        "pendingKeyChangeCannotCommitTheDelayedOrReassignedTask",
+        "disappearingSelectionRequiresExplicitReturnInsteadOfJumpingToAnotherDrug",
+        "fetchFailureTakesPriorityOverResultsAndInitialLoading",
+        "widthHeightAndAccessibilityBudgetsChooseLayoutWithoutChangingSelection"
+      ],
+      "method_count": 10,
+      "destination": "one selected iPhone simulator; distinct owned test stores"
+    },
+    {
+      "target": "MedicationAdherenceAppTests",
+      "suite": "TodayPendingConfirmationRecoveryTests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/TodayPendingConfirmationRecoveryTests.swift",
+      "suite_selector": "MedicationAdherenceAppTests/TodayPendingConfirmationRecoveryTests",
+      "source_methods": [
+        "staleCancellationCannotClearANewerPendingKey",
+        "matchingCancellationChangesOnlyPendingAndIsIdempotent",
+        "bothPresentationsRejectMissingChangedHandledArchivedAndReplacementTargets",
+        "validTargetRemainsTheSameAcrossRepeatedWidthAndAXDecisions"
+      ],
+      "method_count": 4,
+      "destination": "one selected iPhone simulator; distinct owned test stores"
+    },
+    {
+      "target": "MedicationAdherenceAppTests",
+      "suite": "BundledDemoIsolationTests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/BundledDemoIsolationTests.swift",
+      "suite_selector": "MedicationAdherenceAppTests/BundledDemoIsolationTests",
+      "source_methods": [
+        "onlyAnExplicitValidUniqueSessionRequestsTheDemo",
+        "historicalFiveDrugSourceHasTodayTasksAndCorrectAssociations",
+        "readyRestartPreservesEditsIdentityPreferencesAndClockWithoutReseeding",
+        "fixedClockAtMidnightAndDSTStillSeedsExactlyOneDemoDay",
+        "primarySentinelAndStandardPreferenceDomainRemainUntouched",
+        "failedSeedOrSaveCannotBecomeReadyOrBeAutomaticallyRetried",
+        "aFreshSessionObjectCannotImportTwiceIntoItsNowNonemptyStore",
+        "unknownDirectoryIsRejectedWithoutOpeningOrReplacingItsFiles",
+        "symlinkedSessionCannotRedirectTheFactoryToAnotherStore",
+        "incompatibleReadyManifestDoesNotRewriteOrReseedTheStore"
+      ],
+      "method_count": 10,
+      "destination": "one selected iPhone simulator; distinct owned test stores"
+    },
+    {
+      "target": "MedicationAdherenceAppTests",
+      "suite": "MedicationAdherenceAppTests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/MedicationAdherenceAppTests.swift",
+      "suite_selector": "MedicationAdherenceAppTests/MedicationAdherenceAppTests",
+      "source_methods": [
+        "inMemoryContainerPersistsAcrossModelContexts",
+        "schemaSupportsEveryStoredModel",
+        "explicitDemoModeRebuildsStandardDemoContentAndPreservesUserMedication",
+        "legacySchemaKeepsEntityNamesAndOnlyOmitsTheTwoNewFields",
+        "legacyStoreMigratesEveryModelAndReopensIdempotently"
+      ],
+      "method_count": 5,
+      "destination": "one selected iPhone simulator; distinct owned test stores"
+    }
+  ],
+  "ui": [
+    {
+      "target": "MedicationAdherenceAppUITests",
+      "suite": "ExperienceModeUITests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/ExperienceModeUITests.swift",
+      "method": "testFirstUseCancelCloseBackgroundAndLaterDoNotRepeatOnRestart",
+      "selector": "MedicationAdherenceAppUITests/ExperienceModeUITests/testFirstUseCancelCloseBackgroundAndLaterDoNotRepeatOnRestart",
+      "destination": "ordinary iPhone and Duo; retain source fixture/platform guards"
+    },
+    {
+      "target": "MedicationAdherenceAppUITests",
+      "suite": "ExperienceModeUITests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/ExperienceModeUITests.swift",
+      "method": "testFirstUseElderRequiresConfirmationAndPersistsAcrossRestart",
+      "selector": "MedicationAdherenceAppUITests/ExperienceModeUITests/testFirstUseElderRequiresConfirmationAndPersistsAcrossRestart",
+      "destination": "ordinary iPhone and Duo; retain source fixture/platform guards"
+    },
+    {
+      "target": "MedicationAdherenceAppUITests",
+      "suite": "ExperienceModeUITests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/ExperienceModeUITests.swift",
+      "method": "testSettingsEnterAndBothExitPathsConfirmCancelAndPersist",
+      "selector": "MedicationAdherenceAppUITests/ExperienceModeUITests/testSettingsEnterAndBothExitPathsConfirmCancelAndPersist",
+      "destination": "ordinary iPhone and Duo; retain source fixture/platform guards"
+    },
+    {
+      "target": "MedicationAdherenceAppUITests",
+      "suite": "ExperienceModeUITests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/ExperienceModeUITests.swift",
+      "method": "testPendingDoseConfirmationBlocksSettingsAndExitWithoutClearingIt",
+      "selector": "MedicationAdherenceAppUITests/ExperienceModeUITests/testPendingDoseConfirmationBlocksSettingsAndExitWithoutClearingIt",
+      "destination": "ordinary iPhone and Duo; retain source fixture/platform guards"
+    },
+    {
+      "target": "MedicationAdherenceAppUITests",
+      "suite": "ExperienceModeUITests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/ExperienceModeUITests.swift",
+      "method": "testHelpNumberDraftBlocksModeChangeAndRemainsEditable",
+      "selector": "MedicationAdherenceAppUITests/ExperienceModeUITests/testHelpNumberDraftBlocksModeChangeAndRemainsEditable",
+      "destination": "ordinary iPhone and Duo; retain source fixture/platform guards"
+    },
+    {
+      "target": "MedicationAdherenceAppUITests",
+      "suite": "ExperienceModeUITests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/ExperienceModeUITests.swift",
+      "method": "testActiveUndoOpportunityBlocksBothNewElderNavigationRequests",
+      "selector": "MedicationAdherenceAppUITests/ExperienceModeUITests/testActiveUndoOpportunityBlocksBothNewElderNavigationRequests",
+      "destination": "ordinary iPhone and Duo; retain source fixture/platform guards"
+    },
+    {
+      "target": "MedicationAdherenceAppUITests",
+      "suite": "ExperienceModeUITests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/ExperienceModeUITests.swift",
+      "method": "testLocalSkipAndHelpConfirmationsKeepTheirOwnerUntilCancelled",
+      "selector": "MedicationAdherenceAppUITests/ExperienceModeUITests/testLocalSkipAndHelpConfirmationsKeepTheirOwnerUntilCancelled",
+      "destination": "ordinary iPhone and Duo; retain source fixture/platform guards"
+    },
+    {
+      "target": "MedicationAdherenceAppUITests",
+      "suite": "ExperienceModeUITests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/ExperienceModeUITests.swift",
+      "method": "testCompletedUsersWithUnknownPreferenceGetCompleteWithoutNewOnboarding",
+      "selector": "MedicationAdherenceAppUITests/ExperienceModeUITests/testCompletedUsersWithUnknownPreferenceGetCompleteWithoutNewOnboarding",
+      "destination": "ordinary iPhone and Duo; retain source fixture/platform guards"
+    },
+    {
+      "target": "MedicationAdherenceAppUITests",
+      "suite": "FirstLaunchCompletionUITests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/FirstLaunchCompletionUITests.swift",
+      "method": "testInitialSkipPersistsAndForcedReplayKeepsElderModeAndStore",
+      "selector": "MedicationAdherenceAppUITests/FirstLaunchCompletionUITests/testInitialSkipPersistsAndForcedReplayKeepsElderModeAndStore",
+      "destination": "ordinary iPhone and Duo; retain source fixture/platform guards"
+    },
+    {
+      "target": "MedicationAdherenceAppUITests",
+      "suite": "FirstLaunchCompletionUITests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/FirstLaunchCompletionUITests.swift",
+      "method": "testHelpCenterReplayClosesWithoutResettingCompletedSetupOrStore",
+      "selector": "MedicationAdherenceAppUITests/FirstLaunchCompletionUITests/testHelpCenterReplayClosesWithoutResettingCompletedSetupOrStore",
+      "destination": "ordinary iPhone and Duo; retain source fixture/platform guards"
+    },
+    {
+      "target": "MedicationAdherenceAppUITests",
+      "suite": "TodayTaskWorkspaceUITests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/TodayTaskWorkspaceUITests.swift",
+      "method": "testExpandedSelectionRevealsIdentityAndDoesNotWriteAnotherDrug",
+      "selector": "MedicationAdherenceAppUITests/TodayTaskWorkspaceUITests/testExpandedSelectionRevealsIdentityAndDoesNotWriteAnotherDrug",
+      "destination": "Duo expanded only with actual Today budget >=668x360"
+    },
+    {
+      "target": "MedicationAdherenceAppUITests",
+      "suite": "TodayTaskWorkspaceUITests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/TodayTaskWorkspaceUITests.swift",
+      "method": "testExpandedFutureDoseKeepsOriginalEarlyConfirmation",
+      "selector": "MedicationAdherenceAppUITests/TodayTaskWorkspaceUITests/testExpandedFutureDoseKeepsOriginalEarlyConfirmation",
+      "destination": "Duo expanded only with actual Today budget >=668x360"
+    },
+    {
+      "target": "MedicationAdherenceAppUITests",
+      "suite": "TodayTaskWorkspaceUITests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/TodayTaskWorkspaceUITests.swift",
+      "method": "testMaximumAccessibilitySizeUsesOriginalRowsAndConfirmationWithoutWrites",
+      "selector": "MedicationAdherenceAppUITests/TodayTaskWorkspaceUITests/testMaximumAccessibilitySizeUsesOriginalRowsAndConfirmationWithoutWrites",
+      "destination": "ordinary iPhone and Duo; retain source fixture/platform guards"
+    },
+    {
+      "target": "MedicationAdherenceAppUITests",
+      "suite": "TodayPendingConfirmationRecoveryUITests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/TodayPendingConfirmationRecoveryUITests.swift",
+      "method": "testWideRecoveryForMissingChangedHandledArchivedAndReplacement",
+      "selector": "MedicationAdherenceAppUITests/TodayPendingConfirmationRecoveryUITests/testWideRecoveryForMissingChangedHandledArchivedAndReplacement",
+      "destination": "Duo expanded only with actual Today budget >=668x360"
+    },
+    {
+      "target": "MedicationAdherenceAppUITests",
+      "suite": "TodayPendingConfirmationRecoveryUITests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/TodayPendingConfirmationRecoveryUITests.swift",
+      "method": "testAXRecoveryNeverAttachesOldConfirmationToAReplacementRow",
+      "selector": "MedicationAdherenceAppUITests/TodayPendingConfirmationRecoveryUITests/testAXRecoveryNeverAttachesOldConfirmationToAReplacementRow",
+      "destination": "ordinary iPhone and Duo; retain source fixture/platform guards"
+    },
+    {
+      "target": "MedicationAdherenceAppUITests",
+      "suite": "BundledDemoUITests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/BundledDemoUITests.swift",
+      "method": "testMalformedOrConflictingDemoRequestCannotExposePrimaryRecovery",
+      "selector": "MedicationAdherenceAppUITests/BundledDemoUITests/testMalformedOrConflictingDemoRequestCannotExposePrimaryRecovery",
+      "destination": "ordinary iPhone and Duo; retain source fixture/platform guards"
+    },
+    {
+      "target": "MedicationAdherenceAppUITests",
+      "suite": "BundledDemoUITests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/BundledDemoUITests.swift",
+      "method": "testDemoModeNeedsConfirmationAndPersistsInItsOwnSession",
+      "selector": "MedicationAdherenceAppUITests/BundledDemoUITests/testDemoModeNeedsConfirmationAndPersistsInItsOwnSession",
+      "destination": "ordinary iPhone and Duo; retain source fixture/platform guards"
+    },
+    {
+      "target": "MedicationAdherenceAppUITests",
+      "suite": "BundledDemoUITests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/BundledDemoUITests.swift",
+      "method": "testEachAllowedElderActionCommitsOnceAndUndoRemainsDisabled",
+      "selector": "MedicationAdherenceAppUITests/BundledDemoUITests/testEachAllowedElderActionCommitsOnceAndUndoRemainsDisabled",
+      "destination": "ordinary iPhone and Duo; retain source fixture/platform guards"
+    },
+    {
+      "target": "MedicationAdherenceAppUITests",
+      "suite": "BundledDemoUITests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/BundledDemoUITests.swift",
+      "method": "testExitIsConfirmedAndReopenRetainsTheOwnedStore",
+      "selector": "MedicationAdherenceAppUITests/BundledDemoUITests/testExitIsConfirmedAndReopenRetainsTheOwnedStore",
+      "destination": "ordinary iPhone and Duo; retain source fixture/platform guards"
+    },
+    {
+      "target": "MedicationAdherenceAppUITests",
+      "suite": "MedicationAdherenceAppUITests",
+      "source": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/MedicationAdherenceAppUITests.swift",
+      "method": "testSettingsCanOpenElderMode",
+      "selector": "MedicationAdherenceAppUITests/MedicationAdherenceAppUITests/testSettingsCanOpenElderMode",
+      "destination": "ordinary iPhone and Duo; retain source fixture/platform guards"
+    }
+  ],
+  "uncovered_acceptance": [
+    "actual primary/standard preferences/external-effect sentinels at App startup",
+    "header settings/exit during local skip/help/photo/pending/in-flight presentations",
+    "background invalidation",
+    "Release/device demo exclusion",
+    "VoiceOver/reduced motion/dark/AX/Duo open-close behavior",
+    "actual SwiftData fetch or filesystem publication failure"
+  ],
+  "counts": {
+    "hosted_methods": 36,
+    "unique_ui_methods": 20,
+    "wide_only_ui_methods": 3,
+    "other_ui_methods": 17
+  }
+}

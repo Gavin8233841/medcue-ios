@@ -1,8 +1,69 @@
 import SwiftData
 import SwiftUI
 
+enum FirstLaunchSetupPurpose: Equatable {
+    case initialSetup
+    case tutorial
+
+    var dismissalTitle: String {
+        self == .initialSetup ? "跳过" : "关闭"
+    }
+
+    var completionTitle: String {
+        self == .initialSetup ? "开始使用" : "完成"
+    }
+}
+
+struct FirstLaunchExperienceModeView: View {
+    @Environment(\.dismiss) private var dismiss
+    let choose: (AppExperienceMode) -> Void
+
+    var body: some View {
+        List {
+            Section {
+                Text("你希望怎样使用 MedCue？")
+                    .font(.title2.bold())
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("之后可以在应用设置的「显示与操作」中更改。")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Section {
+                Button { choose(.complete) } label: {
+                    Label("使用完整模式", systemImage: "square.grid.2x2")
+                }
+                .accessibilityIdentifier("firstLaunch.mode.complete")
+                Text("查看今日任务、药品、记录和个人设置。")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Button { choose(.elder) } label: {
+                    Label("使用适老模式", systemImage: "hand.tap")
+                }
+                .accessibilityIdentifier("firstLaunch.mode.elder")
+                Text("突出当前任务，使用更大的文字和操作按钮。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section {
+                Button("稍后在设置中选择") { choose(.complete) }
+                    .accessibilityIdentifier("firstLaunch.mode.later")
+                Text("先使用完整模式。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("选择使用模式")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("返回引导") { dismiss() }
+                    .accessibilityIdentifier("firstLaunch.mode.close")
+            }
+        }
+        .appExperienceModeConfirmation(source: .firstLaunch)
+    }
+}
+
 struct FirstLaunchSetupView: View {
     @AppStorage("prefersReducedAppMotion") private var prefersReducedAppMotion = false
+    let purpose: FirstLaunchSetupPurpose
     let finish: (Bool) -> Void
     let startDemoMode: () -> Void
     @State private var pageIndex = FirstLaunchSetupView.initialPageIndex()
@@ -12,9 +73,11 @@ struct FirstLaunchSetupView: View {
     @State private var introTask: Task<Void, Never>?
 
     init(
+        purpose: FirstLaunchSetupPurpose,
         finish: @escaping (Bool) -> Void,
         startDemoMode: @escaping () -> Void
     ) {
+        self.purpose = purpose
         self.finish = finish
         self.startDemoMode = startDemoMode
     }
@@ -100,7 +163,7 @@ struct FirstLaunchSetupView: View {
                     .accessibilityHint("仅在受控调试或演示版本中载入合成演示数据")
                     #endif
                     Spacer()
-                    Button("跳过") {
+                    Button(purpose.dismissalTitle) {
                         finish(false)
                     }
                     .font(.footnote.weight(.semibold))
@@ -132,7 +195,7 @@ struct FirstLaunchSetupView: View {
 
                 VStack(spacing: 14) {
                     FirstLaunchPageDots(count: pages.count, selectedIndex: pageIndex, selectedTint: pages[pageIndex].tint)
-                    Button(pageIndex == pages.count - 1 ? "开始使用" : "下一步") {
+                    Button(pageIndex == pages.count - 1 ? purpose.completionTitle : "下一步") {
                         if pageIndex < pages.count - 1 {
                             withAnimation(.snappy) {
                                 pageIndex += 1
