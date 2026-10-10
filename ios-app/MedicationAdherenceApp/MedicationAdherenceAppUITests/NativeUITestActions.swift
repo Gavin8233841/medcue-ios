@@ -586,6 +586,66 @@ enum NativeSettingsModeSwitchTestActions {
 }
 
 @MainActor
+private enum SyntheticSkipDismissDiagnostics {
+    private static var seen: Set<String> = []
+
+    /// Observe named surfaces only. Window membership is not presentation ownership.
+    /// Never use these candidates to select or perform a cancellation action.
+    static func record(in app: XCUIApplication, sheet: XCUIElement, stage: String) {
+        #if targetEnvironment(simulator)
+        guard ["before-outside-tap", "after-dismiss-timeout"].contains(stage) else { return }
+        let args = app.launchArguments
+        func uniqueValue(_ flag: String) -> String? {
+            let indexes = args.indices.filter { args[$0] == flag }
+            guard indexes.count == 1, let index = indexes.first, index + 1 < args.count else { return nil }
+            return args[index + 1]
+        }
+        let demo = uniqueValue("--bundled-demo-session").flatMap { UUID(uuidString: $0) } != nil
+            && args.contains("--bundled-demo-inspect-store") && !args.contains("--elder-ui-session")
+        let elder = uniqueValue("--elder-ui-session").flatMap { UUID(uuidString: $0) } != nil
+            && ["due", "future", "help-confirmation"].contains(uniqueValue("--elder-ui-fixture") ?? "")
+            && ["complete", "elder"].contains(uniqueValue("--elder-ui-mode") ?? "")
+            && !args.contains("--bundled-demo-session")
+        guard demo || elder else { return }
+        let host = demo ? "demo" : "elder"
+        guard seen.insert(host + "." + stage).inserted else { return }
+
+        // Four possible host/stage events, each at most seven bounded lines.
+        // No values, identifiers, frames, arbitrary strings or hierarchy dumps.
+        let names = ["取消", "Cancel", "关闭", "Close", "Dismiss"]
+        let named = NSPredicate(format: "label IN %@", names as NSArray)
+        let skip = NSPredicate(format: "label == %@", "确认这次不吃")
+        func emit(_ fields: String) {
+            print("[MedCueSkipDismissDiagnostic] host=\(host) stage=\(stage) " + fields)
+        }
+        let windows = app.windows
+        let buttons = app.buttons.matching(named)
+        let windowCount = windows.count
+        let buttonCount = buttons.count
+        emit("sheetExists=\(sheet.exists) windowCount=\(windowCount) namedButtonCount=\(buttonCount)"
+             + " windowsTruncated=\(windowCount > 2) buttonsTruncated=\(buttonCount > 3)")
+        if sheet.exists {
+            emit("sheetEnabled=\(sheet.isEnabled) sheetHittable=\(sheet.isHittable)"
+                 + " sheetSkipCount=\(sheet.buttons.matching(skip).count) sheetNamedCount=\(sheet.buttons.matching(named).count)")
+        }
+        for index in 0..<min(windowCount, 2) {
+            let window = windows.element(boundBy: index)
+            emit("windowIndex=\(index) enabled=\(window.isEnabled) hittable=\(window.isHittable)"
+                 + " scopedSkipCount=\(window.buttons.matching(skip).count) scopedNamedCount=\(window.buttons.matching(named).count)")
+        }
+        for index in 0..<min(buttonCount, 3) {
+            let button = buttons.element(boundBy: index)
+            let label = button.label
+            // Re-resolution may change a label. Never print a non-allowlisted result.
+            let safeLabel = names.contains(label) ? label : "<redacted>"
+            emit("buttonIndex=\(index) label=\(safeLabel) identifierEmpty=\(button.identifier.isEmpty)"
+                 + " enabled=\(button.isEnabled) hittable=\(button.isHittable) childButtonCount=\(button.descendants(matching: .button).count)")
+        }
+        #endif
+    }
+}
+
+@MainActor
 enum NativeConfirmationDialogTestActions {
     static func dismissSkip(in app: XCUIApplication) throws {
         let sheets = app.sheets.allElementsBoundByIndex.filter {
@@ -597,9 +657,10 @@ enum NativeConfirmationDialogTestActions {
         if cancel.count > 0 {
             try NativeAlertTestActions.button(in: sheet, label: "取消", allowsLabelOnlyLeaf: true).tap()
         } else {
-            // SwiftUI documents outside-tap dismissal for regular popovers.
-            // The observed Duo Sheet exposes no named cancel; require an
-            // actual outside region, then verify dismissal and store invariants.
+            SyntheticSkipDismissDiagnostics.record(in: app, sheet: sheet, stage: "before-outside-tap")
+            // This point is geometrically outside the Sheet. Geometry alone
+            // does not establish a dismiss surface; keep the dismissal and
+            // caller's store invariants as the required evidence.
             let windows = app.windows.allElementsBoundByIndex.filter { $0.isHittable }
             XCTAssertEqual(windows.count, 1)
             guard windows.count == 1, let window = windows.first else { throw NativeUITestLookupError.ambiguousElement }
@@ -615,7 +676,11 @@ enum NativeConfirmationDialogTestActions {
                 .withOffset(CGVector(dx: point.x - bounds.minX, dy: point.y - bounds.minY)).tap()
         }
         let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: sheet)
-        XCTAssertEqual(XCTWaiter.wait(for: [gone], timeout: 5), .completed)
+        let result = XCTWaiter.wait(for: [gone], timeout: 5)
+        if result != .completed {
+            SyntheticSkipDismissDiagnostics.record(in: app, sheet: sheet, stage: "after-dismiss-timeout")
+        }
+        XCTAssertEqual(result, .completed)
         XCTAssertFalse(app.buttons["确认这次不吃"].exists)
         XCTAssertTrue(app.buttons["elder.settings"].isHittable)
         XCTAssertTrue(app.buttons["elder.switch-to-complete"].isHittable)
