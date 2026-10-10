@@ -6,6 +6,7 @@ struct BarcodeScannerSheet: View {
     let onBarcode: (String, String) -> Void
     @State private var statusMessage = "请把药盒条码放入取景框，识别结果仍需二次确认。"
     @State private var scanHintIndex = 0
+    @State private var scanRegion = BarcodeScannerRegion()
 
     private let scanHints = [
         "对准药盒条码，保持边缘完整",
@@ -17,6 +18,7 @@ struct BarcodeScannerSheet: View {
         NavigationStack {
             ZStack {
                 BarcodeScannerView(
+                    scanRegion: scanRegion,
                     onBarcode: { payload, symbology in
                         onBarcode(payload, symbology)
                         dismiss()
@@ -28,6 +30,7 @@ struct BarcodeScannerSheet: View {
                 .ignoresSafeArea()
 
                 BarcodeScannerOverlay(
+                    scanRegion: scanRegion,
                     statusMessage: statusMessage,
                     scanHint: scanHints[scanHintIndex]
                 )
@@ -58,80 +61,207 @@ struct BarcodeScannerSheet: View {
     }
 }
 
-private struct BarcodeScannerOverlay: View {
+// One sizing rule for the visible frame; the ROI is measured from its actual view.
+enum BarcodeScannerGeometry {
+    static func frameSize(in available: CGSize) -> CGSize {
+        guard available.width.isFinite, available.height.isFinite,
+              available.width > 0, available.height > 0 else { return .zero }
+        let scale = min(1, available.width / 286, available.height / 178)
+        return CGSize(width: 286 * scale, height: 178 * scale)
+    }
+
+    static func normalizedRegion(_ rect: CGRect) -> CGRect {
+        clippedRect(rect, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+    }
+
+    static func accepts(metadataBounds: CGRect, region: CGRect) -> Bool {
+        let validRegion = normalizedRegion(region)
+        return !validRegion.isEmpty && !clippedRect(metadataBounds, in: validRegion).isEmpty
+    }
+
+    static func clippedRect(_ rect: CGRect, in bounds: CGRect) -> CGRect {
+        guard [rect.origin.x, rect.origin.y, rect.width, rect.height,
+               bounds.origin.x, bounds.origin.y, bounds.width, bounds.height].allSatisfy({ $0.isFinite }),
+              rect.width > 0, rect.height > 0, bounds.width > 0, bounds.height > 0 else { return .zero }
+        let clipped = rect.intersection(bounds)
+        return clipped.isNull || clipped.isEmpty ? .zero : clipped
+    }
+}
+
+// A UIKit anchor avoids assuming SwiftUI's safe-area origin matches the full-bleed
+// camera view. No screen dimensions, device names, or normalized ROI guesses.
+@MainActor
+final class BarcodeScannerRegion {
+    weak var anchorView: UIView?
+    var onChange: (() -> Void)?
+    private var updateScheduled = false
+
+    func rect(in previewLayer: CALayer, previewView: UIView) -> CGRect {
+        guard let anchorView, let window = previewView.window,
+              anchorView.window === window else { return .zero }
+        let rect = previewLayer.convert(anchorView.bounds, from: anchorView.layer)
+        return BarcodeScannerGeometry.clippedRect(rect, in: previewLayer.bounds)
+    }
+
+    func scheduleUpdate() {
+        guard !updateScheduled else { return }
+        updateScheduled = true
+        // Ancestor frames may still be changing during a SwiftUI layout pass.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.updateScheduled = false
+            self.onChange?()
+        }
+    }
+}
+
+private struct ScannerRegionAnchor: UIViewRepresentable {
+    let region: BarcodeScannerRegion
+
+    func makeUIView(context: Context) -> ScannerRegionAnchorView {
+        let view = ScannerRegionAnchorView()
+        view.isUserInteractionEnabled = false
+        view.isAccessibilityElement = false
+        view.region = region
+        region.anchorView = view
+        return view
+    }
+
+    func updateUIView(_ uiView: ScannerRegionAnchorView, context: Context) {
+        region.scheduleUpdate()
+    }
+
+    static func dismantleUIView(_ uiView: ScannerRegionAnchorView, coordinator: ()) {
+        if uiView.region?.anchorView === uiView {
+            uiView.region?.anchorView = nil
+            uiView.region?.scheduleUpdate()
+        }
+    }
+}
+
+private final class ScannerRegionAnchorView: UIView {
+    weak var region: BarcodeScannerRegion?
+
+    override var frame: CGRect {
+        didSet { region?.scheduleUpdate() }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        region?.scheduleUpdate()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        region?.scheduleUpdate()
+    }
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        region?.scheduleUpdate()
+    }
+}
+
+struct BarcodeScannerOverlay: View {
+    let scanRegion: BarcodeScannerRegion
     let statusMessage: String
     let scanHint: String
-    @State private var scanLineOffset: CGFloat = -78
+    @State private var scanLineProgress: CGFloat = -1
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 78)
-
+        GeometryReader { container in
             VStack(spacing: 14) {
-                Text(scanHint)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(.black.opacity(0.34), in: Capsule())
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-
-                ZStack {
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .stroke(.white.opacity(0.82), lineWidth: 2)
-                        .frame(width: 286, height: 178)
-                        .overlay {
-                            ScannerCornerMarks()
-                                .stroke(Color(red: 0.98, green: 0.78, blue: 0.30), style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
-                                .frame(width: 286, height: 178)
-                        }
-                        .background(.black.opacity(0.08), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(
-                            LinearGradient(
-                                colors: [.clear, Color(red: 0.98, green: 0.78, blue: 0.30).opacity(0.72), .clear],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(width: 236, height: 3)
-                        .offset(y: scanLineOffset)
-                        .shadow(color: Color(red: 0.98, green: 0.78, blue: 0.30).opacity(0.34), radius: 10, x: 0, y: 0)
+                ViewThatFits(in: .vertical) {
+                    hint
+                    ScrollView { hint }
                 }
-                .onAppear {
-                    withAnimation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true)) {
-                        scanLineOffset = 78
-                    }
+                .frame(maxHeight: max(0, container.size.height * 0.22))
+
+                GeometryReader { viewport in
+                    let size = BarcodeScannerGeometry.frameSize(in: viewport.size)
+                    scanFrame(size: size)
+                        .position(x: viewport.size.width / 2, y: viewport.size.height / 2)
                 }
-            }
 
-            Spacer()
-
-            VStack(alignment: .leading, spacing: 10) {
-                Label("药盒条码扫描", systemImage: "barcode.viewfinder")
-                    .font(.headline)
-                Text(statusMessage)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                ViewThatFits(in: .vertical) {
+                    statusCard
+                    ScrollView { statusCard }
+                }
+                .frame(maxHeight: max(0, container.size.height * 0.36))
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(.white.opacity(0.20), lineWidth: 1)
-            )
-            .padding()
+            .padding(16)
         }
+    }
+
+    private var hint: some View {
+        Text(scanHint)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.white)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(.black.opacity(0.34), in: Capsule())
+            .transition(.opacity)
+    }
+
+    private var statusCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("药盒条码扫描", systemImage: "barcode.viewfinder")
+                .font(.headline)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(statusMessage)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(.white.opacity(0.20), lineWidth: 1)
+        )
+    }
+
+    private func scanFrame(size: CGSize) -> some View {
+        let scale = size.width / 286
+        return ZStack {
+            RoundedRectangle(cornerRadius: 22 * scale, style: .continuous)
+                .stroke(.white.opacity(0.82), lineWidth: 2)
+                .overlay {
+                    ScannerCornerMarks()
+                        .stroke(Color(red: 0.98, green: 0.78, blue: 0.30), style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
+                }
+                .background(.black.opacity(0.08), in: RoundedRectangle(cornerRadius: 22 * scale, style: .continuous))
+
+            RoundedRectangle(cornerRadius: 2)
+                .fill(
+                    LinearGradient(
+                        colors: [.clear, Color(red: 0.98, green: 0.78, blue: 0.30).opacity(0.72), .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .frame(width: 236 * scale, height: min(3, size.height))
+                .offset(y: scanLineProgress * 78 * scale)
+                .shadow(color: Color(red: 0.98, green: 0.78, blue: 0.30).opacity(0.34), radius: 10, x: 0, y: 0)
+        }
+        .frame(width: size.width, height: size.height)
+        .background(ScannerRegionAnchor(region: scanRegion))
         .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true)) {
+                scanLineProgress = 1
+            }
+        }
     }
 }
 
 private struct ScannerCornerMarks: Shape {
     func path(in rect: CGRect) -> Path {
-        let length: CGFloat = 30
+        let length = min(30, rect.width / 2, rect.height / 2)
         var path = Path()
         path.move(to: CGPoint(x: rect.minX, y: rect.minY + length))
         path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
@@ -153,11 +283,12 @@ private struct ScannerCornerMarks: Shape {
 }
 
 private struct BarcodeScannerView: UIViewControllerRepresentable {
+    let scanRegion: BarcodeScannerRegion
     let onBarcode: (String, String) -> Void
     let onError: (String) -> Void
 
     func makeUIViewController(context: Context) -> BarcodeScannerViewController {
-        BarcodeScannerViewController(onBarcode: onBarcode, onError: onError)
+        BarcodeScannerViewController(scanRegion: scanRegion, onBarcode: onBarcode, onError: onError)
     }
 
     func updateUIViewController(_ uiViewController: BarcodeScannerViewController, context: Context) {}
@@ -165,6 +296,7 @@ private struct BarcodeScannerView: UIViewControllerRepresentable {
 
 @MainActor
 private final class BarcodeScannerViewController: UIViewController, @preconcurrency AVCaptureMetadataOutputObjectsDelegate {
+    private let scanRegion: BarcodeScannerRegion
     private let onBarcode: (String, String) -> Void
     private let onError: (String) -> Void
     private let captureSession = AVCaptureSession()
@@ -173,10 +305,18 @@ private final class BarcodeScannerViewController: UIViewController, @preconcurre
     private weak var metadataOutput: AVCaptureMetadataOutput?
     private var hasReportedResult = false
 
-    init(onBarcode: @escaping (String, String) -> Void, onError: @escaping (String) -> Void) {
+    init(scanRegion: BarcodeScannerRegion, onBarcode: @escaping (String, String) -> Void, onError: @escaping (String) -> Void) {
+        self.scanRegion = scanRegion
         self.onBarcode = onBarcode
         self.onError = onError
         super.init(nibName: nil, bundle: nil)
+        scanRegion.onChange = { [weak self] in
+            self?.updateScanRectOfInterest()
+        }
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     @available(*, unavailable)
@@ -195,6 +335,12 @@ private final class BarcodeScannerViewController: UIViewController, @preconcurre
         previewLayer?.frame = view.bounds
         highlightLayer?.frame = view.bounds
         updateScanRectOfInterest()
+        scanRegion.scheduleUpdate()
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        scanRegion.scheduleUpdate()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -225,6 +371,14 @@ private final class BarcodeScannerViewController: UIViewController, @preconcurre
             let input = try AVCaptureDeviceInput(device: device)
             if captureSession.canAddInput(input) {
                 captureSession.addInput(input)
+                for port in input.ports where port.mediaType == .video {
+                    NotificationCenter.default.addObserver(
+                        self,
+                        selector: #selector(inputFormatDidChange(_:)),
+                        name: AVCaptureInput.Port.formatDescriptionDidChangeNotification,
+                        object: port
+                    )
+                }
             } else {
                 onError("无法添加相机输入。")
                 return
@@ -295,19 +449,28 @@ private final class BarcodeScannerViewController: UIViewController, @preconcurre
         highlightLayer = layer
     }
 
+    // Capture notifications can arrive off the main thread. Observe only this
+    // session's video input ports and recalculate after their format is ready.
+    @objc nonisolated private func inputFormatDidChange(_ notification: Notification) {
+        Task { @MainActor [weak self] in
+            self?.scanRegion.scheduleUpdate()
+        }
+    }
+
     private func updateScanRectOfInterest() {
         guard let previewLayer, let metadataOutput else {
             return
         }
-        let width = min(view.bounds.width - 48, 286)
-        let height: CGFloat = 178
-        let scanRect = CGRect(
-            x: (view.bounds.width - width) / 2,
-            y: max(view.safeAreaInsets.top + 96, (view.bounds.height - height) / 2 - 64),
-            width: width,
-            height: height
+        metadataOutput.rectOfInterest = currentMetadataRegion(in: previewLayer)
+    }
+
+    private func currentMetadataRegion(in previewLayer: AVCaptureVideoPreviewLayer) -> CGRect {
+        let scanRect = scanRegion.rect(in: previewLayer, previewView: view)
+        // Before layout/format readiness, never expand to full-frame scanning.
+        guard !scanRect.isEmpty else { return .zero }
+        return BarcodeScannerGeometry.normalizedRegion(
+            previewLayer.metadataOutputRectConverted(fromLayerRect: scanRect)
         )
-        metadataOutput.rectOfInterest = previewLayer.metadataOutputRectConverted(fromLayerRect: scanRect)
     }
 
     private func showTrackingFrame(for object: AVMetadataMachineReadableCodeObject) {
@@ -333,7 +496,12 @@ private final class BarcodeScannerViewController: UIViewController, @preconcurre
         from connection: AVCaptureConnection
     ) {
         guard !hasReportedResult,
+              let previewLayer,
               let object = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
+              BarcodeScannerGeometry.accepts(
+                metadataBounds: object.bounds,
+                region: currentMetadataRegion(in: previewLayer)
+              ),
               let payload = object.stringValue,
               !payload.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {

@@ -217,15 +217,24 @@ struct AppRootView: View {
         } else {
             TabView(selection: selectedTabBinding) {
                 ForEach(AppTab.allCases) { tab in
-                    NavigationStack {
-                        if tab == .today {
-                            todayContent(presentation: .complete)
+                    Group {
+                        if tab == .medications {
+                            // The medication browser owns one adaptive split-view host.
+                            // Wrapping it in another stack breaks its compact back path.
+                            AppTabContentView(tab: tab, isLoaded: loadedTabs.contains(tab))
+                                .equatable()
                         } else {
-                            AppTabContentView(
-                                tab: tab,
-                                isLoaded: loadedTabs.contains(tab)
-                            )
-                            .equatable()
+                            NavigationStack {
+                                if tab == .today {
+                                    todayContent(presentation: .complete)
+                                } else {
+                                    AppTabContentView(
+                                        tab: tab,
+                                        isLoaded: loadedTabs.contains(tab)
+                                    )
+                                    .equatable()
+                                }
+                            }
                         }
                     }
                     .tabItem { tab.label }
