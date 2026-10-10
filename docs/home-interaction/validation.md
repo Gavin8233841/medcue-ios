@@ -1,5 +1,29 @@
 # #163 P1 首启桥撤除与教程 purpose
 
+## 2026-10-10 当前有限验收与公开保存边界
+
+原生负责人已核验冻结实现的436文件及tree，一次build成功，5 PASS / 0 FAIL / 0 SKIP：
+三项 `ElderModeTests` 宽卡纯布局方法、号码草稿完整UI方法（208.225s）及普通iPhone AX5首屏方法（9.851s）。
+AX5方法的精确名称及普通目标型号/runtime未随本轮回报给出，不从前序运行补填。
+号码方法完成完整草稿、键盘退出、模式阻断及最终store断言，不覆盖保存号码或再次编辑。
+
+原生来源与当前公开候选的全部非文档Git blob及模式相同；文档/tree及commit不同。
+精确来源映射与原始证据单独保留，原始证据未上传。以上均为等价生产/测试源码下的来源结果，
+不是公开准确新HEAD CI或该HEAD原生执行。公开准备的来源/隐私审查Required已关闭；
+本次仅更新plan/validation，准确新HEAD完整CI仍未运行，后续结果按实际checkout/tree单列。
+
+| 验收项 | 本轮来源结果 | 限制 |
+| --- | --- | --- |
+| 宽卡布局策略 | 三项纯布局方法PASS | 不是像素、可点击性、VoiceOver或真实姿态证据 |
+| 号码草稿阻断模式变化 | 完整方法PASS208.225s，原断言保留 | 不覆盖保存/再次编辑；不反写前序失败 |
+| 普通iPhone AX5首屏 | 方法PASS9.851s | 型号/runtime及方法名未明示；不是普通默认截图或全辅助技术验收 |
+| Duo默认首屏 | iOS27.1/large字号，未滚动原图有效；药名/状态/剂量/08:00/卡内唯一“还有4项”/三动作完整，动作835×76、835×68、835×60pt在951×669pt画面内 | 仅原生负责人技术回报；未证明可点击性/AX全局唯一性，无原图公开附件 |
+| 普通默认视觉及连续性 | 未验 | 普通默认截图因测试后模拟器关闭未采；真实折叠、长名混排RTL、照片预览、VoiceOver仍未验 |
+| 完整公开HEAD CI与发布边界 | 待执行；仅获准普通CI及Draft PR源码保存 | 不恢复iPad专项、不Ready/merge/release，不改其他owner分支 |
+
+实际App启动隔离/外部效果哨兵、Release/device排除及性能测量仍需独立证据。
+下方历史切片说明保留当时范围与失败，不合并跨版本通过数；当前状态以上方记录及plan为准。
+
 > Historical implementation/design record, 2026-10-10. Stage labels identify evidence boundaries, not ancestors of this public-preparation branch. Original source/evidence mappings are retained separately. Current acceptance and publication status are in [plan.md](plan.md); no historical result proves this public revision passed.
 
 基线 HEAD `c791f11ad1a4e6fc4e7ff94554c05bec1f8c5119` / tree `051b5814a121a66742381c900a0570996a8df88f`。本切片保存到独立 `unpublished-implementation-branch` 本地commit；准确结果修订以独审交付的Git SHA与source包manifest为准。
