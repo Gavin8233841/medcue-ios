@@ -44,6 +44,7 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"
     ]
     private let stableLaunchArgumentsWithoutExperienceMode = [
+        "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
         "-AppPersistenceCommitter.failureMessage", "",
         "-DoseActionPersistence.failureMessage", ""
     ]

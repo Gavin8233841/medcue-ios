@@ -85,6 +85,7 @@ final class FirstLaunchCompletionUITests: XCTestCase {
     private func launchFixture(mode: String) -> XCUIApplication {
         continueAfterFailure = false
         fixtureArguments = [
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
             "--elder-ui-fixture", "multiple",
             "--elder-ui-session", UUID().uuidString,
             "--elder-ui-mode", mode,

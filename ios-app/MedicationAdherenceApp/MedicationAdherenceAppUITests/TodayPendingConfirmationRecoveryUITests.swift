@@ -21,6 +21,7 @@ final class TodayPendingConfirmationRecoveryUITests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = [
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
             "--elder-ui-fixture", "future-multiple", "--elder-ui-session", UUID().uuidString,
             "--elder-ui-mode", "complete", "-hasCompletedFirstLaunchSetup", "YES",
             "--elder-ui-invalidate-confirmation", mutation,

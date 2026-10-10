@@ -12,7 +12,7 @@ final class BundledDemoUITests: XCTestCase {
                           ["--bundled-demo-session", UUID().uuidString, "--seed-demo-data"],
                           ["--bundled-demo-session", UUID().uuidString, "--medical-ai-smoke-test"]] {
             let app = XCUIApplication()
-            app.launchArguments = arguments
+            app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN"] + arguments
             app.launch()
             defer { app.terminate() }
             XCTAssertTrue(app.staticTexts["demo.startup.error"].waitForExistence(timeout: 5))
@@ -155,7 +155,10 @@ final class BundledDemoUITests: XCTestCase {
     private func launch() -> XCUIApplication {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["--bundled-demo-session", UUID().uuidString, "--bundled-demo-inspect-store"]
+        app.launchArguments = [
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+            "--bundled-demo-session", UUID().uuidString, "--bundled-demo-inspect-store"
+        ]
         app.launch()
         XCTAssertTrue(app.staticTexts["demo.synthetic-marker"].waitForExistence(timeout: 5))
         return app

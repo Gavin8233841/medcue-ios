@@ -101,6 +101,7 @@ final class TodayTaskWorkspaceUITests: XCTestCase {
     private func launchFixture(scenario: String, accessibility: Bool = false) -> XCUIApplication {
         continueAfterFailure = false
         arguments = [
+            "-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
             "--elder-ui-fixture", scenario, "--elder-ui-session", UUID().uuidString,
             "--elder-ui-mode", "complete", "-hasCompletedFirstLaunchSetup", "YES",
             "-UIPreferredContentSizeCategoryName",
