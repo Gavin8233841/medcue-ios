@@ -6,6 +6,9 @@ import XCTest
 /// name draft is also checked after relaunch; neither is a full database snapshot.
 @MainActor
 final class MedicationBrowseNavigationUITests: XCTestCase {
+    private var activeFixtureApp: XCUIApplication?
+    private var didCaptureFailureEvidence = false
+
     func testSearchSelectionBackAndClearRestoreCollapsedGroup() throws {
         try exerciseBrowse(category: "UICTContentSizeCategoryL", initiallyExpanded: false)
     }
@@ -17,7 +20,7 @@ final class MedicationBrowseNavigationUITests: XCTestCase {
     func testSelectingDifferentMedicationsAfterBackUpdatesRealDetailIdentity() throws {
         try requireIPhoneSimulator()
         let app = launchFixture(category: "UICTContentSizeCategoryL", scenario: "multiple")
-        defer { app.terminate() }
+        defer { finishFixture(app) }
         let initialStore = try readStore(in: app, taskCount: 2)
         relaunch(app, inspecting: false)
         try openMedicationTab(in: app)
@@ -29,11 +32,8 @@ final class MedicationBrowseNavigationUITests: XCTestCase {
 
         // Preserve the same app process and browse session. Change the search,
         // then select a different persisted UUID through its actual list row.
-        let field = try searchField(in: app)
-        field.tap()
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: "布洛芬".count))
-        field.typeText("人工泪液\n")
-        try waitForValue("人工泪液", of: field)
+        _ = try clearSearchText(in: app, expectedQuery: "布洛芬")
+        try search(in: app, text: "人工泪液")
         let secondID = try openSearchResult(in: app)
         XCTAssertNotEqual(secondID, firstID, "The second selection must identify a different medication")
         try reveal(detail(in: app).staticTexts["人工泪液"], in: app)
@@ -48,7 +48,7 @@ final class MedicationBrowseNavigationUITests: XCTestCase {
     func testEditingThenCancelPreservesNameAndObservableStore() throws {
         try requireIPhoneSimulator()
         let app = launchFixture(category: "UICTContentSizeCategoryL")
-        defer { app.terminate() }
+        defer { finishFixture(app) }
         let initialStore = try readStore(in: app)
         relaunch(app, inspecting: false)
         try openMedicationTab(in: app)
@@ -88,7 +88,7 @@ final class MedicationBrowseNavigationUITests: XCTestCase {
     private func exerciseBrowse(category: String, initiallyExpanded: Bool) throws {
         try requireIPhoneSimulator()
         let app = launchFixture(category: category)
-        defer { app.terminate() }
+        defer { finishFixture(app) }
         let initialStore = try readStore(in: app)
         relaunch(app, inspecting: false)
         try openMedicationTab(in: app)
@@ -148,6 +148,8 @@ final class MedicationBrowseNavigationUITests: XCTestCase {
             "--elder-ui-mode", "complete", "--elder-ui-fixture", scenario,
             "--elder-ui-session", UUID().uuidString, "--elder-ui-inspect-store"
         ]
+        activeFixtureApp = app
+        didCaptureFailureEvidence = false
         app.launch()
         return app
     }
@@ -206,17 +208,55 @@ final class MedicationBrowseNavigationUITests: XCTestCase {
     }
 
     private func clearSearch(in app: XCUIApplication) throws {
-        let field = try searchField(in: app)
-        try require((field.value as? String) == "布洛芬", "Back must retain the exact search before clearing")
-        field.tap()
-        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: "布洛芬".count))
-        // Empty native search fields may expose the placeholder as their value.
-        let restored = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            self.groupContainer(in: app).exists
-        }, object: nil)
-        try require(XCTWaiter.wait(for: [restored], timeout: 5) == .completed,
-                    "Clearing search must return to the ordinary lifecycle group")
+        let field = try clearSearchText(in: app, expectedQuery: "布洛芬")
+        // Observe the list only after ending text input. At AX sizes, its group
+        // can be outside the keyboard-reduced List viewport and virtualized.
         if app.keyboards.firstMatch.exists { field.typeText("\n") }
+        try require(app.keyboards.firstMatch.waitForNonExistence(timeout: 5),
+                    "Keyboard must dismiss before observing the restored group")
+        // The return anchor can leave the group above the visible row.
+        try revealRestoredGroup(in: app)
+        // exerciseBrowse still asserts the ORIGINAL expansion value and UUID.
+    }
+
+    private func revealRestoredGroup(in app: XCUIApplication) throws {
+        let group = groupContainer(in: app)
+        // Keep the existing 20-gesture budget, but inspect both directions.
+        // This observes the group without changing its expansion or selection.
+        for towardStart in [true, false] {
+            for _ in 0..<10 {
+                if group.exists && group.isHittable { return }
+                if towardStart { app.swipeDown(velocity: .slow) }
+                else { app.swipeUp(velocity: .slow) }
+            }
+        }
+        try require(group.exists && group.isHittable,
+                    "Ordinary lifecycle group must be reachable after clearing search")
+    }
+
+    @discardableResult
+    private func clearSearchText(in app: XCUIApplication, expectedQuery: String) throws -> XCUIElement {
+        let field = try searchField(in: app)
+        try require((field.value as? String) == expectedQuery,
+                    "Search must retain the exact query before clearing")
+        field.tap()
+        // Native clear avoids assuming where a tap placed the insertion caret.
+        // Limit the lookup to this search field; never substitute Cancel or Back.
+        let clearButtons = field.buttons.matching(NSPredicate(
+            format: "label == %@ OR label == %@ OR label == %@ OR identifier == %@",
+            "Clear text", "清除文本", "清除", "Clear text"
+        ))
+        let clear = clearButtons.firstMatch
+        try require(clear.waitForExistence(timeout: 5) && clearButtons.count == 1 && clear.isHittable,
+                    "Exactly one native search-field clear button must be available")
+        clear.tap()
+        let empty = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            guard let value = field.value as? String else { return false }
+            return value.isEmpty || (field.placeholderValue != nil && value == field.placeholderValue)
+        }, object: nil)
+        try require(XCTWaiter.wait(for: [empty], timeout: 5) == .completed,
+                    "Native clear must leave an empty query (or its exact placeholder value)")
+        return field
     }
 
     private func openSearchResult(in app: XCUIApplication) throws -> String {
@@ -300,9 +340,48 @@ final class MedicationBrowseNavigationUITests: XCTestCase {
 
     private func require(_ condition: Bool, _ message: String) throws {
         if !condition {
+            if let app = activeFixtureApp { captureFailureEvidence(in: app, reason: message) }
             XCTFail(message)
             throw ObservationFailure.unavailable(message)
         }
+    }
+
+    private func finishFixture(_ app: XCUIApplication) {
+        if (testRun?.failureCount ?? 0) > 0 {
+            captureFailureEvidence(in: app, reason: "Assertion failed in synthetic browse journey")
+        }
+        app.terminate()
+        activeFixtureApp = nil
+    }
+
+    private func captureFailureEvidence(in app: XCUIApplication, reason: String) {
+        guard !didCaptureFailureEvidence,
+              app.launchArguments.contains("--elder-ui-fixture"),
+              app.launchArguments.contains("--elder-ui-session"),
+              app.state != .notRunning else { return }
+        didCaptureFailureEvidence = true
+        let field = app.searchFields.firstMatch
+        let group = groupContainer(in: app)
+        let fieldState = field.exists
+            ? "value=\(String(describing: field.value)); placeholder=\(String(describing: field.placeholderValue)); frame=\(field.frame); hittable=\(field.isHittable)"
+            : "search field absent"
+        let groupState = group.exists
+            ? "value=\(String(describing: group.value)); frame=\(group.frame); hittable=\(group.isHittable)"
+            : "matching ordinary group absent from current AX tree"
+        let summary = "SYNTHETIC BROWSE FAILURE: \(reason)\nSearch: \(fieldState)\nKeyboard exists: \(app.keyboards.firstMatch.exists)\nGroup: \(groupState)"
+        let tree = app.debugDescription
+        // Console survives even when the unchanged CI lane doesn't upload xcresult.
+        // These tests only launch their isolated synthetic fixture, never user data.
+        print(summary)
+        print("SYNTHETIC BROWSE AX TREE (first 24000 characters):\n" + String(tree.prefix(24_000)))
+        let text = XCTAttachment(string: summary + "\n" + tree)
+        text.name = "Synthetic browse failure state and accessibility tree"
+        text.lifetime = .keepAlways
+        add(text)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Synthetic browse failure screen"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
     }
 
     private enum ObservationFailure: Error { case unavailable(String) }
