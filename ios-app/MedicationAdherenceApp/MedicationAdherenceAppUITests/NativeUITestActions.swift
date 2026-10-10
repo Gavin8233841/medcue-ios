@@ -351,8 +351,13 @@ enum NativeListTestActions {
             }
             // A SwiftUI sheet may be nested Others without an AX Sheet. Remove
             // every outer wrapper that contains another qualifying owner.
-            let owners = app.otherElements.allElementsBoundByIndex.filter { owner in
-                qualifies(owner) && !owner.descendants(matching: .other).allElementsBoundByIndex.contains(where: qualifies)
+            // Containment is only a necessary-condition prefilter. Keep the
+            // complete qualification and deepest-owner ambiguity checks below.
+            let candidates = app.otherElements.containing(.navigationBar, identifier: "应用设置")
+            let owners = candidates.allElementsBoundByIndex.filter { owner in
+                qualifies(owner) && !owner.descendants(matching: .other)
+                    .containing(.navigationBar, identifier: "应用设置")
+                    .allElementsBoundByIndex.contains(where: qualifies)
             }
             guard owners.count == 1, let owner = owners.first else { try fail("deepest-owner-count=\(owners.count)") }
             let lists = nativeLists(in: owner)
@@ -383,12 +388,19 @@ enum NativeListTestActions {
             let global = app.descendants(matching: type).matching(identifier: identifier)
             let owned = context.owner.descendants(matching: type).matching(identifier: identifier)
             let rows = context.list.descendants(matching: type).matching(identifier: identifier)
-            guard global.count <= 1, owned.count <= 1, rows.count <= 1 else { try fail("ambiguous-target") }
-            guard rows.count == 1 else {
-                if global.count > 0 || owned.count > 0 { try fail("target-outside-owned-list") }
+            // Counts belong only to this mutation-free validation call. Query
+            // again on the next operation, never across gestures or focus.
+            let globalCount = global.count
+            guard globalCount <= 1 else { try fail("ambiguous-target") }
+            let ownedCount = owned.count
+            guard ownedCount <= 1 else { try fail("ambiguous-target") }
+            let rowCount = rows.count
+            guard rowCount <= 1 else { try fail("ambiguous-target") }
+            guard rowCount == 1 else {
+                if globalCount > 0 || ownedCount > 0 { try fail("target-outside-owned-list") }
                 return nil
             }
-            guard global.count == 1, owned.count == 1 else { try fail("target-membership") }
+            guard globalCount == 1, ownedCount == 1 else { try fail("target-membership") }
             let target = rows.element(boundBy: 0)
             guard target.exists, target.isEnabled, target.isHittable else { return nil }
             guard context.list.frame.intersects(target.frame) else { try fail("target-outside-list-frame") }
