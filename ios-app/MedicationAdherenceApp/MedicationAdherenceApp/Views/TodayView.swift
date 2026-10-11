@@ -11,8 +11,8 @@ enum TodayPresentation {
 struct TodayView: View {
     @State private var displayedNow: Date
     private let presentation: TodayPresentation
-    private let openElderSettings: () -> Void
-    private let switchToCompleteMode: () -> Void
+    private let openElderSettings: (AppExperienceModeRequestGuard) -> Void
+    private let switchToCompleteMode: (AppExperienceModeRequestGuard) -> Void
     private let elderHelpContactStore: any ElderHelpContactStoring
     private let elderHelpOpener: any ElderHelpOpening
     private let now: () -> Date
@@ -21,8 +21,8 @@ struct TodayView: View {
 
     init(
         presentation: TodayPresentation = .complete,
-        openElderSettings: @escaping () -> Void = {},
-        switchToCompleteMode: @escaping () -> Void = {},
+        openElderSettings: @escaping (AppExperienceModeRequestGuard) -> Void = { _ in },
+        switchToCompleteMode: @escaping (AppExperienceModeRequestGuard) -> Void = { _ in },
         elderHelpContactStore: any ElderHelpContactStoring = UserDefaultsElderHelpContactStore(),
         elderHelpOpener: any ElderHelpOpening = SystemElderHelpOpener(),
         now: @escaping () -> Date = Date.init,
@@ -59,12 +59,13 @@ struct TodayView: View {
 }
 
 private struct TodayContentView: View {
+    @Environment(\.medcueDemoAllowsExternalActions) private var allowsExternalActions
+    @Environment(\.registerBundledDemoTodayGuard) private var registerDemoGuard
     @Environment(\.modelContext) private var modelContext
     @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
     @Query private var tasks: [StoredDoseTask]
     @Query(sort: \StoredMedication.displayName) private var medications: [StoredMedication]
     @Query(sort: \StoredMedicationPlan.createdAt) private var plans: [StoredMedicationPlan]
-    @AppStorage(AppExperienceMode.storageKey) private var appExperienceModeRaw = AppExperienceMode.complete.rawValue
     @AppStorage("prefersReducedAppMotion") private var prefersReducedAppMotion = false
     @AppStorage(NotificationService.reminderNotificationUnavailableMessageKey) private var reminderNotificationUnavailableMessage = ""
     @AppStorage(NotificationService.reminderSystemSyncMessageKey) private var reminderSystemSyncMessage = ""
@@ -76,6 +77,12 @@ private struct TodayContentView: View {
     @State private var showingArchiveConfirmation = false
     @State private var showingHandledTasks = false
     @State private var pendingDoseConfirmation: PendingDoseConfirmation?
+    #if DEBUG && targetEnvironment(simulator)
+    @State private var cancellationProbeOwner: Int?
+    private var cancellationProbe: TodayCancellationProbe? {
+        ElderUITestFixture.active?.cancellationProbe(in: modelContext)
+    }
+    #endif
     @State private var doseInteraction = TodayDoseInteractionState()
     @State private var reopenHighlightTasks: [String: Task<Void, Never>] = [:]
     @State private var liveActivityRefreshTask: Task<Void, Never>?
@@ -101,12 +108,15 @@ private struct TodayContentView: View {
     @State private var elderReminderSyncInProgress = false
     @State private var elderOperationID = UUID()
     @State private var elderTapGuardTask: Task<Void, Never>?
+    @State private var isElderNavigationBlocked = false
+    @State private var demoElderScreenGuard = AppExperienceModeRequestGuard(canCommit: { false })
     @State private var elderIsLoading = true
     @State private var lastTimerSystemSurfaceRefreshAt: Date?
     @State private var doseProjectionStore = TodayDoseProjectionStore()
+    @State private var taskSelection = TodayTaskSelection()
     private let presentation: TodayPresentation
-    private let openElderSettings: () -> Void
-    private let switchToCompleteMode: () -> Void
+    private let openElderSettings: (AppExperienceModeRequestGuard) -> Void
+    private let switchToCompleteMode: (AppExperienceModeRequestGuard) -> Void
     private let elderHelpContactStore: any ElderHelpContactStoring
     private let elderHelpOpener: any ElderHelpOpening
     private let now: () -> Date
@@ -122,8 +132,8 @@ private struct TodayContentView: View {
 
     init(
         presentation: TodayPresentation = .complete,
-        openElderSettings: @escaping () -> Void = {},
-        switchToCompleteMode: @escaping () -> Void = {},
+        openElderSettings: @escaping (AppExperienceModeRequestGuard) -> Void = { _ in },
+        switchToCompleteMode: @escaping (AppExperienceModeRequestGuard) -> Void = { _ in },
         elderHelpContactStore: any ElderHelpContactStoring = UserDefaultsElderHelpContactStore(),
         elderHelpOpener: any ElderHelpOpening,
         now: @escaping () -> Date,
@@ -221,6 +231,7 @@ private struct TodayContentView: View {
                 helpConfirmationPhone: $elderHelpConfirmationPhone,
                 successFeedback: $elderDoseSuccessFeedback,
                 currentTime: now,
+                modeNavigationNow: self.now,
                 notificationUnavailableMessage: systemSurfaceAdapter == nil
                     ? reminderWarningMessage : elderReminderUnavailableMessage,
                 loadErrorMessage: _tasks.fetchError != nil
@@ -239,9 +250,9 @@ private struct TodayContentView: View {
                     requestHelp: prepareElderHelp,
                     confirmHelp: confirmElderHelp,
                     cancelHelp: { elderHelpConfirmationPhone = nil },
-                    openSettings: openElderSettings,
+                    openSettings: { guardedElderRequest($0, action: openElderSettings) },
                     openNotificationSettings: openNotificationSettings,
-                    switchToCompleteMode: switchToCompleteMode,
+                    switchToCompleteMode: { guardedElderRequest($0, action: switchToCompleteMode) },
                     initialLoad: initialTodayLoad,
                     timerTick: refreshTodayTimer,
                     becameActive: todayBecameActive,
@@ -249,9 +260,25 @@ private struct TodayContentView: View {
                 )
             )
             .environment(\.medcueReduceMotionEnabled, reduceMotionEnabled)
+            .environment(\.registerBundledDemoTodayGuard, demoElderGuardRegistration)
+            .onChange(of: canLeaveElderToday) { _, _ in
+                registerDemoGuard?(demoElderNavigationGuard)
+            }
+            .alert("请先完成当前操作", isPresented: $isElderNavigationBlocked) {
+                Button("好", role: .cancel) {}
+            } message: {
+                Text("请先完成或取消当前确认，或等待保存、提醒同步和撤销期限结束，再打开设置或切换模式。")
+            }
         } else {
             TodayScreen(
                 snapshot: snapshot,
+                loadState: TodayTaskLoadState.resolve(
+                    hasFetchError: _tasks.fetchError != nil || _medications.fetchError != nil || _plans.fetchError != nil,
+                    isLoading: elderIsLoading, hasResults: !snapshot.displayTodayTasks.isEmpty
+                ),
+                selection: $taskSelection,
+                isSelectionLocked: pendingDoseConfirmation != nil || !doseInteraction.inFlightDoseKeys.isEmpty
+                    || doseInteraction.isAnimationActive || isDoseUndoRollbackInFlight || showingArchiveConfirmation,
                 notificationUnavailableMessage: reminderWarningMessage,
                 completionRateFeedback: completionRateFeedback,
                 completionRateDisplayedSnapshot: completionRateDisplayedSnapshot,
@@ -302,13 +329,11 @@ private struct TodayContentView: View {
                     },
                     confirm: confirmPendingDoseConfirmation,
                     cancelConfirmation: clearPendingDoseConfirmation,
+                    cancelPendingConfirmation: { key in clearPendingDoseConfirmation(expectedDoseKey: key) },
                     undoOrReopen: { undoOrReopen($0) },
                     archive: archive,
                     unarchive: unarchive,
                     rollbackUndo: rollbackDoseUndo,
-                    switchToElderMode: {
-                        appExperienceModeRaw = AppExperienceMode.elder.rawValue
-                    },
                     requestWeatherRefresh: { _ in false },
                     initialLoad: initialTodayLoad,
                     timerTick: refreshTodayTimer,
@@ -317,7 +342,69 @@ private struct TodayContentView: View {
                 )
             )
             .environment(\.medcueReduceMotionEnabled, reduceMotionEnabled)
+            .onAppear { registerDemoGuard?(.init(canCommit: { canLeaveElderToday })) }
+            #if DEBUG && targetEnvironment(simulator)
+            .background(alignment: .topLeading) {
+                if cancellationProbe != nil {
+                    Text("1,\(cancellationProbeOwner ?? 0),\(pendingDoseConfirmation == nil ? 0 : 1)")
+                        .font(.system(size: 1)).frame(maxWidth: 16, maxHeight: 16).clipped()
+                        .accessibilityIdentifier("elder.test.cancel.render")
+                        .allowsHitTesting(false)
+                }
+            }
+            .onAppear {
+                if let probe = cancellationProbe {
+                    if cancellationProbeOwner == nil { cancellationProbeOwner = probe.state.registerOwner() }
+                    probe.state.observe(owner: cancellationProbeOwner ?? 0, pending: pendingDoseConfirmation != nil)
+                }
+            }
+            .onChange(of: pendingDoseConfirmation) { _, _ in
+                cancellationProbe?.state.observe(owner: cancellationProbeOwner ?? 0, pending: pendingDoseConfirmation != nil)
+            }
+            #endif
+            #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
+            .onChange(of: pendingDoseConfirmation?.doseKey) { _, key in
+                guard let key else { return }
+                do {
+                    try ElderUITestFixture.active?.invalidateConfirmationIfRequested(key: key, in: modelContext)
+                } catch {
+                    dosePersistenceErrorMessage = "隔离测试的外部任务变化注入失败。"
+                }
+            }
+            #endif
         }
+    }
+
+    private var canLeaveElderToday: Bool {
+        pendingDoseConfirmation == nil && doseInteraction.inFlightDoseKeys.isEmpty
+            && !elderActionInProgress && !elderReminderSyncInProgress && !isDoseUndoRollbackInFlight
+            && elderHelpConfirmationPhone == nil
+    }
+
+    private var demoElderGuardRegistration: (@MainActor (AppExperienceModeRequestGuard) -> Void)? {
+        guard let registerDemoGuard else { return nil }
+        return { screenGuard in
+            demoElderScreenGuard = screenGuard
+            // Publish this owner's supplied guard directly. The initial callback
+            // must not depend on re-reading a State value just assigned above.
+            registerDemoGuard(.init(canCommit: { canLeaveElderToday && screenGuard.canCommit() }))
+        }
+    }
+
+    private var demoElderNavigationGuard: AppExperienceModeRequestGuard {
+        .init(canCommit: { canLeaveElderToday && demoElderScreenGuard.canCommit() })
+    }
+
+    private func guardedElderRequest(
+        _ screenGuard: AppExperienceModeRequestGuard,
+        action: (AppExperienceModeRequestGuard) -> Void
+    ) {
+        let requestGuard = AppExperienceModeRequestGuard(
+            canCommit: { canLeaveElderToday && screenGuard.canCommit() },
+            onBlocked: { isElderNavigationBlocked = true }
+        )
+        guard requestGuard.canCommit() else { requestGuard.onBlocked(); return }
+        action(requestGuard)
     }
 
     @MainActor
@@ -360,6 +447,7 @@ private struct TodayContentView: View {
     }
 
     private func openNotificationSettings() {
+        guard allowsExternalActions else { return }
         guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
         UIApplication.shared.open(url)
     }
@@ -554,7 +642,8 @@ private struct TodayContentView: View {
                     elderDoseSuccessFeedback = ElderDoseSuccessState(
                         message: "已设置 \(delayDurationText)后提醒",
                         taskID: task.recordedAt == nil ? nil : task.id,
-                        undoExpiresAt: task.recordedAt?.addingTimeInterval(DoseActionTransitionPlanner.undoWindow)
+                        undoExpiresAt: task.recordedAt?.addingTimeInterval(DoseActionTransitionPlanner.undoWindow),
+                        accessibilityContext: todayDoseAccessibilityContext(task: task, medication: self.medication(for: task))
                     )
                 case .reminder(.unavailable(let message)):
                     elderDoseSuccessFeedback = nil
@@ -622,6 +711,9 @@ private struct TodayContentView: View {
     private func showPendingDoseConfirmation(for task: StoredDoseTask, kind: PendingDoseConfirmation.Kind) {
         let updates = {
             pendingDoseConfirmation = PendingDoseConfirmation(doseKey: logicalDoseKey(for: task), kind: kind)
+            #if DEBUG && targetEnvironment(simulator)
+            cancellationProbe?.state.recordRequest(owner: cancellationProbeOwner ?? 0)
+            #endif
         }
         if reduceMotionEnabled {
             commitWithoutListMutationAnimation(updates)
@@ -651,11 +743,26 @@ private struct TodayContentView: View {
     }
 
     private func clearPendingDoseConfirmation(for task: StoredDoseTask) {
-        guard pendingDoseConfirmation?.doseKey == logicalDoseKey(for: task) else {
+        clearPendingDoseConfirmation(expectedDoseKey: logicalDoseKey(for: task))
+    }
+
+    private func clearPendingDoseConfirmation(expectedDoseKey: String) {
+        #if DEBUG && targetEnvironment(simulator)
+        cancellationProbe?.state.recordEntry(
+            owner: cancellationProbeOwner ?? 0,
+            keyMatches: TodayPendingConfirmationCancellation.matches(expectedKey: expectedDoseKey, current: pendingDoseConfirmation)
+        )
+        #endif
+        guard TodayPendingConfirmationCancellation.matches(expectedKey: expectedDoseKey, current: pendingDoseConfirmation) else {
             return
         }
         let updates = {
-            pendingDoseConfirmation = nil
+            pendingDoseConfirmation = TodayPendingConfirmationCancellation.cancelled(
+                expectedKey: expectedDoseKey, current: pendingDoseConfirmation
+            )
+            #if DEBUG && targetEnvironment(simulator)
+            cancellationProbe?.state.recordClear(owner: cancellationProbeOwner ?? 0, isNil: pendingDoseConfirmation == nil)
+            #endif
         }
         if reduceMotionEnabled {
             commitWithoutListMutationAnimation(updates)
@@ -710,7 +817,7 @@ private struct TodayContentView: View {
                 elderActionInProgress = false
             }
         }
-        let migrationSnapshot = action.movesToHandledSection ? doseMigrationSnapshot(for: task, action: action) : nil
+        let migrationSnapshot = action.movesToHandledSection ? todayClosingMigrationSnapshot(task: task, medication: medication(for: task), action: action, delayDurationText: delayDurationText) : nil
         resetDoseTransitionState(animated: false)
         // Keep a previous success from masking a later save failure; a new success is shown only after commit.
         if presentation == .elder {
@@ -815,7 +922,8 @@ private struct TodayContentView: View {
             elderDoseSuccessFeedback = ElderDoseSuccessState(
                 message: message,
                 taskID: task.recordedAt == nil ? nil : task.id,
-                undoExpiresAt: task.recordedAt?.addingTimeInterval(DoseActionTransitionPlanner.undoWindow)
+                undoExpiresAt: task.recordedAt?.addingTimeInterval(DoseActionTransitionPlanner.undoWindow),
+                accessibilityContext: todayDoseAccessibilityContext(task: task, medication: self.medication(for: task))
             )
         }
         if reduceMotionEnabled {
@@ -850,7 +958,7 @@ private struct TodayContentView: View {
             restore()
             return
         }
-        let migrationSnapshot = doseMigrationSnapshotForReopen(task)
+        let migrationSnapshot = todayReopeningMigrationSnapshot(task: task, medication: medication(for: task))
         let doseKey = logicalDoseKey(for: task)
         resetDoseTransitionState(animated: false)
         if !reduceMotionEnabled {
@@ -892,6 +1000,7 @@ private struct TodayContentView: View {
     }
 
     private func undoElderSuccess(_ taskID: UUID) {
+        guard allowsExternalActions else { return }
         let occurredAt = now()
         guard presentation == .elder,
               let feedback = elderDoseSuccessFeedback,
@@ -915,6 +1024,7 @@ private struct TodayContentView: View {
         at occurredAt: Date? = nil,
         onCommit: (() -> Void)? = nil
     ) {
+        guard allowsExternalActions else { return }
         let wasDelayed = task.status == .delayed
         performReopenTransition(task) {
             let previousCompletionSnapshot = currentCompletionRateSnapshot
@@ -978,6 +1088,7 @@ private struct TodayContentView: View {
         let banner = DoseUndoBanner(
             taskID: task.id,
             medicationName: medicationName,
+            accessibilityContext: todayDoseAccessibilityContext(task: task, medication: medication(for: task)),
             rollbackToken: rollbackToken
         )
         if reduceMotionEnabled {
@@ -999,6 +1110,7 @@ private struct TodayContentView: View {
     }
 
     private func rollbackDoseUndo(_ banner: DoseUndoBanner) {
+        guard allowsExternalActions else { return }
         guard !isDoseUndoRollbackInFlight, doseUndoBanner?.id == banner.id else {
             return
         }
@@ -1082,6 +1194,7 @@ private struct TodayContentView: View {
     }
 
     private func archive(_ task: StoredDoseTask) {
+        guard allowsExternalActions else { return }
         guard !isArchived(task) else {
             return
         }
@@ -1099,6 +1212,7 @@ private struct TodayContentView: View {
     }
 
     private func unarchive(_ task: StoredDoseTask) {
+        guard allowsExternalActions else { return }
         guard isArchived(task) else {
             return
         }
@@ -1225,41 +1339,6 @@ private struct TodayContentView: View {
             }
             completionRateFeedbackTask = nil
         }
-    }
-
-    private func doseMigrationSnapshot(for task: StoredDoseTask, action: PendingDoseFeedback.Action) -> DoseMigrationSnapshot {
-        let medication = medication(for: task)
-        let statusText: String
-        switch action {
-        case .taken:
-            statusText = todayCompletionVerb(for: medication)
-        case .skip:
-            statusText = "已忽略"
-        case .delay:
-            statusText = "\(delayDurationText)后"
-        }
-        return DoseMigrationSnapshot(
-            id: task.id,
-            medicationName: medication.map(userFacingMedicationName(for:)) ?? "未知药品",
-            doseText: "\(task.doseValue.formatted()) \(localizedMedicationUnit(task.doseUnit))",
-            timeText: AppFormatters.time.string(from: task.dueAt),
-            symbolName: medication?.photoSymbolName ?? "pills.fill",
-            statusText: statusText,
-            direction: .toHandled
-        )
-    }
-
-    private func doseMigrationSnapshotForReopen(_ task: StoredDoseTask) -> DoseMigrationSnapshot {
-        let medication = medication(for: task)
-        return DoseMigrationSnapshot(
-            id: task.id,
-            medicationName: medication.map(userFacingMedicationName(for:)) ?? "未知药品",
-            doseText: "\(task.doseValue.formatted()) \(localizedMedicationUnit(task.doseUnit))",
-            timeText: AppFormatters.time.string(from: task.dueAt),
-            symbolName: medication?.photoSymbolName ?? "pills.fill",
-            statusText: "待处理",
-            direction: .toOpen
-        )
     }
 
     private func refreshLiveActivities() async {

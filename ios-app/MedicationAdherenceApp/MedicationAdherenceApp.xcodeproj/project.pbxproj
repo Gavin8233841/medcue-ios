@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		F163D0000000000000000003 /* BundledDemoHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = F163D0000000000000000004 /* BundledDemoHost.swift */; };
+		F163D0000000000000000001 /* BundledDemoSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = F163D0000000000000000002 /* BundledDemoSession.swift */; };
+		F16300000000000000000001 /* TodayTaskWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F16300000000000000000002 /* TodayTaskWorkspaceView.swift */; };
 		E82000000000000000000001 /* ReminderOperationQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = E82000000000000000000002 /* ReminderOperationQueue.swift */; };
 		30770726832E4FF9A6A7117E /* VisitSummaryPDFLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE949A0B3A2D49FD98FC7F91 /* VisitSummaryPDFLifecycle.swift */; };
 		A13E00000000000000000001 /* PersistenceRecoveryExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13E00000000000000000002 /* PersistenceRecoveryExport.swift */; };
@@ -227,6 +230,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		F163D0000000000000000004 /* BundledDemoHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundledDemoHost.swift; sourceTree = "<group>"; };
+		F163D0000000000000000002 /* BundledDemoSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundledDemoSession.swift; sourceTree = "<group>"; };
+		F16300000000000000000002 /* TodayTaskWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayTaskWorkspaceView.swift; sourceTree = "<group>"; };
 		E82000000000000000000002 /* ReminderOperationQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../../swift-core/Sources/MedicationAdherenceCore/ReminderOperationQueue.swift; sourceTree = SOURCE_ROOT; };
 		BE949A0B3A2D49FD98FC7F91 /* VisitSummaryPDFLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitSummaryPDFLifecycle.swift; sourceTree = "<group>"; };
 		A13E00000000000000000002 /* PersistenceRecoveryExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceRecoveryExport.swift; sourceTree = "<group>"; };
@@ -466,6 +472,7 @@
 				A89A5ADA300B7E8500BD46AA /* MedicationAdherenceModelContainer.swift */,
 				A20000000000000000000003 /* StoredModels.swift */,
 				A20000000000000000000004 /* DemoDataSeeder.swift */,
+				F163D0000000000000000002 /* BundledDemoSession.swift */,
 				A20000000000000000000027 /* DoseTaskFilters.swift */,
 			);
 			path = Models;
@@ -540,6 +547,8 @@
 				A20000000000000000000008 /* SharedViews.swift */,
 				A20000000000000000000009 /* TodayView.swift */,
 				D20000000000000000000001 /* TodayScreen.swift */,
+				F16300000000000000000002 /* TodayTaskWorkspaceView.swift */,
+				F163D0000000000000000004 /* BundledDemoHost.swift */,
 				A20000000000000000000070 /* TodayDoseComponents.swift */,
 				F70000000000000000000002 /* TodayDoseProjection.swift */,
 				C7E5D0B88F904B71B2D3E4F5 /* TodayDoseInteractionState.swift */,
@@ -976,6 +985,7 @@
 				A10000000000000000000079 /* OnboardingHeroViews.swift in Sources */,
 				A10000000000000000000003 /* StoredModels.swift in Sources */,
 				A10000000000000000000004 /* DemoDataSeeder.swift in Sources */,
+				F163D0000000000000000001 /* BundledDemoSession.swift in Sources */,
 				A10000000000000000000005 /* NotificationService.swift in Sources */,
 				379A1EAB35DA480D8803880A /* MedicationNotificationDelegate.swift in Sources */,
 				C4BC0BC7A0AEFB42BBE87733 /* MedicationReminderTaskCoordinator.swift in Sources */,
@@ -985,6 +995,8 @@
 				A10000000000000000000008 /* SharedViews.swift in Sources */,
 				A10000000000000000000009 /* TodayView.swift in Sources */,
 				D10000000000000000000001 /* TodayScreen.swift in Sources */,
+				F16300000000000000000001 /* TodayTaskWorkspaceView.swift in Sources */,
+				F163D0000000000000000003 /* BundledDemoHost.swift in Sources */,
 				A10000000000000000000069 /* TodayDoseComponents.swift in Sources */,
 				F70000000000000000000001 /* TodayDoseProjection.swift in Sources */,
 				B6D4C9A77E8F4A60A1C2D3E4 /* TodayDoseInteractionState.swift in Sources */,

@@ -13,10 +13,51 @@ struct MedicationAdherenceApp: App {
     private let modelContainer: ModelContainer
     private let persistenceStartupFailure: PersistenceStartupFailure?
     private let storeAccess: PersistenceStoreAccess
+    #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
+    private let isBundledDemoRequested: Bool
+    private let bundledDemoSession: BundledDemoSession?
+    #endif
     @State private var recoveredModelContainer: ModelContainer?
     @AppStorage("appColorSchemePreference") private var appColorSchemePreference = AppColorSchemePreference.system.rawValue
 
     init() {
+        #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
+        let arguments = ProcessInfo.processInfo.arguments
+        let demoRequested = BundledDemoSession.isRequested(in: arguments)
+        isBundledDemoRequested = demoRequested
+        if demoRequested {
+            // Fail closed before primary opening, PDF cleanup or delegate installation.
+            storeAccess = PersistenceStoreAccess()
+            persistenceStartupFailure = nil
+            do {
+                guard let id = try BundledDemoSession.requestedSessionID(in: arguments) else {
+                    throw BundledDemoSession.Failure.invalidArguments
+                }
+                let session = try BundledDemoSession.open(sessionID: id)
+                modelContainer = session.modelContainer
+                bundledDemoSession = session
+                _appColorSchemePreference = AppStorage(wrappedValue: AppColorSchemePreference.system.rawValue,
+                                                       "appColorSchemePreference", store: session.preferences)
+            } catch {
+                bundledDemoSession = nil
+                guard let preferences = UserDefaults(suiteName: "medcue.bundled-demo.error.\(UUID().uuidString)") else {
+                    preconditionFailure("Could not create an isolated demo error preference domain")
+                }
+                _appColorSchemePreference = AppStorage(wrappedValue: AppColorSchemePreference.system.rawValue,
+                                                       "appColorSchemePreference", store: preferences)
+                do {
+                    modelContainer = try MedicationAdherenceModelContainer.make(isStoredInMemoryOnly: true)
+                } catch {
+                    preconditionFailure("MedicationAdherence schema could not create an isolated error container")
+                }
+            }
+            AppDependencyManager.shared.add(
+                dependency: MedicationReminderLiveActivityIntentExecutor { _, _ in .saveFailed }
+            )
+            return
+        }
+        bundledDemoSession = nil
+        #endif
         // Recover owned reports left behind when the previous process ended.
         VisitSummaryPDFLifecycle.production().sweepExpiredFiles()
 
@@ -81,6 +122,23 @@ struct MedicationAdherenceApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
+                #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
+                if isBundledDemoRequested {
+                    BundledDemoHost(session: bundledDemoSession)
+                } else {
+                    ordinaryApplicationContent
+                }
+                #else
+                ordinaryApplicationContent
+                #endif
+            }
+            .preferredColorScheme(AppColorSchemePreference(rawValue: appColorSchemePreference)?.colorScheme)
+        }
+        .modelContainer(recoveredModelContainer ?? modelContainer)
+    }
+
+    private var ordinaryApplicationContent: some View {
+            Group {
                 if persistenceStartupFailure != nil && recoveredModelContainer == nil {
                     PersistenceRecoveryView {
                         let reopened = try PersistencePrimaryStoreOpener.make()
@@ -102,10 +160,8 @@ struct MedicationAdherenceApp: App {
                         #endif
                 }
             }
-            .preferredColorScheme(AppColorSchemePreference(rawValue: appColorSchemePreference)?.colorScheme)
-        }
-        .modelContainer(recoveredModelContainer ?? modelContainer)
     }
+
 }
 
 private struct PersistenceStartupFailure {}

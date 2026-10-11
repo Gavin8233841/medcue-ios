@@ -59,6 +59,7 @@ final class MedicationDetailAdaptiveLayoutTests: XCTestCase {
 
     @MainActor
     private func inspect(_ harness: DetailLayoutHarness, name: String) throws {
+        harness.geometryDiagnosticPhase = name
         let scroll = try harness.waitForMountedList()
         _ = try harness.waitForStableGeometry(in: scroll)
         let initial = try harness.waitForStableGeometry(in: scroll, seeking: .top)
@@ -152,6 +153,8 @@ private final class DetailLayoutHarness {
     let rightToLeft: Bool
     private weak var previousKeyWindow: UIWindow?
     private let initialSnapshot: [String: [AnyHashable]]
+    var geometryDiagnosticPhase = "unassigned"
+    private var didReportGeometryFailure = false
 
     init(rightToLeft: Bool = false) throws {
         self.rightToLeft = rightToLeft
@@ -327,11 +330,23 @@ private final class DetailLayoutHarness {
         var previous: ListGeometry?
         var stableSamples = 0
         var corrections: [String] = []
+        let diagnosticStarted = ProcessInfo.processInfo.systemUptime
+        var diagnosticSamples: [GeometryDiagnosticSample] = []
+        var diagnosticIterations = 0
         repeat {
+            let settleStarted = ProcessInfo.processInfo.systemUptime
             settle()
+            let settleElapsed = ProcessInfo.processInfo.systemUptime - settleStarted
             let current = ListGeometry(bounds: scroll.bounds, size: scroll.contentSize,
                                        offset: scroll.contentOffset, insets: scroll.adjustedContentInset,
                                        viewport: contentViewport(of: scroll))
+            diagnosticIterations += 1
+            if diagnosticSamples.count == 8 { diagnosticSamples.removeFirst() }
+            diagnosticSamples.append(GeometryDiagnosticSample(
+                iteration: diagnosticIterations,
+                elapsed: ProcessInfo.processInfo.systemUptime - diagnosticStarted,
+                settleElapsed: settleElapsed, geometry: current, stableBefore: stableSamples
+            ))
             if current.isValid && scroll.window === window && !scroll.isHidden && scroll.alpha > 0 {
                 if let position {
                     // Returning to top tracks its current inset. Traversal steps keep
@@ -359,7 +374,68 @@ private final class DetailLayoutHarness {
             }
         } while Date() < deadline
         let seekDetails = "seek=\(String(describing: position)), stableSamples=\(stableSamples), corrections=\(corrections)"
+        reportGeometryFailure(samples: diagnosticSamples, iterations: diagnosticIterations,
+                              elapsed: ProcessInfo.processInfo.systemUptime - diagnosticStarted,
+                              stableSamples: stableSamples, seeking: position)
         throw HarnessFailure.listGeometryDidNotStabilize(seekDetails + "\n" + diagnostics(scroll: scroll))
+    }
+
+    private struct GeometryDiagnosticSample {
+        let iteration: Int
+        let elapsed: TimeInterval
+        let settleElapsed: TimeInterval
+        let geometry: ListGeometry
+        let stableBefore: Int
+    }
+
+    /// Numeric metadata from this private, saved in-memory synthetic host only.
+    /// One failure event per harness; last 8 samples, at most 12 lines / 5KB.
+    private func reportGeometryFailure(
+        samples: [GeometryDiagnosticSample], iterations: Int, elapsed: TimeInterval,
+        stableSamples: Int, seeking position: ScrollPosition?
+    ) {
+        guard !didReportGeometryFailure else { return }
+        didReportGeometryFailure = true
+        let allowedPhases = ["resize-0-320", "resize-1-1024", "resize-2-320",
+                             "AX5-320", "AX5-1024", "AX5-restored", "RTL-320", "RTL-1024"]
+        let phase = allowedPhases.contains(geometryDiagnosticPhase) ? geometryDiagnosticPhase : "<redacted>"
+        let seek: String = switch position {
+        case .none: "none"
+        case .some(.top): "top"
+        case .some(.offset(let target)): "offset(\(target))"
+        }
+        let prefix = "[MedCueSyntheticLayoutDiagnostic] "
+        var lines = 0
+        var bytes = 0
+        var truncated = false
+        func emit(_ fields: String) {
+            let output = prefix + fields
+            let size = output.utf8.count + 1
+            guard lines < 11, bytes + size <= 4_800 else { truncated = true; return }
+            print(output)
+            lines += 1
+            bytes += size
+        }
+        emit("phase=\(phase) seek=\(seek) elapsed=\(String(format: "%.3f", elapsed))"
+             + " iterations=\(iterations) finalStableSamples=\(stableSamples) requiredSamples=3"
+             + " deadlineSeconds=3 targetTolerance=1 geometryTolerance=0.5"
+             + " sampleLimit=8 retainedSamples=\(samples.count) samplesOmitted=\(iterations - samples.count)")
+        var previous: ListGeometry?
+        for sample in samples {
+            let geometry = sample.geometry
+            let delta = previous.map { before in
+                zip(geometry.scalars, before.scalars).map { abs($0.0 - $0.1) }.max() ?? 0
+            }.map { String(format: "%.3f", Double($0)) } ?? "none"
+            emit("iteration=\(sample.iteration) elapsed=\(String(format: "%.3f", sample.elapsed))"
+                 + " settleSeconds=\(String(format: "%.3f", sample.settleElapsed)) stableBefore=\(sample.stableBefore)"
+                 + " bounds=\(geometry.bounds) size=\(geometry.size) offset=\(geometry.offset)"
+                 + " insets=\(geometry.insets) viewport=\(geometry.viewport) maxScalarDelta=\(delta)")
+            previous = geometry
+        }
+        if truncated {
+            // 200 bytes and one line were reserved for this explicit marker.
+            print(prefix + "outputTruncated=true lineLimit=12 byteLimit=5000")
+        }
     }
 
     func traversalFailure(_ message: String, scroll: UIScrollView) -> Error {

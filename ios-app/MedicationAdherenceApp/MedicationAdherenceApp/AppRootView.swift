@@ -12,6 +12,7 @@ struct AppRootView: View {
     @AppStorage("appColorSchemePreference") private var appColorSchemePreference = AppColorSchemePreference.system.rawValue
     @AppStorage(AppExperienceMode.storageKey) private var appExperienceModeRaw = AppExperienceMode.complete.rawValue
     @AppStorage("hasCompletedFirstLaunchSetup") private var hasCompletedFirstLaunchSetup = false
+    @AppStorage(AppExperienceMode.firstLaunchChoiceKey) private var hasResolvedFirstLaunchExperienceMode = false
     @AppStorage(AppPersistenceCommitter.failureMessageDefaultsKey) private var persistenceFailureMessage = ""
     @StateObject private var notificationService = NotificationService()
     @State private var selectedTab: AppTab = .today
@@ -20,11 +21,16 @@ struct AppRootView: View {
     @State private var didSeedStartupData = false
     @State private var didRepairLegacyAutoSkips = false
     @State private var didScheduleStartupReminderReconcile = false
-    @State private var isCompletingFirstLaunch = false
+    @State private var isStartingDemoMode = false
     @State private var didDismissForcedFirstLaunch = false
     @State private var isShowingDemoModeError = false
     @State private var reminderReconciliationFailureMessage = ""
     @State private var isShowingElderSettings = false
+    @State private var isChoosingFirstLaunchMode = false
+    @State private var firstLaunchOpensAccountSettings = false
+    @State private var experienceModeTransition = AppExperienceModeTransition()
+    @State private var experienceModeGuard = AppExperienceModeRequestGuard()
+    @State private var elderSettingsGuard = AppExperienceModeRequestGuard()
     @State private var topGradientState = AppTabTopGradientState()
     @State private var persistenceIntegrityStartupCheck = PersistenceIntegrityStartupCheck()
 
@@ -33,7 +39,12 @@ struct AppRootView: View {
     }
 
     private var isFirstLaunchOverlayActive: Bool {
-        shouldShowFirstLaunchSetup || isCompletingFirstLaunch
+        shouldShowFirstLaunchSetup || isStartingDemoMode
+    }
+
+    private var firstLaunchSetupPurpose: FirstLaunchSetupPurpose {
+        hasCompletedFirstLaunchSetup || ProcessInfo.processInfo.arguments.contains("-showFirstLaunch")
+            ? .tutorial : .initialSetup
     }
 
     private var preferredAppColorScheme: ColorScheme? {
@@ -45,7 +56,7 @@ struct AppRootView: View {
     }
 
     private var appExperienceMode: AppExperienceMode {
-        AppExperienceMode(rawValue: appExperienceModeRaw) ?? .complete
+        AppExperienceMode.resolve(appExperienceModeRaw)
     }
 
     @ViewBuilder
@@ -55,6 +66,12 @@ struct AppRootView: View {
             ElderUITestStoreInspectionView(fixture: fixture)
         } else {
             applicationContent
+                .overlay(alignment: .topLeading) {
+                    if let fixture = ElderUITestFixture.active, fixture.observesConfirmationInvalidation {
+                        ElderUITestConfirmationInspectionView(fixture: fixture)
+                            .allowsHitTesting(false)
+                    }
+                }
         }
         #else
         applicationContent
@@ -86,12 +103,11 @@ struct AppRootView: View {
                 .zIndex(1)
             }
 
-            if shouldShowFirstLaunchSetup && !isCompletingFirstLaunch {
+            if shouldShowFirstLaunchSetup {
                 FirstLaunchSetupView(
+                    purpose: firstLaunchSetupPurpose,
                     finish: { shouldOpenAccountSettings in
-                        Task {
-                            await completeFirstLaunch(shouldOpenAccountSettings: shouldOpenAccountSettings)
-                        }
+                        completeFirstLaunch(shouldOpenAccountSettings: shouldOpenAccountSettings)
                     },
                     startDemoMode: {
                         Task {
@@ -99,16 +115,24 @@ struct AppRootView: View {
                         }
                     }
                 )
+                .disabled(isStartingDemoMode)
+                .sheet(isPresented: $isChoosingFirstLaunchMode, onDismiss: cancelFirstLaunchModeRequest) {
+                    NavigationStack {
+                        FirstLaunchExperienceModeView { mode in
+                            requestExperienceMode(mode, source: .firstLaunch, guard: .init())
+                        }
+                    }
+                }
+                .overlay {
+                    if isStartingDemoMode {
+                        ProgressView("正在载入演示数据")
+                            .padding(20)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    }
+                }
                 .transition(.opacity.combined(with: .scale(scale: 1.02)))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .zIndex(10)
-            }
-
-            if isCompletingFirstLaunch {
-                FirstLaunchCompletionBridgeView()
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .zIndex(12)
             }
 
             if !shouldShowFirstLaunchSetup && !isRunningElderUIFixture {
@@ -147,6 +171,9 @@ struct AppRootView: View {
             }
         }
         .preferredColorScheme(preferredAppColorScheme)
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { cancelExperienceModeRequest() }
+        }
         .environment(\.colorScheme, resolvedAppColorScheme)
         .sheet(isPresented: $isShowingElderSettings) {
             NavigationStack {
@@ -205,6 +232,12 @@ struct AppRootView: View {
         } message: {
             Text("演示数据未能保存，请重新打开 App 后再试。")
         }
+        .environment(\.pendingExperienceMode, experienceModeTransition.pending)
+        .environment(\.requestExperienceMode) { mode, source, requestGuard in
+            requestExperienceMode(mode, source: source, guard: requestGuard)
+        }
+        .environment(\.confirmExperienceMode, confirmExperienceMode)
+        .environment(\.cancelExperienceMode) { cancelExperienceModeRequest($0) }
     }
 
     @ViewBuilder
@@ -266,7 +299,7 @@ struct AppRootView: View {
         if let fixture = ElderUITestFixture.active {
             TodayView(
                 presentation: presentation,
-                openElderSettings: { isShowingElderSettings = true },
+                openElderSettings: openElderSettings,
                 switchToCompleteMode: switchToCompleteMode,
                 elderHelpContactStore: fixture.helpContactStore,
                 elderHelpOpener: fixture.helpOpener,
@@ -288,14 +321,19 @@ struct AppRootView: View {
     private func standardTodayContent(presentation: TodayPresentation) -> some View {
         TodayView(
             presentation: presentation,
-            openElderSettings: { isShowingElderSettings = true },
+            openElderSettings: openElderSettings,
             switchToCompleteMode: switchToCompleteMode
         )
     }
 
-    private func switchToCompleteMode() {
-        activateTab(.today)
-        appExperienceModeRaw = AppExperienceMode.complete.rawValue
+    private func switchToCompleteMode(_ requestGuard: AppExperienceModeRequestGuard) {
+        requestExperienceMode(.complete, source: .elderExit, guard: requestGuard)
+    }
+
+    private func openElderSettings(_ requestGuard: AppExperienceModeRequestGuard) {
+        guard requestGuard.canCommit() else { requestGuard.onBlocked(); return }
+        elderSettingsGuard = requestGuard
+        isShowingElderSettings = true
     }
 
     @ViewBuilder
@@ -325,43 +363,99 @@ struct AppRootView: View {
     }
 
     @MainActor
-    private func completeFirstLaunch(shouldOpenAccountSettings: Bool) async {
-        guard !isCompletingFirstLaunch else {
+    private func completeFirstLaunch(shouldOpenAccountSettings: Bool) {
+        guard shouldShowFirstLaunchSetup, !isStartingDemoMode else {
             return
         }
-        activateTab(shouldOpenAccountSettings ? .profile : .today)
-        withAnimation(.smooth(duration: 0.30)) {
-            isCompletingFirstLaunch = true
-        }
-        try? await Task.sleep(for: .milliseconds(260))
-        guard !Task.isCancelled else {
+        if firstLaunchSetupPurpose == .initialSetup, !hasResolvedFirstLaunchExperienceMode {
+            firstLaunchOpensAccountSettings = shouldOpenAccountSettings
+            isChoosingFirstLaunchMode = true
             return
         }
-        withAnimation(.smooth(duration: 0.24)) {
+        finishFirstLaunchSetup(shouldOpenAccountSettings: shouldOpenAccountSettings)
+    }
+
+    private func finishFirstLaunchSetup(shouldOpenAccountSettings: Bool) {
+        if firstLaunchSetupPurpose == .initialSetup {
+            activateTab(shouldOpenAccountSettings ? .profile : .today)
             hasCompletedFirstLaunchSetup = true
-            didDismissForcedFirstLaunch = true
         }
-        try? await Task.sleep(for: .milliseconds(840))
-        guard !Task.isCancelled else {
+        isChoosingFirstLaunchMode = false
+        didDismissForcedFirstLaunch = true
+    }
+
+    private func requestExperienceMode(
+        _ mode: AppExperienceMode,
+        source: AppExperienceModeRequestSource,
+        guard requestGuard: AppExperienceModeRequestGuard
+    ) {
+        guard experienceModeTransition.pending == nil else { return }
+        guard scenePhase == .active,
+              !isStartingDemoMode, requestGuard.canCommit(),
+              source != .settings || appExperienceMode != .elder || elderSettingsGuard.canCommit() else {
+            requestGuard.onBlocked()
             return
         }
-        withAnimation(.smooth(duration: 0.55)) {
-            isCompletingFirstLaunch = false
+        if mode == appExperienceMode && !(source == .firstLaunch && mode == .elder) {
+            if source == .firstLaunch { finishFirstLaunchModeChoice(mode) }
+            return
         }
+        guard experienceModeTransition.request(mode, current: appExperienceMode, source: source) != nil else { return }
+        experienceModeGuard = requestGuard
+    }
+
+    private func confirmExperienceMode(_ id: UUID) {
+        guard experienceModeTransition.pending?.id == id else { return }
+        let pending = experienceModeTransition.pending
+        let canCommit = scenePhase == .active && !isStartingDemoMode && experienceModeGuard.canCommit()
+            && (pending?.source != .settings || appExperienceMode != .elder || elderSettingsGuard.canCommit())
+        let onBlocked = experienceModeGuard.onBlocked
+        let request = experienceModeTransition.confirm(id, current: appExperienceMode, canCommit: canCommit)
+        experienceModeGuard = .init()
+        guard let request else {
+            if !canCommit { onBlocked() }
+            return
+        }
+        if request.source == .firstLaunch {
+            finishFirstLaunchModeChoice(request.target)
+        } else {
+            appExperienceModeRaw = request.target.rawValue
+            // The settings sheet and Today owner remain intact until validation
+            // succeeds. Cancel never closes them or commits a temporary mode.
+            isShowingElderSettings = false
+            activateTab(.today)
+        }
+    }
+
+    private func finishFirstLaunchModeChoice(_ mode: AppExperienceMode) {
+        guard firstLaunchSetupPurpose == .initialSetup, shouldShowFirstLaunchSetup else { return }
+        appExperienceModeRaw = mode.rawValue
+        hasResolvedFirstLaunchExperienceMode = true
+        finishFirstLaunchSetup(shouldOpenAccountSettings: firstLaunchOpensAccountSettings)
+    }
+
+    private func cancelExperienceModeRequest(_ id: UUID? = nil) {
+        guard id == nil || experienceModeTransition.pending?.id == id else { return }
+        experienceModeTransition.cancel(id)
+        experienceModeGuard = .init()
+    }
+
+    private func cancelFirstLaunchModeRequest() {
+        if experienceModeTransition.pending?.source == .firstLaunch { cancelExperienceModeRequest() }
     }
 
     @MainActor
     private func startDemoMode() async {
         #if DEBUG || MEDCUE_DEMO
-        guard !isCompletingFirstLaunch else {
+        guard !isStartingDemoMode else {
             return
         }
-        isCompletingFirstLaunch = true
+        isStartingDemoMode = true
         hasCompletedFirstLaunchSetup = false
         do {
             try await DemoModeLauncher.rebuildAndExit(in: modelContext)
         } catch {
-            isCompletingFirstLaunch = false
+            isStartingDemoMode = false
             isShowingDemoModeError = true
         }
         #endif
@@ -448,6 +542,7 @@ final class ElderUITestFixture {
         case due
         case future
         case multiple
+        case futureMultiple = "future-multiple"
         case empty
         case idleFollowup = "idle-followup"
         case midnight
@@ -460,6 +555,10 @@ final class ElderUITestFixture {
         case invalidArguments
         case missingImage
         case injectedSaveFailure
+    }
+
+    enum ConfirmationInvalidation: String {
+        case missing, keyChanged = "key-changed", handled, archived, replacement
     }
 
     let modelContainer: ModelContainer
@@ -479,6 +578,18 @@ final class ElderUITestFixture {
     private let reminderUnavailable: Bool
     private let reminderBudgetLimited: Bool
     private var didInjectSaveFailure = false
+    private var didInvalidateConfirmation = false
+    private let confirmationInvalidation: ConfirmationInvalidation?
+    var observesConfirmationInvalidation: Bool { confirmationInvalidation != nil }
+
+    #if DEBUG
+    private var cancellationProbeRecorder: TodayCancellationProbe?
+    func sampledCancellationProbeValue() -> String? { cancellationProbeRecorder?.sampledScalarValue() }
+    func cancellationProbe(in context: ModelContext) -> TodayCancellationProbe? {
+        guard context === modelContainer.mainContext else { return nil }
+        return cancellationProbeRecorder
+    }
+    #endif
 
     var dosePersistence: DoseActionPersistence {
         DoseActionPersistence { [self] context in
@@ -532,7 +643,7 @@ final class ElderUITestFixture {
         else {
             throw Failure.invalidArguments
         }
-        return try ElderUITestFixture(
+        let fixture = try ElderUITestFixture(
             scenario: scenario,
             session: session,
             initialExperienceMode: initialExperienceMode,
@@ -540,8 +651,20 @@ final class ElderUITestFixture {
             reminderUnavailable: arguments.contains("--elder-ui-reminder-unavailable"),
             reminderBudgetLimited: arguments.contains("--elder-ui-reminder-budget"),
             inspectsStore: arguments.contains("--elder-ui-inspect-store"),
-            usesBoldText: arguments.contains("--elder-ui-bold-text")
+            usesBoldText: arguments.contains("--elder-ui-bold-text"),
+            confirmationInvalidation: argument(after: "--elder-ui-invalidate-confirmation", in: arguments)
+                .flatMap(ConfirmationInvalidation.init(rawValue:))
         )
+        #if DEBUG
+        let probeFlags = ["--elder-ui-cancel-probe", "--elder-ui-fixture", "--elder-ui-session",
+                          "--elder-ui-mode", "--elder-ui-invalidate-confirmation"]
+        if probeFlags.allSatisfy({ flag in arguments.filter { $0 == flag }.count == 1 }),
+           scenario == .futureMultiple, initialExperienceMode == .complete, fixture.confirmationInvalidation != nil,
+           !arguments.contains("--bundled-demo-session"), !arguments.contains("--elder-ui-inspect-store") {
+            fixture.cancellationProbeRecorder = TodayCancellationProbe()
+        }
+        #endif
+        return fixture
     }
 
     private static func argument(after flag: String, in arguments: [String]) -> String? {
@@ -559,7 +682,8 @@ final class ElderUITestFixture {
         reminderUnavailable: Bool,
         reminderBudgetLimited: Bool,
         inspectsStore: Bool,
-        usesBoldText: Bool
+        usesBoldText: Bool,
+        confirmationInvalidation: ConfirmationInvalidation? = nil
     ) throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .current
@@ -594,6 +718,7 @@ final class ElderUITestFixture {
         self.reminderBudgetLimited = reminderBudgetLimited
         self.inspectsStore = inspectsStore
         self.usesBoldText = usesBoldText
+        self.confirmationInvalidation = confirmationInvalidation
         helpContactStore = try ElderUITestHelpContactStore(scenario: scenario)
         helpOpener = ElderUITestHelpOpener(defaults: fixtureDefaults)
 
@@ -619,8 +744,9 @@ final class ElderUITestFixture {
         default: -300
         }
         let definitions: [(name: String, form: String, unit: String, offset: TimeInterval)] =
-            scenario == .multiple
-                ? [("布洛芬", "片剂", "片", -300), ("人工泪液", "滴眼液", "滴", -120)]
+            scenario == .multiple || scenario == .futureMultiple
+                ? [("布洛芬", "片剂", "片", scenario == .futureMultiple ? 21_600 : -300),
+                   ("人工泪液", "滴眼液", "滴", scenario == .futureMultiple ? 21_660 : -120)]
                 : [("布洛芬", "片剂", "片", offset)]
         for definition in definitions {
             guard let photo = Self.syntheticPackageImage(
@@ -662,6 +788,35 @@ final class ElderUITestFixture {
                 doseValue: 1,
                 doseUnit: definition.unit
             ))
+        }
+        try context.save()
+    }
+
+    /// Simulates an external refresh only in an explicitly requested owned fixture.
+    /// Bypasses user-action counters so tests can separately measure cancellation.
+    func invalidateConfirmationIfRequested(key: String, in context: ModelContext) throws {
+        guard let confirmationInvalidation, !didInvalidateConfirmation,
+              context === modelContainer.mainContext else { return }
+        let matches = try context.fetch(FetchDescriptor<StoredDoseTask>()).filter {
+            DoseLogicalGroup.key(for: $0) == key
+        }
+        guard matches.count == 1, let task = matches.first else { throw Failure.invalidArguments }
+        didInvalidateConfirmation = true
+        switch confirmationInvalidation {
+        case .missing:
+            context.delete(task)
+        case .keyChanged:
+            task.dueAt = task.dueAt.addingTimeInterval(1_800)
+        case .handled:
+            task.status = .taken
+        case .archived:
+            task.status = .taken
+            task.reason = "用户已归档"
+        case .replacement:
+            let replacement = StoredDoseTask(medicationID: task.medicationID, planID: task.planID,
+                                            dueAt: task.dueAt, doseValue: task.doseValue, doseUnit: task.doseUnit)
+            context.delete(task)
+            context.insert(replacement)
         }
         try context.save()
     }
@@ -784,6 +939,35 @@ private struct ElderUITestStoreInspectionView: View {
             } else {
                 Text("Store inspection failed").accessibilityIdentifier("elder.test.store.error")
             }
+        }
+    }
+}
+
+/// Read-only live evidence for the explicitly injected external refresh.
+/// Small text stays outside the action panel and never intercepts touches.
+private struct ElderUITestConfirmationInspectionView: View {
+    @Query(sort: \StoredDoseTask.dueAt) private var tasks: [StoredDoseTask]
+    @Query private var logs: [StoredDoseActionLog]
+    let fixture: ElderUITestFixture
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+            VStack(alignment: .leading, spacing: 0) {
+                Text(tasks.map { "\($0.id):\($0.statusRaw):\($0.dueAt.timeIntervalSinceReferenceDate):\($0.reason)" }.joined(separator: "|"))
+                    .accessibilityIdentifier("elder.test.live.tasks")
+                Text(String(logs.count)).accessibilityIdentifier("elder.test.live.logs")
+                Text(String(fixture.saveAttemptCount)).accessibilityIdentifier("elder.test.live.saves")
+                Text(String(fixture.scheduleAttemptCount)).accessibilityIdentifier("elder.test.live.schedules")
+                #if DEBUG
+                if let probe = fixture.sampledCancellationProbeValue() {
+                    Text(probe).accessibilityIdentifier("elder.test.cancel.probe")
+                }
+                #endif
+            }
+            .font(.system(size: 1))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: 16, maxHeight: 16)
+            .clipped()
         }
     }
 }

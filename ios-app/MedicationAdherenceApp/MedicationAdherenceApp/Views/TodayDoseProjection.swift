@@ -1,4 +1,17 @@
 import Foundation
+import MedicationAdherenceCore
+
+/// Derive spoken identity from the same task used by the action closure.
+/// A missing/mismatched medication must never borrow the next task's name.
+func todayDoseAccessibilityContext(task: StoredDoseTask, medication: StoredMedication?) -> DoseActionAccessibilityContext {
+    let matchedMedication = medication.flatMap { $0.id == task.medicationID ? $0 : nil }
+    let scheduledTime: String? = task.dueAt.timeIntervalSinceReferenceDate.isFinite
+        ? "\(AppFormatters.day.string(from: task.dueAt)) \(AppFormatters.time.string(from: task.dueAt))"
+        : nil
+    return DoseActionAccessibilityContext(
+        medicationName: matchedMedication.map(userFacingMedicationName(for:)), scheduledTime: scheduledTime
+    )
+}
 
 struct TodayDoseProjectionTransition: Equatable {
     var pendingDoseFeedback: PendingDoseFeedback?

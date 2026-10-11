@@ -261,6 +261,7 @@ struct DoseUndoBanner: Identifiable, Equatable {
     let id = UUID()
     let taskID: UUID
     let medicationName: String
+    let accessibilityContext: DoseActionAccessibilityContext
     let rollbackToken: DoseReopenRollbackToken
 }
 
@@ -310,8 +311,8 @@ struct DoseUndoBannerView: View {
         .onTapGesture(perform: undoRollback)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("已恢复到待处理，\(banner.medicationName)，撤回")
-        .accessibilityAction(named: Text("撤回"), undoRollback)
+        .accessibilityLabel(banner.accessibilityContext.label(for: "已恢复到待处理，撤回"))
+        .accessibilityAction(named: Text(banner.accessibilityContext.label(for: "撤回")), undoRollback)
     }
 }
 
@@ -603,6 +604,8 @@ struct ElderDoseSuccessState: Equatable {
     let message: String
     let taskID: UUID?
     let undoExpiresAt: Date?
+    // Snapshot the original action target, rather than the next current task.
+    var accessibilityContext: DoseActionAccessibilityContext? = nil
 
     func canUndo(at date: Date) -> Bool {
         taskID != nil && undoExpiresAt.map { date <= $0 } == true
@@ -622,6 +625,9 @@ struct ElderDoseSuccessFeedback: View {
                 Button("10 分钟内撤销本次操作") { undo(taskID) }
                     .buttonStyle(.bordered)
                     .accessibilityIdentifier("elder.feedback.undo")
+                    .accessibilityLabel((feedback.accessibilityContext ?? DoseActionAccessibilityContext(
+                        medicationName: nil, scheduledTime: nil
+                    )).label(for: "10 分钟内撤销本次操作"))
             }
         }
         .font(.headline.weight(.semibold))
@@ -660,5 +666,77 @@ enum ElderDoseActionProminence: Equatable {
         case .tertiary:
             return 60
         }
+    }
+}
+
+struct ElderMedicationPhotoButton: View {
+    let medication: StoredMedication?
+    let width: CGFloat
+    let open: (Data, String?) -> Void
+
+    var body: some View {
+        Button {
+            guard let data = medication?.photoData else { return }
+            open(data, medication.map(userFacingMedicationName(for:)))
+        } label: {
+            ElderMedicationPhotoView(
+                photoData: medication?.photoData,
+                medicationName: medication.map(userFacingMedicationName(for:)), width: width
+            )
+            .id(medication?.id)
+            .overlay(alignment: .bottomTrailing) {
+                if medication?.photoData != nil {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 14, weight: .semibold))
+                        .padding(6)
+                        .background(.regularMaterial, in: Circle())
+                        .padding(4)
+                        .accessibilityHidden(true)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(medication?.photoData == nil)
+        .accessibilityLabel(medication?.photoData == nil ? "尚未添加药品照片" : "查看药品照片")
+        .accessibilityHint(medication?.photoData == nil ? "" : "放大查看当前药品的照片")
+        .accessibilityIdentifier("elder.photo.open")
+    }
+}
+
+enum ElderTaskLayoutMetrics {
+    // A content-reading budget after outer and card padding, not a device width.
+    static let wideCurrentCardContentMinimumWidth: CGFloat = 520
+
+    static func usesWideCurrentCard(
+        availableWidth: CGFloat, horizontalSizeClass: UserInterfaceSizeClass?,
+        dynamicTypeSize: DynamicTypeSize
+    ) -> Bool {
+        guard availableWidth.isFinite, horizontalSizeClass == .regular,
+              !dynamicTypeSize.isAccessibilitySize else { return false }
+        let contentWidth = availableWidth - 2 * 16 - 2 * regularCardPadding
+        return contentWidth >= wideCurrentCardContentMinimumWidth
+    }
+
+    // Keep recognition compact; the photo opens separately at full width.
+    static let regularPhotoWidth: CGFloat = 96
+    static let regularPhotoMinimumWidth: CGFloat = 64
+    static let accessibilityPhotoWidth: CGFloat = 64
+    // Keep user-supplied portrait packaging from being narrowed by an overly wide frame.
+    static let photoContainerAspectRatio: CGFloat = 0.76
+    static let regularCardPadding: CGFloat = 18
+    static let accessibilityCardPadding: CGFloat = 16
+    static let regularIdentitySpacing: CGFloat = 12
+    static let regularDetailsSpacing: CGFloat = 12
+    static let accessibilityIdentitySpacing: CGFloat = 16
+    static let actionSpacing: CGFloat = 8
+
+    static func regularPhotoWidth(for availableWidth: CGFloat) -> CGFloat {
+        let contentWidth = max(0, availableWidth - (2 * 16) - (2 * regularCardPadding))
+        return min(max(contentWidth * 0.54, regularPhotoMinimumWidth), min(regularPhotoWidth, contentWidth))
+    }
+
+    static func accessibilityPhotoWidth(for availableWidth: CGFloat) -> CGFloat {
+        let contentWidth = max(0, availableWidth - (2 * 16) - (2 * accessibilityCardPadding))
+        return min(accessibilityPhotoWidth, contentWidth)
     }
 }

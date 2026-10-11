@@ -41,17 +41,137 @@ enum DemoDataSeeder {
         #endif
     }
 
-    private static func seed(in modelContext: ModelContext) throws {
-        let existing = try modelContext.fetch(FetchDescriptor<StoredMedication>())
-        let demoMedications = resolveDemoMedications(from: existing, context: modelContext)
-        migrateUserVisibleSeedText(for: demoMedications, in: modelContext)
+    #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
+    static var bundledMedicationIDs: Set<UUID> { Set(demoMedicationSeeds.map(\.id)) }
 
-        seedMissingPlansAndTodayTasks(for: demoMedications, context: modelContext)
-        seedMissingMedicationLabels(for: demoMedications, context: modelContext)
-        seedMissingRiskCards(for: demoMedications, context: modelContext)
-        seedMissingStocks(for: demoMedications, context: modelContext)
-        seedMissingDoseChanges(for: demoMedications, context: modelContext)
-        try modelContext.save()
+    // A caller cannot seed an arbitrary context: only this factory owns a session.
+    @MainActor
+    static func seedFreshBundledSession(_ session: BundledDemoSession) throws {
+        guard session.isNewlyCreated else { throw BundledDemoSession.Failure.notFresh }
+        try session.assertEmptyStore()
+        let failsSave = session.failsSeedSave
+        try seed(in: session.modelContainer.mainContext, referenceDate: session.referenceDate,
+                 calendar: session.calendar, strictReads: true, saveOperation: { context in
+                     if failsSave { throw BundledDemoSession.Failure.injectedFailure }
+                     try context.save()
+                 })
+        try validateFreshBundledSession(session)
+    }
+
+    @MainActor
+    private static func validateFreshBundledSession(_ session: BundledDemoSession) throws {
+        let context = session.modelContainer.mainContext
+        let calendar = session.calendar
+        let referenceDate = session.referenceDate
+        let medications = try context.fetch(FetchDescriptor<StoredMedication>())
+        let plans = try context.fetch(FetchDescriptor<StoredMedicationPlan>())
+        let tasks = try context.fetch(FetchDescriptor<StoredDoseTask>())
+        let labels = try context.fetch(FetchDescriptor<StoredMedicationLabel>())
+        let stocks = try context.fetch(FetchDescriptor<StoredMedicationStock>())
+        let changes = try context.fetch(FetchDescriptor<StoredMedicationDoseChange>())
+        let risks = try context.fetch(FetchDescriptor<StoredRiskCard>())
+        func require(_ condition: Bool) throws {
+            guard condition else { throw BundledDemoSession.Failure.invalidSeed }
+        }
+        try require(medications.count == 5 && Set(medications.map(\.id)) == bundledMedicationIDs)
+        try require(plans.count == 5 && labels.count == 5 && stocks.count == 5 && tasks.count == 305 && changes.count == 1)
+        try require(Set(tasks.map(\.id)).count == 305 && Set(plans.map(\.id)).count == 5)
+        var expectedRiskIDs = Set<String>()
+        for seed in demoMedicationSeeds {
+            guard let medication = medications.first(where: { $0.id == seed.id }),
+                  let plan = plans.first(where: { $0.medicationID == seed.id }),
+                  let label = labels.first(where: { $0.medicationID == seed.id }),
+                  let stock = stocks.first(where: { $0.medicationID == seed.id })
+            else { throw BundledDemoSession.Failure.invalidSeed }
+            try require(medication.isDemoContent && medication.coreMedication.inputSource == .demoData
+                        && medication.displayName == seed.displayName && medication.strength == seed.strength
+                        && medication.photoData == nil && medication.createdAt == referenceDate)
+            let isVitaminD = seed.labelLookupName == "Vitamin D3"
+            try require(plan.reminderTimesRaw == seed.reminderTimeRaw && plan.doseUnit == seed.doseUnit
+                        && plan.doseValue == (isVitaminD ? 2 : 1) && plan.createdAt == referenceDate)
+            try require(label.rawText == savedLabelText(for: seed) && label.sourceRaw == DrugLabelSource.demo.rawValue
+                        && label.coreLabel != nil && label.importedAt == referenceDate)
+            try require(stock.remainingQuantity == seed.initialStock && stock.unit == seed.doseUnit
+                        && stock.lowStockThreshold == seed.lowStockThreshold && stock.lastUpdated == referenceDate)
+            let medicationTasks = tasks.filter { $0.medicationID == seed.id }
+            try require(medicationTasks.count == 61 && medicationTasks.allSatisfy { $0.planID == plan.id })
+            for offset in 0...60 {
+                guard let day = calendar.date(byAdding: .day, value: -offset, to: referenceDate) else {
+                    throw BundledDemoSession.Failure.invalidSeed
+                }
+                let dueAt = date(on: day, hour: seed.reminderHour, minute: seed.reminderMinute, calendar: calendar)
+                let matches = medicationTasks.filter { $0.dueAt == dueAt }
+                guard matches.count == 1, let task = matches.first else { throw BundledDemoSession.Failure.invalidSeed }
+                let status: StoredDoseStatus = offset == 0 ? .pending : demoStatus(for: seed, dayOffset: offset)
+                let expectedDose: Double = isVitaminD && offset <= 14 ? 2 : 1
+                try require(task.doseValue == expectedDose && task.doseUnit == seed.doseUnit && task.status == status)
+                if offset == 0 {
+                    try require(task.recordedAt == nil && calendar.isDate(task.dueAt, inSameDayAs: referenceDate))
+                } else {
+                    try require(task.recordedAt == recordedAt(for: status, dueAt: dueAt, dayOffset: offset, calendar: calendar)
+                                && task.reason == demoReason(for: status))
+                }
+            }
+            let input = RiskAssessmentInput(
+                medication: medication.coreMedication, label: label.coreLabel,
+                drugClasses: seed.labelLookupName == "Ibuprofen"
+                    ? [DrugClass(classID: "N0000175722", name: "Analgesics", source: "MEDRT")] : []
+            )
+            for card in RiskAssessmentEngine().assess(input) {
+                let id = "\(seed.id.uuidString)-\(card.id)"
+                expectedRiskIDs.insert(id)
+                guard let stored = risks.first(where: { $0.id == id }) else { throw BundledDemoSession.Failure.invalidSeed }
+                try require(stored.medicationID == seed.id && stored.title == card.title && stored.message == card.message
+                            && stored.firstDetectedAt == referenceDate && stored.lastDetectedAt == referenceDate)
+            }
+        }
+        try require(risks.count == expectedRiskIDs.count && Set(risks.map(\.id)) == expectedRiskIDs)
+        guard let vitamin = medications.first(where: { $0.id == demoMedicationSeeds.last?.id }),
+              let plan = plans.first(where: { $0.medicationID == vitamin.id }), let change = changes.first,
+              let cutoff = calendar.date(byAdding: .day, value: -14, to: referenceDate)
+        else { throw BundledDemoSession.Failure.invalidSeed }
+        try require(change.medicationID == vitamin.id && change.planID == plan.id
+                    && change.previousDoseValue == 1 && change.newDoseValue == 2 && change.newDoseUnit == plan.doseUnit
+                    && change.effectiveFrom == calendar.startOfDay(for: cutoff) && change.changedAt == referenceDate)
+        try require(try context.fetchCount(FetchDescriptor<StoredDoseActionLog>()) == 0)
+        try require(try context.fetchCount(FetchDescriptor<StoredMedicationLifecycleEvent>()) == 0)
+        try require(try context.fetchCount(FetchDescriptor<StoredAIConsent>()) == 0)
+        try require(try context.fetchCount(FetchDescriptor<StoredAIChatMessage>()) == 0)
+    }
+    #endif
+
+    private static func seed(
+        in modelContext: ModelContext, referenceDate: Date = Date(),
+        calendar: Calendar = .current, strictReads: Bool = false,
+        saveOperation: ((ModelContext) throws -> Void)? = nil
+    ) throws {
+        let existing = try modelContext.fetch(FetchDescriptor<StoredMedication>())
+        let demoMedications = resolveDemoMedications(from: existing, context: modelContext, referenceDate: referenceDate)
+        try migrateUserVisibleSeedText(for: demoMedications, in: modelContext,
+                                       referenceDate: referenceDate, calendar: calendar, strictReads: strictReads)
+
+        try seedMissingPlansAndTodayTasks(for: demoMedications, context: modelContext,
+                               referenceDate: referenceDate, calendar: calendar, strictReads: strictReads)
+        try seedMissingMedicationLabels(for: demoMedications, context: modelContext,
+                               referenceDate: referenceDate, calendar: calendar, strictReads: strictReads)
+        try seedMissingRiskCards(for: demoMedications, context: modelContext,
+                               referenceDate: referenceDate, calendar: calendar, strictReads: strictReads)
+        try seedMissingStocks(for: demoMedications, context: modelContext,
+                               referenceDate: referenceDate, calendar: calendar, strictReads: strictReads)
+        try seedMissingDoseChanges(for: demoMedications, context: modelContext,
+                               referenceDate: referenceDate, calendar: calendar, strictReads: strictReads)
+        if let saveOperation { try saveOperation(modelContext) }
+        else { try modelContext.save() }
+    }
+
+    private static func seedRecords<T: PersistentModel>(
+        _ type: T.Type, in context: ModelContext, strict: Bool
+    ) throws -> [T] {
+        do { return try context.fetch(FetchDescriptor<T>()) }
+        catch {
+            if strict { throw error }
+            return []
+        }
     }
 
     private static func removeExistingDemoContent(in modelContext: ModelContext) throws {
@@ -212,7 +332,7 @@ enum DemoDataSeeder {
 
     private static func resolveDemoMedications(
         from existing: [StoredMedication],
-        context: ModelContext
+        context: ModelContext, referenceDate: Date
     ) -> [StoredMedication] {
         var resolved: [StoredMedication] = []
         var claimedMedicationIDs = Set<UUID>()
@@ -249,7 +369,8 @@ enum DemoDataSeeder {
                     photoSymbolName: seed.photoSymbolName,
                     boxNumber: seed.boxNumber,
                     notes: seed.notes,
-                    isDemoContent: true
+                    isDemoContent: true,
+                    createdAt: referenceDate
                 )
                 context.insert(newMedication)
                 medication = newMedication
@@ -289,8 +410,8 @@ enum DemoDataSeeder {
 
     private static func migrateUserVisibleSeedText(
         for medications: [StoredMedication],
-        in context: ModelContext
-    ) {
+        in context: ModelContext, referenceDate: Date, calendar: Calendar, strictReads: Bool
+    ) throws {
         let demoMedicationIDs = Set(medications.map(\.id))
         var seedByMedicationID: [UUID: DemoMedicationSeed] = [:]
         for medication in medications {
@@ -301,18 +422,19 @@ enum DemoDataSeeder {
             medication.notes = userFacingNotes(from: medication.notes, fallback: seed.notes)
         }
 
-        let plans = (try? context.fetch(FetchDescriptor<StoredMedicationPlan>())) ?? []
+        let plans = try seedRecords(StoredMedicationPlan.self, in: context, strict: strictReads)
         for plan in plans where demoMedicationIDs.contains(plan.medicationID) && plan.sourceNote.contains("演示") {
             plan.sourceNote = "按说明书建议建立，用户确认后提醒；可在详情页继续修改疗程、提醒和库存。"
         }
 
-        let tasks = (try? context.fetch(FetchDescriptor<StoredDoseTask>())) ?? []
-        migrateStaleSeedPendingTasks(tasks, seedByMedicationID: seedByMedicationID)
+        let tasks = try seedRecords(StoredDoseTask.self, in: context, strict: strictReads)
+        migrateStaleSeedPendingTasks(tasks, seedByMedicationID: seedByMedicationID,
+                                     referenceDate: referenceDate, calendar: calendar)
         for task in tasks where demoMedicationIDs.contains(task.medicationID) && task.reason.contains("演示") {
             task.reason = userFacingReason(from: task.reason, status: task.status)
         }
 
-        let riskCards = (try? context.fetch(FetchDescriptor<StoredRiskCard>())) ?? []
+        let riskCards = try seedRecords(StoredRiskCard.self, in: context, strict: strictReads)
         for card in riskCards where demoMedicationIDs.contains(card.medicationID) {
             migrateUserVisibleRiskCardText(card)
         }
@@ -320,10 +442,9 @@ enum DemoDataSeeder {
 
     private static func migrateStaleSeedPendingTasks(
         _ tasks: [StoredDoseTask],
-        seedByMedicationID: [UUID: DemoMedicationSeed]
+        seedByMedicationID: [UUID: DemoMedicationSeed], referenceDate: Date, calendar: Calendar
     ) {
-        let calendar = Calendar.current
-        let todayStart = calendar.startOfDay(for: Date())
+        let todayStart = calendar.startOfDay(for: referenceDate)
 
         for task in tasks where task.status == .pending && task.dueAt < todayStart {
             guard let seed = seedByMedicationID[task.medicationID] else {
@@ -340,23 +461,30 @@ enum DemoDataSeeder {
         }
     }
 
-    private static func seedMissingStocks(for medications: [StoredMedication], context: ModelContext) {
-        let existingStocks = (try? context.fetch(FetchDescriptor<StoredMedicationStock>())) ?? []
+    private static func seedMissingStocks(
+        for medications: [StoredMedication], context: ModelContext,
+        referenceDate: Date, calendar: Calendar, strictReads: Bool
+    ) throws {
+        let existingStocks = try seedRecords(StoredMedicationStock.self, in: context, strict: strictReads)
         let stockedMedicationIDs = Set(existingStocks.map(\.medicationID))
 
         for medication in medications where !stockedMedicationIDs.contains(medication.id) {
             guard let stock = demoStock(for: medication) else {
                 continue
             }
+            stock.lastUpdated = referenceDate
             context.insert(stock)
         }
     }
 
-    private static func seedMissingMedicationLabels(for medications: [StoredMedication], context: ModelContext) {
-        let existingLabels = (try? context.fetch(FetchDescriptor<StoredMedicationLabel>())) ?? []
+    private static func seedMissingMedicationLabels(
+        for medications: [StoredMedication], context: ModelContext,
+        referenceDate: Date, calendar: Calendar, strictReads: Bool
+    ) throws {
+        let existingLabels = try seedRecords(StoredMedicationLabel.self, in: context, strict: strictReads)
         let labeledMedicationIDs = Set(existingLabels.map(\.medicationID))
         let demoMedicationIDs = Set(medications.filter(\.isDemoContent).map(\.id))
-        let now = Date()
+        let now = referenceDate
 
         for label in existingLabels where demoMedicationIDs.contains(label.medicationID) && label.sourceTitle == "本地保存说明书摘要" {
             label.sourceRaw = DrugLabelSource.demo.rawValue
@@ -380,15 +508,19 @@ enum DemoDataSeeder {
             ))
         }
 
-        archiveDemoSourceReviewCards(for: demoMedicationIDs, context: context)
+        try archiveDemoSourceReviewCards(for: demoMedicationIDs, context: context,
+                                        referenceDate: referenceDate, strictReads: strictReads)
     }
 
-    private static func archiveDemoSourceReviewCards(for demoMedicationIDs: Set<UUID>, context: ModelContext) {
+    private static func archiveDemoSourceReviewCards(
+        for demoMedicationIDs: Set<UUID>, context: ModelContext,
+        referenceDate: Date, strictReads: Bool
+    ) throws {
         guard !demoMedicationIDs.isEmpty else {
             return
         }
-        let now = Date()
-        let riskCards = (try? context.fetch(FetchDescriptor<StoredRiskCard>())) ?? []
+        let now = referenceDate
+        let riskCards = try seedRecords(StoredRiskCard.self, in: context, strict: strictReads)
         for card in riskCards where demoMedicationIDs.contains(card.medicationID) && isDemoSourceReviewCard(card) && card.isActive {
             card.resolvedAt = now
             card.archivedAt = now
@@ -417,11 +549,13 @@ enum DemoDataSeeder {
         )
     }
 
-    private static func seedMissingPlansAndTodayTasks(for medications: [StoredMedication], context: ModelContext) {
-        let today = Date()
-        let calendar = Calendar.current
-        let existingPlans = (try? context.fetch(FetchDescriptor<StoredMedicationPlan>())) ?? []
-        let existingTasks = (try? context.fetch(FetchDescriptor<StoredDoseTask>())) ?? []
+    private static func seedMissingPlansAndTodayTasks(
+        for medications: [StoredMedication], context: ModelContext,
+        referenceDate: Date, calendar: Calendar, strictReads: Bool
+    ) throws {
+        let today = referenceDate
+        let existingPlans = try seedRecords(StoredMedicationPlan.self, in: context, strict: strictReads)
+        let existingTasks = try seedRecords(StoredDoseTask.self, in: context, strict: strictReads)
 
         for medication in medications {
             guard let seed = seed(for: medication) else {
@@ -447,7 +581,8 @@ enum DemoDataSeeder {
                     courseStartAt: today,
                     courseEndAt: nil,
                     reminderTimesRaw: seed.reminderTimeRaw,
-                    reminderDelivery: .notification
+                    reminderDelivery: .notification,
+                    createdAt: referenceDate
                 )
                 context.insert(newPlan)
                 plan = newPlan
@@ -465,7 +600,7 @@ enum DemoDataSeeder {
 
             let hasTaskTodayForMedication = existingTasks.contains { task in
                 task.medicationID == medication.id
-                    && calendar.isDateInToday(task.dueAt)
+                    && calendar.isDate(task.dueAt, inSameDayAs: today)
             }
             guard !hasTaskTodayForMedication else {
                 continue
@@ -517,20 +652,22 @@ enum DemoDataSeeder {
         }
     }
 
-    private static func seedMissingDoseChanges(for medications: [StoredMedication], context: ModelContext) {
-        let calendar = Calendar.current
+    private static func seedMissingDoseChanges(
+        for medications: [StoredMedication], context: ModelContext,
+        referenceDate: Date, calendar: Calendar, strictReads: Bool
+    ) throws {
         guard let medication = medications.first(where: { seed(for: $0)?.labelLookupName == "Vitamin D3" }),
               let seed = seed(for: medication)
         else {
             return
         }
 
-        let plans = (try? context.fetch(FetchDescriptor<StoredMedicationPlan>())) ?? []
+        let plans = try seedRecords(StoredMedicationPlan.self, in: context, strict: strictReads)
         guard let plan = plans.first(where: { $0.medicationID == medication.id }) else {
             return
         }
 
-        let existingChanges = (try? context.fetch(FetchDescriptor<StoredMedicationDoseChange>())) ?? []
+        let existingChanges = try seedRecords(StoredMedicationDoseChange.self, in: context, strict: strictReads)
         let alreadySeeded = existingChanges.contains { change in
             change.medicationID == medication.id
                 && change.planID == plan.id
@@ -539,7 +676,7 @@ enum DemoDataSeeder {
                 && change.newDoseUnit == seed.doseUnit
         }
         let effectiveFrom = calendar.startOfDay(
-            for: calendar.date(byAdding: .day, value: -14, to: Date()) ?? Date()
+            for: calendar.date(byAdding: .day, value: -14, to: referenceDate) ?? referenceDate
         )
 
         guard !alreadySeeded else {
@@ -554,13 +691,14 @@ enum DemoDataSeeder {
             newDoseValue: 2,
             newDoseUnit: seed.doseUnit,
             effectiveFrom: effectiveFrom,
+            changedAt: referenceDate,
             note: "复诊沟通后记录为新的每日剂量；请按医嘱、说明书或药师建议核对。"
         ))
 
         plan.doseValue = 2
         plan.doseUnit = seed.doseUnit
 
-        let tasks = (try? context.fetch(FetchDescriptor<StoredDoseTask>())) ?? []
+        let tasks = try seedRecords(StoredDoseTask.self, in: context, strict: strictReads)
         for task in tasks where task.planID == plan.id {
             if task.dueAt >= effectiveFrom {
                 task.doseValue = 2
@@ -623,8 +761,11 @@ enum DemoDataSeeder {
         }
     }
 
-    private static func seedMissingRiskCards(for medications: [StoredMedication], context: ModelContext) {
-        let existingRiskCards = (try? context.fetch(FetchDescriptor<StoredRiskCard>())) ?? []
+    private static func seedMissingRiskCards(
+        for medications: [StoredMedication], context: ModelContext,
+        referenceDate: Date, calendar: Calendar, strictReads: Bool
+    ) throws {
+        let existingRiskCards = try seedRecords(StoredRiskCard.self, in: context, strict: strictReads)
         var existingRiskCardsByID: [String: StoredRiskCard] = [:]
         for riskCard in existingRiskCards where existingRiskCardsByID[riskCard.id] == nil {
             existingRiskCardsByID[riskCard.id] = riskCard
@@ -633,13 +774,17 @@ enum DemoDataSeeder {
             guard seed(for: medication) != nil else {
                 continue
             }
-            seedRiskCards(for: medication, existingRiskCardsByID: existingRiskCardsByID, context: context)
+            try seedRiskCards(for: medication, existingRiskCardsByID: existingRiskCardsByID, context: context,
+                              referenceDate: referenceDate, strictReads: strictReads)
         }
     }
 
-    private static func seedRiskCards(for medication: StoredMedication, existingRiskCardsByID: [String: StoredRiskCard], context: ModelContext) {
+    private static func seedRiskCards(
+        for medication: StoredMedication, existingRiskCardsByID: [String: StoredRiskCard], context: ModelContext,
+        referenceDate: Date, strictReads: Bool
+    ) throws {
         let seed = seed(for: medication)
-        let storedLabel = ((try? context.fetch(FetchDescriptor<StoredMedicationLabel>())) ?? [])
+        let storedLabel = (try seedRecords(StoredMedicationLabel.self, in: context, strict: strictReads))
             .first { $0.medicationID == medication.id }
         let label = storedLabel?.coreLabel
         let input = RiskAssessmentInput(
@@ -665,7 +810,9 @@ enum DemoDataSeeder {
                 sourceTitle: card.evidence?.sourceTitle ?? "",
                 sourceExcerpt: card.evidence?.excerpt ?? "",
                 requiresProfessionalReview: card.requiresProfessionalReview,
-                safetyNote: card.safetyNote
+                safetyNote: card.safetyNote,
+                firstDetectedAt: referenceDate,
+                lastDetectedAt: referenceDate
             ))
         }
     }

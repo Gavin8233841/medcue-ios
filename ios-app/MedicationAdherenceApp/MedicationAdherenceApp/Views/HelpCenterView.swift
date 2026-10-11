@@ -170,6 +170,7 @@ struct HelpCenterView: View {
             }
             .fullScreenCover(isPresented: $showingProductTour) {
                 FirstLaunchSetupView(
+                    purpose: .tutorial,
                     finish: { _ in
                         showingProductTour = false
                     },

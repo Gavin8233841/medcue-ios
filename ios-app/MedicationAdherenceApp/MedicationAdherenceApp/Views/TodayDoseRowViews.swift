@@ -10,6 +10,7 @@ enum TodayDoseActionPalette {
 }
 
 struct ArchivedDoseTaskRow: View {
+    @Environment(\.medcueDemoAllowsExternalActions) private var allowsExternalActions
     let task: StoredDoseTask
     let medication: StoredMedication?
     let statusText: String
@@ -55,6 +56,7 @@ struct ArchivedDoseTaskRow: View {
             .font(.caption.weight(.semibold))
             .buttonStyle(.bordered)
             .controlSize(.small)
+            .disabled(!allowsExternalActions)
         }
         .padding(.vertical, 6)
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -64,6 +66,7 @@ struct ArchivedDoseTaskRow: View {
                 Label("恢复", systemImage: "tray.and.arrow.up")
             }
             .tint(.blue)
+            .disabled(!allowsExternalActions)
 
             Button {
                 reopen()
@@ -71,11 +74,13 @@ struct ArchivedDoseTaskRow: View {
                 Label("撤销", systemImage: "arrow.uturn.backward")
             }
             .tint(.orange)
+            .disabled(!allowsExternalActions)
         }
     }
 }
 
 struct DoseTaskRow: View {
+    @Environment(\.medcueDemoAllowsExternalActions) private var allowsExternalActions
     let task: StoredDoseTask
     let medication: StoredMedication?
     let completionText: String
@@ -89,7 +94,7 @@ struct DoseTaskRow: View {
         VStack(alignment: .leading, spacing: 14) {
             if let medication {
                 NavigationLink {
-                    MedicationDetailView(medication: medication)
+                    TodayMedicationDetailDestination(medication: medication)
                 } label: {
                     DoseTaskHeader(task: task, medication: medication)
                 }
@@ -123,7 +128,7 @@ struct DoseTaskRow: View {
                 }
                 .buttonStyle(.bordered)
                 .tint(.orange)
-                if undoLog != nil {
+                if undoLog != nil && allowsExternalActions {
                     Button(action: undo) {
                         Label("撤销", systemImage: "arrow.uturn.backward")
                     }
@@ -166,6 +171,7 @@ struct DoseTaskHeader: View {
 }
 
 struct ResolvedDoseTaskRow: View {
+    @Environment(\.medcueDemoAllowsExternalActions) private var allowsExternalActions
     let task: StoredDoseTask
     let medication: StoredMedication?
     let undoLog: StoredDoseActionLog?
@@ -203,16 +209,19 @@ struct ResolvedDoseTaskRow: View {
                 Label("撤销", systemImage: "arrow.uturn.backward")
             }
             .tint(.orange)
+            .disabled(!allowsExternalActions)
 
             Button(action: archive) {
                 Label("归档", systemImage: "archivebox")
             }
             .tint(.gray)
+            .disabled(!allowsExternalActions)
 
             Button(action: showDetail) {
                 Label("详情", systemImage: "info.circle")
             }
             .tint(.blue)
+            .disabled(!allowsExternalActions)
         }
     }
 }

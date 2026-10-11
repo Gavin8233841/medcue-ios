@@ -1,0 +1,287 @@
+{
+  "issue": 163,
+  "repository": "Gavin8233841/medcue-ios",
+  "checked_at_utc": "2026-10-10 UTC",
+  "base_head": "c791f11ad1a4e6fc4e7ff94554c05bec1f8c5119",
+  "base_tree": "051b5814a121a66742381c900a0570996a8df88f",
+  "candidate_branch": "codex/163-home-interaction-public-prep",
+  "stage": "local_public_preparation_pending_independent_review_and_native_return",
+  "current_write_scope": [
+    "docs/home-interaction/* (publication documentation only)"
+  ],
+  "native_validation_owner": "independent native validation owner; original active source unchanged",
+  "open_pr_snapshot": [
+    {
+      "number": 113,
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/113",
+      "head_sha": "2a96d8d89b51fc5c25d364e2f19960ab65e6cb6d",
+      "branch": "codex/7-medication-journey-current",
+      "author": "Gavin8233841",
+      "state": "open",
+      "draft": false,
+      "paths": [
+        ".github/workflows/native-verification.yml",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/AppRootView.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/MedicationCreationViews.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/MedicationDashboardViews.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayDoseTimelineViews.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayScreen.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/MedicationAdherenceAppUITests.swift"
+      ]
+    },
+    {
+      "number": 136,
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/136",
+      "head_sha": "85f7cd630d9b15267a10b7d7a622f47e028d30ac",
+      "branch": "codex/135-healthkit-evidence-review",
+      "author": "Gavin8233841",
+      "state": "open",
+      "draft": true,
+      "paths": [
+        "README.md",
+        "README.zh-CN.md",
+        "docs/HEALTH_EVIDENCE_REVIEW.md",
+        "docs/PROJECT_STATUS.md",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Models/StoredModels.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/AIConsentRevocationCommand.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/AIConversationPersistenceCommand.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/AIConversationSendPlanner.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/CloudBaseMedicalAIClient.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/HealthKitService.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/LocalMedicalAIClient.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/MedicalAIContextBuilder.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/AIAssistantRuntimeViews.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/AIAssistantView.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/HealthPrivacySettingsViews.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/SettingsView.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/HealthEvidenceIntegrationTests.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/HealthReviewFixtureBoundaryTests.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/HealthEvidenceReviewUITests.swift",
+        "swift-core/Sources/MedicationAdherenceCore/HealthEvidence.swift",
+        "swift-core/Sources/MedicationAdherenceCore/MedicalAIModels.swift",
+        "swift-core/Sources/MedicationAdherenceCore/MedicalAIPromptBuilder.swift",
+        "swift-core/Tests/MedicationAdherenceCoreTests/HealthEvidenceTests.swift"
+      ]
+    },
+    {
+      "number": 138,
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/138",
+      "head_sha": "96ec3bc80a30f35507f7489e6d52c0ecc7f34cf9",
+      "branch": "codex/137-today-action-haptics",
+      "author": "Gavin8233841",
+      "state": "open",
+      "draft": true,
+      "paths": [
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayDoseInteractionState.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayView.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/TodayDoseFeedbackTests.swift"
+      ]
+    },
+    {
+      "number": 73,
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/73",
+      "head_sha": "903f67ee1a77531c5874f5638688de39ab6a851e",
+      "branch": "feature/local-search-medication-risk",
+      "author": "yzy1020",
+      "state": "open",
+      "draft": true,
+      "paths": [
+        "docs/24-privacy-data-flow-audit-20260727.md",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj/project.pbxproj",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/MedicationAdherenceApp.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/MedicationSearchIndex.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/RiskSearchIndex.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/SearchTextNormalizer.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/MedicationsView.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/RiskListViews.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/RisksView.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/MedicationSearchIndexTests.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/RiskSearchIndexTests.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/SearchTextNormalizerTests.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/MedicationAdherenceAppUITests.swift"
+      ]
+    },
+    {
+      "number": 160,
+      "url": "https://github.com/Gavin8233841/medcue-ios/pull/160",
+      "head_sha": "5305d446c144194ec4e84390ab1cafa5566b8129",
+      "branch": "codex/159-health-window-adapter",
+      "author": "Gavin8233841",
+      "state": "open",
+      "draft": true,
+      "paths": [
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj/project.pbxproj",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Services/HealthMedicationWindowAdapter.swift",
+        "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/HealthMedicationWindowAdapterTests.swift",
+        "swift-core/Sources/MedicationAdherenceCore/HealthMedicationWindowReview.swift",
+        "swift-core/Tests/MedicationAdherenceCoreTests/HealthMedicationWindowReviewTests.swift"
+      ]
+    }
+  ],
+  "proposed_production_scope": [
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/AppNavigationViews.swift",
+      "purpose": "mode request contract and bridge removal",
+      "open_prs": []
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/AppRootView.swift",
+      "purpose": "first-launch purpose, mode confirmation, bridge removal, fixture only",
+      "open_prs": [
+        113
+      ]
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/FirstLaunchSetupView.swift",
+      "purpose": "real onboarding mode choice",
+      "open_prs": []
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/HelpCenterView.swift",
+      "purpose": "tutorial-only purpose",
+      "open_prs": []
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/SettingsView.swift",
+      "purpose": "mode request UI, existing draft protection",
+      "open_prs": [
+        136
+      ]
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayScreen.swift",
+      "purpose": "single-owner adaptive presentation and entry removal",
+      "open_prs": [
+        113
+      ]
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayView.swift",
+      "purpose": "minimal guarded presentation callback wiring only; requires serial owner handoff",
+      "open_prs": [
+        138
+      ]
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayDoseTimelineViews.swift",
+      "purpose": "pure presentation reuse only if needed",
+      "open_prs": [
+        113
+      ]
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayDoseComponents.swift",
+      "purpose": "pure presentation reuse only if needed",
+      "open_prs": []
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Models/DemoDataSeeder.swift",
+      "purpose": "isolated DEBUG seeding API only if needed",
+      "open_prs": []
+    },
+    {
+      "path": "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/MedicationAdherenceAppUITests.swift",
+      "purpose": "migrate existing entry/exit tests; preserve persistence assertions",
+      "open_prs": [
+        113,
+        73
+      ]
+    }
+  ],
+  "new_tests_proposed": [
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/ExperienceModeTransitionTests.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/TodayTaskSelectionTests.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/BundledDemoIsolationTests.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/HomeInteractionUITests.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/ExperienceModeUITests.swift"
+  ],
+  "no_write_default": [
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayDoseInteractionState.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj/project.pbxproj",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/MedicationAdherenceApp.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Models/StoredModels.swift",
+    ".github/",
+    "tools/",
+    "docs/iphone-duo/",
+    "docs/PROJECT_STATUS.md",
+    "README.md",
+    "README.zh-CN.md"
+  ],
+  "frozen_45_reference": "docs/iphone-duo/ownership.json; preserved original snapshot, not rewritten",
+  "test_target_discovery": "tests are PBXFileSystemSynchronizedRootGroup targets; App sources are explicit PBX entries",
+  "serial_gates": [
+    "Parent coordination confirms no unpushed shared-file writer before production edits",
+    "PR113 fixture/UI identifiers preserved; medication browse split from PR162 unchanged",
+    "PR136 Settings health/privacy scopes untouched; only mode section/draft guard serially integrated",
+    "PR138 minimal TodayView presentation/busy callback only after owner handoff; state/transaction/haptics not copied",
+    "No general Today/tab lifecycle rewrite to hide cleanup-on-disappear risk",
+    "Historical five-medication seeder identity confirmed by parent/Mac read-only reply; no reusable persistent demo store, no real health/store reads",
+    "Parent approved P2 Settings mode/draft UI, Today presentation callbacks and Elder local navigation guards; revalidate before navigation and final mode commit. TodayDoseInteractionState and every dose/cleanup implementation remain frozen."
+  ],
+  "limitations": [
+    "GitHub author/Issue assignee does not identify a live session writer",
+    "API snapshot cannot inspect remote unpushed changes",
+    "P1 independent source review passed per parent; P2 saved as a separate local slice for review, native not run, no push/DraftPR",
+    "Native workflow success independently checked, individual counts and local Duo results are parent evidence, not rerun",
+    "Exact-head CI from PR162 does not validate new planned work"
+  ],
+  "previous_write_scope": [
+    "docs/home-interaction/plan.md",
+    "docs/home-interaction/source-inventory.md",
+    "docs/home-interaction/ownership.json",
+    "docs/home-interaction/validation.md",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/AppNavigationViews.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/AppRootView.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/FirstLaunchSetupView.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/SettingsView.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayScreen.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayView.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/ExperienceModeTransitionTests.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/ExperienceModeUITests.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/FirstLaunchCompletionUITests.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/MedicationAdherenceAppUITests.swift"
+  ],
+  "exclusive_external_writer": {
+    "scope": "Mac minimal settings tap/hit diagnostic on independent mode-navigation-test-stage-fixed snapshot",
+    "boundary": "do not alter production Settings/alert/guards or infer root cause until returned evidence"
+  },
+  "layout_base_head": "implementation-stage-03",
+  "layout_boundaries": [
+    "TodayView initialTodayLoad through EOF byte-identical",
+    "TodayScreen ElderTodayScreenActions through EOF byte-identical",
+    "outer TodayScreen lifecycle byte-identical",
+    "PBX exactly four added registration lines",
+    "Root/fixture/seeder/CI/Core unchanged",
+    "no push/merge/release; no Mac operations"
+  ],
+  "previous_layout_write_scope": [
+    "docs/home-interaction/plan.md",
+    "docs/home-interaction/ownership.json",
+    "docs/home-interaction/validation.md",
+    "docs/home-interaction/expanded-home-next-slice.md",
+    "docs/home-interaction/layout-slice-review.md",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayView.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayScreen.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayTaskWorkspaceView.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayDoseTimelineViews.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceApp.xcodeproj/project.pbxproj",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/TodayTaskSelectionTests.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/TodayTaskWorkspaceUITests.swift"
+  ],
+  "confirmation_recovery_base_head": "implementation-stage-04",
+  "confirmation_recovery_exception": "the approved scope includes only task/key cancel methods plus complete-mode presentation and simulator-only isolated invalidation tests; all other initialTodayLoad through EOF byte-identical",
+  "previous_confirmation_write_scope": [
+    "docs/home-interaction/plan.md",
+    "docs/home-interaction/ownership.json",
+    "docs/home-interaction/layout-slice-review.md",
+    "docs/home-interaction/confirmation-recovery-review.md",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/AppRootView.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayScreen.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayTaskWorkspaceView.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/TodayView.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceAppTests/TodayPendingConfirmationRecoveryTests.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/TodayPendingConfirmationRecoveryUITests.swift",
+    "ios-app/MedicationAdherenceApp/MedicationAdherenceAppUITests/TodayTaskWorkspaceUITests.swift"
+  ],
+  "source_contract": "All non-documentation blobs equal the frozen implementation; original unpublished history is retained separately and is not an ancestor of this branch."
+}
