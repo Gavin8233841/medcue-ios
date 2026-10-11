@@ -77,6 +77,12 @@ private struct TodayContentView: View {
     @State private var showingArchiveConfirmation = false
     @State private var showingHandledTasks = false
     @State private var pendingDoseConfirmation: PendingDoseConfirmation?
+    #if DEBUG && targetEnvironment(simulator)
+    @State private var cancellationProbeOwner: Int?
+    private var cancellationProbe: TodayCancellationProbe? {
+        ElderUITestFixture.active?.cancellationProbe(in: modelContext)
+    }
+    #endif
     @State private var doseInteraction = TodayDoseInteractionState()
     @State private var reopenHighlightTasks: [String: Task<Void, Never>] = [:]
     @State private var liveActivityRefreshTask: Task<Void, Never>?
@@ -337,6 +343,25 @@ private struct TodayContentView: View {
             )
             .environment(\.medcueReduceMotionEnabled, reduceMotionEnabled)
             .onAppear { registerDemoGuard?(.init(canCommit: { canLeaveElderToday })) }
+            #if DEBUG && targetEnvironment(simulator)
+            .background(alignment: .topLeading) {
+                if cancellationProbe != nil {
+                    Text("1,\(cancellationProbeOwner ?? 0),\(pendingDoseConfirmation == nil ? 0 : 1)")
+                        .font(.system(size: 1)).frame(maxWidth: 16, maxHeight: 16).clipped()
+                        .accessibilityIdentifier("elder.test.cancel.render")
+                        .allowsHitTesting(false)
+                }
+            }
+            .onAppear {
+                if let probe = cancellationProbe {
+                    if cancellationProbeOwner == nil { cancellationProbeOwner = probe.state.registerOwner() }
+                    probe.state.observe(owner: cancellationProbeOwner ?? 0, pending: pendingDoseConfirmation != nil)
+                }
+            }
+            .onChange(of: pendingDoseConfirmation) { _, _ in
+                cancellationProbe?.state.observe(owner: cancellationProbeOwner ?? 0, pending: pendingDoseConfirmation != nil)
+            }
+            #endif
             #if (DEBUG || MEDCUE_DEMO) && targetEnvironment(simulator)
             .onChange(of: pendingDoseConfirmation?.doseKey) { _, key in
                 guard let key else { return }
@@ -686,6 +711,9 @@ private struct TodayContentView: View {
     private func showPendingDoseConfirmation(for task: StoredDoseTask, kind: PendingDoseConfirmation.Kind) {
         let updates = {
             pendingDoseConfirmation = PendingDoseConfirmation(doseKey: logicalDoseKey(for: task), kind: kind)
+            #if DEBUG && targetEnvironment(simulator)
+            cancellationProbe?.state.recordRequest(owner: cancellationProbeOwner ?? 0)
+            #endif
         }
         if reduceMotionEnabled {
             commitWithoutListMutationAnimation(updates)
@@ -719,6 +747,12 @@ private struct TodayContentView: View {
     }
 
     private func clearPendingDoseConfirmation(expectedDoseKey: String) {
+        #if DEBUG && targetEnvironment(simulator)
+        cancellationProbe?.state.recordEntry(
+            owner: cancellationProbeOwner ?? 0,
+            keyMatches: TodayPendingConfirmationCancellation.matches(expectedKey: expectedDoseKey, current: pendingDoseConfirmation)
+        )
+        #endif
         guard TodayPendingConfirmationCancellation.matches(expectedKey: expectedDoseKey, current: pendingDoseConfirmation) else {
             return
         }
@@ -726,6 +760,9 @@ private struct TodayContentView: View {
             pendingDoseConfirmation = TodayPendingConfirmationCancellation.cancelled(
                 expectedKey: expectedDoseKey, current: pendingDoseConfirmation
             )
+            #if DEBUG && targetEnvironment(simulator)
+            cancellationProbe?.state.recordClear(owner: cancellationProbeOwner ?? 0, isNil: pendingDoseConfirmation == nil)
+            #endif
         }
         if reduceMotionEnabled {
             commitWithoutListMutationAnimation(updates)
@@ -780,7 +817,7 @@ private struct TodayContentView: View {
                 elderActionInProgress = false
             }
         }
-        let migrationSnapshot = action.movesToHandledSection ? doseMigrationSnapshot(for: task, action: action) : nil
+        let migrationSnapshot = action.movesToHandledSection ? todayClosingMigrationSnapshot(task: task, medication: medication(for: task), action: action, delayDurationText: delayDurationText) : nil
         resetDoseTransitionState(animated: false)
         // Keep a previous success from masking a later save failure; a new success is shown only after commit.
         if presentation == .elder {
@@ -921,7 +958,7 @@ private struct TodayContentView: View {
             restore()
             return
         }
-        let migrationSnapshot = doseMigrationSnapshotForReopen(task)
+        let migrationSnapshot = todayReopeningMigrationSnapshot(task: task, medication: medication(for: task))
         let doseKey = logicalDoseKey(for: task)
         resetDoseTransitionState(animated: false)
         if !reduceMotionEnabled {
@@ -1302,41 +1339,6 @@ private struct TodayContentView: View {
             }
             completionRateFeedbackTask = nil
         }
-    }
-
-    private func doseMigrationSnapshot(for task: StoredDoseTask, action: PendingDoseFeedback.Action) -> DoseMigrationSnapshot {
-        let medication = medication(for: task)
-        let statusText: String
-        switch action {
-        case .taken:
-            statusText = todayCompletionVerb(for: medication)
-        case .skip:
-            statusText = "已忽略"
-        case .delay:
-            statusText = "\(delayDurationText)后"
-        }
-        return DoseMigrationSnapshot(
-            id: task.id,
-            medicationName: medication.map(userFacingMedicationName(for:)) ?? "未知药品",
-            doseText: "\(task.doseValue.formatted()) \(localizedMedicationUnit(task.doseUnit))",
-            timeText: AppFormatters.time.string(from: task.dueAt),
-            symbolName: medication?.photoSymbolName ?? "pills.fill",
-            statusText: statusText,
-            direction: .toHandled
-        )
-    }
-
-    private func doseMigrationSnapshotForReopen(_ task: StoredDoseTask) -> DoseMigrationSnapshot {
-        let medication = medication(for: task)
-        return DoseMigrationSnapshot(
-            id: task.id,
-            medicationName: medication.map(userFacingMedicationName(for:)) ?? "未知药品",
-            doseText: "\(task.doseValue.formatted()) \(localizedMedicationUnit(task.doseUnit))",
-            timeText: AppFormatters.time.string(from: task.dueAt),
-            symbolName: medication?.photoSymbolName ?? "pills.fill",
-            statusText: "待处理",
-            direction: .toOpen
-        )
     }
 
     private func refreshLiveActivities() async {

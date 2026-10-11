@@ -4,6 +4,70 @@ import Testing
 
 struct TodayPendingConfirmationRecoveryTests {
     @Test @MainActor
+    func handledRefreshKeepsTheCapturedKeyCancellable() {
+        let task = StoredDoseTask(medicationID: UUID(), planID: UUID(),
+                                  dueAt: Date(timeIntervalSince1970: 1_700_000_000), doseValue: 1, doseUnit: "unit")
+        let capturedKey = DoseLogicalGroup.key(for: task)
+        let pending = PendingDoseConfirmation(doseKey: capturedKey, kind: .earlyTaken)
+        task.status = .taken
+        // Boolean expectations cannot expose the synthetic key or IDs on failure.
+        let keyUnchanged = DoseLogicalGroup.key(for: task) == capturedKey
+        let matches = TodayPendingConfirmationCancellation.matches(expectedKey: capturedKey, current: pending)
+        let cleared = TodayPendingConfirmationCancellation.cancelled(expectedKey: capturedKey, current: pending) == nil
+        #expect(keyUnchanged)
+        #expect(matches)
+        #expect(cleared)
+    }
+
+    #if DEBUG && targetEnvironment(simulator)
+    @Test
+    func cancellationObservationsDistinguishEntryKeyStateAndAXResidue() {
+        var state = TodayCancellationProbeState()
+        let owner = state.registerOwner()
+        state.recordRequest(owner: owner)
+        state.observe(owner: owner, pending: true)
+        #expect(state.outcome(renderedOwner: owner, renderedPending: true, cancelAXExists: true, sampleIsFresh: true) == .notEntered)
+        state.recordEntry(owner: owner, keyMatches: false)
+        #expect(state.outcome(renderedOwner: owner, renderedPending: true, cancelAXExists: true, sampleIsFresh: true) == .keyRejected)
+        state.recordEntry(owner: owner, keyMatches: true)
+        #expect(state.outcome(renderedOwner: owner, renderedPending: true, cancelAXExists: true, sampleIsFresh: true) == .notCleared)
+        state.recordClear(owner: owner, isNil: true)
+        #expect(state.outcome(renderedOwner: owner, renderedPending: false, cancelAXExists: true, sampleIsFresh: true) == .clearedWithAXResidue)
+        #expect(state.outcome(renderedOwner: owner, renderedPending: true, cancelAXExists: true, sampleIsFresh: true) == .renderStateMismatch)
+        #expect(state.outcome(renderedOwner: owner, renderedPending: false, cancelAXExists: false, sampleIsFresh: true) == .cleared)
+        let anotherOwner = state.registerOwner()
+        #expect(state.outcome(renderedOwner: anotherOwner, renderedPending: true, cancelAXExists: true, sampleIsFresh: true) == .ownerChanged)
+        state.recordRequest(owner: owner)
+        state.observe(owner: owner, pending: true)
+        #expect(state.outcome(renderedOwner: owner, renderedPending: true, cancelAXExists: true, sampleIsFresh: true) == .reRequested)
+    }
+
+    @Test
+    func cancellationObservationsDetectReappearanceWithoutInventingARequestAndStayBounded() {
+        var state = TodayCancellationProbeState()
+        let owner = state.registerOwner()
+        state.observe(owner: owner, pending: true)
+        #expect(state.outcome(renderedOwner: owner, renderedPending: true, cancelAXExists: true, sampleIsFresh: false) == .unknown)
+        #expect(state.outcome(renderedOwner: 0, renderedPending: true, cancelAXExists: true, sampleIsFresh: true) == .unknown)
+        state.recordEntry(owner: owner, keyMatches: true)
+        state.recordClear(owner: owner, isNil: true)
+        state.observe(owner: owner, pending: true)
+        #expect(state.requestsAfterClear == 0)
+        #expect(state.outcome(renderedOwner: owner, renderedPending: true, cancelAXExists: true, sampleIsFresh: true) == .pendingReappeared)
+        for _ in 0..<20 {
+            _ = state.registerOwner()
+            state.recordEntry(owner: owner, keyMatches: true)
+            state.recordRequest(owner: owner)
+        }
+        #expect(state.overflow)
+        #expect(state.outcome(renderedOwner: owner, renderedPending: false, cancelAXExists: true, sampleIsFresh: true) == .unknown)
+        let values = state.scalarValue.split(separator: ",").compactMap { Int($0) }
+        #expect(values.count == 13)
+        #expect(values.allSatisfy { (0...TodayCancellationProbeState.limit).contains($0) })
+    }
+    #endif
+
+    @Test @MainActor
     func staleCancellationCannotClearANewerPendingKey() {
         let current = PendingDoseConfirmation(doseKey: "new-key", kind: .plannedDelay)
         let result = TodayPendingConfirmationCancellation.cancelled(expectedKey: "old-key", current: current)

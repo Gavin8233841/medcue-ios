@@ -515,3 +515,133 @@ struct TodayCompactTaskReveal: Equatable {
     let event: Int
     let confirmationKey: String?
 }
+
+// Read-only migration display snapshots, shared with the Today owner.
+func todayClosingMigrationSnapshot(task: StoredDoseTask, medication: StoredMedication?, action: PendingDoseFeedback.Action, delayDurationText: @autoclosure () -> String) -> DoseMigrationSnapshot {
+    let statusText: String
+    switch action {
+    case .taken:
+        statusText = todayCompletionVerb(for: medication)
+    case .skip:
+        statusText = "已忽略"
+    case .delay:
+        statusText = "\(delayDurationText())后"
+    }
+    return DoseMigrationSnapshot(
+        id: task.id,
+        medicationName: medication.map(userFacingMedicationName(for:)) ?? "未知药品",
+        doseText: "\(task.doseValue.formatted()) \(localizedMedicationUnit(task.doseUnit))",
+        timeText: AppFormatters.time.string(from: task.dueAt),
+        symbolName: medication?.photoSymbolName ?? "pills.fill",
+        statusText: statusText,
+        direction: .toHandled
+    )
+}
+
+func todayReopeningMigrationSnapshot(task: StoredDoseTask, medication: StoredMedication?) -> DoseMigrationSnapshot {
+    return DoseMigrationSnapshot(
+        id: task.id,
+        medicationName: medication.map(userFacingMedicationName(for:)) ?? "未知药品",
+        doseText: "\(task.doseValue.formatted()) \(localizedMedicationUnit(task.doseUnit))",
+        timeText: AppFormatters.time.string(from: task.dueAt),
+        symbolName: medication?.photoSymbolName ?? "pills.fill",
+        statusText: "待处理",
+        direction: .toOpen
+    )
+}
+
+#if DEBUG && targetEnvironment(simulator)
+/// Scalar observations only: never stores a task, dose key or user value.
+struct TodayCancellationProbeState {
+    static let limit = 4
+    enum Outcome: Equatable { case unknown, notEntered, keyRejected, notCleared, ownerChanged, reRequested, pendingReappeared, renderStateMismatch, clearedWithAXResidue, cleared }
+    private(set) var ownerCount = 0
+    private(set) var entryCount = 0
+    private(set) var entryOwner = 0
+    private(set) var keyMatches = false
+    private(set) var pendingCleared = false
+    private(set) var clearOwner = 0
+    private(set) var requestCount = 0
+    private(set) var requestsAfterClear = 0
+    private(set) var observedOwner = 0
+    private(set) var observedPending = false
+    private(set) var reappearedAfterClear = false
+    private(set) var overflow = false
+
+    mutating func registerOwner() -> Int {
+        guard ownerCount < Self.limit else { overflow = true; return 0 }
+        ownerCount += 1
+        return ownerCount
+    }
+
+    mutating func recordRequest(owner: Int) {
+        guard (1...Self.limit).contains(owner) else { overflow = true; return }
+        if requestCount < Self.limit { requestCount += 1 } else { overflow = true }
+        if pendingCleared {
+            if requestsAfterClear < Self.limit { requestsAfterClear += 1 } else { overflow = true }
+        }
+    }
+
+    mutating func recordEntry(owner: Int, keyMatches: Bool) {
+        guard (1...Self.limit).contains(owner) else { overflow = true; return }
+        if entryCount < Self.limit { entryCount += 1 } else { overflow = true }
+        entryOwner = owner
+        self.keyMatches = keyMatches
+    }
+
+    mutating func recordClear(owner: Int, isNil: Bool) {
+        guard (1...Self.limit).contains(owner) else { overflow = true; return }
+        if isNil { pendingCleared = true; clearOwner = owner }
+        observe(owner: owner, pending: !isNil)
+    }
+
+    mutating func observe(owner: Int, pending: Bool) {
+        guard (1...Self.limit).contains(owner) else { overflow = true; return }
+        observedOwner = owner
+        observedPending = pending
+        if pendingCleared && pending { reappearedAfterClear = true }
+    }
+
+    /// Version plus fixed bounded integer/boolean fields; no free-form values.
+    var scalarValue: String {
+        [2, ownerCount, entryCount, entryOwner, keyMatches ? 1 : 0,
+         pendingCleared ? 1 : 0, clearOwner, requestCount, requestsAfterClear,
+         observedOwner, observedPending ? 1 : 0, reappearedAfterClear ? 1 : 0,
+         overflow ? 1 : 0].map(String.init).joined(separator: ",")
+    }
+
+    func outcome(renderedOwner: Int, renderedPending: Bool, cancelAXExists: Bool, sampleIsFresh: Bool) -> Outcome {
+        guard sampleIsFresh, !overflow, (1...Self.limit).contains(renderedOwner),
+              (1...Self.limit).contains(ownerCount), (1...Self.limit).contains(observedOwner),
+              entryCount == 0 || (1...Self.limit).contains(entryOwner),
+              !pendingCleared || (1...Self.limit).contains(clearOwner) else { return .unknown }
+        guard entryCount > 0 else { return .notEntered }
+        guard keyMatches else { return .keyRejected }
+        guard pendingCleared else { return .notCleared }
+        guard entryOwner == renderedOwner && clearOwner == renderedOwner && observedOwner == renderedOwner else { return .ownerChanged }
+        if requestsAfterClear > 0 { return .reRequested }
+        if reappearedAfterClear { return .pendingReappeared }
+        if renderedPending || observedPending { return .renderStateMismatch }
+        return cancelAXExists ? .clearedWithAXResidue : .cleared
+    }
+}
+
+/// Not Observable/Published: observations cannot drive the production layout.
+@MainActor
+final class TodayCancellationProbe {
+    var state = TodayCancellationProbeState()
+    private var sampleGeneration = 0
+    private var sampleOverflow = false
+
+    /// Existing Timeline samples only; no timer, publisher or business state.
+    /// Same simulator boot clock as XCTest; bounded stamps are never logged.
+    func sampledScalarValue() -> String {
+        if sampleGeneration < 65_535 { sampleGeneration += 1 } else { sampleOverflow = true }
+        let milliseconds = ProcessInfo.processInfo.systemUptime * 1_000
+        let clockValid = milliseconds.isFinite && milliseconds >= 0 && milliseconds <= 9_007_199_254_740_991
+        if !clockValid { sampleOverflow = true }
+        let tick = clockValid ? Int(milliseconds) : 0
+        return state.scalarValue + ",\(sampleGeneration),\(tick),\(sampleOverflow ? 1 : 0)"
+    }
+}
+#endif

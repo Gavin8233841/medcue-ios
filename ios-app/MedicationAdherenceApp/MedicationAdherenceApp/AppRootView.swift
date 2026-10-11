@@ -582,6 +582,15 @@ final class ElderUITestFixture {
     private let confirmationInvalidation: ConfirmationInvalidation?
     var observesConfirmationInvalidation: Bool { confirmationInvalidation != nil }
 
+    #if DEBUG
+    private var cancellationProbeRecorder: TodayCancellationProbe?
+    func sampledCancellationProbeValue() -> String? { cancellationProbeRecorder?.sampledScalarValue() }
+    func cancellationProbe(in context: ModelContext) -> TodayCancellationProbe? {
+        guard context === modelContainer.mainContext else { return nil }
+        return cancellationProbeRecorder
+    }
+    #endif
+
     var dosePersistence: DoseActionPersistence {
         DoseActionPersistence { [self] context in
             defaults.set(defaults.integer(forKey: "saveAttempts") + 1, forKey: "saveAttempts")
@@ -634,7 +643,7 @@ final class ElderUITestFixture {
         else {
             throw Failure.invalidArguments
         }
-        return try ElderUITestFixture(
+        let fixture = try ElderUITestFixture(
             scenario: scenario,
             session: session,
             initialExperienceMode: initialExperienceMode,
@@ -646,6 +655,16 @@ final class ElderUITestFixture {
             confirmationInvalidation: argument(after: "--elder-ui-invalidate-confirmation", in: arguments)
                 .flatMap(ConfirmationInvalidation.init(rawValue:))
         )
+        #if DEBUG
+        let probeFlags = ["--elder-ui-cancel-probe", "--elder-ui-fixture", "--elder-ui-session",
+                          "--elder-ui-mode", "--elder-ui-invalidate-confirmation"]
+        if probeFlags.allSatisfy({ flag in arguments.filter { $0 == flag }.count == 1 }),
+           scenario == .futureMultiple, initialExperienceMode == .complete, fixture.confirmationInvalidation != nil,
+           !arguments.contains("--bundled-demo-session"), !arguments.contains("--elder-ui-inspect-store") {
+            fixture.cancellationProbeRecorder = TodayCancellationProbe()
+        }
+        #endif
+        return fixture
     }
 
     private static func argument(after flag: String, in arguments: [String]) -> String? {
@@ -939,6 +958,11 @@ private struct ElderUITestConfirmationInspectionView: View {
                 Text(String(logs.count)).accessibilityIdentifier("elder.test.live.logs")
                 Text(String(fixture.saveAttemptCount)).accessibilityIdentifier("elder.test.live.saves")
                 Text(String(fixture.scheduleAttemptCount)).accessibilityIdentifier("elder.test.live.schedules")
+                #if DEBUG
+                if let probe = fixture.sampledCancellationProbeValue() {
+                    Text(probe).accessibilityIdentifier("elder.test.cancel.probe")
+                }
+                #endif
             }
             .font(.system(size: 1))
             .foregroundStyle(.secondary)
