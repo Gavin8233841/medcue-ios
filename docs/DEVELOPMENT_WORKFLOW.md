@@ -79,7 +79,10 @@ answers require that evidence only if App Store distribution enters scope.
 | Emergency release fix | Incident/bug Issue, narrow PR, explicit follow-up debt |
 
 Do not create an ADR for a reversible implementation detail. Do not write a
-multi-page PRD for a one-line correction.
+multi-page PRD for a one-line correction. Use only applicable risk categories;
+the lists below are prompts for judgment, not a requirement to fill empty
+sections. A local read-only audit or documentation update can use a brief work
+item in the task and local evidence without creating a new permanent plan.
 
 ## Scale The Process To Risk
 
@@ -206,49 +209,68 @@ changes and every main push), shared-file ownership must still be valid, and no
 prior Blocker or Required item may remain open. Report unavailable checks and
 reasoned N/A evidence without implying that missing evidence exists.
 
-Any tracked-file commit invalidates the prior author self-review and requires
-new exact-head CI; it also invalidates an earlier approval. A body-only Pull
-Request edit does not invalidate code CI, but the contributor must recheck every
-revision and evidence reference. Running, queued, cancelled, failed, or old-SHA
-CI is not successful evidence.
+Revision invalidation is defined in the Autonomous Merge Gate below. Running,
+queued, cancelled, failed, or old-SHA CI is not successful evidence.
 
 When this author gate passes, post one `READY FOR REVIEW` status containing the
 full base and HEAD SHAs, CI URL, limitations, and remaining independent-review
-or device requirements; then mark the Pull Request ready and remove
-`state:in-progress`. If changes are requested, resume the active lease and repeat
-the author gate after the last tracked-file change.
+or device requirements. This status requests review; keep the Pull Request
+Draft while required independent-review or device/account evidence is pending.
+Mark it Ready and release `state:in-progress` only after the Autonomous Merge
+Gate below is satisfied. If changes are requested, resume the active lease and
+repeat the author gate after the last tracked-file change.
 
 Contributors do not need to wake the coordinating agent for routine repository
-research, implementation choices, tests, or review fixes. Wake the coordinator
-for unresolved ownership overlap, a material scope or acceptance change,
-requirements that cannot be satisfied together, a handoff, an unavailable
-permission or external dependency, or a completed ready-for-review gate. Wake
-the product owner only for product value or behavior, medical claims, privacy
-posture, cost, account actions, release timing, or external/destructive choices.
+research, implementation choices, tests, review fixes, or a completed
+ready-for-review gate when the autonomous merge gate is satisfied. Wake the
+coordinator only for unresolved ownership overlap, a material scope or
+acceptance change, requirements that cannot be satisfied together, a handoff,
+an unavailable permission or external dependency, or a high-risk exception
+that the Issue/PR cannot resolve independently. Wake the product owner only
+for product value or behavior, medical claims, privacy posture, cost, account
+actions, release timing, or external/destructive choices.
 
-The coordinating agent reviews the current cumulative HEAD, scope, and
-integration evidence, but does not provide a second approval when the
-autonomous merge gate is satisfied. After merge, verify the exact `main` SHA and `main` CI, confirm that
-shared-file integration preserved the intended behavior, close the Issue, clear
-coordination labels, and remove the branch when safe. A merge with failed or
-pending post-merge evidence is not complete.
+The coordinating agent owns integration and exceptions, but does not provide a
+second approval or routine cumulative-diff review when the autonomous merge
+gate is satisfied. After merge, verify the exact `main` SHA and `main` CI,
+confirm that shared-file integration preserved the intended behavior, close the
+Issue, clear coordination labels, and remove the branch when safe. A merge
+with failed or pending post-merge evidence is not complete.
 
-The approved autonomous merge gate permits the author to mark the Pull Request
-Ready and squash merge without a second coordinator approval after the
-cumulative self-review, Issue-specified fresh-context review, Blocker 0 /
-Required 0, successful exact-head relevant CI, clean current-main integration,
-and required device/account/external evidence or reasoned N/A are complete.
+### Autonomous Merge Gate
+
+This is the complete repository definition of the gate referenced by
+`AGENTS.md` and the Pull Request checklist. Local iteration and a review request
+do not waive it.
+
+After the last tracked-file change, the author must complete the cumulative
+base-to-HEAD self-review, obtain a fresh-context independent review using the
+Issue-specified model, and resolve every `Blocker` and `Required` finding. The
+current HEAD must have successful exact-head relevant CI, a clean current-main
+integration check, and all required device/account/external evidence (or a
+reasoned `N/A` where the change cannot affect that boundary). The author may
+mark the Pull Request Ready and squash merge without a second coordinator
+approval only when all of those conditions and the Issue acceptance criteria
+are satisfied. After merge, wait for and record the exact `main` CI result.
+
 Every tracked-file commit invalidates prior review, approval, and CI evidence;
-repeat the gate for the new HEAD. Stop and wake the coordinator or product
-owner for unresolved product, medical, privacy/consent, cost, account,
-credential, deployment, legal, or release decisions; hard-to-reverse actions;
-missing required external evidence; overlap, scope expansion, conflict,
-permission failure, or unauthorized trusted CI/release/packaging/permission
-changes; unavailable specified model or fresh context; unsuccessful exact-head
-CI; or any remaining Blocker or Required finding. High-risk work remains
-eligible when its approved scope and additional failure, rollback,
-data-integrity, independent-review, and applicable device/account evidence are
-complete.
+repeat the review and exact-head checks for the new SHA. Body-only Pull Request
+edits do not invalidate code CI, but all revision and evidence references must
+be rechecked.
+
+Stop and wake the coordinator or product owner instead of merging when a
+product, medical claim, privacy/consent, cost, account, credential, deployment,
+legal, or release-time decision is unresolved; a destructive or hard-to-reverse
+operation is requested; device, account, cloud, or other required external
+evidence is missing; files overlap, scope materially expands, conflicts or
+permissions block proof; a trusted CI, release-scan, packaging, permission, or
+workflow rule is changed without Issue authorization; the specified model or
+fresh-context review is unavailable; exact-head CI is not successful; or any
+`Blocker`/`Required` finding remains. High-risk medication, medical-AI,
+privacy, security, migration, authorization, and system-entry work is not
+automatically prohibited, but it needs the approved scope plus its failure,
+rollback, data-integrity, independent-review, and applicable device/account
+evidence before this gate can pass.
 
 ### Controlled Demo builds
 
@@ -311,15 +333,16 @@ context, not a substitute for a new run. Because workflow files are trusted
 evidence, any change under `.github/workflows/` remains a full-lane change and
 requires fresh-context security review before approval.
 
-At `main@c47416944790c5c4e7f1e3a03c4958473c1856fd`, the active
-`main-trusted-delivery` ruleset has no bypass, requires the Native Verification
-required result, blocks branch deletion and force-push, and requires resolved
-review threads. Base-branch `CODEOWNERS` requires reciprocal maintainer review
-for `/.github/` and `/tools/`; ordinary changes outside those protected paths
-retain the autonomous-merge gate. Because a Pull Request can edit its own
-workflow revision, the base-branch ruleset and CODEOWNERS policy are the trusted
-enforcement layer; fresh-context security review remains required for changes
-to that layer.
+At `main@d6aa4af85f225028fc3f912391328e1f745d0b34`, the active
+`main-trusted-delivery` ruleset requires the Native Verification required
+result, blocks branch deletion and force-push, and requires resolved review
+threads. It does not require a Code Owner approval for every Pull Request;
+contributors may use the autonomous-merge gate after their own cumulative and
+fresh-context review. Base-branch `CODEOWNERS` remains an ownership signal for
+protected files, and changes to workflows, release tooling, or other trusted
+boundaries still require the risk-matched independent review and exact CI
+evidence described above. Because a Pull Request can edit its own workflow
+revision, the base-branch ruleset remains the trusted enforcement layer.
 
 The agent performs a correctness, regression, privacy, medical-safety,
 performance, accessibility, and test-quality review. `Native Verification`
@@ -352,8 +375,10 @@ requires a measurement.
 ### 8. Merge and release record
 
 Prefer squash merge for one local milestone and its integration Issue -> one
-coherent commit after review and CI are green. Delete merged branches. Close
-the linked Issue. User-visible release changes go into a release note/changelog;
+coherent commit after review and CI are green. Remove a merged branch only
+within existing owner authorization and after checking that no active work
+depends on it; do not force-delete a branch or its worktree. Close the linked
+Issue. User-visible release changes go into a release note/changelog;
 durable decisions go into an
 ADR; current engineering truth updates `docs/PROJECT_STATUS.md`.
 
@@ -381,12 +406,20 @@ as a mandatory Pull Request gate.
 
 ### Shared-file integration checkpoint on 2026-08-23
 
-PR #26, #30, #31, and #40 are merged. PR #40 owns the Native Verification lane
-and autonomous-merge rules now present in this file. The finals baseline branch
-waited for PR #40 and merged exact `main@c47416944790c5c4e7f1e3a03c4958473c1856fd`
-before adding local-milestone rules, then merged Issue #23 / PR #43's exact
-`main@15517b3649639539c05015970d2f6088df7426f9`. PR #44 now owns overlapping
-documentation files until its source-package work is integrated or handed off.
+PR #26, #30, #31, #40, #43, and #44 are merged. PR #40 owns the Native
+Verification lane and autonomous-merge rules now present in this file. The
+finals baseline branch waited for PR #40 and merged exact
+`main@c47416944790c5c4e7f1e3a03c4958473c1856fd` before adding local-milestone
+rules, then merged Issue #23 / PR #43's exact
+`main@15517b3649639539c05015970d2f6088df7426f9`, and finally merged Issue #5 /
+PR #44's exact `main@d6aa4af85f225028fc3f912391328e1f745d0b34`.
+
+Ownership rechecked on 2026-09-07: PR #48 is closed without merging. Issue #47 /
+PR #49 continues source-package hardening as an open Draft Pull Request. Its
+current files are `docs/SOURCE_PACKAGE_POLICY.md`, `docs/TEST_STRATEGY.md`,
+`tools/build-source-package.py`, `tools/test-source-package.py`, and
+`tools/verify-source-package.py`. Other documentation is not frozen by that
+Pull Request. Read GitHub again before relying on this ownership snapshot.
 Future same-file work must repeat the open Pull Request overlap check and review
 the complete cumulative diff; a conflict-free merge alone is not evidence that
 both rule sets survived.

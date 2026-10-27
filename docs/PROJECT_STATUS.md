@@ -1,8 +1,9 @@
 # MedCue Project Status
 
-Last audited: 2026-08-23
+Last full audit: 2026-08-23
+Targeted governance/ownership check: 2026-09-07 (local working tree only)
 Authoritative branch: `main`
-Authoritative `main` observed at: `15517b3649639539c05015970d2f6088df7426f9`
+Authoritative `main` observed at: `d6aa4af85f225028fc3f912391328e1f745d0b34`
 Post-migration audit baseline: `280e5b3f8425f155d5e20a71841f4169a63bc59d`
 Audit-baseline CI: [Native Verification run 32171788727](https://github.com/Gavin8233841/medcue-ios/actions/runs/32171788727)
 
@@ -13,6 +14,9 @@ override the exact repository revision or GitHub evidence. The SHA above is the
 exact baseline used for this post-migration audit, not a prediction of a later
 merge commit. The authoritative working revision is the commit currently
 resolved by `main`; every evidence claim below remains scoped to its named SHA.
+Unless explicitly dated otherwise, repository, ruleset, and Issue-label snapshots
+below belong to that audit. Read back live GitHub state before relying on them
+for a new operation; the targeted update is not a full source or release audit.
 
 ## Current Verified Snapshot
 
@@ -75,6 +79,14 @@ on 2026-08-23. The fix removes medication display text, task identifiers, and
 due-time values from the reminder/Live Activity smoke success log; it does not
 change reminder actions, persistence, or medical behavior.
 
+Issue #5 / PR #44 merged at `main@d6aa4af85f225028fc3f912391328e1f745d0b34`
+from exact PR head `1698eafdc6743412a7ca6edfb7c4eed17b39e72d`. Its exact-head
+Native Verification passed in PR run 32638615264, and the post-merge main push
+gate passed in [run 32640833807](https://github.com/Gavin8233841/medcue-ios/actions/runs/32640833807)
+with the required-result job successful. Issue #5 is closed. The source-package
+follow-up is recorded under Current Delivery State below; those historical CI
+results do not certify its later revisions.
+
 ### Reproduce The Audit-Baseline Counts
 
 The following PowerShell command reads the named Git tree directly, so later
@@ -134,15 +146,32 @@ is no longer a blocker.
 
 `main` includes the Controlled Demo path, active-work coordination, Broker
 security changes, bounded Broker idempotency-cache expiry/capacity from Issue
-#35 / PR #38, the trusted CODEOWNERS bootstrap from PR #42, and the CI risk
-lanes from Issue #39 / PR #40. PR #40 passed exact-head CI, Blocker 0 / Required
-0 review, code-owner approval, and the post-merge exact-main gate above.
+#35 / PR #38, the trusted CODEOWNERS bootstrap from PR #42, the CI risk lanes
+from Issue #39 / PR #40, the iOS diagnostic-log privacy fix from Issue #23 / PR
+#43, and the reproducible source package from Issue #5 / PR #44. The active
+`main-trusted-delivery` ruleset still requires the exact Native Verification
+required-result check, blocks branch deletion and non-fast-forward updates, and
+requires review-thread resolution, but it no longer requires a Code Owner
+approval for every Pull Request. Independent author/fresh-context review and
+the relevant evidence gates remain required by the workflow.
 
-Issue #5 remains open and assigned to YZY. Its implementation is active in PR
-#44 on `codex/5-reproducible-source-package-yzy1020`; that Pull Request owns the
-source-package scripts and its listed documentation/tooling files until it is
-integrated or handed off. The local finals baseline therefore remains a local
-milestone while its overlapping documentation files wait for PR #44 to merge.
+On 2026-09-07, GitHub confirmed that [PR #48](https://github.com/Gavin8233841/medcue-ios/pull/48)
+is closed without merging. [Issue #47](https://github.com/Gavin8233841/medcue-ios/issues/47)
+remains open, assigned to `yzy1020`, with `state:in-progress`.
+[PR #49](https://github.com/Gavin8233841/medcue-ios/pull/49) is its open Draft
+Pull Request targeting `main`. It owns `docs/SOURCE_PACKAGE_POLICY.md`,
+`docs/TEST_STRATEGY.md`, `tools/build-source-package.py`,
+`tools/test-source-package.py`, and `tools/verify-source-package.py`.
+The one-writer rule applies to those files; unrelated documentation need not
+wait. Recheck the live file list before further work.
+
+The local governance update retains the existing safety and merge requirements,
+centralizes the complete autonomous merge gate in `DEVELOPMENT_WORKFLOW.md`,
+and preserves the build-cache incident and prevention rules in
+`TOOLING_AND_PLUGIN_PLAN.md`. It clarifies independent technical investigation,
+proportional local checks, and skill prerequisites. This update is local to
+`codex/finals-baseline-integration`; it does not claim a merged revision,
+successful remote CI, or new device/account evidence.
 
 ### Accepted Finals Direction — Planning Only
 
