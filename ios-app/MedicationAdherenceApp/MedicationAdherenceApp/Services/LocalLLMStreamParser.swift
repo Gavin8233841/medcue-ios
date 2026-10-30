@@ -178,8 +178,6 @@ struct LocalLLMStreamParser {
             .replacingOccurrences(of: "<|im_start|>", with: "")
             .replacingOccurrences(of: "<|im_end|>", with: "")
             .replacingOccurrences(of: "</s>", with: "")
-            .split(whereSeparator: { $0.isWhitespace })
-            .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 

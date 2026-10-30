@@ -3,80 +3,65 @@ import MedicationAdherenceCore
 
 struct LocalMedicalResponsePolicy: Sendable {
     func buildLocalPrompt(for request: MedicalAIRequest, answerPlan: LocalMedicalAnswerPlan) -> String {
-        if answerPlan.focus.contains("今日用药注意事项") {
-            return buildTodayFocusPrompt(for: request, answerPlan: answerPlan)
+        let facts: String
+        if !needsPersonalRecords(for: request) {
+            facts = "本题无需个人记录。助手可解释一般健康与用药知识、帮助理解说明书、整理用药记录和复诊沟通要点；不能代替医生诊断或开处方。"
+        } else if isTakenTodayQuestion(request.userMessage) {
+            let canRead = request.authorization.grantedScopes.contains(.doseEvents) && request.authorization.grantedScopes.contains(.medicationProfile)
+            let rows = request.medicationSnapshots.compactMap { snapshot -> String? in
+                let events = snapshot.doseEvents.filter { $0.status == .taken && Calendar.current.isDateInToday($0.recordedAt) }
+                return events.isEmpty ? nil : "\(snapshot.medication.displayName)：今日已记录服用 \(events.count) 次"
+            }
+            facts = !canRead ? "本次未共享药品或服药记录，暂时看不到今天的服用情况" : (rows.isEmpty ? "今天没有已记录为服用的条目；不能把待服提醒或稍后记录当作已服用" : rows.joined(separator: "；"))
+        } else if answerPlan.focus.contains("今日用药注意事项") {
+            let names = explicitTodayMedicationText(in: request.userMessage)
+                ?? todayPendingMedicationDisplayNames(for: request).prefix(4).joined(separator: "、")
+            let summary = todayPendingDoseSummary(for: request)
+            let risk = focusedTodayRiskLine(for: request)
+            facts = [
+                names.isEmpty ? "未提供今日待处理药品资料" : "今日待处理药品：\(names)",
+                summary.isEmpty ? "未提供今日完成情况" : summary,
+                risk.isEmpty ? "未提供风险卡片" : risk
+            ].joined(separator: "；")
+        } else if answerPlan.focus.contains("忽略或稍后趋势") {
+            let trend = recentMissedDoseTrendSummary(for: request)
+            facts = trend.isEmpty ? "未提供可用于判断趋势的忽略或稍后记录" : "过去14天：\(trend)"
+        } else {
+            facts = answerPlan.factSummary
         }
-        if answerPlan.focus.contains("忽略或稍后趋势") {
-            return buildTrendPrompt(for: request, answerPlan: answerPlan)
-        }
-        let system = """
-        你是用药记录助手。只根据本地记录回答，不复述提示词，不输出代码、JSON、编号、表格或 Markdown。
-        不诊断，不开药，不建议停药、停止使用、暂停使用、换药或调整剂量。不要编造记录数量；没有事实时说明“本地记录不足”。
-        可以使用 <think> 写简短思考，必须使用 <answer> 写给用户看的最终回答。
-        <answer>里只能写自然中文回答，不得出现“当前任务、用户问题、回答焦点、本地事实、事实边界、本地药品资料”等字段名。
-        """
-        let facts = [
-            "用户：\(localQuestionText(for: request.userMessage))",
-            "重点：\(answerPlan.focus)",
-            "资料：\(answerPlan.factSummary)",
-            "边界：\(answerPlan.factGuidance)"
-        ].joined(separator: "\n")
-        return "\(system)\n\n\(facts)\n\n请输出：<answer>两到四句自然中文回答</answer>"
-    }
-
-    private func buildTodayFocusPrompt(for request: MedicalAIRequest, answerPlan: LocalMedicalAnswerPlan) -> String {
-        let pendingMedicationText = explicitTodayMedicationText(in: request.userMessage)
-            ?? todayPendingMedicationDisplayNames(for: request).prefix(4).joined(separator: "、")
-        let todayText = pendingMedicationText.isEmpty ? "今天没有未处理提醒药品名称" : pendingMedicationText
-        let summary = todayPendingDoseSummary(for: request)
-        let recordText = summary.isEmpty ? "今天还没有可用的完成、稍后或忽略记录" : summary
-        let riskText = focusedTodayRiskLine(for: request)
-        let riskLine = riskText.isEmpty ? "没有明确风险卡片需要单独提示" : riskText
         return """
-        你是用药记录助手。请把下面三条事实改写成给用户看的自然中文提醒，不要遗漏药品名。
-        事实一：今日待处理药品是 \(todayText)。
-        事实二：\(recordText)。
-        事实三：最具体注意事项是 \(riskLine)。
-        必须包含这些词：\(todayText)。
-        回答要求：两到三句；第一句列出今日待处理药品；第二句说明注意事项和记录建议。不要复述“事实一、事实二、事实三”，不要输出代码、字段名、标题、Markdown 或 XML 标签。
-        不诊断，不开药，不建议停药、停止使用、暂停使用、换药或调整剂量。
-        输出格式：<answer>两到三句自然中文</answer>
+        你是 MedCue 健康助手。自然、友好地直接回应用户，通常一到三句即可。问候时回应问候，并邀请用户聊健康或用药问题；一般健康知识和日常交流可以直接回答，不需要个人资料。药名照抄原文，不翻译或改写英文药名。
+        只有涉及用户本人的药品、数量、剂量、心率、库存和天气时，才依据已提供资料。缺少个人数据时，说明暂时看不到，并给出查看位置或一个有用的追问，不要只回答“资料不足”。不诊断、开处方或建议调整剂量。
+        问题：\(localQuestionText(for: request.userMessage))
+        \(MedicalAIRequestPromptBuilder.conversationContext(for: request))
+        已提供资料：\(facts)
+        只回答当前问题，回答完就结束。能力介绍只简述能提供的帮助；不要顺带列出用户药品、剂量或说明书警告。一般问答不必每次重新问候或追加邀请。
+        直接回答所问内容，不要每次重复自我介绍和邀请。用户要求 Markdown 或表格时按要求排版，表格单元格简短，不附加无关风险；数量必须对应各自药品，不能把合计分配给某一种药。
+        请直接回答，不输出思考过程或代码。
         """
     }
 
-    private func buildTrendPrompt(for request: MedicalAIRequest, answerPlan: LocalMedicalAnswerPlan) -> String {
-        let medications = medicationDisplayNames(for: request).prefix(5).joined(separator: "、")
-        let medicationText = medications.isEmpty ? "本地药品名称不足" : medications
-        let trendText = recentMissedDoseTrendSummary(for: request)
-        let usableTrend = trendText.isEmpty ? "过去14天没有稍后或忽略记录" : "过去14天，\(trendText)。"
-        return """
-        你是用药记录助手。用户想看近期“忽略或稍后”趋势。
-        可参考的药品名称包括：\(medicationText)。
-        可参考的记录事实是：\(usableTrend)
-        只回答趋势和一个减少遗漏的建议。不要要求用户再提供资料，不要输出代码、字段名、标题、Markdown 或原始事实标签，不要用“趋势：”开头。
-        不要提“已完成”次数。如果记录里有“忽略”或“稍后”，请先说出数量；如果没有，就说明近期没有明显忽略或稍后记录。
-        输出格式：<answer>两到三句自然中文</answer>
-        """
+    private func isTakenTodayQuestion(_ question: String) -> Bool {
+        (question.contains("今天") || question.contains("今日")) && ["吃了", "吃过", "服用了", "已服用", "用了什么"].contains(where: question.contains)
+    }
+
+    private func needsPersonalRecords(for request: MedicalAIRequest) -> Bool {
+        let question = localQuestionText(for: request.userMessage)
+        // Exclude only clear standalone conversation. All other questions keep
+        // the existing context path, including natural personal-record requests.
+        let conversationalQuestions = [
+            #"^(?:hi|hello|hey|你好|您好|嗨|早上好|晚上好)[！!。？?\s]*$"#,
+            #"^(?:你|您)(?:能|可以)(?:帮我)?(?:做什么|干什么|干些什么|做些什么|提供什么帮助)[？?。！!\s]*$"#,
+            #"^(?:请)?(?:介绍|说说)(?:一下)?(?:你自己|自己|你的功能|功能)[？?。！!\s]*$"#
+        ]
+        return !conversationalQuestions.contains {
+            question.range(of: $0, options: [.regularExpression, .caseInsensitive]) != nil
+        }
     }
 
     func buildRepairPrompt(for request: MedicalAIRequest, answerPlan: LocalMedicalAnswerPlan) -> String {
-        if answerPlan.focus.contains("今日用药注意事项") {
-            return """
-            你是用药记录助手。请把下面事实改写成自然中文回答，不要遗漏药品名。
-            用户问：\(localQuestionText(for: request.userMessage))
-            \(answerPlan.factSummary)
-            必须包含这些词：\(answerPlan.requiredFragments.joined(separator: "、"))。
-            请用两到三句回答；不要输出标题、代码、Markdown、XML 标签、用户原文或字段名；不要建议停药、停止使用、暂停使用、换药或调整剂量。
-            """
-        }
-        return """
-        你是用药记录助手。请直接回答用户，不要输出 XML 标签、思考过程、代码、JSON、编号、Markdown、标题、表格或用户原文。
-        用户问：\(localQuestionText(for: request.userMessage))
-        你要回答：\(answerPlan.focus)。
-        只能使用这些本地事实：\(answerPlan.factSummary)。
-        可参考的表达方向是：\(answerPlan.factGuidance)
-        请用两到三句自然中文重新回答；不要用“趋势：”“回答：”这类标题开头，不要重复同一句话，不要照抄上面的句子，不要编造记录数量，不要建议停药、停止使用、暂停使用、换药或调整剂量。
-        """
+        buildLocalPrompt(for: request, answerPlan: answerPlan)
+            + "\n请重新写成完整可读的回答，不重复问题或上述指令。"
     }
 
     func postprocessLocalResponse(_ value: String, request: MedicalAIRequest) -> String {
@@ -93,9 +78,8 @@ struct LocalMedicalResponsePolicy: Sendable {
         let finalCandidate = taggedContent(named: "final", in: withoutThinking)
             ?? textAfterFinalMarker(in: withoutThinking)
             ?? withoutThinking
-        let implicit = splitImplicitReasoning(from: finalCandidate)
-        let cleaned = cleanFinalAnswerText(implicit.answer, request: request)
-        let combinedThinking = [thinking, implicit.thinking]
+        let cleaned = cleanFinalAnswerText(finalCandidate, request: request)
+        let combinedThinking = [thinking]
             .map(cleanReasoningText)
             .filter { !$0.isEmpty }
             .joined(separator: "\n\n")
@@ -105,132 +89,17 @@ struct LocalMedicalResponsePolicy: Sendable {
         return "\(cleaned)\(LocalMedicalAIClient.localReasoningSeparator)\(combinedThinking)"
     }
 
-    private func splitImplicitReasoning(from value: String) -> (thinking: String, answer: String) {
-        let cleaned = value
-            .replacingOccurrences(of: "\n", with: " ")
-            .split(whereSeparator: { $0.isWhitespace })
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let separators = CharacterSet(charactersIn: "。！？!?")
-        var sentences: [String] = []
-        var current = ""
-        for scalar in cleaned.unicodeScalars {
-            current.unicodeScalars.append(scalar)
-            if separators.contains(scalar) {
-                let sentence = current.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !sentence.isEmpty {
-                    sentences.append(sentence)
-                }
-                current = ""
-            }
-        }
-        let tail = current.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !tail.isEmpty {
-            sentences.append(tail)
-        }
-        guard sentences.count > 1 else {
-            return ("", cleaned)
-        }
-        var reasoningSentences: [String] = []
-        var answerSentences: [String] = []
-        var isStillReasoningPrefix = true
-        for sentence in sentences {
-            if isStillReasoningPrefix, isImplicitReasoningSentence(sentence) {
-                reasoningSentences.append(sentence)
-            } else {
-                isStillReasoningPrefix = false
-                answerSentences.append(sentence)
-            }
-        }
-        guard !reasoningSentences.isEmpty, !answerSentences.isEmpty else {
-            return ("", cleaned)
-        }
-        return (
-            reasoningSentences.joined(separator: " "),
-            answerSentences.joined(separator: " ")
-        )
-    }
-
-    private func isImplicitReasoningSentence(_ sentence: String) -> Bool {
-        let markers = [
-            "用户的问题",
-            "用户想要",
-            "我需要",
-            "我将",
-            "我会",
-            "我可以",
-            "我要",
-            "来回答用户",
-            "回答用户的问题",
-            "没有提供具体",
-            "可以根据用户",
-            "根据用户给出",
-            "来推断"
-        ]
-        return markers.contains { sentence.contains($0) }
-    }
-
     private func cleanFinalAnswerText(_ value: String, request: MedicalAIRequest) -> String {
-        let cleaned = value
-            .replacingOccurrences(of: "<|im_start|>", with: "")
-            .replacingOccurrences(of: "<|im_end|>", with: "")
-            .replacingOccurrences(of: "</s>", with: "")
-            .replacingOccurrences(of: "<final>", with: "")
-            .replacingOccurrences(of: "</final>", with: "")
-            .replacingOccurrences(of: "<answer>", with: "")
-            .replacingOccurrences(of: "</answer>", with: "")
-            .replacingOccurrences(of: "<thought>", with: "")
-            .replacingOccurrences(of: "</thought>", with: "")
-            .replacingOccurrences(of: "<think>", with: "")
-            .replacingOccurrences(of: "</think>", with: "")
-            .replacingOccurrences(of: "最终回答：", with: "")
-            .replacingOccurrences(of: "正式回答：", with: "")
-            .replacingOccurrences(of: "根据用户提供的信息，", with: "")
-            .replacingOccurrences(of: "根据用户提供的信息：", with: "")
-            .replacingOccurrences(of: "根据您提供的信息，", with: "")
-            .replacingOccurrences(of: "根据您提供的信息：", with: "")
-            .replacingOccurrences(of: "近14天稍后/忽略：", with: "")
-            .replacingOccurrences(of: "近 14 天稍后/忽略：", with: "")
-            .replacingOccurrences(of: "首先，", with: "")
-            .replacingOccurrences(of: "然后，", with: "")
-            .replacingOccurrences(of: "assistant", with: "")
-            .replacingOccurrences(of: "用户问题：\(request.userMessage)", with: "")
-            .replacingOccurrences(of: request.userMessage, with: "")
-            .components(separatedBy: .newlines)
-            .filter { line in
-                let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
-                return !trimmedLine.hasPrefix("```")
-                    && !trimmedLine.hasPrefix("#")
-                    && !trimmedLine.hasPrefix("思考")
-                    && !trimmedLine.hasPrefix("推理")
-                    && !trimmedLine.hasPrefix("分析")
-                    && !trimmedLine.hasPrefix("代码")
-                    && !trimmedLine.hasPrefix("当前任务")
-                    && !trimmedLine.hasPrefix("用户问题")
-                    && !trimmedLine.hasPrefix("回答焦点")
-                    && !trimmedLine.hasPrefix("事实边界")
-                    && !trimmedLine.hasPrefix("本地事实")
-                    && !trimmedLine.hasPrefix("本地药品")
-                    && !trimmedLine.hasPrefix("本地记录")
-                    && !trimmedLine.hasPrefix("本地药品资料")
-                    && !trimmedLine.hasPrefix("资料：")
-                    && !trimmedLine.hasPrefix("边界：")
-            }
-            .joined(separator: " ")
-            .split(whereSeparator: { $0.isWhitespace })
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let compacted = compactRepeatedSegments(in: cleaned)
-        let normalizedCompacted = compacted
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "：:，,；;、"))
-        guard normalizedCompacted.count > 220 else {
-            return normalizedCompacted
+        // Remove transport wrappers, not natural-language sentences. Headings and
+        // later warnings are part of the answer and must survive intact.
+        let wrappers = ["<|im_start|>", "<|im_end|>", "</s>", "<final>", "</final>",
+                        "<answer>", "</answer>", "<thought>", "</thought>", "<think>", "</think>"]
+        var cleaned = value
+        for wrapper in wrappers {
+            cleaned = cleaned.replacingOccurrences(of: wrapper, with: "")
         }
-        let end = normalizedCompacted.index(normalizedCompacted.startIndex, offsetBy: 220)
-        return String(normalizedCompacted[..<end])
+        return cleaned
             .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "：:，,；;、"))
     }
 
     private func cleanReasoningText(_ value: String) -> String {
@@ -262,201 +131,41 @@ struct LocalMedicalResponsePolicy: Sendable {
 
     func isLowQualityLocalResponse(_ response: String, request: MedicalAIRequest) -> Bool {
         let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.count < 8 {
-            return true
-        }
-        let badFragments = [
-            "用户问题",
-            "风险关注",
-            "任务：",
-            "本地事实",
-            "本地信息",
-            "本地药品：",
-            "本地记录：",
-            "用户想要",
-            "可参考信息",
-            "回答焦点",
-            "答案要点",
-            "当前任务",
-            "事实边界",
-            "近14天稍后/忽略",
-            "近 14 天稍后/忽略",
-            "近14天记录显示",
-            "近 14 天记录显示",
-            "近期忽略或稍后趋势。",
-            "趋势：",
-            "关注这些药物的减少遗漏",
-            "本地药品资料",
-            "这是一位用户的问题",
-            "请直接回答用户",
-            "请只基于",
-            "App 内授权共享",
-            "【提醒】",
-            "【风险提醒】",
-            "【服药记录】",
-            "根据用户的问题",
-            "用户的问题是",
-            "我需要",
-            "我将",
-            "很抱歉",
-            "无法根据",
-            "不能根据",
-            "请提供其他信息",
-            "更准确的查询",
-            "根据用户提供",
-            "将检查",
-            "基于这些信息",
-            "暂停使用",
-            "停止使用",
-            "停用",
-            "自行对照",
-            "###",
-            "警示信息",
-            "今日用药提醒",
-            "风险与用药信息",
-            "```",
-            "func ",
-            "let ",
-            "var ",
-            "import ",
-            "struct ",
-            "class ",
-            "return ",
-            "<think",
-            "</think",
-            "<thought",
-            "</thought",
-            "推理过程",
-            "思考过程",
-            "分析：",
-            "自然中文",
-            "代码",
-            "system.",
-            "user.",
-            "record.",
-            "acetaminophen",
-            "ibuprofen",
-            "loratadine",
-            "\"days\"",
-            "\"completed\"",
-            "\"",
-            "{",
-            "}",
-            "**",
-            "__"
-        ]
-        if badFragments.contains(where: { trimmed.contains($0) }) {
-            return true
-        }
-        if trimmed.components(separatedBy: .newlines).contains(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("- ") }) {
-            return true
-        }
-        if trimmed.range(of: #"已完成\s*\d{3,}\s*次"#, options: .regularExpression) != nil {
-            return true
-        }
-        if localIntentTitle(for: request.userMessage).contains("趋势"),
-           trimmed.contains("没有明显"),
-           (trimmed.contains("忽略") || trimmed.contains("稍后")),
-           trimmed.range(of: #"\d+\s*次"#, options: .regularExpression) != nil {
-            return true
-        }
-        if localIntentTitle(for: request.userMessage).contains("趋势"),
-           hasInconsistentMedicationCountWord(in: trimmed, request: request) {
-            return true
-        }
-        if localIntentTitle(for: request.userMessage).contains("趋势"),
-           occurrences(of: "趋势", in: trimmed) > 1 {
-            return true
-        }
-        if localIntentTitle(for: request.userMessage).contains("趋势"),
-           !trimmed.contains("建议"),
-           !trimmed.contains("可以"),
-           !trimmed.contains("优先") {
-            return true
-        }
-        if localIntentTitle(for: request.userMessage).contains("今日"),
-           trimmed.range(of: #"已完成\s*\d{2,}\s*次|忽略\s*\d{2,}\s*次|稍后\s*\d{2,}\s*次"#, options: .regularExpression) != nil {
-            return true
-        }
-        if localIntentTitle(for: request.userMessage).contains("今日") {
-            let todayNames = explicitTodayMedicationText(in: request.userMessage)?
-                .components(separatedBy: "、")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty } ?? todayPendingMedicationDisplayNames(for: request)
-            let mentionedTodayNameCount = todayNames.reduce(0) { count, name in
-                let shortName = name.components(separatedBy: "(").first ?? name
-                return count + (trimmed.contains(name) || trimmed.contains(shortName) ? 1 : 0)
-            }
-            let requiredCount = min(2, todayNames.count)
-            if requiredCount > 0, mentionedTodayNameCount < requiredCount {
-                return true
-            }
-            let pendingNameSet = Set(todayNames.map { $0.components(separatedBy: "(").first ?? $0 })
-            let mentionedUnrelatedMedication = medicationDisplayNames(for: request).contains { name in
-                let shortName = name.components(separatedBy: "(").first ?? name
-                return !pendingNameSet.contains(shortName) && trimmed.contains(shortName)
-            }
-            if mentionedUnrelatedMedication {
-                return true
-            }
-        }
-        let medicationNames = medicationDisplayNames(for: request)
-        let repeatedMedicationNameCount = medicationNames.reduce(0) { count, name in
-            count + occurrences(of: name, in: trimmed)
-        }
-        if repeatedMedicationNameCount > max(4, medicationNames.count) {
-            return true
-        }
-        return false
-    }
+        guard !trimmed.isEmpty else { return true }
 
-    private func hasInconsistentMedicationCountWord(in response: String, request: MedicalAIRequest) -> Bool {
-        let mentionedMedicationCount = Set(
-            medicationDisplayNames(for: request)
-                .map { $0.components(separatedBy: "(").first ?? $0 }
-                .filter { !$0.isEmpty && response.contains($0) }
-        ).count
-        let countWords: [(String, Int)] = [
-            ("一种", 1),
-            ("两种", 2),
-            ("二种", 2),
-            ("三种", 3),
-            ("四种", 4),
-            ("五种", 5),
-            ("六种", 6)
+        // Only obvious machine output or leaked instructions trigger a rewrite.
+        // Drug names, headings, polite wording and topic synonyms are valid prose.
+        let garbagePatterns = [
+            #"(?:^|\n)\s*(?:func |let |var |import |struct |class |return )"#,
+            #"[\{\[]\s*"[^"]+"\s*:"#,
+            #"(?:^|\n)\s*(?:当前任务|用户问题|回答焦点|事实边界)\s*[:：]"#,
+            #"```(?:swift|python|javascript|json)"#,
+            #"<(?:think|thought)(?:>|\s)"#
         ]
-        for (word, count) in countWords where response.contains(word) {
-            return mentionedMedicationCount > 0 && mentionedMedicationCount != count
+        if garbagePatterns.contains(where: { trimmed.range(of: $0, options: .regularExpression) != nil }) {
+            return true
         }
-        return false
+        if let reviewed = try? MedicalAIResponseFinalizer().finalize(answer: trimmed),
+           reviewed.boundaryBlockedAction {
+            return true
+        }
+        // Catch direct colloquial treatment commands too, independently of whether
+        // the medicine happens to have a Chinese or English name.
+        let treatmentCommand = #"(?:^|[。！？；;，,\n])\s*(?:[-*•]|\d+[.)、])?\s*(?:今天|现在|你|您)?\s*(?:(?:建议|应该|应当|请|立即|先)\s*(?:吃|服用|停药|停用|暂停使用|停止使用|换药|增加剂量|减少剂量|加量|减量)|请勿继续使用)"#
+        return trimmed.range(of: treatmentCommand, options: .regularExpression) != nil
     }
 
     func isOffTopicLocalResponse(_ response: String, answerPlan: LocalMedicalAnswerPlan) -> Bool {
-        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return true
-        }
-        guard !answerPlan.requiredFragments.isEmpty else {
-            return false
-        }
-        let matchedCount = answerPlan.requiredFragments.reduce(0) { count, fragment in
-            trimmed.contains(fragment) ? count + 1 : count
-        }
-        return matchedCount == 0
+        // A keyword miss cannot establish that a natural-language answer is off topic.
+        response.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func localIntentTitle(for userMessage: String) -> String {
         if userMessage.contains("图片") || userMessage.contains("上传") || userMessage.contains("拍照") {
             return "图片录入建议"
         }
-        if userMessage.contains("天气") || userMessage.contains("环境") || userMessage.contains("不适") {
+        if userMessage.contains("天气") || userMessage.contains("环境") {
             return "天气与环境用药关注"
-        }
-        if userMessage.contains("趋势") || userMessage.contains("稍后") || userMessage.contains("忽略") {
-            return "服药记录趋势"
-        }
-        if userMessage.contains("风险") || userMessage.contains("说明书") {
-            return "风险与说明书重点"
         }
         if userMessage.contains("复诊") {
             return "复诊沟通整理"
@@ -464,10 +173,19 @@ struct LocalMedicalResponsePolicy: Sendable {
         if userMessage.contains("库存") || userMessage.contains("药盒") {
             return "药盒与库存提醒"
         }
+        if userMessage.contains("今日提醒药品") || userMessage.contains("今日待处理药品") {
+            return "今日重点核对"
+        }
+        if userMessage.contains("风险") || userMessage.contains("说明书") {
+            return "风险与说明书重点"
+        }
+        if userMessage.contains("趋势") || userMessage.contains("稍后") || userMessage.contains("忽略") {
+            return "服药记录趋势"
+        }
         if userMessage.contains("今日") || userMessage.contains("今天") {
             return "今日重点核对"
         }
-        return "今日重点核对"
+        return "一般用药记录问题"
     }
 
     private func localQuestionText(for userMessage: String) -> String {
@@ -507,7 +225,7 @@ struct LocalMedicalResponsePolicy: Sendable {
             )
         }
 
-        if intent.contains("趋势") || intent.contains("记录") {
+        if intent == "服药记录趋势" {
             let missedTrend = recentMissedDoseTrendSummary(for: request)
             let answer = missedTrend.isEmpty
                 ? "近 14 天没有可用的服药记录趋势。建议先补全漏服、稍后和已服用记录，之后再查看节奏变化。"
@@ -568,6 +286,15 @@ struct LocalMedicalResponsePolicy: Sendable {
                 factSummary: facts,
                 factGuidance: "你可以上传药盒、药品或说明书图片，让 App 先识别文字，再在录入页核对药名、通用名、规格、剂量和说明书重点。保存前请按实物逐项确认，识别结果不要直接当作最终结论。",
                 requiredFragments: ["图片", "识别", "核对", "录入"]
+            )
+        }
+
+        if !intent.contains("今日") {
+            return LocalMedicalAnswerPlan(
+                focus: "回答用户的用药记录问题：\(localQuestionText(for: request.userMessage))",
+                factSummary: facts,
+                factGuidance: "直接解释问题涉及的记录或核对方法。涉及个人情况时只使用本次资料；资料不足就说明不足，不推断具体药品、数量或治疗方案。",
+                requiredFragments: []
             )
         }
 
@@ -797,8 +524,18 @@ struct LocalMedicalResponsePolicy: Sendable {
         let intent = localIntentTitle(for: request.userMessage)
         let todaySummary = todayDoseSummary(for: request)
         let recentSummary = recentDoseEventSummary(for: request)
+        if intent.contains("天气") || intent.contains("环境") {
+            let environment = request.environmentInsights.prefix(2).map {
+                "\($0.title)：\(limited($0.message, maxLength: 100))"
+            }
+            facts.append(environment.isEmpty ? "未提供天气或环境数据" : environment.joined(separator: "；"))
+        }
+        if intent.contains("药盒") || intent.contains("库存") {
+            facts.append("本次资料未提供库存余量、药盒编号或有效期")
+        }
+        facts.append("本次资料未列出具体服用剂量")
 
-        if intent.contains("趋势") || intent.contains("记录") {
+        if intent == "服药记录趋势" {
             let missedTrend = recentMissedDoseTrendSummary(for: request)
             if !missedTrend.isEmpty {
                 facts.append("近14天记录显示，\(missedTrend)")
@@ -817,11 +554,21 @@ struct LocalMedicalResponsePolicy: Sendable {
         } else {
             let medications = medicationDisplayNames(for: request)
             if !medications.isEmpty {
-                facts.append("已授权药品：\(medications.prefix(4).joined(separator: "、"))")
+                let visibleNames = Array(medications.prefix(4))
+                facts.append("已提供\(visibleNames.count)条药品资料，名称：\(visibleNames.joined(separator: "、"))")
             }
         }
         if !recentSummary.isEmpty, !intent.contains("今日重点") {
-            facts.append("近14天：\(recentSummary)")
+            let cutoff = Date().addingTimeInterval(-14 * 24 * 60 * 60)
+            let rows = request.medicationSnapshots.map { snapshot in
+                let events = snapshot.doseEvents.filter { $0.recordedAt >= cutoff }
+                return "\(snapshot.medication.displayName)：已记录服用\(events.filter { $0.status == .taken }.count)次，稍后\(events.filter { $0.status == .delayed }.count)次，忽略\(events.filter { $0.status == .skipped }.count)次"
+            }
+            facts.append("近14天按药品统计：\(rows.joined(separator: "；"))")
+        }
+        let labels = labelSummaryText(for: request)
+        if intent.contains("说明书"), !labels.isEmpty {
+            facts.append("说明书原文摘要：\(labels)")
         }
         let risks = riskSummary(for: request)
         if !risks.isEmpty {
@@ -910,20 +657,7 @@ struct LocalMedicalResponsePolicy: Sendable {
     }
 
     private func cutAtStopMarkers(_ text: String) -> String {
-        let markers = [
-            "<|im_end|>",
-            "<|im_start|>user",
-            "<|im_start|>system",
-            "<|im_start|>",
-            "当前任务：",
-            "回答焦点：",
-            "事实边界：",
-            "本地事实：",
-            "本地药品：",
-            "本地记录：",
-            "本地药品资料：",
-            "这是一位用户的问题："
-        ]
+        let markers = ["<|im_end|>", "<|im_start|>"]
         var earliestRange: Range<String.Index>?
         for marker in markers {
             guard let range = text.range(of: marker) else {
@@ -983,25 +717,6 @@ struct LocalMedicalResponsePolicy: Sendable {
             "用药风险"
         ]
         return genericFragments.contains { trimmed == $0 || trimmed.contains("\($0)：") }
-    }
-
-    private func compactRepeatedSegments(in text: String) -> String {
-        let separators = CharacterSet(charactersIn: "。；;！!？?")
-        var result: [String] = []
-        for segment in text.components(separatedBy: separators) {
-            let trimmed = segment.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty, !result.contains(trimmed) else {
-                continue
-            }
-            result.append(trimmed)
-            if result.count >= 3 {
-                break
-            }
-        }
-        if result.isEmpty {
-            return text
-        }
-        return result.joined(separator: "。") + "。"
     }
 
     private func occurrences(of needle: String, in haystack: String) -> Int {

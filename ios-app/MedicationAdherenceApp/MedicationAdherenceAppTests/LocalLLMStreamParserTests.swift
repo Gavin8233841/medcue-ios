@@ -3,6 +3,14 @@ import Testing
 
 struct LocalLLMStreamParserTests {
     @Test
+    func markdownRowsAndParagraphsSurviveStreaming() {
+        let markdown = "## 记录\n\n| 药品 | 次数 |\n| --- | --- |\n| 示例 | 1 |"
+        var parser = LocalLLMStreamParser()
+        for character in markdown { _ = parser.consume(String(character)) }
+        #expect(parser.finish().answer == markdown)
+    }
+
+    @Test
     func splitTagsAcrossChunksEmitThinkingAndAnswerWithoutControlTokens() {
         var parser = LocalLLMStreamParser()
         let firstEvents = parser.consume("<thi")

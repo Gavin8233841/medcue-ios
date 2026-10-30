@@ -132,10 +132,17 @@ public struct MedicalAIEnvironmentQuestionDetector: Sendable {
     }
 }
 
+public struct MedicalAIConversationTurn: Codable, Sendable, Equatable {
+    public var role: String
+    public var text: String
+    public init(role: String, text: String) { self.role = role; self.text = text }
+}
+
 public struct MedicalAIRequest: Codable, Identifiable, Sendable, Equatable {
     public let id: UUID
     public var kind: MedicalAIRequestKind
     public var userMessage: String
+    public var conversation: [MedicalAIConversationTurn]?
     public var authorization: MedicalAIUserAuthorization
     public var medicationSnapshots: [MedicalAIMedicationSnapshot]
     public var environmentInsights: [MedicalAIEnvironmentInsight]
@@ -147,6 +154,7 @@ public struct MedicalAIRequest: Codable, Identifiable, Sendable, Equatable {
         id: UUID = UUID(),
         kind: MedicalAIRequestKind,
         userMessage: String,
+        conversation: [MedicalAIConversationTurn]? = nil,
         authorization: MedicalAIUserAuthorization,
         medicationSnapshots: [MedicalAIMedicationSnapshot] = [],
         environmentInsights: [MedicalAIEnvironmentInsight] = [],
@@ -157,6 +165,7 @@ public struct MedicalAIRequest: Codable, Identifiable, Sendable, Equatable {
         self.id = id
         self.kind = kind
         self.userMessage = userMessage
+        self.conversation = conversation
         self.authorization = authorization
         self.medicationSnapshots = medicationSnapshots
         self.environmentInsights = environmentInsights

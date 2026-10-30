@@ -103,12 +103,15 @@ struct AIAssistantView: View {
 
     var body: some View {
         let configuration = configurationStore.configuration
+        let visible = conversationVisibility.visibleMessages
+        let visibleIDs = Set(visible.map(\.id))
+        let archived = messages.filter { !visibleIDs.contains($0.id) }
         AIAssistantScreen(
             configuration: configuration,
             onlineReadiness: configurationStore.readiness(for: configuration),
             localModelStatus: localModelStore.status,
-            visibleMessages: visibleMessages,
-            archivedMessages: archivedMessages,
+            visibleMessages: visible,
+            archivedMessages: archived,
             localStreamingResponse: localStreamingResponse,
             isSending: isSending,
             isReadingImage: isReadingImage,
@@ -132,6 +135,7 @@ struct AIAssistantView: View {
             prepareSession: prepareAssistantSessionIfVisible,
             handleActiveTabChange: handleActiveTabChange,
             beginImageRecognition: beginImageRecognition,
+            capturedImage: beginCameraImageRecognition,
             applyPendingQuestion: applyPendingQuestionIfNeeded,
             refreshEnvironment: refreshEnvironment,
             acceptThirdPartyNotice: acceptThirdPartyNotice,
@@ -409,6 +413,28 @@ struct AIAssistantView: View {
                 finishImageRecognition()
                 return
             }
+            await prepareImageQuestion(data: data, recognitionID: recognitionID)
+        } catch {
+            guard imageRecognitionGate.finish(recognitionID) else { return }
+            finishImageRecognition()
+        }
+    }
+
+    @MainActor
+    private func beginCameraImageRecognition(_ image: UIImage) {
+        guard let data = image.jpegData(compressionQuality: 0.85) else { return }
+        cancelImageRecognition()
+        dismissChatKeyboard()
+        isReadingImage = true
+        let recognitionID = imageRecognitionGate.begin()
+        imageRecognitionTask = Task { @MainActor in
+            await prepareImageQuestion(data: data, recognitionID: recognitionID)
+        }
+    }
+
+    @MainActor
+    private func prepareImageQuestion(data: Data, recognitionID: UUID) async {
+        do {
             let output = try await VisionImportPipeline().analyze(data, purpose: .labelText)
             guard case let .labelText(result) = output else {
                 return
@@ -515,16 +541,16 @@ struct AIAssistantView: View {
                 guard activeAIRequestID == executionID else { return }
                 switch event {
                 case .generationStarted:
-                    updateLocalStreamingStatus("正在思考")
+                    updateLocalStreamingStatus("准备本机回答")
                 case .modelLoading:
                     updateLocalStreamingStatus("正在加载本地端模型")
                 case .prefillStarted:
-                    updateLocalStreamingStatus("深度思考中")
+                    updateLocalStreamingStatus("正在生成回答 · 直接模式")
                 case .thinkingStarted:
-                    updateLocalStreamingStatus("深度思考中")
+                    updateLocalStreamingStatus("正在思考")
                     localStreamingResponse?.isThinkingExpanded = true
                 case .thinkingDelta:
-                    updateLocalStreamingStatus("深度思考中")
+                    updateLocalStreamingStatus("正在思考")
                 case .answerStarted:
                     updateLocalStreamingStatus("正在整理正式回答")
                 case .answerDelta:
@@ -831,12 +857,21 @@ struct AIAssistantView: View {
             riskCards: riskCards,
             labels: labels
         )
-        let request = contextBuilder.makeRequest(
+        var request = contextBuilder.makeRequest(
             userMessage: userMessage,
             consent: consent,
             environmentInsights: environmentInsightsForAI(userMessage: userMessage),
             localeIdentifier: Locale.current.identifier
         )
+        let provider = prefersLocalMedicalModel ? "离线智能体" : configurationStore.configuration.providerName
+        request.conversation = visibleMessages.filter {
+            ($0.role == .user || $0.role == .assistant)
+                && $0.providerName == provider
+                && $0.sharedScopesSummary == consent.scopeSummary
+        }.suffix(4).map {
+            MedicalAIConversationTurn(role: $0.role == .user ? "user" : "assistant",
+                text: String($0.text.components(separatedBy: LocalMedicalAIClient.localReasoningSeparator)[0].prefix(240)))
+        }
         let scheduledDoseCount = request.medicationSnapshots.reduce(0) { $0 + $1.scheduledDoses.count }
         let doseEventCount = request.medicationSnapshots.reduce(0) { $0 + $1.doseEvents.count }
         logAIEvent("context requestID=\(request.id.uuidString) medications=\(request.medicationSnapshots.count) scheduledDoses=\(scheduledDoseCount) doseEvents=\(doseEventCount) todayMode=\(contextBuilder.isTodayQuestion(userMessage))")

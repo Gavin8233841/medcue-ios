@@ -42,6 +42,7 @@ struct AIQuickActionsSection: View {
     let isDisabled: Bool
     let prefersLocalResponses: Bool
     let send: (AIOutgoingMessage?) -> Void
+    var usesVerticalLayout: Bool = false
     @AppStorage("isAIQuickActionsExpandedV3") private var isExpanded = false
 
     private static let actions: [AIQuickAction] = [
@@ -145,13 +146,14 @@ struct AIQuickActionsSection: View {
                         Text("快捷咨询")
                             .font(.headline)
                             .foregroundStyle(.primary)
-                        Text(isExpanded ? "向左滑动查看更多" : "常用问题")
+                        Text(usesVerticalLayout ? "选择一个主题继续咨询" : (isExpanded ? "向左滑动查看更多" : "常用问题"))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
 
                     Spacer(minLength: 8)
 
+                    if !usesVerticalLayout {
                     Text(isExpanded ? "收起" : "全部")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
@@ -160,12 +162,24 @@ struct AIQuickActionsSection: View {
                         .font(.caption.weight(.bold))
                         .foregroundStyle(.secondary)
                         .rotationEffect(.degrees(isExpanded ? 0 : -90))
+                    }
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(usesVerticalLayout)
 
-            if isExpanded {
+            if usesVerticalLayout {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(Self.actions) { action in
+                        AIQuickActionButton(action: action) {
+                            send(AIOutgoingMessage(displayText: action.displayText, requestText: action.requestText))
+                        }
+                        .disabled(isDisabled)
+                        .opacity(isDisabled ? 0.55 : 1)
+                    }
+                }
+            } else if isExpanded {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
                         ForEach(Self.actions) { action in
@@ -316,56 +330,20 @@ struct AIEmptyConversationView: View {
 
 struct LocalStreamingResponseView: View {
     let response: LocalStreamingAIResponse
-    @State private var isExpanded = true
-    @State private var now = Date()
-
-    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-
-    private var thinkingText: String {
-        let text = response.thinkingText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? "本地端模型正在整理上下文。" : text
-    }
-
-    private var elapsedSeconds: Int {
-        let end = response.completedAt ?? now
-        return max(0, Int(end.timeIntervalSince(response.startedAt).rounded()))
-    }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            VStack(alignment: .leading, spacing: 8) {
-                LocalModelReasoningDisclosure(
-                    reasoningText: thinkingText,
-                    statusText: response.isCompleted ? "已完成思考" : response.statusText,
-                    elapsedSeconds: elapsedSeconds,
-                    defaultExpanded: !response.isCompleted
-                )
-
-                let answer = response.answerText.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !answer.isEmpty {
-                    Text(answer)
-                        .font(.body)
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
-                }
+        TimelineView(.periodic(from: response.startedAt, by: 1)) { context in
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text(response.statusText)
+                    .font(.subheadline)
+                Text("\(max(0, Int(context.date.timeIntervalSince(response.startedAt)))) 秒")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.tertiary)
             }
-            Spacer(minLength: 42)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onChange(of: response.isCompleted) { _, isCompleted in
-            if isCompleted {
-                withAnimation(.snappy(duration: 0.2, extraBounce: 0.02)) {
-                    isExpanded = false
-                }
-            }
-        }
-        .onReceive(timer) { date in
-            guard !response.isCompleted else {
-                return
-            }
-            now = date
+            .foregroundStyle(.secondary)
+            .padding(.vertical, 12)
+            .accessibilityElement(children: .combine)
         }
     }
 }
@@ -373,116 +351,111 @@ struct LocalStreamingResponseView: View {
 struct AIMessageBubble: View {
     let message: StoredAIChatMessage
     let archive: () -> Void
+    var quote: ((String) -> Void)? = nil
+    @State private var showingTextSelection = false
+    @State private var didCopy = false
 
-    private var tint: Color {
-        switch message.role {
-        case .user:
-            .blue
-        case .assistant:
-            .green
-        case .system:
-            .orange
-        }
-    }
-
-    private var accessibilityLabelText: String {
-        [
-            messageDisplayName(for: message),
-            AppFormatters.time.string(from: message.createdAt),
-            messageDisplayText(for: message)
-        ]
-        .joined(separator: "，")
+    private var isUser: Bool { message.role == .user }
+    private var displayText: String { messageDisplayText(for: message) }
+    private var bubbleShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 22, style: .continuous)
     }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            if message.role == .user {
-                Spacer()
-            }
-
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 5) {
-                HStack(spacing: 6) {
-                    if message.role != .user {
-                        Image(systemName: iconName)
-                    }
-                Text(messageDisplayName(for: message))
-                Text(AppFormatters.time.string(from: message.createdAt))
-                    .foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: 0) {
+            if isUser { Spacer(minLength: 48) }
+            VStack(alignment: isUser ? .trailing : .leading, spacing: 8) {
+                if let reasoning = messageReasoningText(for: message) {
+                    LocalModelReasoningDisclosure(reasoningText: reasoning)
                 }
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(tint)
-                .accessibilityHidden(true)
-
-                if let reasoningText = messageReasoningText(for: message) {
-                    LocalModelReasoningDisclosure(reasoningText: reasoningText)
-                }
-
-                Text(messageDisplayText(for: message))
+                messageContent
                     .font(.body)
-                    .foregroundStyle(message.role == .user ? .white : .primary)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(bubbleBackground, in: RoundedRectangle(cornerRadius: 8))
-                    .accessibilityHidden(true)
+                    .lineSpacing(4)
+                    .foregroundStyle(message.role == .system ? .secondary : .primary)
+                    .padding(.horizontal, 17)
+                    .padding(.vertical, 13)
+                    .background(.regularMaterial, in: bubbleShape)
+                    .overlay {
+                        bubbleShape.fill(isUser ? Color.accentColor.opacity(0.14) : Color.clear)
+                            .allowsHitTesting(false)
+                    }
+                    .overlay {
+                        bubbleShape.strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                            .allowsHitTesting(false)
+                    }
+                    .contextMenu {
+                        Button(action: copyMessage) { Label("复制", systemImage: "doc.on.doc") }
+                        Button { showingTextSelection = true } label: {
+                            Label("选取文字", systemImage: "text.cursor")
+                        }
+                        if let quote {
+                            Button { quote("> " + displayText.replacingOccurrences(of: "\n", with: "\n> ") + "\n\n") } label: {
+                                Label("引用到输入框", systemImage: "quote.bubble")
+                            }
+                        }
+                        ShareLink(item: displayText) { Label("分享", systemImage: "square.and.arrow.up") }
+                        Button(action: archive) { Label("归档此前对话", systemImage: "archivebox") }
+                    }
+                    .accessibilityLabel("\(messageDisplayName(for: message))，\(displayText)")
+                    .accessibilityHint("长按可复制、选取文字、引用或分享")
+                    .accessibilityAction(named: "复制", copyMessage)
+                    .accessibilityAction(named: "选取文字") { showingTextSelection = true }
 
-                if message.role == .assistant {
-                    Text("模型可能出现遗漏、误解或幻觉；请结合自身情况甄别，重要用药决定以医生或药师意见为准。")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 4)
-                        .accessibilityHidden(true)
+                HStack(spacing: 6) {
+                    if !isUser {
+                        Image(systemName: message.role == .system ? "info.circle" : "sparkle")
+                        Text(messageDisplayName(for: message))
+                    }
+                    Text(message.createdAt, style: .time)
+                    if didCopy { Text("已复制") }
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 5)
+                .accessibilityHidden(true)
+            }
+            if !isUser { Spacer(minLength: 24) }
+        }
+        .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
+        .sheet(isPresented: $showingTextSelection) {
+            NavigationStack {
+                ScrollView {
+                    Text(displayText)
+                        .font(.body)
+                        .lineSpacing(5)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(24)
+                }
+                .navigationTitle("选取文字")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(didCopy ? "已复制" : "复制全部", action: copyMessage)
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("完成") { showingTextSelection = false }
+                    }
                 }
             }
-
-            if message.role != .user {
-                Spacer(minLength: 42)
-            }
         }
-        .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
-        .contentShape(Rectangle())
-        .contextMenu {
-            Button {
-                UIPasteboard.general.string = messageDisplayText(for: message)
-            } label: {
-                Label("复制消息", systemImage: "doc.on.doc")
-            }
-            Button {
-                archive()
-            } label: {
-                Label("归档此前对话", systemImage: "archivebox")
-            }
-        }
-        .accessibilityRepresentation {
-            Text(accessibilityLabelText)
-        }
-        .accessibilityHint("长按可归档此前对话")
-        .accessibilityAction(named: "复制消息") {
-            UIPasteboard.general.string = messageDisplayText(for: message)
-        }
-        .accessibilityAction(named: "归档此前对话", archive)
-    }
-
-    private var iconName: String {
-        switch message.role {
-        case .user:
-            "person.fill"
-        case .assistant:
-            "stethoscope"
-        case .system:
-            "checkmark.seal"
+        .task(id: didCopy) {
+            guard didCopy else { return }
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            didCopy = false
         }
     }
 
-    private var bubbleBackground: Color {
-        switch message.role {
-        case .user:
-            .blue
-        case .assistant:
-            Color(.secondarySystemGroupedBackground)
-        case .system:
-            .orange.opacity(0.14)
-        }
+    @ViewBuilder
+    private var messageContent: some View {
+        if isUser { Text(displayText) }
+        else { MarkdownContent(markdown: displayText) }
+    }
+
+    private func copyMessage() {
+        UIPasteboard.general.string = displayText
+        didCopy = true
     }
 }
 
@@ -490,10 +463,10 @@ private func messageDisplayName(for message: StoredAIChatMessage) -> String {
     if message.role == .assistant {
         let providerName = message.providerName.trimmingCharacters(in: .whitespacesAndNewlines)
         if providerName.contains("离线") || providerName.contains("端侧") || providerName.contains("设备端") {
-            return "设备端智能体"
+            return "本机"
         }
         if !providerName.isEmpty {
-            return "云端智能体"
+            return "云端"
         }
         return "医疗智能体"
     }
@@ -612,13 +585,13 @@ struct LocalModelReasoningDisclosure: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .background(Color(red: 0.91, green: 0.96, blue: 0.98).opacity(0.72), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Color.accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color(red: 0.66, green: 0.78, blue: 0.86).opacity(0.42), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         )
-        .frame(maxWidth: 316, alignment: .leading)
-        .accessibilityLabel("端侧模型已完成思考")
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityLabel(statusText)
     }
 }
 
@@ -626,30 +599,15 @@ struct AIThinkingBubble: View {
     let isLocalRuntime: Bool
 
     var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(isLocalRuntime ? "端侧模型正在推理" : "在线智能体正在生成")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                Text(isLocalRuntime ? "正在整理本机记录，稍后给出正式回答。" : "正在等待服务返回正式回答。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
-            )
-            Spacer(minLength: 42)
+        HStack(spacing: 10) {
+            ProgressView().controlSize(.small)
+            Text(isLocalRuntime ? "正在生成回答" : "云端正在回复")
+                .font(.subheadline)
         }
+        .foregroundStyle(.secondary)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(isLocalRuntime ? "端侧模型正在推理" : "在线智能体正在生成")
     }
 }
 

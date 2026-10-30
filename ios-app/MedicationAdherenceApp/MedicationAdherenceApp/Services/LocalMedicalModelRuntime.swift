@@ -14,6 +14,11 @@ protocol LocalMedicalGenerating: Sendable {
 
 actor LocalMedicalModelRuntime: LocalMedicalGenerating {
     static let shared = LocalMedicalModelRuntime()
+    private let thinkingEnabled: Bool
+
+    init(thinkingEnabled: Bool = false) {
+        self.thinkingEnabled = thinkingEnabled
+    }
 
     static var isAvailable: Bool {
         #if canImport(llama)
@@ -29,7 +34,7 @@ actor LocalMedicalModelRuntime: LocalMedicalGenerating {
 
     func generateResponse(prompt: String, modelURL: URL, maxTokens: Int) async throws -> String {
         #if canImport(llama)
-        let context = try LlamaCppContext(modelURL: modelURL)
+        let context = try LlamaCppContext(modelURL: modelURL, thinkingEnabled: thinkingEnabled)
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPrompt.isEmpty else {
             throw LocalMedicalAIError.emptyResponse
@@ -47,10 +52,11 @@ actor LocalMedicalModelRuntime: LocalMedicalGenerating {
 
     func generateResponseStream(prompt: String, modelURL: URL, maxTokens: Int) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let worker = Task {
                 do {
+                    try Task.checkCancellation()
                     #if canImport(llama)
-                    let context = try LlamaCppContext(modelURL: modelURL)
+                    let context = try LlamaCppContext(modelURL: modelURL, thinkingEnabled: thinkingEnabled)
                     let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !trimmedPrompt.isEmpty else {
                         throw LocalMedicalAIError.emptyResponse
@@ -69,6 +75,9 @@ actor LocalMedicalModelRuntime: LocalMedicalGenerating {
                     continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { @Sendable _ in
+                worker.cancel()
+            }
         }
     }
 }
@@ -81,8 +90,12 @@ private final class LlamaCppContext {
     private var sampler: UnsafeMutablePointer<llama_sampler>
     private var pendingUTF8Bytes: [CChar] = []
     private let contextLength = 2048
+    private let usesMiniCPM5: Bool
+    private let thinkingEnabled: Bool
 
-    init(modelURL: URL) throws {
+    init(modelURL: URL, thinkingEnabled: Bool) throws {
+        usesMiniCPM5 = modelURL.lastPathComponent == "MiniCPM5-2B-Q4_K_M.gguf"
+        self.thinkingEnabled = thinkingEnabled
         llama_backend_init()
 
         var modelParameters = llama_model_default_params()
@@ -114,19 +127,18 @@ private final class LlamaCppContext {
         sampler = llama_sampler_chain_init(samplerParameters)
         llama_sampler_chain_add(sampler, llama_sampler_init_top_k(40))
         llama_sampler_chain_add(sampler, llama_sampler_init_top_p(0.85, 1))
-        llama_sampler_chain_add(sampler, llama_sampler_init_penalties(128, 1.10, 0.02, 0.0))
-        llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.40))
+        llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.0))
         llama_sampler_chain_add(sampler, llama_sampler_init_dist(42))
     }
 
     deinit {
         llama_sampler_free(sampler)
-        llama_model_free(model)
         llama_free(context)
-        llama_backend_free()
+        llama_model_free(model)
     }
 
     func generate(prompt: String, maxTokens: Int, onToken: ((String) -> Void)? = nil) throws -> String {
+        try Task.checkCancellation()
         pendingUTF8Bytes.removeAll()
         llama_memory_clear(llama_get_memory(context), true)
         llama_sampler_reset(sampler)
@@ -154,8 +166,13 @@ private final class LlamaCppContext {
             throw LocalMedicalAIError.runtimeUnavailable
         }
 
-        var output = ""
+        // The thinking opener belongs to the prompt; restore the marker for the
+        // existing stream parser so reasoning is never mistaken for the answer.
+        let opener = usesMiniCPM5 && thinkingEnabled ? "<think>\n" : ""
+        var output = opener
+        if !opener.isEmpty { onToken?(opener) }
         for _ in 0..<tokenLimit {
+            try Task.checkCancellation()
             let newToken = llama_sampler_sample(sampler, context, -1)
             if llama_vocab_is_eog(vocab, newToken) {
                 output += flushPendingUTF8Bytes()
@@ -165,7 +182,7 @@ private final class LlamaCppContext {
             let piece = appendTokenPiece(newToken)
             output += piece
             onToken?(piece)
-            llama_sampler_accept(sampler, newToken)
+            // llama_sampler_sample already accepts this token into sampler history.
             var tokenForDecode = newToken
             let tokenBatch = llama_batch_get_one(&tokenForDecode, 1)
 
@@ -179,29 +196,34 @@ private final class LlamaCppContext {
     }
 
     private func chatFormattedPrompt(for prompt: String) -> String {
-        guard let template = llama_model_chat_template(model, nil) else {
-            return prompt
-        }
-        return "user".withCString { rolePointer in
-            prompt.withCString { contentPointer in
-                var message = llama_chat_message(role: rolePointer, content: contentPointer)
-                let initialLength = max(4096, prompt.utf8.count * 3)
-                var buffer = [CChar](repeating: 0, count: initialLength)
-                let written = llama_chat_apply_template(template, &message, 1, true, &buffer, Int32(buffer.count))
-                if written <= 0 {
-                    return prompt
+        guard let template = llama_model_chat_template(model, nil) else { return prompt }
+        let system = "你是 MedCue 健康助手，语气自然友好。问候应回应问候并邀请交流健康问题；一般健康知识可以直接回答，无需个人资料。涉及用户本人的数据才依据提供的资料，缺失时说明并帮助用户找到下一步，不编造个人数值，不诊断或开处方。简短回答，只回应当前问题，不主动展开无关药品、剂量或警告。能力介绍只谈能提供的帮助，不复述个人资料。回答完即结束。"
+            + (thinkingEnabled ? "先核对资料再回答。" : "不输出思考过程。")
+        let formatted = "system".withCString { systemRole in
+            system.withCString { systemContent in
+                "user".withCString { userRole in
+                    prompt.withCString { content in
+                        let messages = [
+                            llama_chat_message(role: systemRole, content: systemContent),
+                            llama_chat_message(role: userRole, content: content)
+                        ]
+                        return messages.withUnsafeBufferPointer { messageBuffer in
+                            var buffer = [CChar](repeating: 0, count: max(4096, (system.utf8.count + prompt.utf8.count) * 3))
+                            let written = llama_chat_apply_template(template, messageBuffer.baseAddress, messages.count, true, &buffer, Int32(buffer.count))
+                            guard written > 0 else { return prompt }
+                            if written < buffer.count { return decodeNullTerminatedUTF8(buffer) }
+                            buffer = [CChar](repeating: 0, count: Int(written) + 1)
+                            let largerWritten = llama_chat_apply_template(template, messageBuffer.baseAddress, messages.count, true, &buffer, Int32(buffer.count))
+                            guard largerWritten > 0, largerWritten < buffer.count else { return prompt }
+                            return decodeNullTerminatedUTF8(buffer)
+                        }
+                    }
                 }
-                if written < buffer.count {
-                    return decodeNullTerminatedUTF8(buffer)
-                }
-                var largerBuffer = [CChar](repeating: 0, count: Int(written) + 1)
-                let largerWritten = llama_chat_apply_template(template, &message, 1, true, &largerBuffer, Int32(largerBuffer.count))
-                guard largerWritten > 0, largerWritten < largerBuffer.count else {
-                    return prompt
-                }
-                return decodeNullTerminatedUTF8(largerBuffer)
             }
         }
+        // Matches the official MiniCPM5 template's enable_thinking=false suffix.
+        guard usesMiniCPM5 else { return formatted }
+        return formatted + (thinkingEnabled ? "<think>\n" : "<think>\n\n</think>\n\n")
     }
 
     private func truncatePromptTokens(_ tokens: [llama_token], maxPromptTokens: Int) -> [llama_token] {
@@ -227,7 +249,7 @@ private final class LlamaCppContext {
             tokens,
             Int32(tokenCapacity),
             addBOS,
-            false
+            true // Recognize the control tokens emitted by the model chat template.
         )
         guard tokenCount > 0 else {
             return []

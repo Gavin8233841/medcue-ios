@@ -6,6 +6,8 @@ struct LocalMedicalAIClient: MedicalAIClient {
 
     let modelURL: URL
     var runtime: any LocalMedicalGenerating = LocalMedicalModelRuntime.shared
+    // Only the synthetic DEBUG smoke runner supplies this sink. Normal requests never log content.
+    var diagnosticSink: (@Sendable (String) -> Void)? = nil
 
     private var responsePolicy: LocalMedicalResponsePolicy {
         LocalMedicalResponsePolicy()
@@ -109,6 +111,7 @@ struct LocalMedicalAIClient: MedicalAIClient {
         let needsRepair = answer.isEmpty
             || responsePolicy.isLowQualityLocalResponse(answer, request: request)
             || responsePolicy.isOffTopicLocalResponse(answer, answerPlan: answerPlan)
+        diagnosticSink?("initial raw=\(generatedMessage.debugDescription) processed=\(answer.debugDescription) quality=\(responsePolicy.isLowQualityLocalResponse(answer, request: request)) topic=\(responsePolicy.isOffTopicLocalResponse(answer, answerPlan: answerPlan))")
         guard needsRepair else {
             return LocalMedicalResolvedResponse(answer: answer, thinking: initialThinking)
         }
@@ -122,6 +125,7 @@ struct LocalMedicalAIClient: MedicalAIClient {
         let repairedProcessedMessage = responsePolicy.postprocessLocalResponse(repairedMessage, request: request)
         let repairedAnswer = responsePolicy.formalAnswerText(from: repairedProcessedMessage)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        diagnosticSink?("repair raw=\(repairedMessage.debugDescription) processed=\(repairedAnswer.debugDescription) quality=\(responsePolicy.isLowQualityLocalResponse(repairedAnswer, request: request)) topic=\(responsePolicy.isOffTopicLocalResponse(repairedAnswer, answerPlan: answerPlan))")
         guard !repairedAnswer.isEmpty,
               !responsePolicy.isLowQualityLocalResponse(repairedAnswer, request: request),
               !responsePolicy.isOffTopicLocalResponse(repairedAnswer, answerPlan: answerPlan) else {

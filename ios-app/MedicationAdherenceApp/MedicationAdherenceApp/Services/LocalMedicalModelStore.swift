@@ -42,6 +42,19 @@ struct LocalAIModelManifest: Equatable, Sendable {
         exactByteCount: 265_307_040,
         expectedSHA256: "fa4ad3f448355578ce5e4021204be319e5a3cb665fb173607f92bc139c96a290"
     )
+
+    static let miniCPM5 = LocalAIModelManifest(
+        id: "minicpm5-2b-q4-k-m", displayName: "MiniCPM5-2B 离线模型",
+        fileName: "MiniCPM5-2B-Q4_K_M.gguf", format: "gguf",
+        estimatedSizeMB: 1561, recommendedFreeSpaceMB: 3500,
+        runtime: "llama.cpp", license: "Apache-2.0",
+        downloadURL: URL(string: "https://huggingface.co/openbmb/MiniCPM5-2B-GGUF/resolve/2079a22f3beaa4e306449978533478fe0522f4b3/MiniCPM5-2B-Q4_K_M.gguf")!,
+        subdirectoryName: "MiniCPM5-2B",
+        minimumByteCount: 1400 * 1024 * 1024, maximumByteCount: 1700 * 1024 * 1024,
+        exactByteCount: 1_561_318_368,
+        expectedSHA256: "ec2d5801640099e97d8d7e8003ad4d81f336e757811f03a26173dddf386602fd"
+    )
+
 }
 
 enum LocalAIModelInstallationStatus: Equatable, Sendable {
@@ -307,11 +320,11 @@ struct LocalMedicalModelStatus: Equatable, Sendable {
 
 @MainActor
 final class LocalMedicalModelStore: ObservableObject {
-    nonisolated static let manifest = LocalAIModelManifest.miniCPM4
+    nonisolated static let manifest = LocalAIModelManifest.miniCPM5
     nonisolated static let modelFileName = manifest.fileName
-    nonisolated static let modelDisplayName = "MiniCPM4 0.5B 离线模型"
+    nonisolated static let modelDisplayName = LocalAIModelManifest.miniCPM5.displayName
     nonisolated static let backgroundAssetsApplicationGroupIdentifier = "group.com.gwyy.appcontest2026.medicationadherence.watch"
-    nonisolated private static let modelManager = LocalAIModelManager.miniCPM4
+    nonisolated private static let modelManager = LocalAIModelManager(manifest: .miniCPM5, applicationSupportOverrideURL: nil)
     nonisolated private static let modelDownloadURL = manifest.downloadURL
 
     @Published private(set) var status: LocalMedicalModelStatus

@@ -4,13 +4,32 @@ public struct MedicalAIRequestPromptBuilder: Sendable {
     public init() {}
 
     public func buildPrompt(for request: MedicalAIRequest) -> String {
+        // Standalone social/capability turns do not need authorized medical
+        // context. Keep generation real, but prevent unsolicited data recaps.
+        let question = request.userMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        let conversational = [
+            #"^(?:hi|hello|hey|你好|您好|嗨|早上好|晚上好)[！!。？?\s]*$"#,
+            #"^(?:你|您)(?:能|可以)(?:帮我)?(?:做什么|干什么|干些什么|做些什么|提供什么帮助)[？?。！!\s]*$"#,
+            #"^(?:请)?(?:介绍|说说)(?:一下)?(?:你自己|自己|你的功能|功能)[？?。！!\s]*$"#
+        ]
+        if request.kind == .chat, conversational.contains(where: {
+            question.range(of: $0, options: [.regularExpression, .caseInsensitive]) != nil
+        }) {
+            return """
+            你是 MedCue 健康助手，可以解释一般健康与用药知识、帮助理解说明书、整理用药记录和复诊沟通要点，不能代替医生诊断或开处方。
+            只回应当前问题，简短自然。问候时友好问候并邀请交流；问功能时简述能提供的帮助。不要附带药品清单、数量、风险警告或个人情况摘要，也不要索要身份信息。无需个人资料，不要回答资料不足。
+            用户问题：\(question)
+            请直接给出中文回答。
+            """
+        }
         var lines: [String] = []
-        lines.append("你是依法提供医疗服务能力的医疗 AI 模型。请只基于用户已授权共享的数据，输出风险提示、依从性提醒、说明书可读化解释和复诊沟通建议。")
+        lines.append("你是 MedCue 健康助手。请直接回答当前问题，不主动展开无关资料。一般健康知识可直接解释；涉及用户本人的情况只使用已授权共享的数据。可提供风险提示、依从性提醒、说明书可读化解释和复诊沟通建议。")
         lines.append("安全边界：不能替代医生或药师判断；如涉及治疗决策、症状加重或不确定风险，应建议咨询医生或药师。")
-        lines.append("输出要求：中文，100字以内；只用纯文字和常规标点；不要使用 Markdown、LaTeX、表格、列表符号或表情符号；不要索要身份信息。")
+        lines.append("输出要求：中文，100字以内；可以使用简洁 Markdown 标题和列表，用户要求表格时使用 Markdown 表格；不要使用 LaTeX 或表情符号；不要索要身份信息。")
         lines.append("")
         lines.append("请求类型：\(displayName(for: request.kind))")
         lines.append("用户问题：\(request.userMessage)")
+        lines.append(Self.conversationContext(for: request))
         lines.append("授权说明：\(request.authorization.note.isEmpty ? "用户已授权本次请求所需范围。" : request.authorization.note)")
         lines.append("生成时间：\(iso8601.string(from: request.createdAt))")
 
@@ -57,6 +76,15 @@ public struct MedicalAIRequestPromptBuilder: Sendable {
         lines.append("")
         lines.append("请在回答末尾保留一句边界提示：以上内容仅用于用药风险提示和复诊沟通，不能替代医生或药师判断。")
         return lines.joined(separator: "\n")
+    }
+
+    public static func conversationContext(for request: MedicalAIRequest) -> String {
+        let turns = (request.conversation ?? []).suffix(4)
+            .filter { $0.role == "user" || $0.role == "assistant" }
+        guard !turns.isEmpty else { return "" }
+        return "近期对话（仅帮助理解指代，不是当前用药事实；事实以本次记录为准）：\n" + turns.map {
+            "\($0.role == "user" ? "用户" : "助手")：\(String($0.text.prefix(240)))"
+        }.joined(separator: "\n")
     }
 
     private func append(snapshot: MedicalAIMedicationSnapshot, index: Int, to lines: inout [String]) {

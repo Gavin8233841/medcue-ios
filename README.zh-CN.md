@@ -21,6 +21,10 @@ MedCue 用于用药安全支持和日常管理，不诊断疾病、不处方，�
 - 提供本地和云端医疗助手模式，具备明确同意、范围化上下文、传输校验和响应安全边界。
 - iPhone 应用已有以简体中文为源语言的 String Catalog；Watch、Widget 和 Live Activity 等伴随 Bundle 的完整本地化仍在 [Issue #20](https://github.com/Gavin8233841/medcue-ios/issues/20)、[Issue #21](https://github.com/Gavin8233841/medcue-ios/issues/21) 和 [Issue #22](https://github.com/Gavin8233841/medcue-ios/issues/22) 中跟踪。
 
+## 本地决赛离线模型
+
+2026-10-28 本地决赛候选采用 MiniCPM5-2B Q4_K_M（约 1.56 GB，Apache-2.0），默认直接回答，思考模式保留为显式测试选项。权重单独下载或导入，不包含在仓库或源码包中。英文药名和正常格式可保留；没有固定答案兜底。此为本地试用结果，不代表已发布版本，取舍及限制见 [模型决策](docs/adr/0003-use-minicpm5-2b-for-local-finals-evaluation.md) 和 [工程状态](docs/PROJECT_STATUS.md)。
+
 ## 架构
 
 仓库将领域逻辑与 Apple 平台集成分开：

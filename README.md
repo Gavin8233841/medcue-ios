@@ -41,6 +41,15 @@ Application writes use explicit command and transaction boundaries. SwiftData co
 - AI output is finalized through medical-response boundaries before display or persistence.
 - The assistant cannot create, stop, replace, or change medication or dosage.
 
+## Local Finals Offline Model
+
+The 2026-10-28 local finals candidate selects MiniCPM5-2B Q4_K_M (about 1.56 GB,
+Apache-2.0), with direct answering as default. Model weights are downloaded or
+imported separately and are not bundled in the repository or source package.
+Thinking mode remains an explicit evaluation option. This local result is not a
+released-build claim; see [the model decision](docs/adr/0003-use-minicpm5-2b-for-local-finals-evaluation.md)
+and [revision-scoped status](docs/PROJECT_STATUS.md).
+
 ## Requirements
 
 - macOS with Xcode 26.5 or newer compatible with the project format

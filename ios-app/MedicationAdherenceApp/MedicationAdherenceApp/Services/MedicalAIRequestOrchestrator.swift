@@ -59,7 +59,7 @@ struct MedicalAIResponseFinalizer: Sendable {
         }
 
         let boundaryGuard = MedicalAIResponseBoundaryGuard()
-        let answerReview = boundaryGuard.review(trimmedAnswer)
+        let answerReview = boundaryGuard.review(trimmedAnswer, preservingMarkdown: true)
         let displayMessage = answerReview.displayMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !displayMessage.isEmpty else {
             throw MedicalAIOrchestrationError.emptyResponse

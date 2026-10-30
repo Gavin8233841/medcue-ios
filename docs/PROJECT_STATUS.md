@@ -18,6 +18,269 @@ Unless explicitly dated otherwise, repository, ruleset, and Issue-label snapshot
 below belong to that audit. Read back live GitHub state before relying on them
 for a new operation; the targeted update is not a full source or release audit.
 
+## 2026-10-30 Duo assistant parallel workspace capture
+
+The current Markdown chat screen had no auxiliary-column branch. Restored the
+existing AssistantReadingLayout width budget and kept one chat/composer subtree;
+wide layouts place runtime selection and vertical consultation topics beside the
+current conversation. Narrow/accessibility layouts retain inline controls.
+Simulator build and non-build quick gate passed; 84 layout-budget combinations
+and open/closed fallback checks passed. The reused Duo displayed a real new cloud
+reply to a natural today-records question, then retained the same conversation
+through a recorded silver 3D closed-to-open transition. No phone install or release
+claim. Supplemental real replies produced headings/numbered lists, but described
+skipped tasks as missed/unprocessed; those takes are excluded from recommended
+media and further model requests were stopped. Media and exact local binary hash: `.codex-local/yzy-rerecord-20261027/duo-markdown-20261030/Duo三维采用索引.md`.
+
+## 2026-10-30 Markdown, short conversation context and factual record summaries
+
+Owner approved a small working loop rather than prepared answers or a new data
+platform. Source investigation established that the app already reads authorized
+SwiftData medication/task records, but local generic summaries collapsed all
+medication counts into a total; request models carried no prior turns; output
+normalization replaced table pipes with commas, and the stream parser collapsed
+newlines. These were integration limitations as well as small-model limits.
+
+- Adapted the owner-authorized local CatPaw Markdown parser, bounded render cache
+  and views into `MedCueMarkdown*.swift`. Assistant bubbles now render headings,
+  emphasis, lists, quotes and horizontally scrollable tables; user bubbles keep
+  plain typed text. No dependency download or web/HTML renderer was added.
+- Finalization can preserve Markdown after checking normalized visible content.
+  Single emphasis and link-label splitting are covered by treatment-command
+  regressions. Stream cleanup preserves line breaks; a character-by-character
+  regression checks table/paragraph integrity. The default core plaintext review
+  API remains available. Old messages whose pipes/newlines were destroyed are
+  not reconstructed; newly generated messages use the new path.
+- Requests have optional short conversation turns: the app includes at most
+  four visible messages, 240 characters each, only for the same provider and
+  matching consent scope. Local conversations are not included in cloud turns.
+  Reasoning and system messages are excluded; prior answers are explicitly
+  background, not authoritative current medical facts. This is short context,
+  not long-term memory or a vector database. No schema migration was needed.
+- Local “今天吃了什么” facts use recorded taken events for today, with explicit
+  profile/record authorization checks; unshared data remains unknown. Recent
+  generic summaries give per-medication counts rather than an ambiguous total.
+  No generated response can write a medication action. Model wording quality is
+  still limited and this work is not a broad accuracy guarantee.
+- Composer appearance/disappearance now has a 0.22-second move/fade transition.
+  Signed device and simulator builds, 34 focused core tests and 27 policy/parser
+  tests passed. Independent review closed the Markdown-scan and unauthorized
+  zero-count findings. No real cloud inference request was made.
+- Three synthetic device generations completed (roughly 0.93–2.74 seconds):
+  recent-turn reference retained the English names, today's taken query named
+  ibuprofen once, and per-drug counts were ibuprofen 1 / loratadine 0. The initial
+  table output exposed stream newline flattening and prompted the final parser
+  fix; the final one-case recheck preserved valid multiline Markdown and correct
+  per-drug counts in 1.76 seconds. Final installation and normal phone launch
+  succeeded. Synthetic fixtures do not seed the
+  ordinary database and are not scripted response fallbacks.
+- Reused the existing `iPhone 17` simulator for the table-render screenshot,
+  then shut it down. No new simulator was created; the earlier dedicated chat
+  simulator remains deleted. The screenshot is clearly labeled synthetic UI
+  evidence, not a real patient/model inference screenshot. Animation smoothness
+  has not been separately measured on the physical phone.
+
+Ignored receipts: `.codex-local/local-ai-repair-20261028/round2/context-markdown-*`.
+No Git commit/push, PR, release or full native/CI integration claim.
+
+## 2026-10-30 Cloud greeting and first-entry follow-up
+
+The owner confirmed the previous local/UI build behaves well on the official
+competition iPhone. Cloud screenshots showed “hi” eliciting a medication-count
+summary; that came from the separate cloud prompt still requiring an authorized
+medical-data answer. The shared cloud prompt builder now handles standalone
+chat greetings/capability questions without medication/environment/import
+context and asks the model to respond naturally. Mixed medical questions keep
+the prior data path and boundaries; no scripted answer or server deployment was
+introduced. Removed the unsupported “依法提供医疗服务能力” role claim.
+
+Cloud waiting UI now uses the same understated progress row as local generation.
+First-entry work yields before legacy maintenance, weather refresh is delayed
+300ms and cancellable, and rendering reuses one visible-message projection.
+These reduce eager/repeated work; no device timing or measured latency gain is
+claimed. The owner's personal-phone first-entry lag was not profiled.
+
+Seven focused core prompt tests passed, including populated-context greetings
+and mixed personal-record questions. Native signed Debug build, quick preflight
+and diff checks passed; independent source review found no Required. To conserve
+traffic, no real cloud inference request, model download, or broad test rerun
+was performed. Cloud answer quality still requires a live owner check after the
+updated app is installed. All prior unrelated dirty changes were preserved.
+
+At the owner's explicit cleanup request, the dedicated simulator created by
+this task, `MedCue-ChatUI-20261030`, was shut down and deleted; its exact device
+folder was confirmed absent. Screenshots/test receipts remain in the existing
+ignored `round2/chat-polish-*` evidence namespace. Other recording simulators
+and build/model directories were not deleted. Prefer reuse on subsequent work.
+
+Receipts: `.codex-local/local-ai-repair-20261028/round2/cloud-followup-*`.
+No commit, push, PR or public release claim.
+
+## 2026-10-30 Chat UI polish and keyboard/scroll interaction
+
+Local finals working tree: `codex/finals-baseline-integration`, base
+`9d0892ae2787c32f655399a42c8ac8e612aebf02` plus preserved uncommitted changes.
+Owner acceptance target: no composer/keyboard overlap, automatically hide the
+composer while browsing older messages and restore at the latest message,
+retain drafts, reduce taps, improve message appearance and text interactions.
+
+- Composer now occupies the bottom safe area; the keyboard “收起” toolbar was
+  removed, keyboard submit can send, and the tab bar hides while editing.
+  History mode removes the native input control, rather than merely making it
+  transparent (which left an accessible/hittable native field in UI tests).
+  The external draft binding survives removal. Returning to the bottom restores
+  the composer without a “继续提问” button. On iOS 18+, scroll phase includes
+  deceleration and distance uses native scroll geometry. iOS 17 retains the
+  geometry/drag fallback; short-fling inertia on that fallback is not verified.
+- Rounded material message surfaces, a subdued user tint, smaller neutral
+  source/time footers and a single navigation subtitle replace repeated
+  assistant disclaimers/bright role headings. Message actions include copy,
+  selectable text, quote-to-draft (preserving an existing draft), share and
+  the existing archive command. Actual answer checks/persistence are unchanged.
+- Read local CatPaw `Views/ChatView.swift`, `ChatMessageList.swift`,
+  `MessageViews/UserBubble.swift`, `AssistantDisplayItemView.swift` and
+  `Theme/ChatTheme.swift`; reused its stable-input, soft-surface and disclosure
+  patterns. That local version has no complete message-copy context menu;
+  MedCue uses native SwiftUI menus. Also reviewed the primary
+  [Exyte/Chat repository](https://github.com/exyte/Chat) for keyboard, scrolling
+  and long-press interaction. No new chat dependency was installed or copied.
+- Thinking remains off by default; the local runtime has a boolean thinking
+  option, no low/medium/high effort API. UI now reports generation/loading
+  instead of pretending every direct-mode request is deep thinking. Actual
+  completed reasoning, if present, keeps its disclosure; unchecked deltas are
+  still not displayed. This work does not claim a model-quality improvement.
+  Reference: [official MiniCPM5 model card](https://huggingface.co/openbmb/MiniCPM5-2B).
+- Added an explicit DEBUG-only `--assistant-ui-preview` fixture: an in-memory
+  model container and synthetic messages, without ordinary database access,
+  networking or inference. It is not an answer fallback and is never the normal
+  app path. UI acceptance covers keyboard/send-button bounds, history hiding,
+  automatic restoration, draft survival, sending and long-press text actions.
+- Independent fresh-context source review closed the draft-overwrite Required
+  finding; later targeted review found no new Required. No commit, push, PR,
+  migration, model reimport or ordinary database seeding was performed.
+
+Validation: both focused Simulator UI tests passed on the isolated iPhone 17 /
+iOS 27.0 fixture (keyboard/history/draft/send and long-press/select-text).
+`chat-polish-ui-accepted.log` records 2 tests, 0 failures; quick native preflight
+passed with 0 warnings and `git diff --check` passed. Simulator screenshots use
+synthetic UI text, not model answers or patient data.
+
+Local evidence namespace: `.codex-local/local-ai-repair-20261028/round2/chat-polish-*`.
+Signed iPhone build and installation passed. Normal launch was denied because
+the connected phone was locked (`FBSOpenApplicationErrorDomain`, code 7);
+manual physical-device UI acceptance is therefore pending owner unlock/open.
+No fixture launch flag was used on the physical phone. The existing model and
+ordinary app data were retained. `chat-polish-device-receipt.txt` records this
+limitation; the installed build supersedes prior installed-build receipts.
+
+Full native/CI integration gates and older-platform UI acceptance are not claimed.
+
+## 2026-10-29 Follow-up: avoid unrelated medication material in capability answers
+
+The owner reported that “你能干些什么” produced medication names and lengthy
+label warnings. Both prompts encouraged natural conversation but the request
+still supplied the complete personal-fact summary for that question.
+
+- Standalone greeting/capability questions now omit personal medication/label
+  facts from the model prompt. All other questions retain the prior context
+  path, avoiding a broad intent classifier. Both prompts require answering the
+  current question without unsolicited unrelated medication warnings. Responses
+  remain model-generated; no prepared answer or output clipping was added.
+- Independent review caught over-broad draft filtering that dropped personal
+  record queries; the final implementation removes that filtering. Regression
+  cases retain facts for medication counts, visit preparation, mixed capability
+  and record questions, and explanations of personal records/risk cards.
+- Final signed Debug build and installation succeeded; normal launch restored.
+  With in-memory synthetic medication snapshots, the final device evaluation
+  answered two capability phrasings, hi and sleep education without unsolicited
+  medication facts/warnings (about 0.99–1.73 seconds). A fifth control query,
+  “我的药品有哪些？”, still returned a generic clarification despite retained
+  facts: incomplete answer, not a successful factual-retrieval result. No broad
+  accuracy claim is made and this adjacent quality issue was not expanded here.
+- The local policy/parser harness passed 24 tests in 2 suites. Final independent
+  source review closed the Required finding. Quick checks and diff whitespace
+  check passed. Full native/CI integration gate was not run. No user database
+  seeding, model reimport, commit or push occurred.
+
+Ignored local receipts: `.codex-local/local-ai-repair-20261028/round2/relevance-*`;
+`relevance-device-final-output.txt` belongs to the final installed working tree.
+
+## 2026-10-29 Offline conversation and chat-input usability
+
+Local finals work continues on `codex/finals-baseline-integration`, base
+`9d0892ae2787c32f655399a42c8ac8e612aebf02` plus the preserved dirty tree.
+The owner authorized natural greetings/general health conversation and a small
+camera/composer improvement for competition demonstration.
+
+- Root cause of “hi → 资料不足”: both the request prompt and runtime system
+  prompt treated all conversation as personal-record lookup. Both now permit
+  natural greetings and general health knowledge without personal records;
+  missing personal values invite a useful follow-up. No prepared response or
+  greeting interception was added. Diagnosis/prescription boundaries remain.
+- Image menu now offers camera capture and photo-library selection. Camera
+  permission uses the existing helper; capture reuses `CameraPhotoCaptureSheet`
+  and local Vision text recognition. Recognized text enters the editable draft,
+  without automatic sending. No new dependency or image upload was introduced.
+- Vertical conversation dragging dismisses the keyboard and collapses the
+  composer to “继续提问”; tapping restores editing/focus. Draft changes and a
+  new send restore the composer. The existing view/draft is retained. CatPaw's
+  local chat implementation informed keyboard dismissal and view identity.
+- Signed Debug iPhone build, quick native preflight (0 warnings), and the local
+  policy/parser harness (22 tests, 2 suites) passed. Independent source review
+  found no Required issue. This is not the full native/CI integration gate.
+- The updated app was installed on the connected phone. Four synthetic,
+  empty-context MiniCPM5-2B direct-mode cases completed in 0.91–1.73 seconds:
+  “hi”, “你好”, sleep education, and today's heart rate. Actual “hi” output:
+  “你好！很高兴为你服务。有什么健康或用药方面的问题想聊聊吗？”
+  The heart-rate answer asked for a value rather than inventing one. The app
+  then launched normally. The smoke did not seed the ordinary user database.
+- Camera capture/permission denial and composer gestures compile but have not
+  received manual device UI acceptance. Personal heart-rate retrieval was not
+  added. The previous 35-case evaluation was not repeated after this prompt
+  change; this four-case check establishes the reported conversation behavior,
+  not broad factual accuracy. The existing 72-character local question limit
+  still constrains long image-derived drafts.
+
+Local receipts: `.codex-local/local-ai-repair-20261028/round2/chat-usability-*`.
+The new build supersedes this thread's October 28 installed-build fingerprint;
+old recordings/receipts remain evidence of their original artifacts. No model
+reimport, database reset, commit, push, PR or release was performed.
+
+## 2026-10-28 Local offline-response repair and model selection
+
+Scope: local `codex/finals-baseline-integration` working tree based on
+`9d0892ae2787c32f655399a42c8ac8e612aebf02` plus uncommitted changes; this is not
+an exact-commit CI, integration or release claim. Pre-existing Xcode project and
+workspace changes were preserved.
+
+- The local app now defaults to MiniCPM5-2B Q4_K_M direct mode. The pinned
+  official 1,561,318,368-byte model passed Mac SHA-256 verification, was imported
+  to the connected iPhone, and the final default-path smoke identified that
+  model and passed. The updated app was installed and normally launched.
+- English names and ordinary formatting are allowed. Removed topic keyword
+  matching, destructive answer cleanup and generic-question trend misrouting.
+  Corrected chat control-token parsing, duplicate sampler acceptance and
+  context/model release order. No fixed-answer fallback remains.
+- Direct mode: 35/35 synthetic device cases completed and passed current
+  boundary checks, about 0.49–3.50 seconds. Manual review showed better grounding
+  than the old 0.5B, with terse or confused responses remaining. Completion is
+  not a comprehensive factual-accuracy score.
+- Thinking mode: 4/5 empty-context built-in cases completed, about 5.20–11.94
+  seconds for successful cases; one `boundary-or-empty` failure. No quality gain
+  sufficient to justify default thinking was established. Existing reasoning
+  parsing/UI is retained; manual UI acceptance is unconfirmed.
+- Policy/parser SwiftPM harness: 21 tests passed using exact source copies and
+  a model-label stub without llama inference. Simulator XCTest did not establish
+  its runner connection and is not claimed passed. Device build/inference,
+  quick checks and independent source review are separate evidence. The full
+  native gate and current-revision CI were not completed for this work.
+
+Decision and durable evidence summary: [ADR-0003](adr/0003-use-minicpm5-2b-for-local-finals-evaluation.md).
+Detailed ignored local receipts: `.codex-local/local-ai-repair-20261028/round2/验收结果.md`.
+Old model files remain; weights, raw console/build logs and device identifiers
+must not be added to Git or source packages. No push, PR, merge or publication
+was performed.
+
 ## Current Verified Snapshot
 
 - At the audit baseline, `main` was the repository default branch and was

@@ -43,6 +43,314 @@ struct LocalMedicalAIClientTests {
         #expect(await runtime.callCount == 2)
     }
 
+    @Test(arguments: [
+        "很抱歉，今天本地记录不足，无法根据现有记录判断完成情况。",
+        "基于这些信息，今天可以核对提醒，并把处理情况保存到记录中。",
+        "今天可以在记录中标注\"稍后\"，以便之后核对实际处理情况。"
+    ])
+    func safeWordingDoesNotTriggerASecondGeneration(answer: String) async throws {
+        let runtime = StubLocalMedicalRuntime(outputs: [answer])
+        let client = LocalMedicalAIClient(
+            modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"), runtime: runtime
+        )
+        let response = try await client.respond(to: Self.request())
+        #expect(response.message == answer)
+        #expect(await runtime.callCount == 1)
+    }
+
+    @Test(arguments: [
+        "今天请核对**提醒**，并补充__记录__。",
+        "- 今天核对提醒。\n- 处理后补充记录。",
+        "今天先核对提醒，记录重点 ### 核对处理情况。"
+    ])
+    func safeFormattingDoesNotTriggerRepair(answer: String) async throws {
+        let runtime = StubLocalMedicalRuntime(outputs: [answer])
+        let client = LocalMedicalAIClient(
+            modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"), runtime: runtime
+        )
+        let response = try await client.respond(to: Self.request())
+        #expect(response.message.contains("今天"))
+        #expect(response.message.contains("记录"))
+        if answer.contains("**") { #expect(response.message.contains("**提醒**")) }
+        if answer.contains("__") { #expect(response.message.contains("__记录__")) }
+        #expect(await runtime.callCount == 1)
+    }
+
+    @Test
+    func factualTrendWithoutPrescribedSuggestionWordsIsAccepted() async throws {
+        var request = Self.request()
+        request.userMessage = "近期忽略或稍后趋势怎么样？"
+        request.medicationSnapshots = [MedicalAIMedicationSnapshot(
+            medication: Medication(displayName: "合成测试药", kind: .prescription, inputSource: .manual),
+            doseEvents: [DoseEvent(scheduledDoseID: UUID(), status: .delayed, recordedAt: Date())]
+        )]
+        let answer = "过去14天有稍后1次，记录来自合成测试药。下次处理提醒后及时标记实际情况。"
+        let runtime = StubLocalMedicalRuntime(outputs: [answer])
+        let client = LocalMedicalAIClient(
+            modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"), runtime: runtime
+        )
+        let response = try await client.respond(to: request)
+        #expect(response.message == answer)
+        #expect(await runtime.callCount == 1)
+    }
+
+    @Test(arguments: ["acetaminophen", "ibuprofen", "loratadine"])
+    func unsharedEnglishMedicationIsRejected(name: String) async {
+        let answer = "今天建议吃 \(name)，每次两片，并做好记录。"
+        let runtime = StubLocalMedicalRuntime(outputs: [answer, answer])
+        let client = LocalMedicalAIClient(
+            modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"), runtime: runtime
+        )
+        do {
+            _ = try await client.respond(to: Self.request())
+            Issue.record("Unshared medication must not enter the accepted response")
+        } catch let error as LocalMedicalAIError {
+            #expect(error.diagnosticSummary == "unstable-response")
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+        #expect(await runtime.callCount == 2)
+    }
+
+    @Test(arguments: ["acetaminophen", "ibuprofen", "loratadine"])
+    func sharedEnglishMedicationAdviceIsStillRejected(name: String) async {
+        var request = Self.request()
+        request.medicationSnapshots = [MedicalAIMedicationSnapshot(medication: Medication(
+            displayName: name, kind: .overTheCounter, inputSource: .manual
+        ))]
+        let answer = "今天建议吃 \(name)，每次两片，并做好记录。"
+        let runtime = StubLocalMedicalRuntime(outputs: [answer, answer])
+        let client = LocalMedicalAIClient(
+            modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"), runtime: runtime
+        )
+        do {
+            _ = try await client.respond(to: request)
+            Issue.record("Shared medication must not allow treatment advice")
+        } catch let error as LocalMedicalAIError {
+            #expect(error.diagnosticSummary == "unstable-response")
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+        #expect(await runtime.callCount == 2)
+    }
+
+    @Test(arguments: ["acetaminophen", "ibuprofen", "loratadine"])
+    func englishMedicationNamesAreNormalProseWithOrWithoutSharedContext(name: String) async throws {
+        for hasSharedContext in [false, true] {
+            var request = Self.request()
+            if hasSharedContext {
+                request.medicationSnapshots = [MedicalAIMedicationSnapshot(medication: Medication(
+                    displayName: name, kind: .overTheCounter, inputSource: .manual
+                ))]
+            }
+            let answer = "\(name) 可以保留英文名称，核对药盒时请同时查看通用名和规格。"
+            let runtime = StubLocalMedicalRuntime(outputs: [answer])
+            let client = LocalMedicalAIClient(modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"), runtime: runtime)
+            let response = try await client.respond(to: request)
+            #expect(response.message == answer)
+            #expect(await runtime.callCount == 1)
+            let finalized = try MedicalAIResponseFinalizer().finalize(answer: response.message)
+            #expect(!finalized.boundaryBlockedAction)
+            #expect(finalized.displayMessage.contains(name))
+        }
+    }
+
+    @Test(arguments: [
+        "### 天气提示\n今天没有天气数据，可以先记录用药。",
+        "本地记录：\n今天没有可用资料，请先核对已保存的记录。"
+    ])
+    func headingAndReadableBodySurvivePostprocessing(answer: String) async throws {
+        let runtime = StubLocalMedicalRuntime(outputs: [answer])
+        let client = LocalMedicalAIClient(modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"), runtime: runtime)
+        let response = try await client.respond(to: Self.request())
+        #expect(response.message == answer)
+        #expect(await runtime.callCount == 1)
+    }
+
+    @Test
+    func laterWarningIsNotDiscardedBySentenceOrCharacterLimit() async throws {
+        let detail = String(repeating: "核对记录时应保留实际发生的时间和情况，", count: 14)
+        let answer = "今天先查看提醒。核对是否已保存。\(detail)。不要自行停药或调整剂量。"
+        let runtime = StubLocalMedicalRuntime(outputs: [answer])
+        let client = LocalMedicalAIClient(modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"), runtime: runtime)
+        let response = try await client.respond(to: Self.request())
+        #expect(response.message == answer)
+        #expect(response.message.hasSuffix("不要自行停药或调整剂量。"))
+        #expect(await runtime.callCount == 1)
+    }
+
+    @Test
+    func topicSynonymsDoNotRequireExactKeywordMatches() async throws {
+        var request = Self.request()
+        request.userMessage = "药盒和库存需要注意什么？"
+        let answer = "当前资料不足，请先查看实物包装上的有效期并补充剩余数量。"
+        let runtime = StubLocalMedicalRuntime(outputs: [answer])
+        let client = LocalMedicalAIClient(modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"), runtime: runtime)
+        let response = try await client.respond(to: request)
+        #expect(response.message == answer)
+        #expect(await runtime.callCount == 1)
+    }
+
+    @Test
+    func actualChatBoundaryStillCutsHallucinatedNextTurn() {
+        let policy = LocalMedicalResponsePolicy()
+        let request = Self.request()
+        let output = policy.postprocessLocalResponse("本地记录：今天没有可用资料。<|im_end|><|im_start|>assistant 建议服药10克", request: request)
+        #expect(output == "本地记录：今天没有可用资料。")
+    }
+
+    @Test(arguments: ["hi", "你好", "睡眠对健康有什么作用？", "我今日的心率"])
+    func everydayConversationDoesNotRequirePersonalRecords(question: String) {
+        let policy = LocalMedicalResponsePolicy()
+        var request = Self.request()
+        request.userMessage = question
+        let prompt = policy.buildLocalPrompt(for: request, answerPlan: policy.localAnswerPlan(for: request))
+        #expect(prompt.contains("问候时回应问候"))
+        #expect(prompt.contains("一般健康知识和日常交流可以直接回答"))
+        #expect(prompt.contains("不要只回答“资料不足”"))
+        #expect(!policy.isLowQualityLocalResponse("你好！有什么健康或用药问题想聊聊吗？", request: request))
+    }
+
+    @Test(arguments: ["hi", "你能干些什么", "你能帮我做什么？", "介绍一下自己"])
+    func unrelatedPersonalFactsAreNotSentForGeneralConversation(question: String) {
+        let policy = LocalMedicalResponsePolicy()
+        var request = Self.request()
+        request.userMessage = question
+        let plan = LocalMedicalAnswerPlan(focus: "一般问题", factSummary: "无关药品资料_SENTINEL", factGuidance: "", requiredFragments: [])
+        let prompt = policy.buildLocalPrompt(for: request, answerPlan: plan)
+        #expect(!prompt.contains("无关药品资料_SENTINEL"))
+        #expect(prompt.contains(question))
+    }
+
+    @Test(arguments: ["我的药品有哪些？", "我有几种药？", "帮我整理复诊重点", "你能做什么？顺便看看今天的服药记录", "请解释我的服药记录", "如何理解我的风险卡"])
+    func explicitPersonalRecordQuestionStillReceivesFacts(question: String) {
+        let policy = LocalMedicalResponsePolicy()
+        var request = Self.request()
+        request.userMessage = question
+        let plan = LocalMedicalAnswerPlan(focus: "药品清单", factSummary: "相关药品资料_SENTINEL", factGuidance: "", requiredFragments: [])
+        #expect(policy.buildLocalPrompt(for: request, answerPlan: plan).contains("相关药品资料_SENTINEL"))
+    }
+
+    @Test
+    func unsharedTodayRecordsAreUnknownRatherThanZero() {
+        var request = Self.request()
+        request.userMessage = "我今天吃了什么？"
+        let policy = LocalMedicalResponsePolicy()
+        let prompt = policy.buildLocalPrompt(for: request, answerPlan: policy.localAnswerPlan(for: request))
+        #expect(prompt.contains("本次未共享药品或服药记录"))
+        #expect(!prompt.contains("今天没有已记录为服用的条目"))
+    }
+
+    @Test
+    func takenTodayUsesRecordedTakenEventsOnly() {
+        var request = Self.request()
+        request.userMessage = "我今天吃了什么？"
+        request.authorization = MedicalAIUserAuthorization(grantedScopes: [.medicationProfile, .doseEvents])
+        request.medicationSnapshots = [MedicalAIMedicationSnapshot(
+            medication: Medication(displayName: "已服药名", kind: .overTheCounter, inputSource: .manual),
+            doseEvents: [DoseEvent(scheduledDoseID: UUID(), status: .taken, recordedAt: Date())]),
+            MedicalAIMedicationSnapshot(medication: Medication(displayName: "仅稍后药名", kind: .overTheCounter, inputSource: .manual),
+            doseEvents: [DoseEvent(scheduledDoseID: UUID(), status: .delayed, recordedAt: Date())])]
+        let policy = LocalMedicalResponsePolicy()
+        let prompt = policy.buildLocalPrompt(for: request, answerPlan: policy.localAnswerPlan(for: request))
+        #expect(prompt.contains("已服药名：今日已记录服用 1 次"))
+        #expect(!prompt.contains("仅稍后药名"))
+    }
+
+    @Test
+    func generalQuestionIsNotForcedIntoTodayMedicationPrompt() {
+        let policy = LocalMedicalResponsePolicy()
+        var request = Self.request()
+        request.userMessage = "按时记录用药有什么意义？"
+        let prompt = policy.buildLocalPrompt(for: request, answerPlan: policy.localAnswerPlan(for: request))
+        #expect(prompt.contains("按时记录用药有什么意义"))
+        #expect(!prompt.contains("今日待处理药品是"))
+        request.userMessage = "今天需要注意什么？"
+        let emptyTodayPrompt = policy.buildLocalPrompt(for: request, answerPlan: policy.localAnswerPlan(for: request))
+        #expect(!emptyTodayPrompt.contains("必须包含这些词"))
+        #expect(emptyTodayPrompt.contains("资料"))
+    }
+
+    @Test(arguments: ["什么是 ibuprofen？", "怎样开始保存用药记录？", "请用一句话说明按时记录用药的意义。"])
+    func genericQuestionsAreNotRoutedToMissedDoseTrend(question: String) {
+        let policy = LocalMedicalResponsePolicy()
+        var request = Self.request()
+        request.userMessage = question
+        let plan = policy.localAnswerPlan(for: request)
+        let prompt = policy.buildLocalPrompt(for: request, answerPlan: plan)
+        #expect(!plan.focus.contains("忽略或稍后趋势"))
+        #expect(!prompt.contains("过去14天"))
+        #expect(!prompt.contains(plan.factGuidance))
+    }
+
+    @Test
+    func explicitConsultationTopicWinsOverSupportingRiskWords() {
+        let policy = LocalMedicalResponsePolicy()
+        var request = Self.request()
+        request.userMessage = "请只基于 App 内授权共享的服药记录、剂量变化、风险提醒和药品信息，整理复诊时可以说明的重点。"
+        #expect(policy.localAnswerPlan(for: request).focus.contains("复诊"))
+    }
+
+    @Test(arguments: [
+        "本地记录不足，建议吃 ibuprofen，每次两片。",
+        "- 建议吃 ibuprofen，每次两片。",
+        "1. 建议吃 ibuprofen，每次两片。",
+        "本地资料不足，请勿继续使用该药。"
+    ])
+    func treatmentCommandsFollowingCommaAreStillRejected(answer: String) async {
+        let runtime = StubLocalMedicalRuntime(outputs: [answer, answer])
+        let client = LocalMedicalAIClient(modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"), runtime: runtime)
+        do {
+            _ = try await client.respond(to: Self.request())
+            Issue.record("Expected direct treatment command rejection")
+        } catch let error as LocalMedicalAIError {
+            #expect(error.diagnosticSummary == "unstable-response")
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+    }
+
+    @Test
+    func streamedSafeWordingCompletesWithoutRepair() async throws {
+        let answer = "很抱歉，今天本地记录不足，不能根据现有记录判断完成情况。"
+        let runtime = StubLocalMedicalRuntime(outputs: [answer])
+        let client = LocalMedicalAIClient(
+            modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"), runtime: runtime
+        )
+        var completedAnswer: String?
+        for try await event in client.streamResponse(to: Self.request()) {
+            if case let .generationCompleted(answer, _) = event {
+                completedAnswer = answer
+            }
+            if case .generationFailed = event {
+                Issue.record("Safe streamed answer must not fail quality validation")
+            }
+        }
+        #expect(completedAnswer == answer)
+        #expect(await runtime.callCount == 1)
+    }
+
+    @Test(arguments: [
+        "今天的记录是 {\"completed\": 3}。",
+        "func 今日记录() { return 3 }",
+        "今天建议暂停使用药品，并保存记录。"
+    ])
+    func structuredOrUnsafeOutputStillFailsAfterRepair(answer: String) async {
+        let runtime = StubLocalMedicalRuntime(outputs: [answer, answer])
+        let client = LocalMedicalAIClient(
+            modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"), runtime: runtime
+        )
+        do {
+            _ = try await client.respond(to: Self.request())
+            Issue.record("Expected malformed or unsafe output to fail quality validation")
+        } catch let error as LocalMedicalAIError {
+            #expect(error.diagnosticSummary == "unstable-response")
+        } catch {
+            Issue.record("Unexpected error: \(error)")
+        }
+        #expect(await runtime.callCount == 2)
+    }
+
     @Test
     func callerCancellationStopsGenerationBeforeAResponseIsReturned() async {
         let runtime = StubLocalMedicalRuntime(
@@ -107,7 +415,17 @@ private actor StubLocalMedicalRuntime: LocalMedicalGenerating {
         modelURL: URL,
         maxTokens: Int
     ) async -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { continuation in
+        let output: String
+        do {
+            output = try await generateResponse(prompt: prompt, modelURL: modelURL, maxTokens: maxTokens)
+        } catch {
+            return AsyncThrowingStream { $0.finish(throwing: error) }
+        }
+        return AsyncThrowingStream { continuation in
+            // Split the output so the client must assemble streamed deltas.
+            let split = output.index(output.startIndex, offsetBy: output.count / 2)
+            continuation.yield(String(output[..<split]))
+            continuation.yield(String(output[split...]))
             continuation.finish()
         }
     }

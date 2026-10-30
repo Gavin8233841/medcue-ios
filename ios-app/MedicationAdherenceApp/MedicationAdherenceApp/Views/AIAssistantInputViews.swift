@@ -13,6 +13,9 @@ struct AIChatInputBar: View {
     let isEnabled: Bool
     let showDisclaimer: () -> Void
     let send: () -> Void
+    let capturedImage: (UIImage) -> Void
+    @State private var showingCamera = false
+    @State private var showingCameraDenied = false
 
     private var trimmedText: String {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -30,10 +33,27 @@ struct AIChatInputBar: View {
         let inputTint = accentTint
 
         HStack(alignment: .center, spacing: 8) {
-            PhotosPicker(selection: $selectedImageItem, matching: .images) {
+            Menu {
+                Button {
+                    dismissKeyboard()
+                    Task { @MainActor in
+                        if await AppPermissionGate.requestCameraAccess() {
+                            showingCamera = true
+                        } else {
+                            showingCameraDenied = true
+                        }
+                    }
+                } label: {
+                    Label("拍照", systemImage: "camera")
+                }
+                .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
+                PhotosPicker(selection: $selectedImageItem, matching: .images) {
+                    Label("从相册选择", systemImage: "photo")
+                }
+            } label: {
                 AIChatAccessoryIcon(
                     systemName: isReadingImage ? "hourglass" : "photo.badge.plus",
-                    accessibilityLabel: "发送图片",
+                    accessibilityLabel: "添加图片或拍照",
                     tint: inputTint,
                     isEnabled: isEnabled && !isSending && !isReadingImage
                 )
@@ -41,29 +61,18 @@ struct AIChatInputBar: View {
             .buttonStyle(.plain)
             .disabled(!isEnabled || isSending || isReadingImage)
 
-            TextField(isEnabled ? "询问用药记录、风险提示或说明书摘要" : "确认使用说明后开启咨询", text: $text, axis: .vertical)
-                .lineLimit(1...5)
+            TextField(isEnabled ? "聊聊健康、用药或记录…" : "确认使用说明后开启咨询", text: $text, axis: .vertical)
+                .lineLimit(isFocused.wrappedValue ? 1...5 : 1...1)
                 .textInputAutocapitalization(.never)
                 .focused(isFocused)
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 4)
                 .padding(.vertical, 10)
                 .frame(minHeight: 44)
-                .background(Color(.systemBackground).opacity(0.92), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(accentTint.opacity(isFocused.wrappedValue ? 0.28 : 0.10), lineWidth: 1)
-                )
                 .disabled(!isEnabled || isSending)
                 .accessibilityIdentifier(AppAccessibilityID.assistantInput)
-                .toolbar {
-                    ToolbarItemGroup(placement: .keyboard) {
-                        Spacer()
-                        Button("收起") {
-                            dismissKeyboard()
-                        }
-                        .disabled(!isFocused.wrappedValue)
-                    }
-                }
+                .submitLabel(.send)
+                .onSubmit { if canSend { send() } }
+
 
             Button {
                 isEnabled ? send() : showDisclaimer()
@@ -82,14 +91,28 @@ struct AIChatInputBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
                 .stroke(accentTint.opacity(0.14), lineWidth: 1)
         )
         .shadow(color: accentTint.opacity(0.06), radius: 10, x: 0, y: 4)
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
+        .fullScreenCover(isPresented: $showingCamera) {
+            CameraPhotoCaptureSheet(onImage: capturedImage)
+                .ignoresSafeArea()
+        }
+        .alert("无法使用相机", isPresented: $showingCameraDenied) {
+            Button("打开设置") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("请在系统设置中允许 MedCue 使用相机，或从相册选择图片。")
+        }
     }
 
     private func dismissKeyboard() {
