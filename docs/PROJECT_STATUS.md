@@ -39,17 +39,30 @@ recording use must be preserved before retirement.
 
 The detailed local inventory and first proposed cache-only removal plan are at
 `.codex-local/local-ai-repair-20261028/round2/WORKTREE_CLEANUP_REVIEW.md`.
-The proposed 38 explicit cache directories total about 3.77 GiB of allocated
-storage. They exclude the active model build cache, source, models, recordings,
-logs and result bundles. Removal requires the owner's path-scoped confirmation;
-allocated directory sizes are not guaranteed APFS free-space savings.
+After explicit owner approval of the path-scoped list, all 38 cache directories
+were revalidated against the approved plan, checked for open-file use, removed,
+and verified absent. They held about 3.77 GiB of allocated storage; observed free
+space increased about 3.66 GiB during removal (not an APFS reclamation guarantee).
+The active model build cache, source, models, recordings, logs and result bundles
+were preserved. No worktree or branch was removed. The local receipt is
+`.codex-local/local-ai-repair-20261028/round2/cache-cleanup-receipt-20261031.json`.
 
 The source checkpoint rebuilt successfully as signed iPhone Debug and installed
-on the connected competition device. Initial synthetic inference launch was
-rejected because the device was locked; installation is not inference acceptance.
-The planned five cases are greeting, English switch, two vague discomfort turns,
-and the environment shortcut. No new inference constraints, canned replies or
-post-generation rewriting were added during this audit.
+on the connected competition device. After the owner unlocked it, five synthetic
+requests completed using the real MiniCPM5-2B runtime: `hi` produced a greeting;
+`lets speak English` returned "Let's speak English."; both vague discomfort
+requests asked where/when symptoms started; the environment shortcut stated that
+weather/environment data was absent, without the repeated welcome paragraph.
+The brief "您好" remained on one discomfort reply; the full boilerplate did not.
+Raw and processed text matched in all five cases. Elapsed times were 0.85-1.79
+seconds. These cases verify the reported narrow gaps, not general answer quality,
+sustained conversation-language switching, cloud behavior or access to real
+weather data. No new inference constraints, canned replies or post-generation
+rewriting were added during this audit. The app then launched normally again;
+ordinary medication records were neither read into these tests nor changed.
+The exact executable hash/source checkpoint and synthetic outputs are retained
+in `latest-owner-device-receipt.json` and `latest-owner-device-results.txt` under
+`.codex-local/local-ai-repair-20261028/round2/`.
 
 ## 2026-10-30 Duo assistant parallel workspace capture
 
