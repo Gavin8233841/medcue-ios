@@ -18,6 +18,39 @@ Unless explicitly dated otherwise, repository, ruleset, and Issue-label snapshot
 below belong to that audit. Read back live GitHub state before relying on them
 for a new operation; the targeted update is not a full source or release audit.
 
+## 2026-10-31 Owner-selected development checkpoint and workspace audit
+
+The owner designated this workline as the latest local App development checkpoint:
+`codex/finals-baseline-integration@dca427d881c606c286f16897b562822bc24ceeb9`.
+Use the canonical checkout described in `TOOLING_AND_PLUGIN_PLAN.md`; recording
+and further development should resolve this branch explicitly instead of guessing
+from App version 1.0(1) or another historical worktree. This designation does not
+replace authoritative `main` or imply that the two branches are integrated.
+Local `main@4d9c6d50` and this checkpoint diverge by 49 main-only / 8 workline-only
+commits; merge/review/CI gates still apply before shared integration.
+
+The read-only audit found 37 registered worktrees, 12 with uncommitted or
+untracked content. The canonical directory uses about 73.65 GiB including its
+nested worktrees; it must not be added again to those nested sizes. Much of the
+space is historical build output, test evidence and recording materials, rather
+than source. No worktree is declared disposable solely because its tracked
+content is clean. Unique and detached history, ignored artifacts, and ongoing
+recording use must be preserved before retirement.
+
+The detailed local inventory and first proposed cache-only removal plan are at
+`.codex-local/local-ai-repair-20261028/round2/WORKTREE_CLEANUP_REVIEW.md`.
+The proposed 38 explicit cache directories total about 3.77 GiB of allocated
+storage. They exclude the active model build cache, source, models, recordings,
+logs and result bundles. Removal requires the owner's path-scoped confirmation;
+allocated directory sizes are not guaranteed APFS free-space savings.
+
+The source checkpoint rebuilt successfully as signed iPhone Debug and installed
+on the connected competition device. Initial synthetic inference launch was
+rejected because the device was locked; installation is not inference acceptance.
+The planned five cases are greeting, English switch, two vague discomfort turns,
+and the environment shortcut. No new inference constraints, canned replies or
+post-generation rewriting were added during this audit.
+
 ## 2026-10-30 Duo assistant parallel workspace capture
 
 The current Markdown chat screen had no auxiliary-column branch. Restored the
