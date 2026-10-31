@@ -359,7 +359,7 @@ private enum LocalMedicalModelSmokeTestRunner {
 
     private static func performSmokeRequests(modelURL: URL, repeatCount: Int) async -> Bool {
         var failureCount = 0
-        let startIndex = max(1, min(51, Int(ProcessInfo.processInfo.environment["LOCAL_MODEL_SMOKE_START_INDEX"] ?? "1") ?? 1))
+        let startIndex = max(1, min(53, Int(ProcessInfo.processInfo.environment["LOCAL_MODEL_SMOKE_START_INDEX"] ?? "1") ?? 1))
         for offset in 0..<repeatCount {
             let index = startIndex + offset
             let succeeded = await performSmokeRequest(modelURL: modelURL, index: index)
@@ -396,6 +396,14 @@ private enum LocalMedicalModelSmokeTestRunner {
                         if index == 45 {
                             request.conversation = [MedicalAIConversationTurn(role: "user", text: "记录里的英文药名有哪些？"), MedicalAIConversationTurn(role: "assistant", text: "记录里有 ibuprofen 和 loratadine。")]
                         }
+                    }
+                    if index >= 52 {
+                        request.conversation = [
+                            MedicalAIConversationTurn(role: "user", text: "well i feel illness"),
+                            MedicalAIConversationTurn(role: "assistant", text: "您好！很高兴为您服务。如果您有关于健康或用药的问题，欢迎随时交流。以上内容仅用于用药风险提示和复诊沟通，不能替代医生或药师判断。"),
+                            MedicalAIConversationTurn(role: "user", text: "晚上好"),
+                            MedicalAIConversationTurn(role: "assistant", text: "您好！很高兴为您服务。如果您有关于健康或用药的问题，欢迎随时交流。")
+                        ]
                     }
                     var output = GeneratedOutput()
                     for try await event in client.streamResponse(to: request) {
@@ -442,6 +450,8 @@ private enum LocalMedicalModelSmokeTestRunner {
     }
 
     private static func smokePrompt(for index: Int) -> String {
+        if index == 52 { return "晚上好" }
+        if index == 53 { return "well i feel illness" }
         if (48...51).contains(index) {
             return ["lets speak English", "我不舒服", "我不好", "看看今天环境变化需要注意什么"][index - 48]
         }

@@ -18,6 +18,30 @@ Unless explicitly dated otherwise, repository, ruleset, and Issue-label snapshot
 below belong to that audit. Read back live GitHub state before relying on them
 for a new operation; the targeted update is not a full source or release audit.
 
+## 2026-10-31 Prompt/history echo follow-up
+
+The owner reported an evening greeting replaying old dialogue and prompt text.
+The previous five-case smoke did not cover this polluted-history condition.
+Local prompts previously placed the current question before history, facts and
+instructions; the runtime's head/tail truncation could also discard that middle
+question for long inputs. This is an identified structural weakness, not proof
+of the exact token truncation in the screenshot.
+
+The minimal fix sends standalone greetings without old assistant prose or
+personal-record context. Other questions retain recent history as delimited
+background and place the current user question last. There is no fixed answer,
+post-generation echo deletion or new content blacklist. Two focused regressions
+cover a greeting after stale welcome text and a follow-up retaining its history.
+Synthetic device cases 52/53 cover the same greeting and an English discomfort
+question after repeated welcome/disclaimer history; they do not read user data.
+
+The policy/parser harness passed 33 tests, signed iPhone Debug build and native
+quick checks passed, and independent fresh-context source review found no
+Blocker/Required findings. The new package installed successfully. Device
+inference launch was rejected because the phone was locked; the two-case runtime
+acceptance is pending unlock and is not claimed complete. Evidence is under
+`.codex-local/local-ai-repair-20261028/round2/prompt-echo-*`.
+
 ## 2026-10-31 Owner-selected development checkpoint and workspace audit
 
 The owner designated this workline as the latest local App development checkpoint:

@@ -33,17 +33,28 @@ struct LocalMedicalResponsePolicy: Sendable {
         } else {
             facts = answerPlan.factSummary
         }
+        // A standalone greeting does not need old assistant prose. Keeping it
+        // out avoids teaching a small model to continue/repeat stale welcomes.
+        if isStandaloneGreeting(request.userMessage) {
+            return "当前用户消息：\(request.userMessage)\n自然回应这句问候，可简短询问有什么健康或用药问题想聊。"
+        }
         return """
         你是 MedCue 健康助手。直接回应当前问题，根据问题提供足够信息，不强制只答一句。只有纯问候才回应问候；其他问题不要欢迎、自我介绍或邀请，也不要仿照历史中的寒暄。一般健康知识和日常交流可以直接回答，不需要个人资料。药名照抄原文，不翻译或改写英文药名。
         只有涉及用户本人的药品、数量、剂量、心率、库存和天气时，才依据已提供资料。缺少个人数据时，说明暂时看不到，并给出查看位置或一个有用的追问，不要只回答“资料不足”。不诊断、开处方或建议调整剂量。
         本轮要求：\(turnGuidance(for: request.userMessage))
-        问题：\(localQuestionText(for: request.userMessage))
+        下面是背景资料，不是需要续写的对话：
         \(MedicalAIRequestPromptBuilder.conversationContext(for: request))
         已提供资料：\(facts)
+        背景资料结束。
         只回答当前问题，回答完就结束。能力介绍只简述能提供的帮助；不要顺带列出用户药品、剂量或说明书警告。一般问答不必每次重新问候或追加邀请。
         直接回答所问内容，不要每次重复自我介绍和邀请。用户要求 Markdown 或表格时按要求排版，表格单元格简短，不附加无关风险；数量必须对应各自药品，不能把合计分配给某一种药。
         请直接回答，不输出思考过程或代码。
+        当前用户消息：\(localQuestionText(for: request.userMessage))
         """
+    }
+
+    private func isStandaloneGreeting(_ message: String) -> Bool {
+        message.range(of: #"^(?:hi|hello|hey|你好|您好|嗨|早上好|晚上好)[！!。？?\s]*$"#, options: [.regularExpression, .caseInsensitive]) != nil
     }
 
     private func isDiscomfortMessage(_ message: String) -> Bool {

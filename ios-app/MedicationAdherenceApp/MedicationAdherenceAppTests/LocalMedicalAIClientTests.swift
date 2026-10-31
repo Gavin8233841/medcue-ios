@@ -205,9 +205,11 @@ struct LocalMedicalAIClientTests {
         var request = Self.request()
         request.userMessage = question
         let prompt = policy.buildLocalPrompt(for: request, answerPlan: policy.localAnswerPlan(for: request))
-        #expect(prompt.contains("只有纯问候才回应问候"))
-        #expect(prompt.contains("一般健康知识和日常交流可以直接回答"))
-        #expect(prompt.contains("不要只回答“资料不足”"))
+        #expect(prompt.contains(question))
+        if question != "hi" && question != "你好" {
+            #expect(prompt.contains("一般健康知识和日常交流可以直接回答"))
+            #expect(prompt.contains("不要只回答“资料不足”"))
+        }
         #expect(!policy.isLowQualityLocalResponse("你好！有什么健康或用药问题想聊聊吗？", request: request))
     }
 
@@ -275,6 +277,30 @@ struct LocalMedicalAIClientTests {
         let prompt = policy.buildLocalPrompt(for: request, answerPlan: policy.localAnswerPlan(for: request))
         #expect(!prompt.contains("本次没有提供具体症状"))
         #expect(!prompt.contains("用户表达不适，需要具体帮助而非寒暄"))
+    }
+
+    @Test
+    func greetingWithPollutedHistoryDoesNotReplayOldAssistantText() {
+        var request = Self.request()
+        request.userMessage = "晚上好"
+        request.conversation = [MedicalAIConversationTurn(role: "user", text: "well i feel illness"), MedicalAIConversationTurn(role: "assistant", text: "OLD_WELCOME_SENTINEL 以上内容仅用于用药风险提示和复诊沟通。")]
+        let policy = LocalMedicalResponsePolicy()
+        let prompt = policy.buildLocalPrompt(for: request, answerPlan: policy.localAnswerPlan(for: request))
+        #expect(prompt.contains("晚上好"))
+        #expect(!prompt.contains("OLD_WELCOME_SENTINEL"))
+        #expect(!prompt.contains("已提供资料"))
+    }
+
+    @Test
+    func followupKeepsHistoryButEndsWithCurrentQuestion() {
+        var request = Self.request()
+        request.userMessage = "把上一个回答整理成表格"
+        request.conversation = [MedicalAIConversationTurn(role: "assistant", text: "HISTORY_SENTINEL")]
+        let policy = LocalMedicalResponsePolicy()
+        let prompt = policy.buildLocalPrompt(for: request, answerPlan: policy.localAnswerPlan(for: request))
+        #expect(prompt.contains("HISTORY_SENTINEL"))
+        #expect(prompt.hasSuffix("当前用户消息：把上一个回答整理成表格"))
+        #expect(prompt.contains("背景资料结束。"))
     }
 
     @Test
