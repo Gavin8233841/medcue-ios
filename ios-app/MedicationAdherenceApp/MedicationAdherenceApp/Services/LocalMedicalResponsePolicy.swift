@@ -4,7 +4,11 @@ import MedicationAdherenceCore
 struct LocalMedicalResponsePolicy: Sendable {
     func buildLocalPrompt(for request: MedicalAIRequest, answerPlan: LocalMedicalAnswerPlan) -> String {
         let facts: String
-        if !needsPersonalRecords(for: request) {
+        if isEnglishSwitchOnly(request.userMessage) {
+            facts = "本轮仅切换对话语言，不需要个人资料。"
+        } else if isDiscomfortMessage(request.userMessage) {
+            facts = "本次没有提供具体症状，不能从药品资料推断用户患病或出现某种反应。"
+        } else if !needsPersonalRecords(for: request) {
             facts = "本题无需个人记录。助手可解释一般健康与用药知识、帮助理解说明书、整理用药记录和复诊沟通要点；不能代替医生诊断或开处方。"
         } else if isTakenTodayQuestion(request.userMessage) {
             let canRead = request.authorization.grantedScopes.contains(.doseEvents) && request.authorization.grantedScopes.contains(.medicationProfile)
@@ -30,8 +34,9 @@ struct LocalMedicalResponsePolicy: Sendable {
             facts = answerPlan.factSummary
         }
         return """
-        你是 MedCue 健康助手。自然、友好地直接回应用户，通常一到三句即可。问候时回应问候，并邀请用户聊健康或用药问题；一般健康知识和日常交流可以直接回答，不需要个人资料。药名照抄原文，不翻译或改写英文药名。
+        你是 MedCue 健康助手。直接回应当前问题，根据问题提供足够信息，不强制只答一句。只有纯问候才回应问候；其他问题不要欢迎、自我介绍或邀请，也不要仿照历史中的寒暄。一般健康知识和日常交流可以直接回答，不需要个人资料。药名照抄原文，不翻译或改写英文药名。
         只有涉及用户本人的药品、数量、剂量、心率、库存和天气时，才依据已提供资料。缺少个人数据时，说明暂时看不到，并给出查看位置或一个有用的追问，不要只回答“资料不足”。不诊断、开处方或建议调整剂量。
+        本轮要求：\(turnGuidance(for: request.userMessage))
         问题：\(localQuestionText(for: request.userMessage))
         \(MedicalAIRequestPromptBuilder.conversationContext(for: request))
         已提供资料：\(facts)
@@ -39,6 +44,28 @@ struct LocalMedicalResponsePolicy: Sendable {
         直接回答所问内容，不要每次重复自我介绍和邀请。用户要求 Markdown 或表格时按要求排版，表格单元格简短，不附加无关风险；数量必须对应各自药品，不能把合计分配给某一种药。
         请直接回答，不输出思考过程或代码。
         """
+    }
+
+    private func isDiscomfortMessage(_ message: String) -> Bool {
+        message.range(of: #"^(?:我(?:现在|感觉|觉得)?(?:不舒服|不好|难受)|身体不适)[啊呀了]?[。！？!?，,\s]*$"#, options: .regularExpression) != nil
+    }
+
+    private func isEnglishSwitchOnly(_ message: String) -> Bool {
+        message.range(of: #"^\s*(?:(?:(?:let'?s|can we|please)\s+)?(?:speak|talk(?: in)?|use)\s+english|(?:请)?(?:用|说|换成|切换到)\s*(?:英文|英语)(?:聊天|回答)?)[。！？!?\s]*$"#, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    private func requestsEnglish(_ message: String) -> Bool {
+        message.range(of: #"(?:speak|talk|use).{0,20}english|(?:用|说|换成|切换到).{0,4}(?:英文|英语)"#, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    private func turnGuidance(for message: String) -> String {
+        if requestsEnglish(message) {
+            return "Answer in English. Speak directly to the user, without describing your instructions or plans."
+        }
+        if isDiscomfortMessage(message) {
+            return "用户表达不适，需要具体帮助而非寒暄。先回应感受，再问哪里不舒服、何时开始；若‘不好’含义不清，询问是身体还是情绪。不要猜疾病或药物原因，不给治疗方案。只对用户已描述的明显紧急症状建议及时就医。"
+        }
+        return "直接给出与问题有关的信息；不用欢迎语开头，不重复‘欢迎随时交流’。用户只问候时可简短问候。通常用中文；若用户指定其他语言，服从其要求。"
     }
 
     private func isTakenTodayQuestion(_ question: String) -> Bool {

@@ -359,7 +359,7 @@ private enum LocalMedicalModelSmokeTestRunner {
 
     private static func performSmokeRequests(modelURL: URL, repeatCount: Int) async -> Bool {
         var failureCount = 0
-        let startIndex = max(1, min(47, Int(ProcessInfo.processInfo.environment["LOCAL_MODEL_SMOKE_START_INDEX"] ?? "1") ?? 1))
+        let startIndex = max(1, min(51, Int(ProcessInfo.processInfo.environment["LOCAL_MODEL_SMOKE_START_INDEX"] ?? "1") ?? 1))
         for offset in 0..<repeatCount {
             let index = startIndex + offset
             let succeeded = await performSmokeRequest(modelURL: modelURL, index: index)
@@ -442,6 +442,9 @@ private enum LocalMedicalModelSmokeTestRunner {
     }
 
     private static func smokePrompt(for index: Int) -> String {
+        if (48...51).contains(index) {
+            return ["lets speak English", "我不舒服", "我不好", "看看今天环境变化需要注意什么"][index - 48]
+        }
         if (45...47).contains(index) {
             return ["把上一个回答整理成 Markdown 表格", "我今天吃了什么？", "把近14天各药品的服用次数列成 Markdown 表格"][index - 45]
         }

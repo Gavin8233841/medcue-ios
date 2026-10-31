@@ -32,6 +32,48 @@ claim. Supplemental real replies produced headings/numbered lists, but described
 skipped tasks as missed/unprocessed; those takes are excluded from recommended
 media and further model requests were stopped. Media and exact local binary hash: `.codex-local/yzy-rerecord-20261027/duo-markdown-20261030/Duo三维采用索引.md`.
 
+## 2026-10-31 Targeted response gaps and simulator recording banner
+
+Based on `946ee4a`, tightened prompt/context only for the reported local turns:
+welcome language is reserved for pure greetings, explicit English requests take
+priority, and standalone vague discomfort receives symptom clarification rather
+than boilerplate. Specific symptoms/mixed record questions retain the original
+context path. Pure language switches omit unrelated medication data; requesting
+English for a medical question does not discard its records. No fixed response,
+post-generation sentence deletion, or replacement answer was added.
+
+Device synthetic raw generations showed “我不舒服” asking where/when symptoms
+started; “我不好” asking for details; a no-weather quick prompt stating that
+weather data was absent without the welcome paragraph. Initial English output
+was an undesirable meta-description; shortening the task guidance yielded the
+raw response “Let's speak English.” in the one-case recheck (0.84 seconds).
+These are narrow cases, not a general quality/accuracy score. Ordinary user data
+was not seeded or logged. The targeted policy/parser harness passed 31 tests;
+simulator and signed iPhone Debug builds and quick checks passed. Independent
+source review closed the vague-discomfort and mixed-English-context findings.
+
+For the owner's explicitly authorized recording unblock, simulator Debug/Demo
+builds accept `--recording-hide-reminder-banner`. This hides only the Today-page
+ordinary-notification failure banner. Real scheduler errors remain unchanged;
+physical devices and normal launches are unaffected. This is a recording-only
+presentation option, not a repaired or validated notification delivery claim.
+The budget wording in the supplied screenshot is absent from this branch, so
+that recording binary may have a different source revision. Build this source
+checkpoint before expecting its flag to work; do not reset a recording library.
+
+Recording operator command (replace the placeholder with the existing selected
+recording simulator; do not create a new simulator):
+
+```sh
+xcrun simctl launch --terminate-running-process <recording-simulator-udid> com.gwyy.appcontest2026.medicationadherence --recording-hide-reminder-banner
+```
+
+The simulator-only flag compiled successfully; it was not manually applied to
+another thread's active recording simulator. No new simulator, model download,
+real cloud call, push or main-merge claim in this local checkpoint. Evidence is
+in the ignored `round2/targeted-turn-*` namespace. The owner retains manual
+acceptance of arbitrary conversation quality and recording footage.
+
 ## 2026-10-30 Markdown, short conversation context and factual record summaries
 
 Owner approved a small working loop rather than prepared answers or a new data

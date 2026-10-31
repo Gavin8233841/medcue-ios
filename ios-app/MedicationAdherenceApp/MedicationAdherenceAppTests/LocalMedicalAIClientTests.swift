@@ -205,7 +205,7 @@ struct LocalMedicalAIClientTests {
         var request = Self.request()
         request.userMessage = question
         let prompt = policy.buildLocalPrompt(for: request, answerPlan: policy.localAnswerPlan(for: request))
-        #expect(prompt.contains("问候时回应问候"))
+        #expect(prompt.contains("只有纯问候才回应问候"))
         #expect(prompt.contains("一般健康知识和日常交流可以直接回答"))
         #expect(prompt.contains("不要只回答“资料不足”"))
         #expect(!policy.isLowQualityLocalResponse("你好！有什么健康或用药问题想聊聊吗？", request: request))
@@ -255,6 +255,47 @@ struct LocalMedicalAIClientTests {
         let prompt = policy.buildLocalPrompt(for: request, answerPlan: policy.localAnswerPlan(for: request))
         #expect(prompt.contains("已服药名：今日已记录服用 1 次"))
         #expect(!prompt.contains("仅稍后药名"))
+    }
+
+    @Test(arguments: ["我不舒服", "我不好"])
+    func discomfortPromptAsksAboutSymptomsWithoutUnrelatedMedication(question: String) {
+        var request = Self.request()
+        request.userMessage = question
+        let policy = LocalMedicalResponsePolicy()
+        let prompt = policy.buildLocalPrompt(for: request, answerPlan: LocalMedicalAnswerPlan(focus: "一般问题", factSummary: "无关药品事实_SENTINEL", factGuidance: "", requiredFragments: []))
+        #expect(!prompt.contains("无关药品事实_SENTINEL"))
+        #expect(prompt.contains("哪里不舒服、何时开始"))
+    }
+
+    @Test(arguments: ["我不舒服，胸痛已经半小时", "我不好判断今天吃了什么药"])
+    func specificOrMixedQuestionIsNotTreatedAsVagueDiscomfort(question: String) {
+        var request = Self.request()
+        request.userMessage = question
+        let policy = LocalMedicalResponsePolicy()
+        let prompt = policy.buildLocalPrompt(for: request, answerPlan: policy.localAnswerPlan(for: request))
+        #expect(!prompt.contains("本次没有提供具体症状"))
+        #expect(!prompt.contains("用户表达不适，需要具体帮助而非寒暄"))
+    }
+
+    @Test
+    func englishMedicalQuestionRetainsRecordContextPath() {
+        var request = Self.request()
+        request.userMessage = "请用英语告诉我今天吃了什么药"
+        let policy = LocalMedicalResponsePolicy()
+        let prompt = policy.buildLocalPrompt(for: request, answerPlan: policy.localAnswerPlan(for: request))
+        #expect(prompt.contains("Answer in English."))
+        #expect(prompt.contains("本次未共享药品或服药记录"))
+        #expect(!prompt.contains("本轮仅切换对话语言"))
+    }
+
+    @Test
+    func explicitEnglishSwitchOverridesDefaultChinese() {
+        var request = Self.request()
+        request.userMessage = "lets speak English"
+        let policy = LocalMedicalResponsePolicy()
+        let prompt = policy.buildLocalPrompt(for: request, answerPlan: policy.localAnswerPlan(for: request))
+        #expect(prompt.contains("Answer in English."))
+        #expect(!prompt.contains("简短中文直接回答"))
     }
 
     @Test

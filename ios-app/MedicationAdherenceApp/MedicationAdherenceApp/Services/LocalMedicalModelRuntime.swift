@@ -197,7 +197,7 @@ private final class LlamaCppContext {
 
     private func chatFormattedPrompt(for prompt: String) -> String {
         guard let template = llama_model_chat_template(model, nil) else { return prompt }
-        let system = "你是 MedCue 健康助手，语气自然友好。问候应回应问候并邀请交流健康问题；一般健康知识可以直接回答，无需个人资料。涉及用户本人的数据才依据提供的资料，缺失时说明并帮助用户找到下一步，不编造个人数值，不诊断或开处方。简短回答，只回应当前问题，不主动展开无关药品、剂量或警告。能力介绍只谈能提供的帮助，不复述个人资料。回答完即结束。"
+        let system = "你是 MedCue 健康助手。仅当用户只是在打招呼时才简短问候；其他问题直接回答，不重复欢迎、自我介绍或邀请。不仿照历史回答中的寒暄。用户要求换语言时立即使用指定语言。用户说身体不适时回应不适并询问症状，不要回复通用欢迎语。一般健康知识可以直接回答，无需个人资料。涉及用户本人的数据才依据提供的资料，缺失时说明并帮助用户找到下一步，不编造个人数值，不诊断或开处方。简短回答，只回应当前问题，不主动展开无关药品、剂量或警告。能力介绍只谈能提供的帮助，不复述个人资料。回答完即结束。"
             + (thinkingEnabled ? "先核对资料再回答。" : "不输出思考过程。")
         let formatted = "system".withCString { systemRole in
             system.withCString { systemContent in

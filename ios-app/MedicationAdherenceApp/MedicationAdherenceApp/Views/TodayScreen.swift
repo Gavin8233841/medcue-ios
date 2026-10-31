@@ -61,6 +61,13 @@ struct TodayScreen: View {
         .autoconnect()
 
     private var notificationUnavailableDetailText: String? {
+        #if targetEnvironment(simulator) && (DEBUG || MEDCUE_DEMO)
+        // Explicit capture-only presentation. Scheduling and its real failure
+        // state remain untouched; this switch cannot affect physical devices.
+        if ProcessInfo.processInfo.arguments.contains("--recording-hide-reminder-banner") {
+            return nil
+        }
+        #endif
         let message = notificationUnavailableMessage
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty else {
