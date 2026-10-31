@@ -18,6 +18,43 @@ Unless explicitly dated otherwise, repository, ruleset, and Issue-label snapshot
 below belong to that audit. Read back live GitHub state before relying on them
 for a new operation; the targeted update is not a full source or release audit.
 
+## 2026-11-01 HealthKit simulator authorization unblock
+
+The recording build log explicitly disabled signing (`CODE_SIGNING_ALLOWED=NO`).
+Source HealthKit entitlement, project entitlement path and read-purpose string
+were already configured; none was added and no device signing account changed.
+A simulator Debug build with `CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-`
+succeeded using the existing local-model DerivedData namespace. Its executable
+contains `com.apple.developer.healthkit=true` in the simulator Mach-O
+`__TEXT,__entitlements` section, and deep signature validation passed. The empty
+`codesign -d --entitlements` signature slot alone is not evidence of missing
+simulator entitlements.
+
+The permission primer additionally now captures the displayed authorization gate
+before SwiftUI's alert presentation Binding is cleared. Cancellation still does
+not request or record authorization; only the user's continue action invokes the
+existing system request. The scope of HealthKit reads and completion semantics
+are unchanged. Fresh-context independent review found no Required/Blocker issues;
+simulator build and native quick checks passed.
+
+On the explicitly handed-off ordinary recording simulator, updated in place
+without reset, reseed or sample edits: cancellation retained the not-authorized
+state, and accepting subsequently displayed the real system Health access panel.
+RocketSim's accessibility tree continued exposing the underlying MedCue screen,
+so automated system-switch interactions were not verified. The simulator remains
+on the system panel for recording-owner completion. The three existing synthetic
+heart-rate samples were not created, changed or removed by this work; successful
+readback of three samples is not claimed. Duo was not operated.
+
+The retained simulator package, binary hashes, authorization-panel screenshot and
+scope receipt are under
+`.codex-local/local-ai-repair-20261028/round2/healthkit-primer-fixed/`.
+This fixes the local recording build/primer path, not physical-device HealthKit
+acceptance or a main merge. Reproduce the simulator build with the existing
+project/scheme, Debug, generic iOS Simulator, arm64, the retained DerivedData,
+`CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=-`; never use the unsigned recording
+command for permission acceptance.
+
 ## 2026-10-31 Prompt/history echo follow-up
 
 The owner reported an evening greeting replaying old dialogue and prompt text.
