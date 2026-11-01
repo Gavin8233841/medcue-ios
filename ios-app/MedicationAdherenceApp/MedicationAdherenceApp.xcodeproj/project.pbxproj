@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		EA0100000000000000000001 /* ElderTaskScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA0200000000000000000001 /* ElderTaskScreen.swift */; };
 		094A49BBBE8241AD805F0DB7 /* MedicationTrendProjection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D9D55DE5B394B95AFE4FD9C /* MedicationTrendProjection.swift */; };
 		0A7C94B0AB629D2DACC001B3 /* VisitSummaryPDFExportViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4135C281C31F1960CC9D7DB9 /* VisitSummaryPDFExportViews.swift */; };
 		0AA576477860BFDBB366312D /* HelpCenterCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9A454F320A04157072584F4 /* HelpCenterCatalog.swift */; };
@@ -224,6 +225,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		EA0200000000000000000001 /* ElderTaskScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ElderTaskScreen.swift; sourceTree = "<group>"; };
 		054DED098A1944609F20BDF8 /* MedicationTaskObservationWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationTaskObservationWindow.swift; sourceTree = "<group>"; };
 		081D397587D84E33974AF67A /* RiskDisplayProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiskDisplayProjection.swift; sourceTree = "<group>"; };
 		1093BA44610641CEAFBE772E /* MedicationDashboardViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MedicationDashboardViews.swift; sourceTree = "<group>"; };
@@ -530,6 +532,7 @@
 				A20000000000000000000008 /* SharedViews.swift */,
 				A20000000000000000000009 /* TodayView.swift */,
 				D20000000000000000000001 /* TodayScreen.swift */,
+				EA0200000000000000000001 /* ElderTaskScreen.swift */,
 				A20000000000000000000070 /* TodayDoseComponents.swift */,
 				F70000000000000000000002 /* TodayDoseProjection.swift */,
 				C7E5D0B88F904B71B2D3E4F5 /* TodayDoseInteractionState.swift */,
@@ -977,6 +980,7 @@
 				A10000000000000000000008 /* SharedViews.swift in Sources */,
 				A10000000000000000000009 /* TodayView.swift in Sources */,
 				D10000000000000000000001 /* TodayScreen.swift in Sources */,
+				EA0100000000000000000001 /* ElderTaskScreen.swift in Sources */,
 				A10000000000000000000069 /* TodayDoseComponents.swift in Sources */,
 				F70000000000000000000001 /* TodayDoseProjection.swift in Sources */,
 				B6D4C9A77E8F4A60A1C2D3E4 /* TodayDoseInteractionState.swift in Sources */,

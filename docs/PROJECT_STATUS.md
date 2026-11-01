@@ -18,6 +18,34 @@ Unless explicitly dated otherwise, repository, ruleset, and Issue-label snapshot
 below belong to that audit. Read back live GitHub state before relying on them
 for a new operation; the targeted update is not a full source or release audit.
 
+## 2026-11-02 Minimal elder presentation integration
+
+Restored the existing `appExperienceMode` setting and root navigation switch on
+the latest development workline. Settings → 使用模式 selects 完整模式/适老模式;
+the elder page presents one pending task, larger medication photo/name/dose and
+high-contrast completion/delay/help controls. Photo downsampling and button
+presentation reuse Issue #46 (`codex/46-elder-mode-m1`). Switching returns to
+Today. Both modes use the same TodayView snapshot, confirmation, persistence,
+feedback and system-surface action paths; no old reminder implementation,
+authorization logic, database migration or additional task store was imported.
+
+This is a bounded presentation restoration, not the whole historical elder M1:
+help opens existing usage guidance; post-completion corrections use complete
+mode. Existing undo banners remain available only when produced by their current
+action path. Action controls are disabled during existing feedback; notification
+presentation reuses the complete page's capture-only filter.
+
+Simulator build, native quick checks and 16 focused persistence/projection tests
+passed. Fresh-context independent review Required findings were resolved.
+An existing non-recording test simulator/library was reused: Settings switched to
+elder; one completion advanced to the next task; delay confirmation shifted
+13:00 to 13:30; switching back to complete Today showed the same delayed task and
+one completed item. Original recording target/library was not operated. Evidence
+and retained Simulator package receipt are in
+`.codex-local/local-ai-repair-20261028/round2/elder-current/` and sibling
+`elder-integration-*`/`elder-ui-*` files. No physical-device acceptance, four-device
+synchronization, remote CI or main merge is claimed by this local check.
+
 ## 2026-11-01 Bounded startup responsiveness repair
 
 The owner observed two white-screen/unresponsive launches on the competition

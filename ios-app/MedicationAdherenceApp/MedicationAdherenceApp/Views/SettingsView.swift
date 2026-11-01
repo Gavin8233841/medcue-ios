@@ -351,6 +351,7 @@ private struct ProfileActionRow: View {
 }
 
 struct SettingsView: View {
+    @AppStorage(AppExperienceMode.storageKey) private var experienceMode = AppExperienceMode.complete.rawValue
     @Environment(\.modelContext) private var modelContext
     @AppStorage("appColorSchemePreference") private var appColorSchemePreference = AppColorSchemePreference.system.rawValue
     @AppStorage("prefersReducedAppMotion") private var prefersReducedAppMotion = false
@@ -363,6 +364,14 @@ struct SettingsView: View {
 
     var body: some View {
         List {
+            Section("使用模式") {
+                Picker("使用模式", selection: $experienceMode) {
+                    ForEach(AppExperienceMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode.rawValue)
+                    }
+                }.accessibilityIdentifier("settings.experience-mode")
+            }
+
             Section("外观与交互") {
                 Picker("显示模式", selection: $appColorSchemePreference) {
                     ForEach(AppColorSchemePreference.allCases) { preference in

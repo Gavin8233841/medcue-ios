@@ -60,7 +60,7 @@ struct TodayScreen: View {
         .publish(every: 60, on: .main, in: .common)
         .autoconnect()
 
-    private var notificationUnavailableDetailText: String? {
+    var notificationUnavailableDetailText: String? {
         #if targetEnvironment(simulator) && (DEBUG || MEDCUE_DEMO)
         // Explicit capture-only presentation. Scheduling and its real failure
         // state remain untouched; this switch cannot affect physical devices.

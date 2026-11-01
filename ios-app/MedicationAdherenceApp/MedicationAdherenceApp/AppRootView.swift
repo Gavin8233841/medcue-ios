@@ -9,6 +9,7 @@ struct AppRootView: View {
     @AppStorage("hasCompletedFirstLaunchSetup") private var hasCompletedFirstLaunchSetup = false
     @AppStorage(AppPersistenceCommitter.failureMessageDefaultsKey) private var persistenceFailureMessage = ""
     @StateObject private var notificationService = NotificationService()
+    @AppStorage(AppExperienceMode.storageKey) private var experienceMode = AppExperienceMode.complete.rawValue
     @State private var selectedTab: AppTab = .today
     @State private var loadedTabs: Set<AppTab> = [.today]
     @State private var pendingAIQuestion = ""
@@ -38,6 +39,10 @@ struct AppRootView: View {
 
     var body: some View {
         ZStack {
+            Group {
+                if experienceMode == AppExperienceMode.elder.rawValue {
+                    NavigationStack { TodayView() }
+                } else {
             TabView(selection: selectedTabBinding) {
                 ForEach(AppTab.allCases) { tab in
                     NavigationStack {
@@ -50,6 +55,8 @@ struct AppRootView: View {
                     .tabItem { tab.label }
                     .accessibilityIdentifier(tab.accessibilityIdentifier)
                     .tag(tab)
+                }
+            }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -129,6 +136,9 @@ struct AppRootView: View {
                 return
             }
             await reconcileStartupReminders(after: .milliseconds(700))
+        }
+        .onChange(of: experienceMode) { _, _ in
+            activateTab(.today)
         }
         .onOpenURL { url in
             guard let request = MedicationReminderLiveActivityActionURL.request(from: url) else {

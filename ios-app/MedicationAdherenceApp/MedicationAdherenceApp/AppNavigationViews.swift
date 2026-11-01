@@ -19,6 +19,24 @@ enum AppAccessibilityID {
     static let firstLaunchNext = "firstLaunch.next"
 }
 
+enum AppExperienceMode: String, CaseIterable, Identifiable {
+    static let storageKey = "appExperienceMode"
+
+    case complete
+    case elder
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .complete:
+            "完整模式"
+        case .elder:
+            "适老模式"
+        }
+    }
+}
+
 struct AppTabContentView: View, Equatable {
     let tab: AppTab
     let isLoaded: Bool

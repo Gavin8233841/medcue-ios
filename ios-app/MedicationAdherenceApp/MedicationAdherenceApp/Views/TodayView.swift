@@ -13,6 +13,7 @@ struct TodayView: View {
     @StateObject private var notificationService = NotificationService()
     @StateObject private var liveActivityService = MedicationLiveActivityService()
     @StateObject private var weatherMedicationService = WeatherMedicationService()
+    @AppStorage(AppExperienceMode.storageKey) private var experienceMode = AppExperienceMode.complete.rawValue
     @State private var taskPendingArchive: StoredDoseTask?
     @State private var showingArchiveConfirmation = false
     @State private var showingHandledTasks = false
@@ -100,10 +101,19 @@ struct TodayView: View {
     }
 
     var body: some View {
+        let screen = standardScreen
+        if experienceMode == AppExperienceMode.elder.rawValue {
+            ElderTaskScreen(screen: screen)
+        } else {
+            screen
+        }
+    }
+
+    private var standardScreen: TodayScreen {
         let snapshot = doseProjectionStore.projection(
             for: doseProjectionInput(now: Date())
         )
-        TodayScreen(
+        return TodayScreen(
             snapshot: snapshot,
             notificationUnavailableMessage: reminderNotificationUnavailableMessage,
             completionRateFeedback: completionRateFeedback,
