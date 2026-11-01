@@ -17,6 +17,24 @@ final class PersistenceIntegrityStartupCheck {
     )
     private var hasRun = false
 
+    func runInBackground(modelContainer: ModelContainer) async -> PersistenceIntegrityStartupCheckOutcome {
+        guard !hasRun else {
+            return .alreadyRan
+        }
+        // Reserve this run before suspending so scene updates cannot duplicate it.
+        hasRun = true
+        let result = await Task.detached(priority: .utility) {
+            // Create and use the context on this worker; never send main-context
+            // models across executors. The audit reads committed data only.
+            let context = ModelContext(modelContainer)
+            context.autosaveEnabled = false
+            return Result { try PersistenceIntegrityAuditor(modelContext: context).audit() }
+        }.value
+        return report(result: result) { message in
+            Self.logger.notice("\(message, privacy: .public)")
+        }
+    }
+
     func run(modelContext: ModelContext) -> PersistenceIntegrityStartupCheckOutcome {
         run(
             audit: { try PersistenceIntegrityAuditor(modelContext: modelContext).audit() },
@@ -35,8 +53,15 @@ final class PersistenceIntegrityStartupCheck {
         }
         hasRun = true
 
+        return report(result: Result { try audit() }, log: log)
+    }
+
+    private func report(
+        result: Result<PersistenceIntegrityReport, Error>,
+        log: (String) -> Void
+    ) -> PersistenceIntegrityStartupCheckOutcome {
         do {
-            let report = try audit()
+            let report = try result.get()
             guard !report.isClean else {
                 log("persistence-integrity clean")
                 return .clean

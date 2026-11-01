@@ -32,7 +32,6 @@ struct PersistenceIntegrityReport: Equatable, Sendable {
     }
 }
 
-@MainActor
 struct PersistenceIntegrityAuditor {
     private let modelContext: ModelContext
 

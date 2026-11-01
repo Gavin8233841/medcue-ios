@@ -243,7 +243,7 @@ struct AppRootView: View {
         guard !shouldShowFirstLaunchSetup else {
             return
         }
-        _ = persistenceIntegrityStartupCheck.run(modelContext: modelContext)
+        _ = await persistenceIntegrityStartupCheck.runInBackground(modelContainer: modelContext.container)
         await reconcileStartupReminders(after: .milliseconds(1_400))
     }
 

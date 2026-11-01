@@ -1,8 +1,35 @@
 import Foundation
+import MedicationAdherenceCore
+import SwiftData
 import Testing
 @testable import MedicationAdherenceApp
 
 struct PersistenceIntegrityStartupCheckTests {
+    @Test @MainActor
+    func backgroundAuditReadsCommittedDataWithoutChangingIt() async throws {
+        let container = try MedicationAdherenceModelContainer.make(isStoredInMemoryOnly: true)
+        let context = container.mainContext
+        let plan = StoredMedicationPlan(
+            medicationID: UUID(),
+            doseValue: 1,
+            doseUnit: "片",
+            timingSummary: "每日一次",
+            timeZonePolicy: .localClock,
+            sourceNote: "合成测试"
+        )
+        context.insert(plan)
+        try context.save()
+        let check = PersistenceIntegrityStartupCheck()
+
+        let outcome = await check.runInBackground(modelContainer: container)
+        let repeated = await check.runInBackground(modelContainer: container)
+
+        #expect(outcome == .issuesFound(totalCount: 1))
+        #expect(repeated == .alreadyRan)
+        #expect(try context.fetchCount(FetchDescriptor<StoredMedicationPlan>()) == 1)
+        #expect(!context.hasChanges)
+    }
+
     @Test @MainActor
     func issueLogContainsOnlyCategoryCounts() {
         let recordID = "sensitive-record-id"

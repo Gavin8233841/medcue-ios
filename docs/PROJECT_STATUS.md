@@ -18,6 +18,33 @@ Unless explicitly dated otherwise, repository, ruleset, and Issue-label snapshot
 below belong to that audit. Read back live GitHub state before relying on them
 for a new operation; the targeted update is not a full source or release audit.
 
+## 2026-11-01 Bounded startup responsiveness repair
+
+The owner observed two white-screen/unresponsive launches on the competition
+phone, recovering after removing the app from the app switcher. Source review
+identified the full nine-table persistence-integrity audit running synchronously
+on MainActor at startup. Local-model weights are not loaded on ordinary startup;
+model availability only checks file metadata. No matching MedCue crash report was
+available on the connected phone; the available October 31 jetsam report did not
+include MedCue. These observations do not establish the white-screen root cause.
+
+Startup now reserves its single integrity-audit run on MainActor, then performs
+the same read-only audit on a utility worker with a separately created context
+and autosave disabled. Only the Sendable report crosses back for count-only
+logging. Main-context models, medication writes, reminder scheduling and AI
+behavior are unchanged. Independent fresh-context review found no Required or
+Blocker issues. Six focused tests passed, including committed-record readback,
+no mutation and once-only execution; simulator/device builds and native quick
+checks passed. The first test compile required a missing test-module import,
+which was corrected before the successful run.
+
+The build was installed in place on the competition phone; normal launch was
+accepted and its process remained running at the follow-up check. This is not a
+measured first-frame improvement or manual acceptance that the intermittent
+white screen is eliminated. No reset, sample insertion, model transfer or AI
+network request was performed. Existing test simulator/build caches were reused.
+Evidence: `.codex-local/local-ai-repair-20261028/round2/startup-audit-*`.
+
 ## 2026-11-01 HealthKit simulator authorization unblock
 
 The recording build log explicitly disabled signing (`CODE_SIGNING_ALLOWED=NO`).
