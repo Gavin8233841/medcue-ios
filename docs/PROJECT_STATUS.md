@@ -41,10 +41,21 @@ On the explicitly handed-off ordinary recording simulator, updated in place
 without reset, reseed or sample edits: cancellation retained the not-authorized
 state, and accepting subsequently displayed the real system Health access panel.
 RocketSim's accessibility tree continued exposing the underlying MedCue screen,
-so automated system-switch interactions were not verified. The simulator remains
-on the system panel for recording-owner completion. The three existing synthetic
-heart-rate samples were not created, changed or removed by this work; successful
-readback of three samples is not claimed. Duo was not operated.
+so automated system-switch interactions were not verified. Follow-up identified
+that this was the older chat simulator, not the sample-bearing recording target.
+Its later completed authorization and zero-sample refresh do not establish a
+failure on the sample-bearing target.
+
+The existing target referenced by
+`.codex-local/yzy-rerecord-20261027/standard-elder-current-20261030/main-target-private.json`
+was then booted and updated in place with the retained `1de1c5f` package. Read-only
+verification found exactly the existing synthetic heart rates 72/76/70 on
+October 30/31 and November 1, all inside the 56-day query window. This target's
+MedCue screen still states that its authorization request has not completed.
+No additional authorization request was made per the handoff constraint; sample
+readback remains blocked by the target/authorization mismatch. No samples or
+medication records were changed, no simulator was reset, and Duo was not operated.
+The sample-bearing target is left on MedCue's Apple Health page.
 
 The retained simulator package, binary hashes, authorization-panel screenshot and
 scope receipt are under
