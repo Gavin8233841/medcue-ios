@@ -254,10 +254,22 @@ struct MedicationGalleryCard: View {
     let medication: StoredMedication
     let nextTask: StoredDoseTask?
 
+    private var displayedPhoto: Data? {
+        #if DEBUG && targetEnvironment(simulator)
+        // Use bundled demo artwork for the explicit synthetic cover preview
+        // on either simulated display.
+        if ProcessInfo.processInfo.arguments.contains("--medication-gallery-preview") {
+            return DemoDataSeeder.bundledPhotoData(for: medication.displayName) ?? medication.photoData
+        }
+        #endif
+        return medication.photoData
+    }
+
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             GeometryReader { geometry in
-                ElderMedicationPhotoView(photoData: medication.photoData,
+                ElderMedicationPhotoView(photoData: displayedPhoto,
                     medicationName: userFacingMedicationName(for: medication), width: geometry.size.width)
             }
             .aspectRatio(1.25, contentMode: .fit)

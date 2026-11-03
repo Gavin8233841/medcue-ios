@@ -272,15 +272,20 @@ enum DemoDataSeeder {
         medication.form = seed.form
         medication.strength = seed.strength
         medication.photoSymbolName = seed.photoSymbolName
-        if medication.photoData == nil,
-           let asset = ["布洛芬": "DemoAdvil", "对乙酰氨基酚": "DemoTylenol",
-                        "氯雷他定": "DemoFortuneLoratadine", "人工泪液": "DemoArtificialTears"][seed.displayName] {
-            medication.photoData = UIImage(named: asset)?.jpegData(compressionQuality: 0.8)
+        if medication.photoData == nil {
+            medication.photoData = bundledPhotoData(for: seed.displayName)
         }
         if medication.boxNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             medication.boxNumber = seed.boxNumber
         }
         medication.notes = userFacingNotes(from: medication.notes, fallback: seed.notes)
+    }
+
+    static func bundledPhotoData(for displayName: String) -> Data? {
+        guard let asset = ["布洛芬": "DemoAdvil", "对乙酰氨基酚": "DemoTylenol",
+                           "氯雷他定": "DemoFortuneLoratadine", "人工泪液": "DemoArtificialTears"][displayName]
+        else { return nil }
+        return UIImage(named: asset)?.jpegData(compressionQuality: 0.8)
     }
 
     private static func migrateUserVisibleSeedText(

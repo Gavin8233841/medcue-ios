@@ -769,3 +769,9 @@ scanning or review of intentionally added fixtures.
    provider checks where Windows cannot provide them.
 4. Do not describe the competition/Beta scope as App Store, clinical, or
    commercial-production ready without the corresponding evidence.
+
+### 2026-11-03 Duo cover follow-up
+
+- Limited Duo work to the medication sidebar and two-column photo gallery; no Duo hardware acceptance or expanded accessibility validation is claimed.
+- Captured and visually checked the photo-bearing synthetic Simulator cover. Its explicit DEBUG Simulator preview reads bundled demo artwork; normal medication photos and device behavior are unchanged.
+- Simulator build passed; fresh-context review found no Required or Blocker findings for this follow-up.
