@@ -91,12 +91,11 @@ struct AIChatInputBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .stroke(accentTint.opacity(0.14), lineWidth: 1)
+        .medicationGlassSurface(
+            cornerRadius: 26,
+            tint: inputTint,
+            fallbackMaterial: .regularMaterial
         )
-        .shadow(color: accentTint.opacity(0.06), radius: 10, x: 0, y: 4)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .fullScreenCover(isPresented: $showingCamera) {

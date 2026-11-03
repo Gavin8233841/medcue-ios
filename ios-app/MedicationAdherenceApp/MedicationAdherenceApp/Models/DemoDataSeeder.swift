@@ -283,7 +283,8 @@ enum DemoDataSeeder {
 
     static func bundledPhotoData(for displayName: String) -> Data? {
         guard let asset = ["布洛芬": "DemoAdvil", "对乙酰氨基酚": "DemoTylenol",
-                           "氯雷他定": "DemoFortuneLoratadine", "人工泪液": "DemoArtificialTears"][displayName]
+                           "氯雷他定": "DemoFortuneLoratadine", "人工泪液": "DemoArtificialTears",
+                           "维生素 D3": "DemoVitaminD3"][displayName]
         else { return nil }
         return UIImage(named: asset)?.jpegData(compressionQuality: 0.8)
     }

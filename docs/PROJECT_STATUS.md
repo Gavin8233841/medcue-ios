@@ -775,3 +775,9 @@ scanning or review of intentionally added fixtures.
 - Limited Duo work to the medication sidebar and two-column photo gallery; no Duo hardware acceptance or expanded accessibility validation is claimed.
 - Captured and visually checked the photo-bearing synthetic Simulator cover. Its explicit DEBUG Simulator preview reads bundled demo artwork; normal medication photos and device behavior are unchanged.
 - Simulator build passed; fresh-context review found no Required or Blocker findings for this follow-up.
+
+### 2026-11-03 D3 artwork and chat composer surface
+
+- Added owner-supplied vitamin D artwork to the bundled demo mapping; existing selected photos remain preserved. No medication facts changed. Existing devices receive the missing artwork when preparing the next demo; this validation did not reset device data.
+- Reused the existing native Liquid Glass surface for the chat composer, retaining its material fallback and existing input/focus/send behavior.
+- Simulator and physical-device Debug builds and native quick checks passed. The connected competition phone accepted in-place install and normal launch. Fresh-context review found no Required or Blocker findings. Visual/keyboard interaction acceptance was not repeated: RocketSim reported a stale IPC socket; the test Simulator was shut down. No cloud/model calls were made.
