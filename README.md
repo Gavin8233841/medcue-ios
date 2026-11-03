@@ -145,3 +145,5 @@ backlog.
 MedCue is a medication organization and education tool. Its reminders, risk summaries, trends, imported text, and AI-generated content may be incomplete or incorrect. Users should verify medication decisions with qualified healthcare professionals and follow the prescription, label, and clinical guidance applicable to them.
 
 使用模式：在「个人 → 应用设置 → 使用模式」切换完整模式与适老模式。适老模式聚焦单项用药任务；两种模式共用本机记录，复杂更正可切回完整模式。
+
+展位演示：药品页以实物照片浏览，宽窗口将分组摘要与图库分栏。Demo 入口只恢复预置演示内容并重新进入引导，保留手动导入药品、离线模型和系统授权；已有演示实拍照片会保留，人工泪液采用本轮提供的新图。

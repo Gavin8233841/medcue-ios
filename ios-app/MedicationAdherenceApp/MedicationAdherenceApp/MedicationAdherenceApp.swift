@@ -18,7 +18,12 @@ struct MedicationAdherenceApp: App {
         let isPersistentStoreAvailable: Bool
         do {
             #if DEBUG
-            let isUIFixture = ProcessInfo.processInfo.arguments.contains("--assistant-ui-preview")
+            #if targetEnvironment(simulator)
+            let isGalleryPreview = ProcessInfo.processInfo.arguments.contains("--medication-gallery-preview")
+            #else
+            let isGalleryPreview = false
+            #endif
+            let isUIFixture = isGalleryPreview || ProcessInfo.processInfo.arguments.contains("--assistant-ui-preview")
             #else
             let isUIFixture = false
             #endif

@@ -248,3 +248,39 @@ struct LifecycleActionButton: View {
         .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
+
+// The photo uses the existing background thumbnail decoder from elder presentation.
+struct MedicationGalleryCard: View {
+    let medication: StoredMedication
+    let nextTask: StoredDoseTask?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            GeometryReader { geometry in
+                ElderMedicationPhotoView(photoData: medication.photoData,
+                    medicationName: userFacingMedicationName(for: medication), width: geometry.size.width)
+            }
+            .aspectRatio(1.25, contentMode: .fit)
+            .frame(maxWidth: 360)
+            .frame(maxWidth: .infinity)
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(userFacingMedicationName(for: medication))
+                    .font(.headline).foregroundStyle(.primary)
+                    .lineLimit(2, reservesSpace: true)
+                if let nextTask {
+                    Label {
+                        Text(nextTask.dueAt, format: .dateTime.month().day().hour().minute())
+                    } icon: { Image(systemName: "calendar") }
+                    .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("暂无待处理任务").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 14).padding(.bottom, 16)
+        }
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 22))
+        .clipShape(RoundedRectangle(cornerRadius: 22))
+        .accessibilityElement(children: .combine)
+    }
+}

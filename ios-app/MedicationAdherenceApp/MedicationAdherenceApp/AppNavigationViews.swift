@@ -384,3 +384,7 @@ struct AppTabTopGradientPalette {
     let trailing: Color
     let background: Color
 }
+
+extension EnvironmentValues {
+    @Entry var prepareNextDemoExperience: (@MainActor () async throws -> Void)? = nil
+}

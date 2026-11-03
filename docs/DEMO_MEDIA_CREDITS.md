@@ -1,0 +1,21 @@
+# Demo media credits
+
+Demo resets retain locally selected photos for existing demo medicines. For a
+fresh demo library, the following previously used resized photographs provide
+fallback packaging images; inclusion does not imply brand endorsement.
+
+- `DemoAdvil.jpg`: “Advil 200mg Caplets” by Geographer, CC BY 2.5.
+  https://commons.wikimedia.org/wiki/File:Advil_200mg_Caplets.jpg
+  https://creativecommons.org/licenses/by/2.5/
+- `DemoTylenol.jpg`: “Tylenol bottle closeup” by Colin (TheTruthAbout), CC BY-SA 2.0.
+  https://commons.wikimedia.org/wiki/File:Tylenol_bottle_closeup_(loose_crop).jpg
+  https://creativecommons.org/licenses/by-sa/2.0/
+- `DemoFortuneLoratadine.jpg`: “Fortune NT-Alergi tablet” by Malcolm Koo, CC BY-SA 4.0.
+  https://commons.wikimedia.org/wiki/File:Fortune_NT-Alergi_tablet_(contains_Loratadine_10mg).jpg
+  https://creativecommons.org/licenses/by-sa/4.0/
+
+The resized share-alike photographs remain available under those same licenses.
+`DemoArtificialTears.png` is the sodium-hyaluronate eye-drop photograph supplied
+and authorized by the product owner on 2026-11-03; it replaces the old eye-drop
+image for demo rebuilding. No generated concept packaging is used in the app.
+Photos do not supply dosage or instruction facts.

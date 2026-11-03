@@ -18,6 +18,47 @@ Unless explicitly dated otherwise, repository, ruleset, and Issue-label snapshot
 below belong to that audit. Read back live GitHub state before relying on them
 for a new operation; the targeted update is not a full source or release audit.
 
+## 2026-11-03 Booth demo recovery and photo-first medication gallery
+
+The owner selected C (real-package cards), then narrowed Duo to a simple
+sidebar/gallery layout and one image-bearing Keynote cover capture. Medication
+content now appears directly without the repeated overview/group disclosure:
+compact windows use a photo grid; regular width uses a compact summary/status
+sidebar and two-column gallery. Existing native navigation, segmented controls,
+Glass button adapter and background thumbnail decoder are reused. No new UI
+framework, schema, reminder semantics or AI changes were introduced.
+
+Demo recovery now rebuilds only demo content with a single final save, retaining
+non-demo records, model files and authorization. Existing demo photos are carried
+across by stable medication UUID, with bundled fallback images for fresh data;
+the owner's newly supplied eye-drop photo replaces the artificial-tear image.
+Media attribution is recorded in DEMO_MEDIA_CREDITS.md. Recovery stays inside the
+process and refreshes the intro identity and tab content after successful save;
+failures roll back. Fixed completion-overlay waits were removed and onboarding
+copy was shortened for actual import, records, health context and local/cloud AI.
+
+Five focused model-container/demo tests passed, including repeated same-ID
+recovery, retained user medication and retained custom photo bytes. Native quick
+checks and Simulator/device builds passed. Independent fresh-context review
+Required findings were resolved. Two actual demo-button recoveries on the existing
+test phone Simulator returned to a new intro without process exit; skipping
+showed Today directly. The gallery then exposed four real-photo items, including
+the new eye-drop photo. Competition-phone in-place install and normal launch
+were checked; its data were not reset. Physical-device manual gallery acceptance,
+Duo hardware behavior, OCR reliability and AI-answer quality are not established
+by this UI work. Final Duo capture uses Simulator synthetic demo data, not a
+physical-device claim; no continued large-font or multi-device acceptance lane.
+
+A DEBUG Simulator-only `--medication-gallery-preview` uses an in-memory demo
+container and initially selects the gallery for the cover. It bypasses startup
+reminder reconciliation, Live Activity consumption, Watch publishing, URL actions
+and stored elder-mode selection. It is ignored on physical devices and Release.
+Cover arguments also include `--seed-demo-data`. This is an explicitly synthetic
+Simulator presentation, not evidence of medication actions or device health data.
+
+Evidence: `.codex-local/local-ai-repair-20261028/round2/booth-*`; cover image:
+`.codex-local/local-ai-repair-20261028/round2/Keynote-Duo-medication-gallery-Simulator.png`.
+
 ## 2026-11-02 Minimal elder presentation integration
 
 Restored the existing `appExperienceMode` setting and root navigation switch on

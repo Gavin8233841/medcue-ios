@@ -68,12 +68,19 @@ struct MedicationAdherenceAppTests {
 
         let demoMedications = try context.fetch(FetchDescriptor<StoredMedication>())
             .filter(\.isDemoContent)
+        for medication in demoMedications where medication.displayName != "维生素 D3" {
+            #expect(medication.photoData?.isEmpty == false)
+        }
         let demoMedicationIDs = Set(demoMedications.map(\.id))
         let demoTasks = try context.fetch(FetchDescriptor<StoredDoseTask>())
             .filter { demoMedicationIDs.contains($0.medicationID) }
         let demoStocks = try context.fetch(FetchDescriptor<StoredMedicationStock>())
             .filter { demoMedicationIDs.contains($0.medicationID) }
 
+        let customPhotoMedication = try #require(demoMedications.first { $0.displayName == "布洛芬" })
+        let customPhotoID = customPhotoMedication.id
+        let customPhoto = Data([1, 2, 3])
+        customPhotoMedication.photoData = customPhoto
         demoMedications[0].displayName = "已被修改的演示药品"
         demoTasks[0].status = .taken
         demoTasks[0].recordedAt = Date()
@@ -85,6 +92,8 @@ struct MedicationAdherenceAppTests {
 
         try DemoDataSeeder.rebuildForExplicitDemoMode(in: context)
         try verifyStandardDemoContent(in: context, preserving: userMedicationID)
+        let rebuilt = try context.fetch(FetchDescriptor<StoredMedication>())
+        #expect(rebuilt.first { $0.id == customPhotoID }?.photoData == customPhoto)
     }
 
     @Test
