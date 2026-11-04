@@ -209,7 +209,7 @@ struct AIAssistantScreen: View {
         ScrollViewReader { proxy in
             GeometryReader { viewport in
             ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
+                LazyVStack(alignment: .leading, spacing: 24) {
                     if showsInlineControls {
                         taskControls(usesVerticalLayout: false)
                     }
