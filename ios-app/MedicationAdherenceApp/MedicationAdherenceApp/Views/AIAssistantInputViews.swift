@@ -91,11 +91,13 @@ struct AIChatInputBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .medicationGlassSurface(
-            cornerRadius: 26,
-            tint: inputTint,
-            fallbackMaterial: .regularMaterial
-        )
+        .background {
+            if #available(iOS 26.0, *) {
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .fill(.clear)
+                    .glassEffect(.clear, in: .rect(cornerRadius: 26))
+            }
+        }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .fullScreenCover(isPresented: $showingCamera) {
