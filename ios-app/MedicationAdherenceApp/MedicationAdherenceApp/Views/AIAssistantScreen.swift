@@ -358,6 +358,7 @@ private struct AIConversationBottomKey: PreferenceKey {
 // Explicit, memory-only UI fixture: no inference, network, ordinary DB or seeded
 // health data. Never used by the normal chat path or as an answer fallback.
 struct AssistantUIFixture: View {
+    private var isWaitingPreview: Bool { ProcessInfo.processInfo.arguments.contains("--assistant-waiting-preview") }
     @State private var draft = ""
     @State private var image: PhotosPickerItem?
     @FocusState private var focused: Bool
@@ -378,8 +379,9 @@ struct AssistantUIFixture: View {
                     configuration: MedicalAIConfiguration(providerName: "UI 验证", modelName: "未连接模型", endpointURLString: "", hasAPIKey: false),
                     onlineReadiness: MedicalAITransportReadiness(canSend: false, diagnosticSummary: "ui-fixture"),
                     localModelStatus: LocalMedicalModelStatus(availability: .notDownloaded, displayName: "UI 验证", detailText: "合成文字，不运行模型", canUseForResponses: false),
-                    visibleMessages: messages, archivedMessages: [], localStreamingResponse: nil,
-                    isSending: false, isReadingImage: false, isInputEnabled: true,
+                    visibleMessages: isWaitingPreview ? Array(messages.suffix(2)) : messages, archivedMessages: [],
+                    localStreamingResponse: isWaitingPreview ? LocalStreamingAIResponse(statusText: "正在准备本机回答") : nil,
+                    isSending: isWaitingPreview, isReadingImage: false, isInputEnabled: true,
                     prefersLocalResponses: true, hasUserSelectedRuntime: true,
                     draftMessage: $draft, selectedImageItem: $image, isChatInputFocused: $focused,
                     showingThirdPartyAgentNotice: $notice, showingConsentSheet: $consent,

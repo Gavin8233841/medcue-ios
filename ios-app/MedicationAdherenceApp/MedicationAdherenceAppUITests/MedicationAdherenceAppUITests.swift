@@ -126,6 +126,23 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         XCTAssertTrue(app.buttons["复制全部"].exists)
     }
 
+    func testAssistantWaitingStateUsesCompactActivity() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        for appearance in ["light", "dark"] {
+            app.launchArguments = ["--assistant-ui-preview", "--assistant-waiting-preview",
+                "-appColorSchemePreference", appearance]
+            app.launch()
+            let status = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "正在准备本机回答")).firstMatch
+            XCTAssertTrue(status.waitForExistence(timeout: 15))
+            XCTAssertTrue(status.isHittable)
+            let shot = XCTAttachment(screenshot: app.screenshot())
+            shot.name = "Assistant-compact-waiting-\(appearance)"
+            shot.lifetime = .keepAlways
+            add(shot)
+        }
+    }
+
     func testPrimaryTabsAreReachable() {
         continueAfterFailure = false
         let app = XCUIApplication()

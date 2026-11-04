@@ -95,7 +95,10 @@ struct AIChatInputBar: View {
             if #available(iOS 26.0, *) {
                 RoundedRectangle(cornerRadius: 26, style: .continuous)
                     .fill(.clear)
-                    .glassEffect(.clear, in: .rect(cornerRadius: 26))
+                    .glassEffect(.regular.tint(Color.primary.opacity(0.035)), in: .rect(cornerRadius: 26))
+            } else {
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .fill(.regularMaterial)
             }
         }
         .padding(.horizontal, 12)
@@ -159,7 +162,7 @@ struct AIChatAccessoryIcon: View {
         if !isEnabled {
             return Color(.secondarySystemGroupedBackground).opacity(0.62)
         }
-        return isProminent ? tint : Color(.systemBackground).opacity(0.90)
+        return isProminent ? tint : Color(.tertiarySystemFill)
     }
 }
 

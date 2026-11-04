@@ -333,17 +333,8 @@ struct LocalStreamingResponseView: View {
 
     var body: some View {
         TimelineView(.periodic(from: response.startedAt, by: 1)) { context in
-            HStack(spacing: 10) {
-                ProgressView().controlSize(.small)
-                Text(response.statusText)
-                    .font(.subheadline)
-                Text("\(max(0, Int(context.date.timeIntervalSince(response.startedAt)))) 秒")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.tertiary)
-            }
-            .foregroundStyle(.secondary)
-            .padding(.vertical, 12)
-            .accessibilityElement(children: .combine)
+            AIResponseActivityView(statusText: response.statusText,
+                elapsedSeconds: max(0, Int(context.date.timeIntervalSince(response.startedAt))))
         }
     }
 }
@@ -599,15 +590,81 @@ struct AIThinkingBubble: View {
     let isLocalRuntime: Bool
 
     var body: some View {
-        HStack(spacing: 10) {
-            ProgressView().controlSize(.small)
-            Text(isLocalRuntime ? "正在生成回答" : "云端正在回复")
-                .font(.subheadline)
+        AIResponseActivityView(statusText: isLocalRuntime ? "正在生成回答" : "云端正在回复")
+    }
+}
+
+// CatPaw's compact dots and text-highlight pattern, using lifecycle-owned
+// SwiftUI phase animations instead of a scheduled repeating timer.
+private struct AIResponseActivityView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("prefersReducedAppMotion") private var prefersReducedAppMotion = false
+    let statusText: String
+    var elapsedSeconds: Int?
+
+    private var animates: Bool { !reduceMotion && !prefersReducedAppMotion }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if animates {
+                Color.clear.frame(width: 28, height: 12)
+                    .phaseAnimator([0, 1, 2]) { _, phase in
+                        dots(active: phase)
+                    } animation: { _ in .easeInOut(duration: 0.45) }
+            } else {
+                dots(active: nil)
+            }
+            if animates {
+                statusLabel.phaseAnimator([-1.0, 1.0]) { content, phase in
+                    content.overlay {
+                        GeometryReader { geometry in
+                            LinearGradient(colors: [.clear, Color.primary.opacity(0.65), .clear],
+                                startPoint: .leading, endPoint: .trailing)
+                                .frame(width: 48)
+                                .offset(x: phase * (geometry.size.width + 48))
+                        }
+                        .mask(statusLabel)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                    }
+                } animation: { phase in .linear(duration: phase > 0 ? 2 : 0) }
+            } else {
+                statusLabel
+            }
+            if let elapsedSeconds {
+                Text("\(elapsedSeconds) 秒")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+            }
         }
-        .foregroundStyle(.secondary)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22).strokeBorder(Color.primary.opacity(0.05), lineWidth: 0.5)
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.easeInOut(duration: 0.2), value: statusText)
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("assistant.response-activity")
+    }
+
+    private var statusLabel: some View {
+        Text(statusText).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+            .contentTransition(.opacity)
+    }
+
+    private func dots(active: Int?) -> some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3) { index in
+                Circle().fill(Color.secondary)
+                    .frame(width: 6, height: 6)
+                    .opacity(active == nil || active == index ? 0.85 : 0.3)
+                    .scaleEffect(active == index ? 1 : 0.8)
+            }
+        }
+        .frame(width: 28, height: 12)
+        .accessibilityHidden(true)
     }
 }
 

@@ -18,6 +18,31 @@ Unless explicitly dated otherwise, repository, ruleset, and Issue-label snapshot
 below belong to that audit. Read back live GitHub state before relying on them
 for a new operation; the targeted update is not a full source or release audit.
 
+## 2026-11-05 Chat material and waiting presentation
+
+Owner-approved follow-up to Issue #167. The composer now uses neutral regular
+Liquid Glass with a light primary tint, matching the native tab-bar and message
+surface family, plus regular-material fallback. The image accessory uses a
+system fill instead of its near-opaque white background.
+
+Read the owner-authorized local CatPaw `MessageViews/FeedbackViews.swift` and
+`ChatMessageList.swift`. Independently adapted its text-highlight/three-dot
+presentation pattern with native SwiftUI phase animations. The compact local
+and cloud waiting views share this presentation and retain their actual status
+text and local elapsed time. System/app Reduced Motion renders a static version.
+No repeating Timer or additional UI dependency was introduced. Model generation,
+response validation and consent paths are unchanged.
+
+The existing memory-only chat fixture has an explicit waiting preview with a
+short synthetic transcript. Shallow/light and dark waiting screenshots, keyboard
+avoidance, history hiding/restoration and draft preservation passed. Full Route A
+verification passed with 156 core tests, 202 hosted unit tests, seven UI tests,
+app Release and both Watch builds. The signed device build was installed in
+place and normal launch succeeded. These tests made no cloud/model requests;
+the screenshots are synthetic Simulator UI evidence. Source self-review and
+independent review remain scoped separately from the unresolved main integration
+under Issue #166. Evidence is in the ignored `round2/chat-material-*` files.
+
 ## 2026-11-05 Today settled state and elder hold controls
 
 Issue #167 is a bounded presentation update on the preserved competition
