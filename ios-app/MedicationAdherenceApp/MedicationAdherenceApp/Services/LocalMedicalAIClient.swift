@@ -5,7 +5,7 @@ struct LocalMedicalAIClient: MedicalAIClient {
     static let localReasoningSeparator = MedicalAIResponseFinalizer.reasoningSeparator
 
     let modelURL: URL
-    var runtime: any LocalMedicalGenerating = LocalMedicalModelRuntime.shared
+    var runtime: any LocalMedicalGenerating = LocalMedicalRuntimeFactory.make()
     // Only the synthetic DEBUG smoke runner supplies this sink. Normal requests never log content.
     var diagnosticSink: (@Sendable (String) -> Void)? = nil
 

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 #if canImport(llama)
 import llama
 #endif
@@ -310,5 +313,106 @@ private final class LlamaCppContext {
         return Array(UnsafeBufferPointer(start: largerBuffer, count: Int(largerCount)))
     }
 
+}
+#endif
+
+// The app builds authorized context and history before calling this runtime.
+// Each request uses a fresh text session, preserving that existing prompt exactly.
+enum LocalMedicalRuntimeFactory {
+    static func make(backing: any LocalMedicalGenerating = LocalMedicalModelRuntime.shared) -> any LocalMedicalGenerating {
+        #if canImport(FoundationModels)
+        if #available(iOS 27.0, *) {
+            return FoundationModelsLocalRuntime(backing: backing)
+        }
+        #endif
+        return backing
+    }
+}
+
+#if canImport(FoundationModels)
+@available(iOS 27.0, *)
+struct FoundationModelsLocalRuntime: LocalMedicalGenerating {
+    let backing: any LocalMedicalGenerating
+
+    func generateResponse(prompt: String, modelURL: URL, maxTokens: Int) async throws -> String {
+        let session = makeSession(modelURL: modelURL, maxTokens: maxTokens)
+        return try await session.respond(to: prompt, options: GenerationOptions(maximumResponseTokens: maxTokens)).content
+    }
+
+    func generateResponseStream(prompt: String, modelURL: URL, maxTokens: Int) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            let worker = Task {
+                do {
+                    let session = makeSession(modelURL: modelURL, maxTokens: maxTokens)
+                    var deliveredCount = 0
+                    for try await snapshot in session.streamResponse(to: prompt, options: GenerationOptions(maximumResponseTokens: maxTokens)) {
+                        try Task.checkCancellation()
+                        let delta = String(String.UnicodeScalarView(snapshot.content.unicodeScalars.dropFirst(deliveredCount)))
+                        deliveredCount = snapshot.content.unicodeScalars.count
+                        if !delta.isEmpty { continuation.yield(delta) }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { @Sendable _ in worker.cancel() }
+        }
+    }
+
+    private func makeSession(modelURL: URL, maxTokens: Int) -> LanguageModelSession {
+        LanguageModelSession(model: LocalFoundationLanguageModel(
+            backing: backing,
+            executorConfiguration: .init(modelURL: modelURL, maxTokens: maxTokens)
+        ))
+    }
+}
+
+@available(iOS 27.0, *)
+private struct LocalFoundationLanguageModel: LanguageModel {
+    typealias Executor = LocalFoundationExecutor
+    let backing: any LocalMedicalGenerating
+    let executorConfiguration: LocalFoundationExecutor.Configuration
+    let capabilities = LanguageModelCapabilities([])
+}
+
+@available(iOS 27.0, *)
+private struct LocalFoundationExecutor: LanguageModelExecutor {
+    typealias Model = LocalFoundationLanguageModel
+    struct Configuration: Hashable, Sendable {
+        let modelURL: URL
+        let maxTokens: Int
+    }
+    let configuration: Configuration
+
+    init(configuration: Configuration) { self.configuration = configuration }
+
+    func respond(to request: LanguageModelExecutorGenerationRequest, model: Model,
+                 streamingInto channel: LanguageModelExecutorGenerationChannel) async throws {
+        // This private adapter serves the app's fresh, single-prompt sessions only.
+        let entries = Array(request.transcript)
+        guard entries.count == 1, case let .prompt(input) = entries[0] else {
+            throw LanguageModelError.unsupportedTranscriptContent(.init(
+                unsupportedContent: entries, debugDescription: "Expected the app's preassembled text prompt."
+            ))
+        }
+        let prompt = try input.segments.map { segment in
+            guard case let .text(text) = segment else {
+                throw LanguageModelError.unsupportedTranscriptContent(.init(
+                    unsupportedContent: entries, debugDescription: "The local runtime accepts text."
+                ))
+            }
+            return text.content
+        }.joined()
+        let stream = await model.backing.generateResponseStream(
+            prompt: prompt, modelURL: configuration.modelURL,
+            maxTokens: request.generationOptions.maximumResponseTokens ?? configuration.maxTokens
+        )
+        for try await delta in stream {
+            try Task.checkCancellation()
+            // The existing runtime exposes text deltas, without token usage counts.
+            await channel.send(.response(action: .appendText(delta, tokenCount: 0)))
+        }
+    }
 }
 #endif

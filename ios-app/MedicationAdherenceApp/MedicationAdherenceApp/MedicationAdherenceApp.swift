@@ -381,7 +381,7 @@ private enum LocalMedicalModelSmokeTestRunner {
         do {
             let output = try await withThrowingTaskGroup(of: GeneratedOutput.self) { group in
                 group.addTask {
-                    let client = LocalMedicalAIClient(modelURL: modelURL, runtime: LocalMedicalModelRuntime(thinkingEnabled: ProcessInfo.processInfo.arguments.contains("--local-medical-model-smoke-thinking")), diagnosticSink: { text in
+                    let client = LocalMedicalAIClient(modelURL: modelURL, runtime: LocalMedicalRuntimeFactory.make(backing: LocalMedicalModelRuntime(thinkingEnabled: ProcessInfo.processInfo.arguments.contains("--local-medical-model-smoke-thinking"))), diagnosticSink: { text in
                         print("[LocalMedicalModel-Raw] index=\(index) \(text)")
                     })
                     var request = MedicalAIRequest(
