@@ -5,6 +5,7 @@ import QuickLook
 import SwiftData
 import SwiftUI
 import UIKit
+import UserNotifications
 
 struct ProfileView: View {
     @Environment(\.activeAppTab) private var activeAppTab
@@ -90,6 +91,12 @@ struct ProfileView: View {
             }
 
             Section("健康与智能体") {
+                NavigationLink {
+                    WeatherMedicationSettingsView()
+                } label: {
+                    ProfileActionRow(iconName: "cloud.sun.fill", tint: .cyan,
+                        title: "天气与用药关注", subtitle: "结合环境查看日常关注", trailingText: nil)
+                }
                 NavigationLink {
                     HealthDataSettingsView()
                 } label: {
@@ -350,7 +357,44 @@ private struct ProfileActionRow: View {
     }
 }
 
+private struct WeatherMedicationSettingsView: View {
+    @Query(sort: \StoredMedication.displayName) private var medications: [StoredMedication]
+    @StateObject private var service = WeatherMedicationService()
+    @State private var pendingPermissionGate: AppPermissionGate?
+
+    var body: some View {
+        List {
+            Section {
+                if service.isLoading && service.hints.isEmpty {
+                    ProgressView("正在读取环境关注")
+                }
+                ForEach(service.hints.filter(\.isActionableForToday)) { hint in
+                    WeatherMedicationHintCard(hint: hint)
+                }
+                if !service.statusText.isEmpty {
+                    Text(service.statusText).font(.footnote).foregroundStyle(.secondary)
+                }
+                if service.shouldShowAuthorizationButton {
+                    Button("允许天气提醒") { pendingPermissionGate = .location }
+                        .disabled(service.isLoading)
+                }
+            }
+        }
+        .navigationTitle("天气与用药关注")
+        .task { _ = await service.refresh(medications: medications) }
+        .appPermissionPrimer(pendingGate: $pendingPermissionGate) { gate in
+            guard gate == .location else { return }
+            Task {
+                if await service.refresh(medications: medications, requestAuthorization: true) {
+                    AppPermissionGate.markAuthorizationCompleted(for: .location)
+                }
+            }
+        }
+    }
+}
+
 struct SettingsView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage(AppExperienceMode.storageKey) private var experienceMode = AppExperienceMode.complete.rawValue
     @Environment(\.modelContext) private var modelContext
     @AppStorage("appColorSchemePreference") private var appColorSchemePreference = AppColorSchemePreference.system.rawValue
@@ -361,11 +405,16 @@ struct SettingsView: View {
     @StateObject private var notificationService = NotificationService()
     @State private var pendingPermissionGate: AppPermissionGate?
     @State private var isUpdatingNotificationPermission = false
+    @State private var notificationPermissionIsUndetermined = false
+    @State private var pendingExperienceMode: AppExperienceMode?
 
     var body: some View {
         List {
             Section("使用模式") {
-                Picker("使用模式", selection: $experienceMode) {
+                Picker("使用模式", selection: Binding(
+                    get: { experienceMode },
+                    set: { if $0 != experienceMode { pendingExperienceMode = AppExperienceMode(rawValue: $0) } }
+                )) {
                     ForEach(AppExperienceMode.allCases) { mode in
                         Text(mode.displayName).tag(mode.rawValue)
                     }
@@ -399,16 +448,15 @@ struct SettingsView: View {
                     subtitle: notificationStatusText
                 )
                 Button {
-                    startNotificationPermissionFlow()
+                    if notificationPermissionIsUndetermined {
+                        startNotificationPermissionFlow()
+                    } else {
+                        openSystemSettings()
+                    }
                 } label: {
-                    Text(isUpdatingNotificationPermission ? "正在检查通知权限" : "开启或更新通知权限")
+                    Text(notificationPermissionIsUndetermined ? "开启通知" : "管理通知设置")
                 }
                 .disabled(isUpdatingNotificationPermission)
-                Button {
-                    openSystemSettings()
-                } label: {
-                    Text("打开系统通知设置")
-                }
             }
 
             Section("隐私") {
@@ -421,6 +469,18 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("应用设置")
+        .alert("切换使用模式？", isPresented: Binding(
+            get: { pendingExperienceMode != nil },
+            set: { if !$0 { pendingExperienceMode = nil } }
+        )) {
+            Button("取消", role: .cancel) { pendingExperienceMode = nil }
+            Button("确认切换") {
+                if let mode = pendingExperienceMode { experienceMode = mode.rawValue }
+                pendingExperienceMode = nil
+            }
+        } message: {
+            Text(pendingExperienceMode == .elder ? "进入适老模式，一次处理一项用药任务。" : "返回完整模式，查看全部功能。")
+        }
         .appPermissionPrimer(pendingGate: $pendingPermissionGate) { gate in
             guard gate == .notifications else {
                 return
@@ -430,9 +490,18 @@ struct SettingsView: View {
             }
         }
         .task {
-            await notificationService.refreshAuthorizationStatus()
-            await notificationService.refreshPendingReminderCount()
+            await refreshNotificationSettings()
         }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await refreshNotificationSettings() } }
+        }
+    }
+
+    private func refreshNotificationSettings() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        notificationPermissionIsUndetermined = settings.authorizationStatus == .notDetermined
+        await notificationService.refreshAuthorizationStatus()
+        await notificationService.refreshPendingReminderCount()
     }
 
     private var notificationStatusText: String {
@@ -481,6 +550,7 @@ struct SettingsView: View {
 
     private func requestNotificationPermissionAndRefresh() async {
         let granted = await notificationService.requestAuthorization()
+        await refreshNotificationSettings()
         guard granted else {
             return
         }
@@ -489,7 +559,7 @@ struct SettingsView: View {
     }
 
     private func openSystemSettings() {
-        guard let url = URL(string: UIApplication.openSettingsURLString) else {
+        guard let url = URL(string: UIApplication.openNotificationSettingsURLString) else {
             return
         }
         UIApplication.shared.open(url)

@@ -12,7 +12,6 @@ struct TodayView: View {
     @AppStorage(DoseActionPersistence.failureMessageDefaultsKey) private var externalDosePersistenceErrorMessage = ""
     @StateObject private var notificationService = NotificationService()
     @StateObject private var liveActivityService = MedicationLiveActivityService()
-    @StateObject private var weatherMedicationService = WeatherMedicationService()
     @AppStorage(AppExperienceMode.storageKey) private var experienceMode = AppExperienceMode.complete.rawValue
     @State private var taskPendingArchive: StoredDoseTask?
     @State private var showingArchiveConfirmation = false
@@ -84,22 +83,6 @@ struct TodayView: View {
         currentDoseProjection.completionRateSnapshot
     }
 
-    private var weatherMedicationSignature: String {
-        medications
-            .filter { $0.lifecycleStatus == .active }
-            .map { medication in
-                [
-                    medication.id.uuidString,
-                    userFacingMedicationName(for: medication),
-                    medication.genericName,
-                    medication.form,
-                    medication.notes
-                ].joined(separator: "::")
-            }
-            .sorted()
-            .joined(separator: "|")
-    }
-
     var body: some View {
         let screen = standardScreen
         if experienceMode == AppExperienceMode.elder.rawValue {
@@ -132,12 +115,7 @@ struct TodayView: View {
             reopeningHandledDoseKeys: doseInteraction.reopeningHandledDoseKeys,
             recentlyReopenedDoseKeys: doseInteraction.recentlyReopenedDoseKeys,
             doseMigrationSnapshot: doseInteraction.doseMigrationSnapshot,
-            weatherHints: weatherMedicationService.hints,
-            weatherStatusText: weatherMedicationService.statusText,
-            isWeatherLoading: weatherMedicationService.isLoading,
-            shouldShowWeatherAuthorization: weatherMedicationService.shouldShowAuthorizationButton,
             doseUndoBanner: doseUndoBanner,
-            weatherMedicationSignature: weatherMedicationSignature,
             showingHandledTasks: $showingHandledTasks,
             taskPendingArchive: $taskPendingArchive,
             showingArchiveConfirmation: $showingArchiveConfirmation,
@@ -168,12 +146,6 @@ struct TodayView: View {
                 archive: archive,
                 unarchive: unarchive,
                 rollbackUndo: rollbackDoseUndo,
-                requestWeatherRefresh: { requestAuthorization in
-                    await weatherMedicationService.refresh(
-                        medications: medications,
-                        requestAuthorization: requestAuthorization
-                    )
-                },
                 initialLoad: {
                     consumeExternalDosePersistenceFailure()
                     runInitialTodayMaintenanceIfNeeded()

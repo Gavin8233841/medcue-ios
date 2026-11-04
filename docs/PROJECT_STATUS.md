@@ -18,6 +18,61 @@ Unless explicitly dated otherwise, repository, ruleset, and Issue-label snapshot
 below belong to that audit. Read back live GitHub state before relying on them
 for a new operation; the targeted update is not a full source or release audit.
 
+## 2026-11-05 Today settled state and elder hold controls
+
+Issue #167 is a bounded presentation update on the preserved competition
+workline. Today now uses a modular settled card when no open task remains,
+distinguishes all-taken completion from ignored/no-plan states, and exposes
+expandable, correctable records. An absent next reminder is hidden. Weather
+concerns are reached from Profile and load only when opened. System typography,
+native Glass controls, and a one-shot circle/check confirmation animation are
+used. Reduced Motion keeps the settled illustration static.
+
+The four-character elder capsule opens a mode confirmation. Both the elder exit
+and Settings mode picker also require confirmation. Elder completion and delay
+controls require a cancellable 1.2-second hold with fill progress. The elder
+screen has no skip control, and help opens on a normal tap. Idle hold captions
+are hidden; pressing shows the cancellation hint. Native light impact feedback
+marks press start and recognition, without implying that a record was saved.
+Completion opens a confirmation before invoking the existing dose command;
+existing early-dose confirmation remains applicable. Accessible activation uses
+an explicit confirmation alternative. Existing commit-before-feedback/system
+sync behavior is unchanged. Notification settings use one contextual entry and
+refresh status on entry and foreground return, preserving the permission primer.
+
+Simulator build, native quick checks, 156 core tests, 202 hosted iOS unit tests,
+and two focused UI regressions passed. Those UI tests use the existing isolated
+in-memory gallery fixture, covering all-ignored settled state, record disclosure,
+mode-confirmation cancellation, short/released holds, completed hold confirmation
+and help opening on a single tap. The fixture resets its presentation mode at startup
+so a launch-argument override cannot freeze mode switching. These are synthetic
+Simulator observations, not physical-dose acceptance. The first full gate
+reached the UI suite with one failure because the native chat controls inherited
+the scroll container identifier. Its fixture test now finds the actual text field
+and app send button, retaining the same keyboard, scroll and draft-preservation
+assertions. The rerun passed all six UI tests and the full Route A gate,
+including unsigned app Release and both Watch builds. All 28 broker tests passed.
+The final D3 replacement and read-only elder fallback were added after the UI
+test build and are covered by the subsequent app Release and signed physical
+device builds. The competition-phone build was installed
+in place and launched normally; Device Hub visibly showed the new elder controls.
+Physical haptic feel remains owner acceptance.
+
+The 2026-11-05 owner-supplied Doublewhale D3 photo replaces the bundled artwork.
+New/reset demo data use this photo. Existing photos remain preferred; an existing
+demo D3 with no stored image can display the asset on the elder page without a
+database write. No medication strength, dose or instruction fact is inferred
+from this presentation asset. Local evidence is under
+`.codex-local/local-ai-repair-20261028/round2/today-*`.
+
+Main integration is still blocked under Issue #166. Read-only merge-tree confirms
+22 conflicted paths against main 4d9c6d5. Fresh-context comparison also identified
+main-only runtime cancellation/resource ownership, authorized-context filtering,
+response-boundary, startup recovery and reminder-read-failure changes that must
+be reconciled with the latest competition features. Choosing one whole side
+would lose accepted behavior. This UI checkpoint does not establish main merge
+readiness or waive the full gate and current-revision independent review.
+
 ## 2026-11-03 Booth demo recovery and photo-first medication gallery
 
 The owner selected C (real-package cards), then narrowed Duo to a simple

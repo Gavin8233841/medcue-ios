@@ -261,6 +261,7 @@ struct AppRootView: View {
         #if DEBUG
         if !didSeedStartupData {
             didSeedStartupData = true
+            if Self.isGalleryPreview { experienceMode = AppExperienceMode.complete.rawValue }
             DemoDataSeeder.seedIfNeeded(in: modelContext)
         }
         #endif

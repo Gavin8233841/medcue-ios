@@ -9,6 +9,8 @@ struct ElderTaskScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage(AppExperienceMode.storageKey) private var experienceMode = AppExperienceMode.elder.rawValue
     @State private var showingHelp = false
+    @State private var showingExitConfirmation = false
+    @State private var taskPendingTakenConfirmation: StoredDoseTask?
     let screen: TodayScreen
     private let timer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
@@ -25,7 +27,8 @@ struct ElderTaskScreen: View {
                     Text(task.status == .delayed ? "稍后提醒" : task.dueAt <= Date() ? "未确认" : "待服用")
                         .font(.title3.weight(.semibold)).foregroundStyle(.blue)
                     ElderMedicationPhotoView(photoData: medication?.photoData,
-                        medicationName: medication.map(userFacingMedicationName), width: 180)
+                        medicationName: medication.map(userFacingMedicationName), width: 180,
+                        usesDemoVitaminPhoto: medication?.isDemoContent == true && medication?.displayName == "维生素 D3")
                     Text(medication.map(userFacingMedicationName) ?? "用药任务")
                         .font(.largeTitle.bold()).multilineTextAlignment(.center)
                     Text("\(task.doseValue.formatted()) \(task.doseUnit)").font(.title.bold())
@@ -34,11 +37,11 @@ struct ElderTaskScreen: View {
                         Text(confirmation.kind.title).font(.title2.bold())
                         Text(confirmation.kind.message(delayDurationText: "\(DoseDelayPolicy.delayMinutes) 分钟")).font(.body)
                         action(confirmation.kind.confirmTitle, icon: "checkmark", tone: .completion, prominence: .primary, id: "elder.confirmation.confirm") { screen.actions.confirm(task) }
-                        action("取消", icon: "xmark", tone: .neutral, prominence: .secondary, id: "elder.confirmation.cancel") { screen.actions.cancelConfirmation(task) }
+                        action("取消", icon: "xmark", tone: .neutral, prominence: .secondary, id: "elder.confirmation.cancel", requiresHold: false) { screen.actions.cancelConfirmation(task) }
                     } else {
-                        action(screen.actions.completionVerb(medication), icon: "checkmark.circle.fill", tone: .completion, prominence: .primary, id: "elder.action.taken") { screen.actions.markTaken(task) }
+                        action(screen.actions.completionVerb(medication), icon: "checkmark.circle.fill", tone: .completion, prominence: .primary, id: "elder.action.taken") { taskPendingTakenConfirmation = task }
                         action("稍后提醒", icon: "clock", tone: .reminder, prominence: .secondary, id: "elder.action.delay") { screen.actions.delay(task) }
-                        action("使用帮助", icon: "questionmark.circle", tone: .help, prominence: .tertiary, id: "elder.action.help") { showingHelp = true }
+                        action("使用帮助", icon: "questionmark.circle", tone: .help, prominence: .tertiary, id: "elder.action.help", requiresHold: false) { showingHelp = true }
                     }
                     Text("还有 \(max(0, screen.snapshot.visibleOpenTimelineTasks.count - 1)) 项待处理")
                         .font(.body).foregroundStyle(.secondary)
@@ -53,6 +56,7 @@ struct ElderTaskScreen: View {
                     Text(message).font(.footnote).foregroundStyle(.secondary)
                 }
             }
+            .id(currentTask?.id)
             .padding(24).frame(maxWidth: .infinity)
         }
         .background(Color(.systemGroupedBackground))
@@ -60,7 +64,7 @@ struct ElderTaskScreen: View {
         .accessibilityIdentifier("elder.home")
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button("完整模式") { experienceMode = AppExperienceMode.complete.rawValue }
+                Button("返回完整模式") { showingExitConfirmation = true }
                     .accessibilityIdentifier("elder.switch-to-complete")
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -68,6 +72,24 @@ struct ElderTaskScreen: View {
             }
         }
         .sheet(isPresented: $showingHelp) { HelpCenterView() }
+        .alert("返回完整模式？", isPresented: $showingExitConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("返回完整模式") { experienceMode = AppExperienceMode.complete.rawValue }
+        } message: { Text("返回后可查看药品、记录和智能体。") }
+        .alert("确认已服用或使用？", isPresented: Binding(
+            get: { taskPendingTakenConfirmation != nil },
+            set: { if !$0 { taskPendingTakenConfirmation = nil } }
+        )) {
+            Button("取消", role: .cancel) { taskPendingTakenConfirmation = nil }
+            Button("确认记录") {
+                if let task = taskPendingTakenConfirmation, task.id == currentTask?.id {
+                    screen.actions.markTaken(task)
+                }
+                taskPendingTakenConfirmation = nil
+            }
+        } message: {
+            Text("请在实际完成本次用药后确认，记录成功后会显示下一项。")
+        }
         .alert("用药记录未保存", isPresented: Binding(get: { screen.dosePersistenceErrorMessage != nil }, set: { if !$0 { screen.dosePersistenceErrorMessage = nil } })) {
             Button("好", role: .cancel) { screen.dosePersistenceErrorMessage = nil }
         } message: { Text(screen.dosePersistenceErrorMessage ?? "请重试") }
@@ -80,9 +102,9 @@ struct ElderTaskScreen: View {
     }
 
     private func action(_ title: String, icon: String, tone: ElderDoseActionTone,
-                        prominence: ElderDoseActionProminence, id: String, perform: @escaping () -> Void) -> some View {
+                        prominence: ElderDoseActionProminence, id: String, requiresHold: Bool = true, perform: @escaping () -> Void) -> some View {
         ElderDoseActionButton(title: title, systemImage: icon, tone: tone,
-                             prominence: prominence, accessibilityIdentifier: id, action: perform)
+                             prominence: prominence, accessibilityIdentifier: id, requiresHold: requiresHold, action: perform)
             .disabled(screen.pendingDoseFeedback != nil)
     }
 }
@@ -92,6 +114,7 @@ struct ElderMedicationPhotoView: View {
     let photoData: Data?
     let medicationName: String?
     let width: CGFloat
+    var usesDemoVitaminPhoto = false
     @State private var decodedPhoto: DecodedPhoto?
 
     private struct PhotoRequest: Equatable, Sendable {
@@ -124,6 +147,8 @@ struct ElderMedicationPhotoView: View {
         let description: String
         if currentImage != nil {
             description = "药品实物照片"
+        } else if photoData == nil && usesDemoVitaminPhoto {
+            description = "演示药品实物照片"
         } else if photoData == nil {
             description = "未添加药品照片，药品图示"
         } else if decodedPhoto?.request == request {
@@ -139,6 +164,11 @@ struct ElderMedicationPhotoView: View {
             Color(.tertiarySystemGroupedBackground)
             if let image = currentImage {
                 Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(8)
+            } else if photoData == nil && usesDemoVitaminPhoto {
+                Image("DemoVitaminD3")
                     .resizable()
                     .scaledToFit()
                     .padding(8)
@@ -268,16 +298,26 @@ enum ElderDoseActionProminence: Equatable {
 private struct ElderDoseActionButton: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("prefersReducedAppMotion") private var prefersReducedAppMotion = false
+    @GestureState private var isHolding = false
+    @State private var showingAccessibleConfirmation = false
+    @State private var holdFeedback = UIImpactFeedbackGenerator(style: .light)
 
     let title: String
     let systemImage: String
     let tone: ElderDoseActionTone
     let prominence: ElderDoseActionProminence
     let accessibilityIdentifier: String
+    let requiresHold: Bool
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        Button {
+            if !requiresHold { action() }
+        } label: {
             ElderDoseActionLabelLayout(
                 visibleWidthRatio: dynamicTypeSize.isAccessibilitySize ? 1 : prominence.visibleWidthRatio,
                 minimumHeight: prominence.minimumHeight
@@ -296,31 +336,67 @@ private struct ElderDoseActionButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 1.2, maximumDistance: 36)
+                .updating($isHolding) { pressing, state, _ in state = pressing }
+                .onEnded { _ in
+                    guard requiresHold, isEnabled, scenePhase == .active else { return }
+                    holdFeedback.impactOccurred(intensity: 0.85)
+                    action()
+                },
+            isEnabled: requiresHold && isEnabled
+        )
+        .onChange(of: isHolding) { _, holding in
+            guard holding, isEnabled, scenePhase == .active else { return }
+            holdFeedback.impactOccurred(intensity: 0.4)
+            holdFeedback.prepare()
+        }
+        .scaleEffect(isHolding && !reduceMotion && !prefersReducedAppMotion ? 1.025 : 1)
+        .animation(.easeOut(duration: 0.16), value: isHolding)
         .frame(maxWidth: .infinity, minHeight: prominence.minimumHeight)
         .contentShape(Rectangle())
         .accessibilityLabel(title)
+        .accessibilityHint(requiresHold ? "长按至进度填满后执行，松手取消" : "")
+        .accessibilityAction {
+            if requiresHold { showingAccessibleConfirmation = true } else { action() }
+        }
         .accessibilityIdentifier(accessibilityIdentifier)
+        .alert("确认\(title)？", isPresented: $showingAccessibleConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("确认") { if isEnabled { action() } }
+        }
     }
 
     private var actionBackground: some View {
-        (prominence == .primary ? tone.solidColor : tone.foregroundColor(for: colorScheme).opacity(0.12))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                (prominence == .primary ? tone.solidColor : tone.foregroundColor(for: colorScheme).opacity(0.12))
+                Rectangle()
+                    .fill(prominence == .primary ? Color.white.opacity(0.25) : tone.foregroundColor(for: colorScheme).opacity(0.22))
+                    .frame(width: isHolding ? geometry.size.width : 0)
+                    .animation(isHolding ? .linear(duration: 1.2) : .easeOut(duration: 0.12), value: isHolding)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    @ViewBuilder
     private var actionLabel: some View {
-        if dynamicTypeSize.isAccessibilitySize {
-            VStack(spacing: 6) {
+        VStack(spacing: 6) {
+            if dynamicTypeSize.isAccessibilitySize {
                 Image(systemName: systemImage)
                     .imageScale(.large)
                     .accessibilityHidden(true)
-                Text(title)
-                    .multilineTextAlignment(.center)
+                Text(title).fixedSize(horizontal: false, vertical: true)
+            } else {
+                Label(title, systemImage: systemImage)
                     .fixedSize(horizontal: false, vertical: true)
             }
-        } else {
-            Label(title, systemImage: systemImage)
-                .fixedSize(horizontal: false, vertical: true)
+            if requiresHold && isHolding {
+                Text("保持按住，松手取消")
+                    .font(.caption)
+                    .opacity(0.85)
+                    .accessibilityHidden(true)
+            }
         }
     }
 }

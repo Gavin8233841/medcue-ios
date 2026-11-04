@@ -17,7 +17,6 @@ struct TodayScreenActions {
     let archive: (StoredDoseTask) -> Void
     let unarchive: (StoredDoseTask) -> Void
     let rollbackUndo: (DoseUndoBanner) -> Void
-    let requestWeatherRefresh: (Bool) async -> Bool
     let initialLoad: () async -> Void
     let timerTick: () -> Void
     let becameActive: () -> Void
@@ -26,6 +25,9 @@ struct TodayScreenActions {
 
 struct TodayScreen: View {
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @AppStorage(AppExperienceMode.storageKey) private var experienceMode = AppExperienceMode.complete.rawValue
+    @State private var showingElderConfirmation = false
     let snapshot: TodayRenderSnapshot
     let notificationUnavailableMessage: String
     let completionRateFeedback: CompletionRateFeedback?
@@ -43,12 +45,7 @@ struct TodayScreen: View {
     let reopeningHandledDoseKeys: Set<String>
     let recentlyReopenedDoseKeys: Set<String>
     let doseMigrationSnapshot: DoseMigrationSnapshot?
-    let weatherHints: [WeatherMedicationHint]
-    let weatherStatusText: String
-    let isWeatherLoading: Bool
-    let shouldShowWeatherAuthorization: Bool
     let doseUndoBanner: DoseUndoBanner?
-    let weatherMedicationSignature: String
     @Binding var showingHandledTasks: Bool
     @Binding var taskPendingArchive: StoredDoseTask?
     @Binding var showingArchiveConfirmation: Bool
@@ -81,14 +78,6 @@ struct TodayScreen: View {
             return 0
         }
         return isCompletionRateFeedbackVisible ? 88 : 0
-    }
-
-    private var shouldShowWeatherMedicationSection: Bool {
-        isWeatherLoading || shouldShowWeatherAuthorization || !visibleWeatherHints.isEmpty
-    }
-
-    private var visibleWeatherHints: [WeatherMedicationHint] {
-        weatherHints.filter(\.isActionableForToday)
     }
 
     private var handledDisclosureBinding: Binding<Bool> {
@@ -131,7 +120,10 @@ struct TodayScreen: View {
         }
         .navigationTitle("今日")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button("适老模式") { showingElderConfirmation = true }
+                    .font(.subheadline.weight(.medium))
+                    .accessibilityIdentifier("today.enter-elder")
                 Button {
                     showingHelpCenter = true
                 } label: {
@@ -143,18 +135,11 @@ struct TodayScreen: View {
         .sheet(isPresented: $showingHelpCenter) {
             HelpCenterView()
         }
-        .appPermissionPrimer(pendingGate: $pendingPermissionGate) { gate in
-            guard gate == .location else {
-                return
-            }
-            Task {
-                if await actions.requestWeatherRefresh(true) {
-                    AppPermissionGate.markAuthorizationCompleted(for: .location)
-                }
-            }
-        }
-        .task(id: weatherMedicationSignature) {
-            _ = await actions.requestWeatherRefresh(false)
+        .alert("进入适老模式？", isPresented: $showingElderConfirmation) {
+            Button("取消", role: .cancel) {}
+            Button("进入适老模式") { experienceMode = AppExperienceMode.elder.rawValue }
+        } message: {
+            Text("一次查看一项用药任务，长按按钮确认操作。可随时返回完整模式。")
         }
         .task {
             await actions.initialLoad()
@@ -207,32 +192,24 @@ struct TodayScreen: View {
     private var timeline: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 22) {
-                if snapshot.completionRateSnapshot.isComplete,
-                   shouldShowCompletionCelebration {
-                    CompletionCompleteCelebrationCard(
-                        snapshot: snapshot.completionRateSnapshot,
-                        reduceMotion: prefersReducedMotion
-                    )
-                    .transition(.opacity.combined(with: .scale(scale: 0.98, anchor: .top)))
-                    .animation(
-                        .snappy(duration: 0.28, extraBounce: 0.03),
-                        value: snapshot.completionRateSnapshot
-                    )
-                }
-
                 notificationUnavailableBanner
-                openTimelineSection
+                if snapshot.visibleOpenTimelineTasks.isEmpty && !isDoseListReparenting {
+                    TodaySettledCard(snapshot: snapshot, reduceMotion: prefersReducedMotion || systemReduceMotion)
+                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                } else {
+                    openTimelineSection
+                }
 
                 if snapshot.shouldShowHandledSection {
                     handledTimelineSection
                 }
 
                 archivedTimelineSection
-                nextReminderSection
-                if shouldShowWeatherMedicationSection {
-                    weatherMedicationSection
+                if snapshot.nextReminderTask != nil || snapshot.overdueOpenTaskCount > 0 {
+                    nextReminderSection
                 }
             }
+            .animation(prefersReducedMotion || systemReduceMotion ? nil : .smooth(duration: 0.3), value: snapshot.visibleOpenTimelineTasks.isEmpty)
             .padding(.horizontal, 16)
             .padding(.top, 16)
             .padding(.bottom, 180)
@@ -395,7 +372,7 @@ struct TodayScreen: View {
     }
 
     private var handledTimelineSection: some View {
-        todaySection("今日已处理") {
+        todaySection("今日记录") {
             let isExpanded = handledDisclosureBinding.wrappedValue
             let value = "\(snapshot.displayedHandledCount) 条，\(snapshot.handledSummaryText)，\(isExpanded ? "已展开" : "已折叠")"
             Button {
@@ -404,15 +381,10 @@ struct TodayScreen: View {
                 }
             } label: {
                 HStack(spacing: 8) {
-                    HandledDoseSummaryRow(
-                        count: snapshot.displayedHandledCount,
-                        latestText: snapshot.handledSummaryText,
-                        isReceiving: handledDropTargetPulse
-                            || !reopeningHandledDoseKeys.isEmpty,
-                        migrationSnapshot: handledDropTargetPulse
-                            ? doseMigrationSnapshot
-                            : nil
-                    )
+                    Label("\(snapshot.displayedHandledCount) 条记录", systemImage: "list.bullet.rectangle")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Spacer()
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                         .font(.footnote.weight(.bold))
                         .foregroundStyle(.secondary)
@@ -420,14 +392,17 @@ struct TodayScreen: View {
                 }
                 .contentShape(Rectangle())
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("今日已处理")
+                .accessibilityLabel("今日记录")
                 .accessibilityValue(value)
             }
             .buttonStyle(.plain)
+            .padding(8)
+            .medicationGlassSurface(cornerRadius: 16, isInteractive: true)
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel("今日已处理")
+            .accessibilityLabel("今日记录")
             .accessibilityValue(value)
             .accessibilityHint(isExpanded ? "收起已处理记录" : "展开已处理记录")
+            .accessibilityIdentifier("today.records.toggle")
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: 8) {
@@ -526,35 +501,6 @@ struct TodayScreen: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 6)
-            }
-        }
-    }
-
-    private var weatherMedicationSection: some View {
-        todaySection("天气与用药关注") {
-            if isWeatherLoading && weatherHints.isEmpty {
-                ProgressView("正在读取今日天气")
-            }
-            ForEach(visibleWeatherHints) { hint in
-                WeatherMedicationHintCard(hint: hint)
-            }
-            if shouldShowWeatherAuthorization {
-                Button {
-                    Task {
-                        if await actions.requestWeatherRefresh(true) {
-                            AppPermissionGate.markAuthorizationCompleted(for: .location)
-                        }
-                    }
-                } label: {
-                    Label("允许天气提醒", systemImage: "location.fill")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-            if !weatherStatusText.isEmpty {
-                Text(weatherStatusText)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
         }
     }

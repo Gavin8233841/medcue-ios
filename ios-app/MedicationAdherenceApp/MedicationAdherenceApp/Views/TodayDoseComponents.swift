@@ -336,6 +336,78 @@ struct CompletionRateGlassSurface: ViewModifier {
     }
 }
 
+struct TodaySettledCard: View {
+    let snapshot: TodayRenderSnapshot
+    let reduceMotion: Bool
+    @State private var appeared = false
+
+    private var complete: Bool { snapshot.completionRateSnapshot.isComplete }
+    private var tint: Color { complete ? .green : .blue }
+    private var skippedCount: Int { snapshot.displayTodayTasks.filter { $0.status == .skipped }.count }
+
+    var body: some View {
+        VStack(spacing: 22) {
+            ZStack {
+                Circle().fill(tint.opacity(0.08))
+                Circle()
+                    .trim(from: 0, to: appeared || reduceMotion ? 1 : 0)
+                    .stroke(tint.opacity(0.55), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Image(systemName: complete ? "checkmark" : "list.bullet")
+                    .font(.system(size: 36, weight: .medium))
+                    .foregroundStyle(tint)
+                    .scaleEffect(appeared || reduceMotion ? 1 : 0.75)
+                    .opacity(appeared || reduceMotion ? 1 : 0)
+            }
+            .frame(width: 96, height: 96)
+            .accessibilityHidden(true)
+
+            VStack(spacing: 8) {
+                Text(complete ? "今日用药已完成" : "今日暂无待处理")
+                    .font(.title2.bold())
+                    .multilineTextAlignment(.center)
+                Text(snapshot.displayTodayTasks.isEmpty ? "新的用药计划会显示在这里" : "每一次记录，都可以回看")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            if !snapshot.displayTodayTasks.isEmpty {
+                HStack(spacing: 14) {
+                    summary("已服用", count: snapshot.completionRateSnapshot.completedCount, color: .green)
+                    summary("已忽略", count: skippedCount, color: skippedCount > 0 ? .orange : .secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 22)
+        .padding(.vertical, 32)
+        .background {
+            RoundedRectangle(cornerRadius: 28)
+                .fill(Color(.secondarySystemGroupedBackground).gradient)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 28)
+                        .stroke(tint.opacity(0.12), lineWidth: 1)
+                }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("today.settled")
+        .task(id: complete) {
+            appeared = false
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.65)) { appeared = true }
+        }
+    }
+
+    private func summary(_ title: String, count: Int, color: Color) -> some View {
+        HStack(spacing: 8) {
+            Text(title).foregroundStyle(.secondary)
+            Text(count.formatted()).fontWeight(.semibold).foregroundStyle(color)
+        }
+        .font(.subheadline)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 13)
+        .background(color.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
+    }
+}
+
 struct CompletionCompleteCelebrationCard: View {
     let snapshot: CompletionRateSnapshot
     let reduceMotion: Bool

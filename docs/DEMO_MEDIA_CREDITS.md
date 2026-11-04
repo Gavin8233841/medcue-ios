@@ -20,6 +20,8 @@ and authorized by the product owner on 2026-11-03; it replaces the old eye-drop
 image for demo rebuilding. No generated concept packaging is used in the app.
 Photos do not supply dosage or instruction facts.
 
-`DemoVitaminD3.png` is the vitamin D packaging photograph supplied and authorized
-by the product owner on 2026-11-03. It is demo artwork only, not a source for
+`DemoVitaminD3.png` is the Doublewhale vitamin D packaging and blister photograph
+supplied and authorized by the product owner on 2026-11-05, replacing the prior
+2026-11-03 artwork. The supplied photograph is retained without generative edits.
+It is demo artwork only, not a source for
 dosage, formulation, or medication instructions.

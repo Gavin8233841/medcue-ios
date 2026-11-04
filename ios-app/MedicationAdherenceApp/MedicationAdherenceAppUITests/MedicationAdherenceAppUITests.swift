@@ -2,6 +2,76 @@ import XCTest
 
 @MainActor
 final class MedicationAdherenceAppUITests: XCTestCase {
+    func testTodaySettledRecordsDoNotClaimSkippedDosesWereTaken() {
+        let app = launchIsolatedToday()
+        for _ in 0..<5 {
+            let skip = app.buttons["忽略"].firstMatch
+            XCTAssertTrue(skip.waitForExistence(timeout: 5))
+            skip.tap()
+            // Allow the existing committed row-migration animation to finish.
+            RunLoop.current.run(until: Date().addingTimeInterval(0.7))
+        }
+        XCTAssertTrue(app.staticTexts["今日暂无待处理"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["今日用药已完成"].exists)
+        XCTAssertFalse(app.staticTexts["下一次提醒"].exists)
+        XCTAssertFalse(app.staticTexts["天气与用药关注"].exists)
+        let records = app.buttons["今日记录"]
+        XCTAssertTrue(records.exists)
+        records.tap()
+        XCTAssertTrue((records.value as? String)?.contains("已展开") == true)
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "Today-skipped-records-expanded"
+        shot.lifetime = .keepAlways
+        add(shot)
+        records.tap()
+        XCTAssertTrue((records.value as? String)?.contains("已折叠") == true)
+    }
+
+    func testElderHoldCancellationAndModeConfirmation() {
+        let app = launchIsolatedToday()
+        app.buttons["today.enter-elder"].tap()
+        app.alerts.buttons["取消"].tap()
+        XCTAssertTrue(app.buttons["today.enter-elder"].exists)
+        app.buttons["today.enter-elder"].tap()
+        app.alerts.buttons["进入适老模式"].tap()
+        let taken = app.buttons["elder.action.taken"]
+        XCTAssertTrue(taken.waitForExistence(timeout: 5))
+        taken.tap()
+        XCTAssertFalse(app.alerts["确认已服用或使用？"].exists)
+        taken.press(forDuration: 0.35)
+        XCTAssertFalse(app.alerts["确认已服用或使用？"].exists)
+        taken.press(forDuration: 1.4)
+        XCTAssertTrue(app.alerts["确认已服用或使用？"].waitForExistence(timeout: 3))
+        app.alerts.buttons["取消"].tap()
+        XCTAssertTrue(taken.exists)
+        XCTAssertFalse(app.buttons["elder.action.skip"].exists)
+        XCTAssertFalse(app.staticTexts["长按确认"].exists)
+        app.buttons["elder.action.help"].tap()
+        let closeHelp = app.buttons["完成"].firstMatch
+        XCTAssertTrue(closeHelp.waitForExistence(timeout: 3))
+        closeHelp.tap()
+        XCTAssertTrue(app.staticTexts["还有 4 项待处理"].exists)
+        app.buttons["elder.switch-to-complete"].tap()
+        app.alerts.buttons["取消"].tap()
+        XCTAssertTrue(taken.exists)
+        app.buttons["elder.switch-to-complete"].tap()
+        app.alerts.buttons["返回完整模式"].tap()
+        XCTAssertTrue(app.buttons["today.enter-elder"].waitForExistence(timeout: 5))
+    }
+
+    private func launchIsolatedToday() -> XCUIApplication {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--medication-gallery-preview", "--seed-demo-data",
+            "--recording-hide-reminder-banner", "-hasCompletedFirstLaunchSetup", "YES"]
+        app.launch()
+        let today = app.tabBars.buttons.element(boundBy: 0)
+        XCTAssertTrue(today.waitForExistence(timeout: 15))
+        today.tap()
+        XCTAssertTrue(app.buttons["today.enter-elder"].waitForExistence(timeout: 8))
+        return app
+    }
+
     private let clearedPersistenceFailureArguments = [
         "-AppPersistenceCommitter.failureMessage", "",
         "-DoseActionPersistence.failureMessage", ""
@@ -12,11 +82,13 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--assistant-ui-preview", "-appColorSchemePreference", "dark"]
         app.launch()
-        let input = app.descendants(matching: .any).matching(identifier: "assistant.input").firstMatch
+        // The scroll container's identifier is inherited by the native field on
+        // current Simulator runtimes. The fixture contains one actual text field.
+        let input = app.textFields.firstMatch
         XCTAssertTrue(input.waitForExistence(timeout: 15))
         input.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
-        let send = app.buttons["assistant.send"]
+        let send = app.buttons.matching(NSPredicate(format: "label == %@ AND identifier != %@", "发送", "Send")).firstMatch
         XCTAssertLessThanOrEqual(send.frame.maxY, app.keyboards.firstMatch.frame.minY + 2)
         input.typeText("draft preserved")
         // Drag inside the vertical transcript, away from nested shortcut strips.
