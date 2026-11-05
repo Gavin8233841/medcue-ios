@@ -15,6 +15,7 @@ struct AIChatInputBar: View {
     let send: () -> Void
     let capturedImage: (UIImage) -> Void
     @State private var showingCamera = false
+    @State private var showingPhotoLibrary = false
     @State private var showingCameraDenied = false
 
     private var trimmedText: String {
@@ -47,7 +48,10 @@ struct AIChatInputBar: View {
                     Label("拍照", systemImage: "camera")
                 }
                 .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
-                PhotosPicker(selection: $selectedImageItem, matching: .images) {
+                Button {
+                    dismissKeyboard()
+                    showingPhotoLibrary = true
+                } label: {
                     Label("从相册选择", systemImage: "photo")
                 }
             } label: {
@@ -103,6 +107,7 @@ struct AIChatInputBar: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+        .photosPicker(isPresented: $showingPhotoLibrary, selection: $selectedImageItem, matching: .images)
         .fullScreenCover(isPresented: $showingCamera) {
             CameraPhotoCaptureSheet(onImage: capturedImage)
                 .ignoresSafeArea()
@@ -219,16 +224,19 @@ struct ThirdPartyMedicalAgentNoticeSheet: View {
 struct AIConsentSheet: View {
     @Environment(\.dismiss) private var dismiss
     let consent: StoredAIConsent?
-    let save: (AIConsentDraft) -> Void
+    let save: (AIConsentDraft) -> Bool
     let revoke: () -> Void
+    @State private var saveFailed = false
     @State private var sharesMedicationProfile: Bool
     @State private var sharesMedicationPlans: Bool
     @State private var sharesDoseEvents: Bool
     @State private var sharesRiskCards: Bool
     @State private var sharesDrugLabels: Bool
+    @State private var sharesHealthSummary = UserDefaults.standard.bool(forKey: "aiSharesHealthSummary")
+    @State private var sharesInventory = UserDefaults.standard.bool(forKey: "aiSharesInventory")
     @State private var sharesImportDraft: Bool
 
-    init(consent: StoredAIConsent?, save: @escaping (AIConsentDraft) -> Void, revoke: @escaping () -> Void) {
+    init(consent: StoredAIConsent?, save: @escaping (AIConsentDraft) -> Bool, revoke: @escaping () -> Void) {
         self.consent = consent
         self.save = save
         self.revoke = revoke
@@ -249,6 +257,8 @@ struct AIConsentSheet: View {
                     Toggle("服药记录", isOn: $sharesDoseEvents)
                     Toggle("风险提醒", isOn: $sharesRiskCards)
                     Toggle("说明书摘要", isOn: $sharesDrugLabels)
+                    Toggle("按需查询库存余量", isOn: $sharesInventory)
+                    Toggle("按需查询 Apple 健康摘要", isOn: $sharesHealthSummary)
                 }
 
                 Section("授权说明") {
@@ -267,6 +277,7 @@ struct AIConsentSheet: View {
                     }
                 }
             }
+            .alert("授权未保存", isPresented: $saveFailed) { Button("好", role: .cancel) {} } message: { Text("请重试保存共享范围。") }
             .navigationTitle("智能体授权")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -277,15 +288,17 @@ struct AIConsentSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
-                        save(AIConsentDraft(
+                        let saved = save(AIConsentDraft(
                             sharesMedicationProfile: sharesMedicationProfile,
                             sharesMedicationPlans: sharesMedicationPlans,
                             sharesDoseEvents: sharesDoseEvents,
                             sharesRiskCards: sharesRiskCards,
                             sharesDrugLabels: sharesDrugLabels,
-                            sharesImportDraft: sharesImportDraft
+                            sharesImportDraft: sharesImportDraft,
+                            sharesHealthSummary: sharesHealthSummary,
+                            sharesInventory: sharesInventory
                         ))
-                        dismiss()
+                        if saved { dismiss() } else { saveFailed = true }
                     }
                 }
             }

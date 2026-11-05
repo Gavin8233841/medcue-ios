@@ -1291,3 +1291,27 @@ Removed the elder task outer white card/blue border and the photo's grey
 background/border. Kept the large photo, name and dose, simplified status text,
 and aligned all three action buttons to the same width. Signed iOS build
 passed. Visual acceptance is assigned to the product owner for this adjustment.
+
+## 2026-11-06 Chat image picker, risk-detail hang and read-only cloud queries
+
+A three-second Time Profiler capture of the connected app showed repeated
+MedicationDetailView construction in RiskCardDetailView.body. The related
+medication link now uses the registered MedicationDetailRoute, deferring the
+cyclic destination construction until navigation. The chat album action now
+presents PhotosPicker from the input container instead of embedding it in Menu.
+
+The broker client now supports one read-only query round through its existing
+text/JSON transport. Model selection receives the question and matching history;
+only the selected authorized query result enters final-answer generation.
+Supported queries are medication records, registered inventory and HealthKit
+summaries for today, yesterday or recent data. Inventory and health sharing
+are separate default-off switches, applied only after consent save succeeds.
+Consent edits/revocation cancel active requests; responses use captured sharing
+markers to prevent reuse across sharing changes. The local 2B model remains on
+its existing path after synthetic probes showed unreliable autonomous selection.
+This is the app's text-tool protocol, not native Foundation Models Tool support.
+
+351 hosted tests passed in 50 suites, including new tool selection/round-trip
+regressions. Fresh independent source review found no remaining Blocker/Required.
+Physical installation is tracked separately; performance/UI acceptance is owned
+by the product owner for this change.

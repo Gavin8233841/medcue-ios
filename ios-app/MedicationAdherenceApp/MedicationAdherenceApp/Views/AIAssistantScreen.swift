@@ -44,7 +44,7 @@ struct AIAssistantScreen: View {
     let applyPendingQuestion: () -> Void
     let refreshEnvironment: () async -> Void
     let acceptThirdPartyNotice: () -> Void
-    let saveConsent: (AIConsentDraft) -> Void
+    let saveConsent: (AIConsentDraft) -> Bool
     let revokeConsent: () -> Void
     let deleteArchivedMessages: ([StoredAIChatMessage]) -> Void
     let deleteAllArchivedMessages: () -> Void
@@ -396,7 +396,7 @@ struct AssistantUIFixture: View {
                     selectOnlineRuntime: {}, selectLocalRuntime: {}, archiveVisibleConversation: { _ in },
                     dismissChatKeyboard: { focused = false }, prepareSession: {}, handleActiveTabChange: { _ in },
                     beginImageRecognition: { _ in }, capturedImage: { _ in }, applyPendingQuestion: {},
-                    refreshEnvironment: {}, acceptThirdPartyNotice: {}, saveConsent: { _ in }, revokeConsent: {},
+                    refreshEnvironment: {}, acceptThirdPartyNotice: {}, saveConsent: { _ in true }, revokeConsent: {},
                     deleteArchivedMessages: { _ in }, deleteAllArchivedMessages: {}, requestLocalModelDownload: {},
                     environmentRefreshSignature: "fixture"
                 )

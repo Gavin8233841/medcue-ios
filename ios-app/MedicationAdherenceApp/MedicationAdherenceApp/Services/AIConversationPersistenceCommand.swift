@@ -8,6 +8,8 @@ struct AIConsentDraft: Equatable {
     var sharesRiskCards: Bool
     var sharesDrugLabels: Bool
     var sharesImportDraft: Bool
+    var sharesHealthSummary: Bool = false
+    var sharesInventory: Bool = false
 }
 
 enum AIConversationPersistenceOutcome: Equatable {

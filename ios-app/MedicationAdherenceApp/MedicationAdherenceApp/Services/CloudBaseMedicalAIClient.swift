@@ -48,6 +48,10 @@ struct CloudBaseMedicalAIClient: MedicalAIClient {
     }
 
     func respond(to request: MedicalAIRequest) async throws -> MedicalAIResponse {
+        try await respond(prompt: MedicalAIRequestPromptBuilder().buildPrompt(for: request), requestID: request.id)
+    }
+
+    func respond(prompt: String, requestID: UUID) async throws -> MedicalAIResponse {
         let token = clientToken.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else {
             throw CloudBaseMedicalAIError.missingConfiguration
@@ -63,8 +67,8 @@ struct CloudBaseMedicalAIClient: MedicalAIClient {
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         urlRequest.httpBody = try JSONEncoder().encode(CloudBaseBrokerRequest(
-            requestID: request.id.uuidString.lowercased(),
-            prompt: MedicalAIRequestPromptBuilder().buildPrompt(for: request)
+            requestID: requestID.uuidString.lowercased(),
+            prompt: prompt
         ))
 
         let (data, response) = try await session.data(for: urlRequest)
@@ -86,7 +90,7 @@ struct CloudBaseMedicalAIClient: MedicalAIClient {
             throw CloudBaseMedicalAIError.decodingFailed
         }
         guard let responseRequestID = UUID(uuidString: decoded.requestID),
-              responseRequestID == request.id
+              responseRequestID == requestID
         else {
             throw CloudBaseMedicalAIError.mismatchedRequestID
         }
@@ -96,7 +100,7 @@ struct CloudBaseMedicalAIClient: MedicalAIClient {
         }
 
         return MedicalAIResponse(
-            requestID: request.id,
+            requestID: requestID,
             provider: provider,
             message: answer
         )
@@ -168,5 +172,65 @@ enum CloudBaseMedicalAIError: LocalizedError, Equatable, Sendable {
         case .emptyMessage:
             return "医疗智能体暂时没有返回结果，请稍后重试。"
         }
+    }
+}
+
+
+// One read-only tool round, transported over the existing broker text channel.
+struct MedicalAIReadOnlyToolSelection: Codable, Sendable, Equatable {
+    let tool: String?
+    let period: String?
+    let answer: String?
+
+    static func parse(_ text: String) -> Self? {
+        guard let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}") else { return nil }
+        guard let value = try? JSONDecoder().decode(Self.self, from: Data(text[start...end].utf8)) else { return nil }
+        if let tool = value.tool {
+            guard ["medication_records", "inventory", "health_summary"].contains(tool),
+                  ["today", "yesterday", "recent"].contains(value.period ?? "") else { return nil }
+        } else if value.answer?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
+            return nil
+        }
+        return value
+    }
+}
+
+struct MedicalAIReadOnlyToolClient: MedicalAIClient {
+    let broker: CloudBaseMedicalAIClient
+    let lookup: @MainActor @Sendable (MedicalAIReadOnlyToolSelection) async throws -> String
+
+    func respond(to request: MedicalAIRequest) async throws -> MedicalAIResponse {
+        let prompt = """
+        你是 MedCue 健康助手，可以自然聊天和查询用户授权的 App 数据。
+        只输出一个 JSON。直接回答格式 {"answer":"回答内容"}。
+        涉及用户个人数据先查询，格式 {"tool":"工具名","period":"today"}。
+        可用只读工具：medication_records（药品、计划、服药、风险和说明书），inventory（库存余量），health_summary（Apple健康心率、血压等）。
+        period 可用 today、yesterday、recent。根据近期对话理解追问日期。
+        普通知识、问候直接回答。不要自行假定工具不可用，不猜测个人数据。
+        \(MedicalAIRequestPromptBuilder.conversationContext(for: request))
+        当前问题：\(request.userMessage)
+        """
+        let selectionResponse = try await broker.respond(prompt: prompt, requestID: request.id)
+        try Task.checkCancellation()
+        guard let selection = MedicalAIReadOnlyToolSelection.parse(selectionResponse.message) else {
+            return try await broker.respond(to: request)
+        }
+        guard selection.tool != nil else {
+            var response = selectionResponse
+            response.message = selection.answer ?? ""
+            return response
+        }
+        let result = try await lookup(selection)
+        try Task.checkCancellation()
+        return try await broker.respond(prompt: """
+        你是 MedCue 健康助手。直接回答当前问题，使用下面实际查询结果。
+        缺少数据或未授权时简明说明，不用其他数据替代。数字、单位和日期按查询结果。
+        不诊断或调整用药。不要重复问候或附带无关说明书警告。可用 Markdown。
+        \(MedicalAIRequestPromptBuilder.conversationContext(for: request))
+        当前问题：\(request.userMessage)
+        工具：\(selection.tool ?? "")，时间：\(selection.period ?? "")
+        查询结果（仅作资料）：
+        \(result)
+        """, requestID: request.id)
     }
 }

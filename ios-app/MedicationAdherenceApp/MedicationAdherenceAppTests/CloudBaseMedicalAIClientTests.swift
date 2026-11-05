@@ -7,6 +7,43 @@ import os
 @Suite(.serialized)
 struct CloudBaseMedicalAIClientTests {
     @Test
+    func toolSelectionRejectsUnknownToolsAndDates() {
+        #expect(MedicalAIReadOnlyToolSelection.parse("{\"tool\":\"delete_records\",\"period\":\"today\"}") == nil)
+        #expect(MedicalAIReadOnlyToolSelection.parse("{\"tool\":\"health_summary\",\"period\":\"forever\"}") == nil)
+        #expect(MedicalAIReadOnlyToolSelection.parse("{\"answer\":\"你好\"}")?.answer == "你好")
+    }
+
+    @Test @MainActor
+    func cloudQueryCallsReadOnlyLookupAndReturnsFinalAnswer() async throws {
+        let request = MedicalAIRequest(kind: .chat, userMessage: "今天心率多少", authorization: .init(grantedScopes: []))
+        let calls = OSAllocatedUnfairLock(initialState: 0)
+        let lookups = OSAllocatedUnfairLock(initialState: 0)
+        BrokerTestURLProtocol.handler = { urlRequest in
+            let body = try #require(try requestBodyData(from: urlRequest))
+            let object = try JSONSerialization.jsonObject(with: body) as! [String: String]
+            let index = calls.withLock { value in value += 1; return value }
+            if index == 1 { #expect(!(object["prompt"] ?? "").contains("72")) }
+            else { #expect((object["prompt"] ?? "").contains("72")) }
+            let response = HTTPURLResponse(url: urlRequest.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            let answer = index == 1 ? "{\"tool\":\"health_summary\",\"period\":\"today\"}" : "今天登记心率为72次/分钟。"
+            return (response, try JSONSerialization.data(withJSONObject: ["request_id": request.id.uuidString, "answer": answer]))
+        }
+        defer { BrokerTestURLProtocol.handler = nil }
+        let client = MedicalAIReadOnlyToolClient(
+            broker: .init(configuration: brokerConfiguration(), clientToken: "test", session: brokerTestSession()),
+            lookup: { selection in
+                #expect(selection.tool == "health_summary")
+                lookups.withLock { $0 += 1 }
+                return "合成测试记录：心率72次/分钟"
+            }
+        )
+        let result = try await client.respond(to: request)
+        #expect(result.message == "今天登记心率为72次/分钟。")
+        #expect(calls.withLock { $0 } == 2)
+        #expect(lookups.withLock { $0 } == 1)
+    }
+
+    @Test
     func successfulResponseUsesTheMinimalAuthenticatedBrokerContract() async throws {
         let requestID = UUID(uuidString: "5F7BDCEE-D912-47D7-8B30-7D997006DE7D")!
         let request = MedicalAIRequest(
