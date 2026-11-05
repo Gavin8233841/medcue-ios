@@ -395,6 +395,8 @@ struct AppRootView: View {
         }
         #endif
 
+        DemoDataSeeder.refreshExistingDemoArtworkIfNeeded(in: modelContext)
+
         guard !shouldShowFirstLaunchSetup else {
             return
         }

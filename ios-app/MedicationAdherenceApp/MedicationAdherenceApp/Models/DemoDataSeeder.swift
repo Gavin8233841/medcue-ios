@@ -31,6 +31,39 @@ enum DemoDataSeeder {
         #endif
     }
 
+    /// Refresh only existing synthetic artwork; never rebuild records or plans.
+    @MainActor
+    @discardableResult
+    static func refreshExistingDemoArtworkIfNeeded(
+        in modelContext: ModelContext,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        let revision = 20261105
+        let key = "medcue.demoArtworkRevision"
+        guard defaults.integer(forKey: key) < revision, !modelContext.hasChanges else { return false }
+        do {
+            let medications = try modelContext.fetch(FetchDescriptor<StoredMedication>(
+                predicate: #Predicate { $0.isDemoContent }
+            ))
+            guard !medications.isEmpty else { return false }
+            let refreshedNames = Set(["布洛芬", "对乙酰氨基酚", "维生素 D3"])
+            var changed = false
+            for medication in medications {
+                guard refreshedNames.contains(medication.displayName) || medication.photoData == nil,
+                      let photo = bundledPhotoData(for: medication.displayName),
+                      medication.photoData != photo else { continue }
+                medication.photoData = photo
+                changed = true
+            }
+            if changed && !AppPersistenceCommitter.save(modelContext, operation: "demo-artwork-refresh") { return false }
+            defaults.set(revision, forKey: key)
+            return changed
+        } catch {
+            AppPersistenceCommitter.reportFailure(operation: "demo-artwork-refresh")
+            return false
+        }
+    }
+
     static func rebuildForExplicitDemoMode(in modelContext: ModelContext) throws {
         #if DEBUG || MEDCUE_DEMO
         let existing = try modelContext.fetch(FetchDescriptor<StoredMedication>())

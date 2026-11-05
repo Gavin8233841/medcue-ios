@@ -9,6 +9,21 @@ Audit-baseline CI: [Native Verification run 32171788727](https://github.com/Gavi
 Latest full coordination audit: 2026-09-22; targeted update: 2026-09-27 (#28)
 Verified source checkpoint for the #4 update below: `main@74fb171088a80c38872c51fcae85c05721dc10f0`
 
+## 2026-11-05 Existing-demo artwork upgrade correction
+
+The earlier `43de6b7` checkpoint replaced bundled photos but existing device
+records still supplied their saved `photoData`; normal startup did not invoke
+the explicit Demo rebuild. This explains the old packaging and missing D3.
+Startup now performs a one-time, versioned refresh of existing demo artwork:
+ibuprofen, paracetamol and vitamin D receive the current bundled image; missing
+known demo images are filled. No tasks, plans or non-demo photos are rebuilt.
+The version is recorded after a successful save, and unrelated pending edits
+prevent the refresh. The new regression covers old images, absent D3, retained
+non-demo/saved loratadine photos, retained task IDs/status, and repeat execution.
+All 348 hosted app tests passed on these changes. Device installation and
+visual acceptance are separate from this source/test checkpoint.
+
+
 ## 2026-11-05 Current competition integration candidate (#166 / #167)
 
 Current candidate: `codex/finals-baseline-integration`, reconciling the preserved

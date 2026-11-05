@@ -100,6 +100,42 @@ struct MedicationAdherenceAppTests {
     }
 
     @Test
+    @MainActor
+    func artworkRefreshUpgradesExistingDemoPhotosWithoutRebuildingRecords() throws {
+        let container = try MedicationAdherenceModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        try DemoDataSeeder.rebuildForExplicitDemoMode(in: context)
+        let medications = try context.fetch(FetchDescriptor<StoredMedication>())
+        let oldPhoto = Data([1, 2, 3])
+        for medication in medications {
+            medication.photoData = medication.displayName == "维生素 D3" ? nil : oldPhoto
+        }
+        let userMedication = StoredMedication(displayName: "布洛芬", kind: .overTheCounter,
+            inputSource: .manual, photoData: oldPhoto, isDemoContent: false)
+        context.insert(userMedication)
+        let tasks = try context.fetch(FetchDescriptor<StoredDoseTask>())
+        let task = try #require(tasks.first)
+        task.status = .taken
+        let taskIDs = Set(tasks.map(\.id))
+        try context.save()
+        let suite = "MedCue-artwork-test-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        #expect(DemoDataSeeder.refreshExistingDemoArtworkIfNeeded(in: context, defaults: defaults))
+        for name in ["布洛芬", "对乙酰氨基酚", "维生素 D3"] {
+            let medication = try #require(medications.first { $0.displayName == name })
+            #expect(medication.photoData == DemoDataSeeder.bundledPhotoData(for: name))
+            #expect(medication.photoData?.isEmpty == false)
+        }
+        #expect(userMedication.photoData == oldPhoto)
+        #expect(medications.first { $0.displayName == "氯雷他定" }?.photoData == oldPhoto)
+        #expect(Set(try context.fetch(FetchDescriptor<StoredDoseTask>()).map(\.id)) == taskIDs)
+        #expect(task.status == .taken)
+        #expect(!DemoDataSeeder.refreshExistingDemoArtworkIfNeeded(in: context, defaults: defaults))
+    }
+
+    @Test
     func legacySchemaKeepsEntityNamesAndOnlyOmitsTheTwoNewFields() throws {
         let legacySchema = Schema(MedicationAdherenceSchemaV1.models)
         let currentSchema = Schema(versionedSchema: MedicationAdherenceSchemaV2.self)
