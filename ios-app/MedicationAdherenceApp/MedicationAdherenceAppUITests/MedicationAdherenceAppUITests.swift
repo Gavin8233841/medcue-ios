@@ -344,7 +344,7 @@ final class MedicationAdherenceAppUITests: XCTestCase {
 
         app.tabBars.buttons.element(boundBy: 2).tap()
         dismissAssistantGatesIfPresented(in: app)
-        let runtime = app.buttons["assistant.runtime.toggle"]
+        let runtime = app.buttons["切换智能体模式"]
         XCTAssertTrue(runtime.waitForExistence(timeout: 5))
         runtime.tap()
         let cloudDescription = app.staticTexts["联网回答 · 授权后使用"]
