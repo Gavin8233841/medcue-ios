@@ -14,8 +14,6 @@ struct MedicationsView: View {
     @Query(sort: \StoredMedicationDoseChange.effectiveFrom, order: .reverse) private var doseChanges: [StoredMedicationDoseChange]
     @Query(sort: \StoredMedicationStock.lastUpdated, order: .reverse) private var stocks: [StoredMedicationStock]
     @Query(sort: \StoredRiskCard.displayPriority) private var riskCards: [StoredRiskCard]
-    @State private var showingAddOptions = false
-    @State private var pendingAddSelection: MedicationAddSelection?
     @State private var selectedAddSelection: MedicationAddSelection?
     @State private var selectedLifecycleStatus: StoredMedicationLifecycleStatus = .active
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -156,30 +154,12 @@ struct MedicationsView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    showingAddOptions = true
+                    selectedAddSelection = MedicationAddSelection(option: MedicationAddWorkflow.manualOption)
                 } label: {
                     Image(systemName: "plus")
                         .accessibilityLabel("添加药品")
                 }
                 .accessibilityIdentifier(AppAccessibilityID.medicationAdd)
-            }
-        }
-        .sheet(isPresented: $showingAddOptions) {
-            MedicationAddOptionsSheet { option in
-                pendingAddSelection = MedicationAddSelection(option: option)
-                showingAddOptions = false
-            }
-            .presentationDetents([.height(360)])
-            .presentationDragIndicator(.visible)
-        }
-        .onChange(of: showingAddOptions) { _, isPresented in
-            guard !isPresented, let pendingAddSelection else {
-                return
-            }
-            self.pendingAddSelection = nil
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(180))
-                selectedAddSelection = pendingAddSelection
             }
         }
         .sheet(item: $selectedAddSelection) { selection in

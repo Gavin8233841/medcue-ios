@@ -1273,3 +1273,14 @@ Glass disclosure control. A fresh independent source review found no remaining
 Blocker/Required findings. Hosted tests passed with regression coverage for the
 rolling boundary, expired deferred tasks, true failures and no available slots.
 Physical installation/visual checks remain separate evidence.
+
+## 2026-11-06 Elder recognition layout and direct medication entry
+
+The integration adopted main's compact elder identity card, regressing the
+previous centered photo/name/dose presentation. The standard elder view now
+restores that hierarchy with a 200-point bounded photo, 34-point scaled name
+and title-size dose. The existing three-action workflow remains connected.
+The medication plus button opens the existing manual form directly, removing
+the redundant picker with two unavailable routes. The first hosted run hit a
+model cancellation timing failure; a repeat passed all 349 tests in 50 suites.
+Device appearance is recorded separately from those test results.

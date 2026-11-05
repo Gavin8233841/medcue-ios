@@ -32,7 +32,7 @@ struct ElderTodayScreen: View {
     @Environment(\.medcueReduceMotionEnabled) private var reduceMotionEnabled
     @AccessibilityFocusState private var accessibilityFocus: ElderAccessibilityFocus?
     @State private var medicationPhotoPreview: ElderMedicationPhotoPreview?
-    @ScaledMetric(relativeTo: .title2) private var elderTitlePointSize: CGFloat = 24
+    @ScaledMetric(relativeTo: .title2) private var elderTitlePointSize: CGFloat = 34
     let snapshot: ElderTodayRenderSnapshot
     let pendingDoseConfirmation: PendingDoseConfirmation?
     let pendingDoseFeedback: PendingDoseFeedback?
@@ -442,34 +442,52 @@ struct ElderTodayScreen: View {
         }
     }
 
+    @ViewBuilder
     private func taskIdentity(_ task: StoredDoseTask, availableWidth: CGFloat) -> some View {
+        if isAccessibilityLayout {
+            compactTaskIdentity(task, availableWidth: availableWidth)
+        } else {
+            VStack(spacing: 16) {
+                medicationPhotoButton(availableWidth: availableWidth)
+                taskDetails(task, centered: true)
+                taskSchedule(task, centered: true)
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func medicationPhotoButton(availableWidth: CGFloat) -> some View {
+        Button {
+            guard let data = snapshot.currentMedication?.photoData else { return }
+            medicationPhotoPreview = ElderMedicationPhotoPreview(
+                data: data,
+                medicationName: snapshot.currentMedication.map(userFacingMedicationName(for:))
+            )
+        } label: {
+            medicationPhoto(size: medicationPhotoWidth(for: availableWidth))
+                .overlay(alignment: .bottomTrailing) {
+                    if snapshot.currentMedication?.photoData != nil {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 14, weight: .semibold))
+                            .padding(6)
+                            .background(.regularMaterial, in: Circle())
+                            .padding(4)
+                            .accessibilityHidden(true)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .disabled(snapshot.currentMedication?.photoData == nil)
+        .accessibilityLabel(snapshot.currentMedication?.photoData == nil ? "尚未添加药品照片" : "查看药品照片")
+        .accessibilityHint(snapshot.currentMedication?.photoData == nil ? "" : "放大查看当前药品的照片")
+        .accessibilityIdentifier("elder.photo.open")
+    }
+
+    private func compactTaskIdentity(_ task: StoredDoseTask, availableWidth: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
                 taskDetails(task, centered: false, showsStatus: !isAccessibilityLayout)
-                Button {
-                    guard let data = snapshot.currentMedication?.photoData else { return }
-                    medicationPhotoPreview = ElderMedicationPhotoPreview(
-                        data: data,
-                        medicationName: snapshot.currentMedication.map(userFacingMedicationName(for:))
-                    )
-                } label: {
-                    medicationPhoto(size: medicationPhotoWidth(for: availableWidth))
-                        .overlay(alignment: .bottomTrailing) {
-                            if snapshot.currentMedication?.photoData != nil {
-                                Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .padding(6)
-                                    .background(.regularMaterial, in: Circle())
-                                    .padding(4)
-                                    .accessibilityHidden(true)
-                            }
-                        }
-                }
-                .buttonStyle(.plain)
-                .disabled(snapshot.currentMedication?.photoData == nil)
-                .accessibilityLabel(snapshot.currentMedication?.photoData == nil ? "尚未添加药品照片" : "查看药品照片")
-                .accessibilityHint(snapshot.currentMedication?.photoData == nil ? "" : "放大查看当前药品的照片")
-                .accessibilityIdentifier("elder.photo.open")
+                medicationPhotoButton(availableWidth: availableWidth)
             }
             if isAccessibilityLayout {
                 doseText(task)
@@ -542,7 +560,7 @@ struct ElderTodayScreen: View {
 
     private func doseText(_ task: StoredDoseTask) -> some View {
         Text("每次 \(task.doseValue.formatted()) \(localizedMedicationUnit(task.doseUnit))")
-            .font(.title3.weight(.semibold))
+            .font(.title.weight(.semibold))
             .fixedSize(horizontal: false, vertical: true)
     }
 
@@ -555,12 +573,12 @@ struct ElderTodayScreen: View {
 }
 
 enum ElderTaskLayoutMetrics {
-    // Keep recognition compact; the photo opens separately at full width.
-    static let regularPhotoWidth: CGFloat = 96
+    // Prioritize recognition with a large photo in the standard elder layout.
+    static let regularPhotoWidth: CGFloat = 200
     static let regularPhotoMinimumWidth: CGFloat = 64
     static let accessibilityPhotoWidth: CGFloat = 64
     // Keep user-supplied portrait packaging from being narrowed by an overly wide frame.
-    static let photoContainerAspectRatio: CGFloat = 0.76
+    static let photoContainerAspectRatio: CGFloat = 1.25
     static let regularCardPadding: CGFloat = 18
     static let accessibilityCardPadding: CGFloat = 16
     static let regularIdentitySpacing: CGFloat = 12
@@ -570,7 +588,7 @@ enum ElderTaskLayoutMetrics {
 
     static func regularPhotoWidth(for availableWidth: CGFloat) -> CGFloat {
         let contentWidth = max(0, availableWidth - (2 * 16) - (2 * regularCardPadding))
-        return min(max(contentWidth * 0.54, regularPhotoMinimumWidth), min(regularPhotoWidth, contentWidth))
+        return min(max(contentWidth * 0.68, regularPhotoMinimumWidth), min(regularPhotoWidth, contentWidth))
     }
 
     static func accessibilityPhotoWidth(for availableWidth: CGFloat) -> CGFloat {
