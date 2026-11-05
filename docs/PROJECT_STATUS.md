@@ -1260,3 +1260,16 @@ This is not exact-head CI, physical-device
 delivery, or a claim that the OS accepted or delivered every request. PR #94
 remains Draft pending final gates, independent review and parent/main
 integration; #17 owns the real notification and AlarmKit device matrix.
+
+## 2026-11-06 Rolling reminder window feedback correction
+
+Normal distant-task deferral and a base reminder whose distant escalation lies
+outside the finite scheduling window no longer count as system failures. The
+scheduler still returns truthful per-task deferral details; full-capacity queues
+with no assignments, expired bases, permission failures, add failures and cleanup
+failures retain failure reporting. Successful subsequent reconciliation clears
+old budget warnings. Today records also removes the outer white card around the
+Glass disclosure control. A fresh independent source review found no remaining
+Blocker/Required findings. Hosted tests passed with regression coverage for the
+rolling boundary, expired deferred tasks, true failures and no available slots.
+Physical installation/visual checks remain separate evidence.

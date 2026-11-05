@@ -383,7 +383,7 @@ struct TodayScreen: View {
     }
 
     private var handledTimelineSection: some View {
-        todaySection("今日记录") {
+        todaySection("今日记录", hasCardBackground: false) {
             let isExpanded = handledDisclosureBinding.wrappedValue
             let value = "\(snapshot.displayedHandledCount) 条，\(snapshot.handledSummaryText)，\(isExpanded ? "已展开" : "已折叠")"
             Button {
@@ -517,6 +517,7 @@ struct TodayScreen: View {
     private func todaySection<Content: View>(
         _ title: String,
         titleAccessibilityIdentifier: String? = nil,
+        hasCardBackground: Bool = true,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -526,9 +527,9 @@ struct TodayScreen: View {
                 content()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
+            .padding(hasCardBackground ? 12 : 0)
             .background(
-                Color(.secondarySystemGroupedBackground),
+                hasCardBackground ? Color(.secondarySystemGroupedBackground) : .clear,
                 in: RoundedRectangle(cornerRadius: 18, style: .continuous)
             )
         }
