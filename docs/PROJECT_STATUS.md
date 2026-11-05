@@ -1284,3 +1284,10 @@ The medication plus button opens the existing manual form directly, removing
 the redundant picker with two unavailable routes. The first hosted run hit a
 model cancellation timing failure; a repeat passed all 349 tests in 50 suites.
 Device appearance is recorded separately from those test results.
+
+## 2026-11-06 Elder presentation simplification
+
+Removed the elder task outer white card/blue border and the photo's grey
+background/border. Kept the large photo, name and dose, simplified status text,
+and aligned all three action buttons to the same width. Signed iOS build
+passed. Visual acceptance is assigned to the product owner for this adjustment.

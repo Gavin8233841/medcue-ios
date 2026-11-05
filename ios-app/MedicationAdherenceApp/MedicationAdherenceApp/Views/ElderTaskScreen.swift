@@ -386,11 +386,6 @@ struct ElderTodayScreen: View {
         taskIdentity(task, availableWidth: availableWidth)
             .padding(isAccessibilityLayout ? ElderTaskLayoutMetrics.accessibilityCardPadding : ElderTaskLayoutMetrics.regularCardPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(Color.blue.opacity(0.16), lineWidth: 1)
-            }
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier(AppAccessibilityID.elderCurrentTask)
     }
@@ -544,7 +539,7 @@ struct ElderTodayScreen: View {
                 .foregroundStyle(ElderDoseActionTone.reminder.foregroundColor(for: colorScheme))
                 .padding(.horizontal, isAccessibilityLayout ? 4 : 10)
                 .padding(.vertical, isAccessibilityLayout ? 4 : 6)
-                .background(ElderDoseActionTone.reminder.foregroundColor(for: colorScheme).opacity(0.12), in: Capsule())
+
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -679,7 +674,7 @@ private struct ElderDoseActionButton: View {
             if !requiresHold { action() }
         } label: {
             ElderDoseActionLabelLayout(
-                visibleWidthRatio: dynamicTypeSize.isAccessibilitySize ? 1 : (prominence == .primary ? 1 : prominence == .secondary ? 0.92 : 0.8),
+                visibleWidthRatio: 1,
                 minimumHeight: prominence.minimumHeight
             ) {
                 actionLabel

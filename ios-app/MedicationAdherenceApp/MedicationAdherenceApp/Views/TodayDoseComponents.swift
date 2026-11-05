@@ -57,7 +57,6 @@ struct ElderMedicationPhotoView: View {
 
     var body: some View {
         ZStack {
-            Color(.tertiarySystemGroupedBackground)
             if let image = currentImage {
                 Image(uiImage: image)
                     .resizable()
@@ -76,10 +75,6 @@ struct ElderMedicationPhotoView: View {
         }
         .frame(width: width, height: height)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color(.separator), lineWidth: 1)
-        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(photoAccessibilityLabel)
         .accessibilityAddTraits(.isImage)
