@@ -249,11 +249,10 @@ struct AIConsentSheet: View {
                     Toggle("服药记录", isOn: $sharesDoseEvents)
                     Toggle("风险提醒", isOn: $sharesRiskCards)
                     Toggle("说明书摘要", isOn: $sharesDrugLabels)
-                    Toggle("拍照或条码识别内容", isOn: $sharesImportDraft)
                 }
 
                 Section("授权说明") {
-                    Text("只有勾选的数据会用于本次咨询；撤销后不会继续共享。")
+                    Text("勾选项控制自动附加的 App 资料。主动发送的提问（含输入框中的识别文字）会交给所选模型。")
                         .foregroundStyle(.secondary)
                 }
 

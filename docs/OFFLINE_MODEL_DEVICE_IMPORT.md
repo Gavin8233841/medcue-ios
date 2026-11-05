@@ -47,3 +47,11 @@ PY
 - 复制成功但仍要求下载：检查是否安装了旧 MiniCPM4 构建，核对源码 SHA 和模型清单。
 
 不要删除普通数据库、现有模型和演示记录；GGUF、设备标识和原始日志不得入 Git。
+
+## Xcode 本机离线运行开关
+
+已有 `llama.xcframework` 时，在仓库根目录执行
+`touch .codex-local/enable-local-llama`，即可从 Xcode 界面构建完整本机运行时。
+这个本地开关不会提交、打包或进入 CI；未明确开启的干净检出仍使用 stub。
+命令行仍支持 `MEDCUE_ENABLE_LOCAL_LLAMA=1`；`MEDCUE_DISABLE_LOCAL_LLAMA=1`
+优先关闭。本机框架和 GGUF 模型仍分别导入，不包含在源码交付中。

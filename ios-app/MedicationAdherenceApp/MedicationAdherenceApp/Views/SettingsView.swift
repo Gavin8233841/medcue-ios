@@ -614,7 +614,14 @@ struct SettingsView: View {
                 }
 
                 Section("同机帮助") {
-                    TextField("帮助电话号码", text: $elderHelpPhoneInput)
+                    TextField("帮助电话号码", text: Binding(
+                        get: { elderHelpPhoneInput },
+                        set: { value in
+                            guard value != elderHelpPhoneInput else { return }
+                            elderHelpPhoneInput = value
+                            elderHelpContactStatus = ""
+                        }
+                    ))
                         .textContentType(.telephoneNumber)
                         .keyboardType(.phonePad)
                         .focused($isElderHelpPhoneFocused)
@@ -717,9 +724,6 @@ struct SettingsView: View {
                     Spacer()
                     Button("收起键盘") { isElderHelpPhoneFocused = false }
                 }
-            }
-            .onChange(of: elderHelpPhoneInput) { _, _ in
-                if isElderHelpPhoneFocused { elderHelpContactStatus = "" }
             }
             .navigationTitle("应用设置")
             .appPermissionPrimer(pendingGate: $pendingPermissionGate) { gate in

@@ -315,7 +315,12 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         XCTAssertFalse(cancel.exists)
 
         app.tabBars.buttons.element(boundBy: 1).tap()
-        let medicationCard = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "布洛芬")).firstMatch
+        // This fixture's course is fixed in September. The gallery correctly
+        // uses today's real date and groups its ended course under interrupted.
+        let interrupted = app.segmentedControls.buttons["服用中断 1"]
+        scrollToHittable(interrupted, in: app)
+        interrupted.tap()
+        let medicationCard = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "布洛芬")).firstMatch
         scrollToHittable(medicationCard, in: app)
         XCTAssertGreaterThanOrEqual(medicationCard.frame.width, 300, "AX medication gallery must use one full-width column")
         XCTAssertTrue(medicationCard.label.contains("布洛芬"))
@@ -329,7 +334,7 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         app.buttons["用药概览"].tap()
         XCTAssertTrue(app.navigationBars["药品总览"].waitForExistence(timeout: 5))
         app.navigationBars.buttons.firstMatch.tap()
-        let risk = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "风险复核")).firstMatch
+        let risk = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "风险复核")).firstMatch
         scrollToHittable(risk, in: app)
         XCTAssertGreaterThanOrEqual(risk.frame.width, 300)
         addScreenshot(named: "complete-ax5-medication-risk-entry", from: app)
