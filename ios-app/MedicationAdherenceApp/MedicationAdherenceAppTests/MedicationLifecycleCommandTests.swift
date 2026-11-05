@@ -128,9 +128,49 @@ struct MedicationLifecycleCommandTests {
         }
         #expect(try fixture.context.fetch(FetchDescriptor<StoredMedicationLifecycleEvent>()).isEmpty)
     }
+
+    @Test @MainActor
+    func reactivationScheduleFailureDoesNotChangeStatusInsertEventOrSave() throws {
+        let fixture = try MedicationLifecycleFixture(initialStatus: .interrupted)
+        fixture.futureOpen.status = .skipped
+        fixture.futureOpen.reason = "药物已中断，未来提醒已停用。"
+        try fixture.context.save()
+        fixture.medication.notes = "用户尚未保存的备注"
+        var saveCallCount = 0
+
+        let outcome = MedicationLifecycleCommand(
+            modelContext: fixture.context,
+            calendar: fixture.calendar,
+            saveOperation: { _ in saveCallCount += 1 },
+            scheduleDoses: { _, _, _ in throw SyntheticMedicationLifecycleScheduleError.unavailable }
+        ).update(
+            MedicationLifecycleUpdate(
+                medicationID: fixture.medication.id,
+                status: .active,
+                note: "用户恢复服用",
+                occurredAt: fixture.now
+            )
+        )
+
+        guard case .scheduleFailed = outcome else {
+            Issue.record("Expected schedule failure")
+            return
+        }
+        #expect(saveCallCount == 0)
+        #expect(fixture.medication.lifecycleStatus == .interrupted)
+        #expect(fixture.medication.notes == "用户尚未保存的备注")
+        #expect(fixture.context.hasChanges)
+        #expect(fixture.futureOpen.status == .skipped)
+        #expect(fixture.futureOpen.reason == "药物已中断，未来提醒已停用。")
+        #expect(try fixture.context.fetch(FetchDescriptor<StoredMedicationLifecycleEvent>()).isEmpty)
+    }
 }
 
 private enum SyntheticMedicationLifecycleSaveError: Error {
+    case unavailable
+}
+
+private enum SyntheticMedicationLifecycleScheduleError: Error {
     case unavailable
 }
 

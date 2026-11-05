@@ -189,6 +189,32 @@ test("rejects malformed JSON", async () => {
   });
 });
 
+test("rejects non-object JSON payloads without calling the provider", async () => {
+  let providerCallCount = 0;
+  const handler = createBrokerHandler({
+    config: validConfig(),
+    fetchProvider: async () => {
+      providerCallCount += 1;
+      throw new Error("provider must not be called");
+    },
+  });
+
+  for (const payload of [null, [], "scalar", 42, true]) {
+    const response = await handler(
+      validRequest({ body: JSON.stringify(payload) }),
+    );
+
+    assert.equal(response.status, 422);
+    assert.deepEqual(JSON.parse(response.body), {
+      error: {
+        code: "invalid_request",
+        message: "Request body must be a JSON object.",
+      },
+    });
+  }
+  assert.equal(providerCallCount, 0);
+});
+
 test("requires a canonical UUID request_id", async () => {
   const handler = createBrokerHandler({
     config: {
@@ -654,6 +680,167 @@ test("reuses a completed response for the same request_id", async () => {
   const retry = await handler(request);
 
   assert.deepEqual(retry, first);
+  assert.equal(providerCallCount, 1);
+});
+
+test("shares one in-flight provider call for concurrent matching requests", async () => {
+  let releaseProvider;
+  let providerCallCount = 0;
+  const providerBarrier = new Promise((resolve) => {
+    releaseProvider = resolve;
+  });
+  const handler = createBrokerHandler({
+    config: validConfig(),
+    fetchProvider: async () => {
+      providerCallCount += 1;
+      await providerBarrier;
+      return jsonProviderResponse({ output_text: "shared answer" });
+    },
+  });
+
+  const first = handler(validRequest());
+  const second = handler(validRequest());
+  await Promise.resolve();
+
+  assert.equal(providerCallCount, 1);
+  releaseProvider();
+  assert.deepEqual(await second, await first);
+});
+
+test("rejects a conflicting request while the request_id is in flight", async () => {
+  let releaseProvider;
+  let providerCallCount = 0;
+  const providerBarrier = new Promise((resolve) => {
+    releaseProvider = resolve;
+  });
+  const handler = createBrokerHandler({
+    config: validConfig(),
+    fetchProvider: async () => {
+      providerCallCount += 1;
+      await providerBarrier;
+      return jsonProviderResponse({ output_text: "first answer" });
+    },
+  });
+
+  const first = handler(
+    validRequest({
+      body: JSON.stringify({ request_id: REQUEST_ID, prompt: "first" }),
+    }),
+  );
+  const conflict = await handler(
+    validRequest({
+      body: JSON.stringify({ request_id: REQUEST_ID, prompt: "different" }),
+    }),
+  );
+
+  assert.equal(conflict.status, 409);
+  assert.equal(JSON.parse(conflict.body).error.code, "idempotency_conflict");
+  assert.equal(providerCallCount, 1);
+  releaseProvider();
+  assert.equal((await first).status, 200);
+});
+
+test("bounds distinct in-flight requests without evicting active work", async () => {
+  let releaseProvider;
+  let providerCallCount = 0;
+  const providerBarrier = new Promise((resolve) => {
+    releaseProvider = resolve;
+  });
+  const handler = createBrokerHandler({
+    config: validConfig({ idempotencyCacheMax: 1 }),
+    fetchProvider: async () => {
+      providerCallCount += 1;
+      await providerBarrier;
+      return jsonProviderResponse({ output_text: "answer" });
+    },
+  });
+  const first = handler(validRequest());
+  const rejected = await handler(
+    validRequest({
+      body: JSON.stringify({
+        request_id: "11111111-1111-4111-8111-111111111111",
+        prompt: "second",
+      }),
+    }),
+  );
+
+  assert.equal(rejected.status, 503);
+  assert.equal(
+    JSON.parse(rejected.body).error.code,
+    "in_flight_capacity_reached",
+  );
+  assert.equal(providerCallCount, 1);
+  releaseProvider();
+  assert.equal((await first).status, 200);
+});
+
+test("cleans in-flight state after failure so the request can retry", async () => {
+  let providerCallCount = 0;
+  const handler = createBrokerHandler({
+    config: validConfig(),
+    fetchProvider: () => {
+      providerCallCount += 1;
+      if (providerCallCount === 1) {
+        throw new Error("synthetic provider failure");
+      }
+      return jsonProviderResponse({ output_text: "retry answer" });
+    },
+  });
+
+  const failed = await handler(validRequest());
+  const retried = await handler(validRequest());
+
+  assert.equal(failed.status, 502);
+  assert.equal(retried.status, 200);
+  assert.equal(providerCallCount, 2);
+});
+
+test("provider timeout releases shared in-flight state for a retry", async () => {
+  let providerCallCount = 0;
+  const handler = createBrokerHandler({
+    config: validConfig({ providerTimeoutMs: 10 }),
+    fetchProvider: async () => {
+      providerCallCount += 1;
+      if (providerCallCount === 1) {
+        return new Promise(() => {});
+      }
+      return jsonProviderResponse({ output_text: "retry answer" });
+    },
+  });
+
+  const [first, waiter] = await Promise.all([
+    handler(validRequest()),
+    handler(validRequest()),
+  ]);
+  const retried = await handler(validRequest());
+
+  assert.equal(first.status, 504);
+  assert.deepEqual(waiter, first);
+  assert.equal(retried.status, 200);
+  assert.equal(providerCallCount, 2);
+});
+
+test("one waiter's disconnect signal does not cancel shared provider work", async () => {
+  let releaseProvider;
+  let providerCallCount = 0;
+  const providerBarrier = new Promise((resolve) => {
+    releaseProvider = resolve;
+  });
+  const handler = createBrokerHandler({
+    config: validConfig(),
+    fetchProvider: async () => {
+      providerCallCount += 1;
+      await providerBarrier;
+      return jsonProviderResponse({ output_text: "shared answer" });
+    },
+  });
+  const disconnected = new AbortController();
+  const first = handler(validRequest({ signal: disconnected.signal }));
+  const waiter = handler(validRequest());
+  disconnected.abort();
+  releaseProvider();
+
+  assert.deepEqual(await waiter, await first);
   assert.equal(providerCallCount, 1);
 });
 

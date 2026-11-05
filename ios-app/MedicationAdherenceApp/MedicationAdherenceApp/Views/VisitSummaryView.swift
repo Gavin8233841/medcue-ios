@@ -14,6 +14,7 @@ struct VisitSummaryView: View {
     @State private var pdfURL: URL?
     @State private var generatedPDFSignature = ""
     @State private var previewPDFItem: PDFPreviewItem?
+    @State private var sharePDFItem: PDFShareItem?
     @State private var exportMessage = ""
     @State private var isSummaryPreviewExpanded = false
     @State private var snapshot: VisitSummarySnapshot?
@@ -21,6 +22,9 @@ struct VisitSummaryView: View {
     @State private var pdfGenerationTask: Task<Void, Never>?
     @State private var generationGate = VisitSummaryGenerationGate()
     @State private var isGeneratingPDF = false
+    @State private var pdfLeases = VisitSummaryPDFLeaseStore()
+
+    private let pdfLifecycle = VisitSummaryPDFLifecycle.production()
 
     private var normalizedRange: (start: Date, end: Date) {
         VisitSummaryDateRange.normalized(startDate: rangeStartDate, endDate: rangeEndDate)
@@ -80,7 +84,10 @@ struct VisitSummaryView: View {
                     isGeneratingPDF: isGeneratingPDF,
                     onGeneratePDF: generatePDF,
                     onPreviewPDF: { url in
-                        previewPDFItem = PDFPreviewItem(url: url)
+                        previewPDFItem = PDFPreviewItem(id: pdfLeases.beginUse(url), url: url)
+                    },
+                    onSharePDF: { url in
+                        sharePDFItem = PDFShareItem(id: pdfLeases.beginUse(url), url: url)
                     }
                 )
             }
@@ -146,6 +153,8 @@ struct VisitSummaryView: View {
         }
         .task {
             await healthKitService.refreshRecentTrendSamples()
+            // Sweep expired PDF files at startup
+            pdfLifecycle.sweepExpiredFiles()
         }
         .task(id: rangeLoadID) {
             await loadStoredData(startDate: normalizedRange.start, endDate: normalizedRange.end)
@@ -155,7 +164,16 @@ struct VisitSummaryView: View {
             await refreshSnapshot(for: sourceRevision)
         }
         .sheet(item: $previewPDFItem) { item in
-            PDFPreviewSheet(url: item.url)
+            PDFPreviewSheet(url: item.url) {
+                finishPDFConsumer(item.id, url: item.url)
+            }
+            .onDisappear { finishPDFConsumer(item.id, url: item.url) }
+        }
+        .sheet(item: $sharePDFItem) { item in
+            PDFShareSheet(url: item.url) {
+                finishPDFConsumer(item.id, url: item.url)
+            }
+            .onDisappear { finishPDFConsumer(item.id, url: item.url) }
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -167,6 +185,10 @@ struct VisitSummaryView: View {
         }
         .onDisappear {
             cancelPDFGeneration()
+            if let pdfURL {
+                pdfLeases.requestRemoval(pdfURL, lifecycle: pdfLifecycle)
+            }
+            pdfURL = nil
         }
     }
 
@@ -175,6 +197,16 @@ struct VisitSummaryView: View {
             exportMessage = "复诊资料仍在整理，请稍后重试。"
             return
         }
+
+        // Sweep expired files before generating a new one
+        pdfLifecycle.sweepExpiredFiles()
+
+        // Remove the previous PDF if it exists
+        if let oldPDFURL = pdfURL {
+            pdfLeases.requestRemoval(oldPDFURL, lifecycle: pdfLifecycle)
+            pdfURL = nil
+        }
+
         cancelPDFGeneration()
         let payload = VisitSummaryExportPayload(
             medications: snapshot.medications,
@@ -189,17 +221,19 @@ struct VisitSummaryView: View {
             exportSignature: snapshot.exportSignature
         )
         let requestID = generationGate.begin()
-        let targetURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("复诊资料-\(Int(Date().timeIntervalSince1970)).pdf")
         isGeneratingPDF = true
         exportMessage = ""
         pdfGenerationTask = Task {
             do {
                 let completedURL = try await VisitSummaryPDFExporter.export(
                     payload: payload,
-                    targetURL: targetURL
+                    lifecycle: pdfLifecycle
                 )
-                guard !Task.isCancelled, generationGate.accepts(requestID) else { return }
+                guard !Task.isCancelled, generationGate.accepts(requestID) else {
+                    // Task was cancelled or superseded; remove the artifact
+                    pdfLifecycle.remove(completedURL)
+                    return
+                }
                 pdfURL = completedURL
                 generatedPDFSignature = payload.exportSignature
                 isGeneratingPDF = false
@@ -269,10 +303,23 @@ struct VisitSummaryView: View {
 
     private func resetGeneratedPDFState() {
         cancelPDFGeneration()
+        if let oldPDFURL = pdfURL {
+            pdfLeases.requestRemoval(oldPDFURL, lifecycle: pdfLifecycle)
+        }
         pdfURL = nil
         generatedPDFSignature = ""
         previewPDFItem = nil
+        sharePDFItem = nil
         exportMessage = ""
+    }
+
+    private func finishPDFConsumer(_ token: UUID, url: URL) {
+        pdfLeases.requestRemoval(url, lifecycle: pdfLifecycle)
+        pdfLeases.finishUse(token, lifecycle: pdfLifecycle)
+        if pdfURL == url {
+            pdfURL = nil
+            generatedPDFSignature = ""
+        }
     }
 
     private func cancelPDFGeneration() {
@@ -423,6 +470,7 @@ struct VisitSummaryExportPanel: View {
     let isGeneratingPDF: Bool
     let onGeneratePDF: () -> Void
     let onPreviewPDF: (URL) -> Void
+    let onSharePDF: (URL) -> Void
 
     private var isPDFReady: Bool {
         pdfURL != nil
@@ -477,9 +525,12 @@ struct VisitSummaryExportPanel: View {
                     }
                     .buttonStyle(.plain)
 
-                    ShareLink(item: pdfURL) {
+                    Button {
+                        onSharePDF(pdfURL)
+                    } label: {
                         VisitSummaryExportActionLabel(title: "分享", systemImage: "square.and.arrow.up", tint: .teal)
                     }
+                    .buttonStyle(.plain)
                 }
             }
 

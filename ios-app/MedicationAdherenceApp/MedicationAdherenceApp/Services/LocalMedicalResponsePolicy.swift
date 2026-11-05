@@ -2,6 +2,106 @@ import Foundation
 import MedicationAdherenceCore
 
 struct LocalMedicalResponsePolicy: Sendable {
+    func start(for request: MedicalAIRequest) -> Session {
+        let answerPlan = localAnswerPlan(for: request)
+        return Session(
+            policy: self,
+            request: request,
+            answerPlan: answerPlan,
+            prompt: buildLocalPrompt(for: request, answerPlan: answerPlan)
+        )
+    }
+
+    struct Session {
+        let policy: LocalMedicalResponsePolicy
+        let request: MedicalAIRequest
+        let answerPlan: LocalMedicalAnswerPlan
+        let prompt: String
+        private var parser = LocalLLMStreamParser()
+
+        init(
+            policy: LocalMedicalResponsePolicy,
+            request: MedicalAIRequest,
+            answerPlan: LocalMedicalAnswerPlan,
+            prompt: String
+        ) {
+            self.policy = policy
+            self.request = request
+            self.answerPlan = answerPlan
+            self.prompt = prompt
+        }
+
+        mutating func consume(_ delta: String) -> [LocalLLMGenerationEvent] {
+            parser.consume(delta)
+        }
+
+        mutating func finish() -> (events: [LocalLLMGenerationEvent], thinking: String, answer: String) {
+            parser.finish()
+        }
+
+        func resolve(
+            _ generatedMessage: String,
+            additionalThinking: String,
+            runtime: any LocalMedicalGenerating,
+            modelURL: URL,
+            repairMaxTokens: Int
+        ) async throws -> ResolvedResponse {
+            try Task.checkCancellation()
+            let processedMessage = policy.postprocessLocalResponse(generatedMessage, request: request)
+            let answer = policy.formalAnswerText(from: processedMessage)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let initialThinking = Self.combinedThinking(
+                additionalThinking,
+                policy.reasoningText(from: processedMessage)
+            )
+            let needsRepair = answer.isEmpty
+                || policy.isLowQualityLocalResponse(answer, request: request)
+                || policy.isOffTopicLocalResponse(answer, answerPlan: answerPlan)
+            guard needsRepair else {
+                return ResolvedResponse(answer: answer, thinking: initialThinking)
+            }
+
+            let repairedMessage = try await runtime.generateResponse(
+                prompt: policy.buildRepairPrompt(for: request, answerPlan: answerPlan),
+                modelURL: modelURL,
+                maxTokens: repairMaxTokens
+            )
+            try Task.checkCancellation()
+            let repairedProcessed = policy.postprocessLocalResponse(repairedMessage, request: request)
+            let repairedAnswer = policy.formalAnswerText(from: repairedProcessed)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !repairedAnswer.isEmpty,
+                  !policy.isLowQualityLocalResponse(repairedAnswer, request: request),
+                  !policy.isOffTopicLocalResponse(repairedAnswer, answerPlan: answerPlan) else {
+                throw LocalMedicalAIError.unstableResponse
+            }
+            return ResolvedResponse(
+                answer: repairedAnswer,
+                thinking: Self.combinedThinking(
+                    initialThinking,
+                    policy.reasoningText(from: repairedProcessed)
+                )
+            )
+        }
+
+        struct ResolvedResponse {
+            let answer: String
+            let thinking: String
+
+            var persistedMessage: String {
+                guard !thinking.isEmpty else { return answer }
+                return "\(answer)\(MedicalAIResponseFinalizer.reasoningSeparator)\(thinking)"
+            }
+        }
+
+        private static func combinedThinking(_ values: String...) -> String {
+            values
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n\n")
+        }
+    }
+
     func buildLocalPrompt(for request: MedicalAIRequest, answerPlan: LocalMedicalAnswerPlan) -> String {
         let facts: String
         if isEnglishSwitchOnly(request.userMessage) {
@@ -142,9 +242,6 @@ struct LocalMedicalResponsePolicy: Sendable {
 
     private func cleanReasoningText(_ value: String) -> String {
         value
-            .replacingOccurrences(of: "<|im_start|>", with: "")
-            .replacingOccurrences(of: "<|im_end|>", with: "")
-            .replacingOccurrences(of: "</s>", with: "")
             .split(whereSeparator: { $0.isWhitespace })
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -152,18 +249,18 @@ struct LocalMedicalResponsePolicy: Sendable {
 
     func formalAnswerText(from message: String) -> String {
         message
-            .components(separatedBy: LocalMedicalAIClient.localReasoningSeparator)
+            .components(separatedBy: MedicalAIResponseFinalizer.reasoningSeparator)
             .first?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
     func reasoningText(from message: String) -> String {
-        let components = message.components(separatedBy: LocalMedicalAIClient.localReasoningSeparator)
+        let components = message.components(separatedBy: MedicalAIResponseFinalizer.reasoningSeparator)
         guard components.count > 1 else {
             return ""
         }
         return components.dropFirst()
-            .joined(separator: LocalMedicalAIClient.localReasoningSeparator)
+            .joined(separator: MedicalAIResponseFinalizer.reasoningSeparator)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -183,6 +280,15 @@ struct LocalMedicalResponsePolicy: Sendable {
         if garbagePatterns.contains(where: { trimmed.range(of: $0, options: .regularExpression) != nil }) {
             return true
         }
+        // Preserve the existing narrow record-count checks without imposing
+        // keywords, a language, a prose template or a Markdown restriction.
+        if trimmed.range(of: #"已完成\s*\d{3,}\s*次"#, options: .regularExpression) != nil {
+            return true
+        }
+        if localIntentTitle(for: request.userMessage).contains("趋势"),
+           hasInconsistentMedicationCountWord(in: trimmed, request: request) {
+            return true
+        }
         if let reviewed = try? MedicalAIResponseFinalizer().finalize(answer: trimmed),
            reviewed.boundaryBlockedAction {
             return true
@@ -192,6 +298,28 @@ struct LocalMedicalResponsePolicy: Sendable {
         let treatmentCommand = #"(?:^|[。！？；;，,\n])\s*(?:[-*•]|\d+[.)、])?\s*(?:今天|现在|你|您)?\s*(?:(?:建议|应该|应当|请|立即|先)\s*(?:吃|服用|停药|停用|暂停使用|停止使用|换药|增加剂量|减少剂量|加量|减量)|请勿继续使用)"#
         return trimmed.range(of: treatmentCommand, options: .regularExpression) != nil
     }
+
+    private func hasInconsistentMedicationCountWord(in response: String, request: MedicalAIRequest) -> Bool {
+        let mentionedMedicationCount = Set(
+            medicationDisplayNames(for: request)
+                .map { $0.components(separatedBy: "(").first ?? $0 }
+                .filter { !$0.isEmpty && response.contains($0) }
+        ).count
+        let countWords: [(String, Int)] = [
+            ("一种", 1),
+            ("两种", 2),
+            ("二种", 2),
+            ("三种", 3),
+            ("四种", 4),
+            ("五种", 5),
+            ("六种", 6)
+        ]
+        for (word, count) in countWords where response.contains(word) {
+            return mentionedMedicationCount > 0 && mentionedMedicationCount != count
+        }
+        return false
+    }
+
 
     func isOffTopicLocalResponse(_ response: String, answerPlan: LocalMedicalAnswerPlan) -> Bool {
         // A keyword miss cannot establish that a natural-language answer is off topic.
@@ -694,6 +822,36 @@ struct LocalMedicalResponsePolicy: Sendable {
         return text.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
     }
 
+
+    private func taggedContent(named tagName: String, in text: String) -> String? {
+        let pattern = #"<\#(tagName)>([\s\S]*?)</\#(tagName)>"#
+        guard let range = text.range(of: pattern, options: .regularExpression) else {
+            return nil
+        }
+        let taggedText = String(text[range])
+        return taggedText
+            .replacingOccurrences(of: "<\(tagName)>", with: "")
+            .replacingOccurrences(of: "</\(tagName)>", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+
+    private func textAfterFinalMarker(in text: String) -> String? {
+        let markers = [
+            "正式回答：",
+            "最终回答：",
+            "回答："
+        ]
+        for marker in markers {
+            guard let range = text.range(of: marker) else {
+                continue
+            }
+            return String(text[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return nil
+    }
+
+
     private func cutAtStopMarkers(_ text: String) -> String {
         let markers = ["<|im_end|>", "<|im_start|>"]
         var earliestRange: Range<String.Index>?
@@ -713,33 +871,6 @@ struct LocalMedicalResponsePolicy: Sendable {
             return text
         }
         return String(text[..<earliestRange.lowerBound])
-    }
-
-    private func taggedContent(named tagName: String, in text: String) -> String? {
-        let pattern = #"<\#(tagName)>([\s\S]*?)</\#(tagName)>"#
-        guard let range = text.range(of: pattern, options: .regularExpression) else {
-            return nil
-        }
-        let taggedText = String(text[range])
-        return taggedText
-            .replacingOccurrences(of: "<\(tagName)>", with: "")
-            .replacingOccurrences(of: "</\(tagName)>", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func textAfterFinalMarker(in text: String) -> String? {
-        let markers = [
-            "正式回答：",
-            "最终回答：",
-            "回答："
-        ]
-        for marker in markers {
-            guard let range = text.range(of: marker) else {
-                continue
-            }
-            return String(text[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return nil
     }
 
     private func isGenericRiskTitle(_ title: String) -> Bool {

@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import MedicationAdherenceApp
 
+#if canImport(FoundationModels) && compiler(>=6.4)
 struct FoundationModelsLocalRuntimeTests {
     @Test func forwardsExistingContextAndTokenLimit() async throws {
         guard #available(iOS 27.0, *) else { return }
@@ -24,7 +25,7 @@ struct FoundationModelsLocalRuntimeTests {
         var answer = ""
         for try await delta in runtime.generateResponseStream(
             prompt: "hi", modelURL: URL(fileURLWithPath: "/tmp/test.gguf"), maxTokens: 100
-        ) { answer += delta }
+        ).stream { answer += delta }
         #expect(answer == "你好，世界！")
         #expect(await backing.calls == 1)
     }
@@ -47,7 +48,7 @@ struct FoundationModelsLocalRuntimeTests {
         var answer = ""
         for try await delta in runtime.generateResponseStream(
             prompt: "hi", modelURL: URL(fileURLWithPath: "/tmp/test.gguf"), maxTokens: 100
-        ) { answer += delta }
+        ).stream { answer += delta }
         #expect(Array(answer.unicodeScalars) == Array(fragments.joined().unicodeScalars))
     }
 
@@ -58,7 +59,7 @@ struct FoundationModelsLocalRuntimeTests {
         let worker = Task {
             for try await _ in runtime.generateResponseStream(
                 prompt: "hi", modelURL: URL(fileURLWithPath: "/tmp/test.gguf"), maxTokens: 100
-            ) {}
+            ).stream {}
         }
         for _ in 0..<100 {
             if await backing.calls > 0 { break }
@@ -96,26 +97,32 @@ private actor FoundationAdapterTestRuntime: LocalMedicalGenerating {
         return ""
     }
 
-    func generateResponseStream(prompt: String, modelURL: URL, maxTokens: Int) -> AsyncThrowingStream<String, Error> {
+    nonisolated func generateResponseStream(prompt: String, modelURL: URL, maxTokens: Int) -> LocalMedicalGenerationStream {
+        let (stream, continuation) = AsyncThrowingStream<String, Error>.makeStream()
+        let worker = Task {
+            await produce(prompt: prompt, maxTokens: maxTokens, continuation: continuation)
+        }
+        continuation.onTermination = { @Sendable _ in worker.cancel() }
+        return LocalMedicalGenerationStream(stream: stream) { worker.cancel() }
+    }
+
+    private func produce(prompt: String, maxTokens: Int, continuation: AsyncThrowingStream<String, Error>.Continuation) async {
         calls += 1
         lastPrompt = prompt
         lastMaxTokens = maxTokens
-        return AsyncThrowingStream { continuation in
-            let worker = Task {
-                do {
-                    if shouldFail { throw LocalMedicalAIError.runtimeUnavailable }
-                    for delta in deltas {
-                        continuation.yield(delta)
-                        try await Task.sleep(for: .milliseconds(20))
-                    }
-                    if holdOpen { try await Task.sleep(for: .seconds(60)) }
-                    continuation.finish()
-                } catch {
-                    if error is CancellationError { recordCancellation() }
-                    continuation.finish(throwing: error)
-                }
+        do {
+            if shouldFail { throw LocalMedicalAIError.runtimeUnavailable }
+            for delta in deltas {
+                continuation.yield(delta)
+                try await Task.sleep(for: .milliseconds(20))
             }
-            continuation.onTermination = { @Sendable _ in worker.cancel() }
+            if holdOpen { try await Task.sleep(for: .seconds(60)) }
+            continuation.finish()
+        } catch {
+            if error is CancellationError { recordCancellation() }
+            continuation.finish(throwing: error)
         }
     }
 }
+
+#endif

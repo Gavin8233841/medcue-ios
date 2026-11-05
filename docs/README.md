@@ -35,12 +35,15 @@ documents are navigation aids. They do not override the sources above.
 | `TEST_STRATEGY.md` | Risk-to-evidence map and verification expectations |
 | `DEVELOPMENT_WORKFLOW.md` | Issue, branch, Pull Request, CI, review, and release flow |
 | `GITHUB_LOCALIZATION.md` | Chinese-first, English-preserved GitHub documentation, template, and label conventions |
+| `SOURCE_PACKAGE_POLICY.md` | Exact-Git-object source packaging, allowlist, provenance, and release checks |
+| `THIRD_PARTY_NOTICES.md` | Source-only dependency, license, and attribution boundary |
 | `adr/` | Accepted durable decisions and their consequences |
 | `../CONTEXT.md` | Product context, current release scope, actors, terms, invariants, and platform roles |
 | `../AGENTS.md` | Short repository-wide rules for engineering agents |
 
 ## Operational References
 
+- `ISSUE28_LOCAL_MODEL_ACCEPTANCE.md`: exact-revision local-model download-to-response journey, prerequisites, and redacted result matrix.
 - `13-iphone-signing-and-live-activity-test.md`: legacy physical-device script;
   use its scenarios, but record evidence in the active Pull Request against an
   exact revision.

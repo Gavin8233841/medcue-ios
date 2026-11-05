@@ -1,6 +1,8 @@
 import Testing
 @testable import MedicationAdherenceApp
 
+#if DEBUG
+// The diagnostic itself is Debug-only; Demo does not expose this smoke entry.
 struct ReminderLiveActivitySmokeDiagnosticTests {
     @Test
     func setupLineContainsOnlyFixedEventName() {
@@ -24,3 +26,4 @@ struct ReminderLiveActivitySmokeDiagnosticTests {
         )
     }
 }
+#endif

@@ -17,6 +17,7 @@ struct TodayScreenActions {
     let archive: (StoredDoseTask) -> Void
     let unarchive: (StoredDoseTask) -> Void
     let rollbackUndo: (DoseUndoBanner) -> Void
+    let switchToElderMode: () -> Void
     let initialLoad: () async -> Void
     let timerTick: () -> Void
     let becameActive: () -> Void
@@ -39,6 +40,7 @@ struct TodayScreen: View {
     let isHandledTimelineTemporarilyCollapsed: Bool
     let pendingDoseConfirmation: PendingDoseConfirmation?
     let pendingDoseFeedback: PendingDoseFeedback?
+    let inFlightDoseKeys: Set<String>
     let handledDropTargetPulse: Bool
     let pendingHandledArrivalCount: Int
     let closingOpenDoseKeys: Set<String>
@@ -116,6 +118,12 @@ struct TodayScreen: View {
                 }
                 .zIndex(5)
                 .allowsHitTesting(true)
+            }
+        }
+        .transaction { transaction in
+            if prefersReducedMotion {
+                transaction.animation = nil
+                transaction.disablesAnimations = true
             }
         }
         .navigationTitle("今日")
@@ -247,11 +255,11 @@ struct TodayScreen: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
                 .animation(
-                    .smooth(duration: 0.38, extraBounce: 0.04),
+                    prefersReducedMotion ? nil : .smooth(duration: 0.38, extraBounce: 0.04),
                     value: isCompletionRateFeedbackVisible
                 )
                 .animation(
-                    .smooth(duration: 0.34, extraBounce: 0.03),
+                    prefersReducedMotion ? nil : .smooth(duration: 0.34, extraBounce: 0.03),
                     value: completionRateFeedback.id
                 )
             }
@@ -260,7 +268,7 @@ struct TodayScreen: View {
         .accessibilityHidden(true)
         .allowsHitTesting(false)
         .animation(
-            .smooth(duration: 0.38, extraBounce: 0.03),
+            prefersReducedMotion ? nil : .smooth(duration: 0.38, extraBounce: 0.03),
             value: completionRateFeedbackSlotHeight
         )
     }
@@ -310,7 +318,10 @@ struct TodayScreen: View {
     }
 
     private var openTimelineSection: some View {
-        todaySection("今日待处理") {
+        todaySection(
+            "今日待处理",
+            titleAccessibilityIdentifier: AppAccessibilityID.todayOpenTimeline
+        ) {
             if isOpenTimelineTemporarilyCollapsed {
                 OpenDoseSummaryRow(
                     count: snapshot.displayedOpenCount,
@@ -337,6 +348,7 @@ struct TodayScreen: View {
                             || task.status == .delayed
                             || closingOpenDoseKeys.contains(doseKey)
                             || pendingDoseFeedback?.doseKey == doseKey,
+                        isActionInFlight: inFlightDoseKeys.contains(doseKey),
                         feedbackAction: pendingDoseFeedback?.doseKey == doseKey
                             ? pendingDoseFeedback?.action
                             : nil,
@@ -355,20 +367,19 @@ struct TodayScreen: View {
             }
         }
         .animation(
-            .smooth(duration: 0.30, extraBounce: 0.02),
+            prefersReducedMotion ? nil : .smooth(duration: 0.30, extraBounce: 0.02),
             value: snapshot.visibleOpenTimelineTasks.map(\.id)
         )
-        .animation(.easeInOut(duration: 0.16), value: pendingDoseFeedback)
+        .animation(prefersReducedMotion ? nil : .easeInOut(duration: 0.16), value: pendingDoseFeedback)
         .animation(
-            .snappy(duration: 0.24, extraBounce: 0.01),
+            prefersReducedMotion ? nil : .snappy(duration: 0.24, extraBounce: 0.01),
             value: isOpenTimelineTemporarilyCollapsed
         )
-        .animation(.easeInOut(duration: 0.18), value: closingOpenDoseKeys)
+        .animation(prefersReducedMotion ? nil : .easeInOut(duration: 0.18), value: closingOpenDoseKeys)
         .animation(
-            .snappy(duration: 0.24, extraBounce: 0.02),
+            prefersReducedMotion ? nil : .snappy(duration: 0.24, extraBounce: 0.02),
             value: recentlyReopenedDoseKeys
         )
-        .accessibilityIdentifier(AppAccessibilityID.todayOpenTimeline)
     }
 
     private var handledTimelineSection: some View {
@@ -376,9 +387,7 @@ struct TodayScreen: View {
             let isExpanded = handledDisclosureBinding.wrappedValue
             let value = "\(snapshot.displayedHandledCount) 条，\(snapshot.handledSummaryText)，\(isExpanded ? "已展开" : "已折叠")"
             Button {
-                withAnimation(.snappy(duration: 0.24, extraBounce: 0.01)) {
-                    showingHandledTasks.toggle()
-                }
+                toggleHandledTasks()
             } label: {
                 HStack(spacing: 8) {
                     Label("\(snapshot.displayedHandledCount) 条记录", systemImage: "list.bullet.rectangle")
@@ -428,17 +437,17 @@ struct TodayScreen: View {
             }
         }
         .animation(
-            isDoseListReparenting
+            prefersReducedMotion || isDoseListReparenting
                 ? nil
                 : .snappy(duration: 0.22, extraBounce: 0.01),
             value: snapshot.handledTodayTasks.map(\.id)
         )
         .animation(
-            .snappy(duration: 0.22, extraBounce: 0.01),
+            prefersReducedMotion ? nil : .snappy(duration: 0.22, extraBounce: 0.01),
             value: isHandledTimelineTemporarilyCollapsed
         )
-        .animation(.easeInOut(duration: 0.18), value: reopeningHandledDoseKeys)
-        .animation(.easeInOut(duration: 0.2), value: handledDropTargetPulse)
+        .animation(prefersReducedMotion ? nil : .easeInOut(duration: 0.18), value: reopeningHandledDoseKeys)
+        .animation(prefersReducedMotion ? nil : .easeInOut(duration: 0.2), value: handledDropTargetPulse)
         .accessibilityIdentifier(AppAccessibilityID.todayHandledTimeline)
     }
 
@@ -507,13 +516,11 @@ struct TodayScreen: View {
 
     private func todaySection<Content: View>(
         _ title: String,
+        titleAccessibilityIdentifier: String? = nil,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            todaySectionTitle(title, accessibilityIdentifier: titleAccessibilityIdentifier)
 
             VStack(alignment: .leading, spacing: 10) {
                 content()
@@ -528,11 +535,42 @@ struct TodayScreen: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    @ViewBuilder
+    private func todaySectionTitle(
+        _ title: String,
+        accessibilityIdentifier: String?
+    ) -> some View {
+        let label = Text(title)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+        if let accessibilityIdentifier {
+            label.accessibilityIdentifier(accessibilityIdentifier)
+        } else {
+            label
+        }
+    }
+
     private func openSystemNotificationSettings() {
         guard let url = URL(string: UIApplication.openSettingsURLString) else {
             return
         }
         UIApplication.shared.open(url)
+    }
+
+    private func toggleHandledTasks() {
+        if prefersReducedMotion {
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                showingHandledTasks.toggle()
+            }
+        } else {
+            withAnimation(.snappy(duration: 0.24, extraBounce: 0.01)) {
+                showingHandledTasks.toggle()
+            }
+        }
     }
 }
 

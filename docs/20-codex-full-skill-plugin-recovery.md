@@ -19,7 +19,7 @@
 请在当前项目中恢复并验证 Codex 的全部竞赛工程 skills 和插件。不要删除、清理、归档、重置任何文件或线程历史。不要执行 rm -rf、git clean、git reset --hard、git checkout -- . 或任何递归/通配符删除。不要把 $HOME/.codex/config.toml 改成只读。
 
 项目路径：
-/Users/Admin/Developer/MedCue/appcontest-2026-prep
+$MEDCUE_WORKSPACE
 
 目标：
 1. 恢复并验证 Codex 插件：ShipSwift、Product Design、GitHub、Google Drive、Figma、Gmail、Browser、Computer Use、Documents、Spreadsheets、Presentations、LaTeX、Expo；Xcode 使用原生 MCP。
@@ -31,7 +31,7 @@
 
 先运行：
 
-cd /Users/Admin/Developer/MedCue/appcontest-2026-prep
+cd $MEDCUE_WORKSPACE
 which codex
 codex plugin --help
 codex plugin marketplace list
@@ -172,8 +172,8 @@ test -f $HOME/.codex/skills/software-cup-a3-web-stack/references/resources.md
 
 如果缺失，从项目备份恢复：
 
-/Users/Admin/Developer/MedCue/appcontest-2026-prep/docs/codex-local-skills/software-cup-a3-web-stack/SKILL.md
-/Users/Admin/Developer/MedCue/appcontest-2026-prep/docs/codex-local-skills/software-cup-a3-web-stack/references/resources.md
+$MEDCUE_WORKSPACE/docs/codex-local-skills/software-cup-a3-web-stack/SKILL.md
+$MEDCUE_WORKSPACE/docs/codex-local-skills/software-cup-a3-web-stack/references/resources.md
 
 验证所有本地 skills：
 

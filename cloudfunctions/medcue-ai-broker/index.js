@@ -3,6 +3,101 @@
 const http = require("node:http");
 const { createBrokerHandler } = require("./src/broker");
 
+const INTERNAL_ERROR_RESPONSE = {
+  status: 500,
+  headers: { "content-type": "application/json; charset=utf-8" },
+  body: JSON.stringify({
+    error: {
+      code: "internal_error",
+      message: "The broker could not process the request.",
+    },
+  }),
+};
+
+const INVALID_URL_RESPONSE = {
+  status: 400,
+  headers: { "content-type": "application/json; charset=utf-8" },
+  body: JSON.stringify({
+    error: {
+      code: "invalid_url",
+      message: "Request URL is invalid.",
+    },
+  }),
+};
+
+function isDisconnected(request, response) {
+  return (
+    request.aborted ||
+    (request.destroyed && !request.complete) ||
+    response.destroyed ||
+    response.writableEnded
+  );
+}
+
+function writeResponse(response, payload) {
+  if (response.destroyed || response.writableEnded || response.headersSent) {
+    return;
+  }
+
+  try {
+    response.writeHead(payload.status, payload.headers);
+    response.end(payload.body);
+  } catch {
+    // A client can disconnect between the state check and the write.
+    try {
+      response.destroy();
+    } catch {
+      // The response may already be closed.
+    }
+  }
+}
+
+async function serveRequest(request, response, handleBrokerRequest) {
+  try {
+    const chunks = [];
+    let byteCount = 0;
+
+    for await (const chunk of request) {
+      byteCount += chunk.length;
+      if (byteCount > 32768) {
+        writeResponse(response, {
+          status: 413,
+          headers: { "content-type": "application/json; charset=utf-8" },
+          body: JSON.stringify({
+            error: {
+              code: "payload_too_large",
+              message: "Request body is too large.",
+            },
+          }),
+        });
+        return;
+      }
+      chunks.push(chunk);
+    }
+
+    let path;
+    try {
+      path = new URL(request.url || "/", "http://127.0.0.1").pathname;
+    } catch {
+      writeResponse(response, INVALID_URL_RESPONSE);
+      return;
+    }
+
+    const brokerResponse = await handleBrokerRequest({
+      method: request.method,
+      path,
+      headers: request.headers,
+      body: Buffer.concat(chunks).toString("utf8"),
+    });
+    writeResponse(response, brokerResponse);
+  } catch (error) {
+    if (isDisconnected(request, response)) {
+      return;
+    }
+    writeResponse(response, INTERNAL_ERROR_RESPONSE);
+  }
+}
+
 function createServer({
   config = {
     clientToken: process.env.MEDCUE_BROKER_CLIENT_TOKEN,
@@ -13,38 +108,11 @@ function createServer({
 } = {}) {
   const handleBrokerRequest = createBrokerHandler({ config, fetchProvider });
 
-  return http.createServer(async (req, res) => {
-    const chunks = [];
-    let byteCount = 0;
-
-    for await (const chunk of req) {
-      byteCount += chunk.length;
-      if (byteCount > 32768) {
-        res.writeHead(413, {
-          "content-type": "application/json; charset=utf-8",
-        });
-        res.end(
-          JSON.stringify({
-            error: {
-              code: "payload_too_large",
-              message: "Request body is too large.",
-            },
-          }),
-        );
-        return;
-      }
-      chunks.push(chunk);
-    }
-
-    const response = await handleBrokerRequest({
-      method: req.method,
-      path: new URL(req.url || "/", "http://127.0.0.1").pathname,
-      headers: req.headers,
-      body: Buffer.concat(chunks).toString("utf8"),
-    });
-
-    res.writeHead(response.status, response.headers);
-    res.end(response.body);
+  return http.createServer((req, res) => {
+    // Keep stream errors from becoming unhandled when a peer disconnects.
+    req.on("error", () => {});
+    res.on("error", () => {});
+    void serveRequest(req, res, handleBrokerRequest);
   });
 }
 

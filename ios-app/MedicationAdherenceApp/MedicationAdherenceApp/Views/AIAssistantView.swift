@@ -18,7 +18,6 @@ struct AIAssistantView: View {
     @Environment(\.clearPendingMedicationAIQuestion) private var clearPendingMedicationAIQuestion
     @StateObject private var configurationStore = SecureAIConfigurationStore()
     @StateObject private var localModelStore = LocalMedicalModelStore()
-    @StateObject private var weatherMedicationService = WeatherMedicationService()
     @AppStorage("hasAcceptedMedicalAIDisclaimer") private var hasAcceptedMedicalAIDisclaimer = false
     @AppStorage("hasAcknowledgedThirdPartyMedicalAgent") private var hasAcknowledgedThirdPartyMedicalAgent = false
     @AppStorage("hasPurgedPreProviderDemoMessagesV4") private var hasPurgedPreProviderDemoMessages = false
@@ -137,7 +136,7 @@ struct AIAssistantView: View {
             beginImageRecognition: beginImageRecognition,
             capturedImage: beginCameraImageRecognition,
             applyPendingQuestion: applyPendingQuestionIfNeeded,
-            refreshEnvironment: refreshEnvironment,
+            refreshEnvironment: {},
             acceptThirdPartyNotice: acceptThirdPartyNotice,
             saveConsent: saveConsent,
             revokeConsent: revokeConsent,
@@ -154,13 +153,6 @@ struct AIAssistantView: View {
             cancelImageRecognition()
         }
         prepareAssistantSessionIfVisible()
-    }
-
-    private func refreshEnvironment() async {
-        guard activeAppTab == nil || activeAppTab == .assistant else {
-            return
-        }
-        await weatherMedicationService.refresh(medications: medications)
     }
 
     private func acceptThirdPartyNotice() {
@@ -521,6 +513,19 @@ struct AIAssistantView: View {
     }
 
     @MainActor
+    static func beginLocalStreamingResponse(
+        executionID: UUID,
+        activeRequestID: UUID?,
+        response: inout LocalStreamingAIResponse?
+    ) -> Bool {
+        // A cancelled task can first reach the main actor after a retry has
+        // started. Validate ownership before touching its shared UI state.
+        guard !Task.isCancelled, activeRequestID == executionID else { return false }
+        response = LocalStreamingAIResponse()
+        return true
+    }
+
+    @MainActor
     private func sendLocalModelRequest(
         request: MedicalAIRequest,
         sharedScopesSummary: String,
@@ -531,8 +536,13 @@ struct AIAssistantView: View {
             finishAIRequestIfCurrent(executionID)
         }
 
+        guard Self.beginLocalStreamingResponse(
+            executionID: executionID,
+            activeRequestID: activeAIRequestID,
+            response: &localStreamingResponse
+        ) else { return }
+
         do {
-            localStreamingResponse = LocalStreamingAIResponse()
             let client = LocalMedicalAIClient(modelURL: modelURL)
             var finalAnswer = ""
             var finalThinking = ""
@@ -588,6 +598,7 @@ struct AIAssistantView: View {
             localStreamingResponse = nil
             archiveOlderVisibleConversationIfNeeded()
         } catch is CancellationError {
+            guard activeAIRequestID == executionID else { return }
             localStreamingResponse = nil
             return
         } catch {
@@ -942,7 +953,7 @@ struct AIAssistantView: View {
     private func environmentInsightsForAI(userMessage: String) -> [MedicalAIEnvironmentInsight] {
         MedicalAIEnvironmentContextBuilder().insights(
             userMessage: userMessage,
-            weatherHints: weatherMedicationService.hints,
+            weatherHints: [],
             medications: medications
         )
     }
@@ -956,12 +967,7 @@ struct AIAssistantView: View {
     }
 
     private func revokeConsent() {
-        guard let consent = storedConsent else {
-            return
-        }
-        _ = AIConversationPersistenceCommand(modelContext: modelContext).revokeConsent(
-            consent,
-            revokedAt: Date()
-        )
+        let command = AIConsentRevocationCommand(modelContext: modelContext)
+        _ = command.execute()
     }
 }

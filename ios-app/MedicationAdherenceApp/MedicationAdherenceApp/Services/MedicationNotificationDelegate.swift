@@ -15,7 +15,7 @@ final class MedicationNotificationDelegate: NSObject, @preconcurrency UNUserNoti
     private static let markTakenActionIdentifier = "MEDICATION_MARK_TAKEN"
     private static let delayActionIdentifier = "MEDICATION_DELAY_30_MINUTES"
     private static let skipActionIdentifier = "MEDICATION_SKIP"
-    private var delayActionTitle: String {
+    private static var delayActionTitle: String {
         "\(DoseDelayPolicy.delayMinutes) 分钟后"
     }
 
@@ -48,28 +48,31 @@ final class MedicationNotificationDelegate: NSObject, @preconcurrency UNUserNoti
     }
 
     private func registerNotificationCategories() {
+        UNUserNotificationCenter.current().setNotificationCategories([Self.reminderCategory()])
+    }
+
+    static func reminderCategory() -> UNNotificationCategory {
         let markTakenAction = UNNotificationAction(
             identifier: Self.markTakenActionIdentifier,
             title: "已服用",
-            options: []
+            options: [.authenticationRequired]
         )
         let delayAction = UNNotificationAction(
             identifier: Self.delayActionIdentifier,
-            title: delayActionTitle,
-            options: []
+            title: Self.delayActionTitle,
+            options: [.authenticationRequired]
         )
         let skipAction = UNNotificationAction(
             identifier: Self.skipActionIdentifier,
             title: "忽略",
-            options: [.destructive]
+            options: [.authenticationRequired, .destructive]
         )
-        let category = UNNotificationCategory(
+        return UNNotificationCategory(
             identifier: Self.categoryIdentifier,
             actions: [markTakenAction, delayAction, skipAction],
             intentIdentifiers: [],
             options: [.customDismissAction]
         )
-        UNUserNotificationCenter.current().setNotificationCategories([category])
     }
 
     @MainActor
@@ -94,17 +97,16 @@ final class MedicationNotificationDelegate: NSObject, @preconcurrency UNUserNoti
         let taskGroup = DoseLogicalGroup.group(containing: task, in: tasks)
         let openTaskGroup = taskGroup.filter { $0.status == .pending || $0.status == .delayed }
         guard !openTaskGroup.isEmpty else {
-            NotificationService().cancelReminder(for: task.id)
+            NotificationService().beginApplyCommittedReminderState(in: context)
             await MedicationLiveActivityService().end(for: task.id)
             return
         }
         let medications = (try? context.fetch(FetchDescriptor<StoredMedication>())) ?? []
         let medication = medications.first { $0.id == task.medicationID }
-        let plans = (try? context.fetch(FetchDescriptor<StoredMedicationPlan>())) ?? []
-        let plan = plans.first { $0.id == task.planID }
         guard medication?.lifecycleStatus == .active else {
+            let reminderSync = NotificationService().beginApplyCommittedReminderState(in: context)
+            _ = await reminderSync.value
             for groupTask in openTaskGroup {
-                NotificationService().cancelReminder(for: groupTask.id)
                 await MedicationLiveActivityService().end(for: groupTask.id)
             }
             return
@@ -120,8 +122,9 @@ final class MedicationNotificationDelegate: NSObject, @preconcurrency UNUserNoti
                 reason: "通过通知标记已服用",
                 context: context
             ) else { return }
+            let reminderSync = NotificationService().beginApplyCommittedReminderState(in: context)
+            _ = await reminderSync.value
             for groupTask in openTaskGroup {
-                NotificationService().cancelReminder(for: groupTask.id)
                 await MedicationLiveActivityService().end(for: groupTask.id)
             }
         case Self.delayActionIdentifier:
@@ -134,19 +137,7 @@ final class MedicationNotificationDelegate: NSObject, @preconcurrency UNUserNoti
                 reason: "通过通知选择按原计划时间顺延 \(DoseDelayPolicy.delayMinutes) 分钟提醒",
                 context: context
             ) else { return }
-            if let medication {
-                for groupTask in openTaskGroup {
-                    if groupTask.id == task.id {
-                        await NotificationService().scheduleReminder(
-                            for: groupTask,
-                            medication: medication,
-                            deliveryMethod: plan?.reminderDeliveryMethod ?? .notification
-                        )
-                    } else {
-                        NotificationService().cancelReminder(for: groupTask.id)
-                    }
-                }
-            }
+            _ = await NotificationService().beginApplyCommittedReminderState(in: context).value
             for groupTask in openTaskGroup {
                 await MedicationLiveActivityService().end(for: groupTask.id)
             }
@@ -159,8 +150,9 @@ final class MedicationNotificationDelegate: NSObject, @preconcurrency UNUserNoti
                 reason: "通过通知忽略",
                 context: context
             ) else { return }
+            let reminderSync = NotificationService().beginApplyCommittedReminderState(in: context)
+            _ = await reminderSync.value
             for groupTask in openTaskGroup {
-                NotificationService().cancelReminder(for: groupTask.id)
                 await MedicationLiveActivityService().end(for: groupTask.id)
             }
         default:

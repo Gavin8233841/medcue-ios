@@ -169,6 +169,28 @@ else
     [[ "$1" == cloudfunctions/medcue-ai-broker/* ]]
   }
 
+  is_swift_core_only_path() {
+    case "$1" in
+      swift-core/*|Package.swift|Package.resolved)
+        return 0
+        ;;
+      *)
+        return 1
+        ;;
+    esac
+  }
+
+  is_watch_only_path() {
+    case "$1" in
+      ios-app/MedicationAdherenceApp/MedicationAdherenceWatchApp/*|ios-app/MedicationAdherenceApp/MedicationAdherenceWatchWidget/*)
+        return 0
+        ;;
+      *)
+        return 1
+        ;;
+    esac
+  }
+
   is_full_path() {
     case "$1" in
       .github/workflows/*|tools/*|ios-app/*|swift-core/*|Package.swift|Package.resolved|*.xcodeproj/*|*.xcworkspace/*|*.pbxproj|*.xcconfig|*.entitlements|*.xcscheme|*.plist)
@@ -182,10 +204,14 @@ else
 
   all_docs=1
   all_broker=1
+  all_swift_core_only=1
+  all_watch_only=1
   contains_full_path=0
   for path in "${paths[@]}"; do
     is_docs_path "$path" || all_docs=0
     is_broker_path "$path" || all_broker=0
+    is_swift_core_only_path "$path" || all_swift_core_only=0
+    is_watch_only_path "$path" || all_watch_only=0
     is_full_path "$path" && contains_full_path=1
   done
 
@@ -195,6 +221,10 @@ else
     lane="broker"
   elif ((all_docs == 1)); then
     lane="docs"
+  elif ((all_swift_core_only == 1)); then
+    lane="swift-core-only"
+  elif ((all_watch_only == 1)); then
+    lane="watch-only"
   else
     lane="full"
   fi

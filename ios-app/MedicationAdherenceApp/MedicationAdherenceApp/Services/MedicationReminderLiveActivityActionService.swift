@@ -140,21 +140,10 @@ struct MedicationReminderLiveActivityActionService {
         guard #available(iOS 16.2, *) else {
             return
         }
-        // Compatibility recovery for activities created before the iOS 17
-        // LiveActivityIntent transaction path. New intents commit directly.
+        // Legacy completed activities are presentation state, not proof that
+        // the device owner authenticated or that a dose was taken.
         for activity in Activity<MedicationReminderActivityAttributes>.activities where activity.content.state.isCompleted {
-            await handle(
-                MedicationReminderLiveActivityActionRequest(
-                    taskID: activity.attributes.taskID,
-                    action: .markTaken,
-                    operationID: activity.attributes.actionOperationID ?? activity.attributes.taskID,
-                    expiresAt: activity.content.state.dueAt.addingTimeInterval(
-                        MedicationLiveActivityPolicy.default.staleWindow
-                    )
-                ),
-                in: modelContext,
-                occurredAt: activity.content.state.completedAt ?? Date()
-            )
+            await activity.end(activity.content, dismissalPolicy: .immediate)
         }
         #endif
     }
@@ -166,19 +155,16 @@ struct MedicationReminderLiveActivityActionService {
     ) async -> MedicationReminderLiveActivityIntentExecutionOutcome {
         let outcome = command.execute(request, occurredAt: occurredAt, in: modelContext)
         switch outcome {
-        case .committed(let taskIDs):
-            UserDefaults.standard.removeObject(forKey: DoseActionPersistence.failureMessageDefaultsKey)
-            await synchronizeCommittedIntentAction(taskIDs: taskIDs, in: modelContext)
+        case .committed:
+            DoseActionFailureNotice.clear()
+            await synchronizeCommittedIntentAction(in: modelContext)
             return .committed
-        case .alreadyCommitted(let taskIDs):
-            UserDefaults.standard.removeObject(forKey: DoseActionPersistence.failureMessageDefaultsKey)
-            await synchronizeCommittedIntentAction(taskIDs: taskIDs, in: modelContext)
+        case .alreadyCommitted:
+            DoseActionFailureNotice.clear()
+            await synchronizeCommittedIntentAction(in: modelContext)
             return .alreadyCommitted
         case .saveFailed:
-            UserDefaults.standard.set(
-                DoseActionPersistenceError.saveFailed.userMessage,
-                forKey: DoseActionPersistence.failureMessageDefaultsKey
-            )
+            DoseActionFailureNotice.recordSaveFailure()
             return .saveFailed
         case .rejected:
             return .rejected
@@ -198,18 +184,17 @@ struct MedicationReminderLiveActivityActionService {
         let taskGroup = DoseLogicalGroup.group(containing: task, in: tasks)
         let openTaskGroup = taskGroup.filter { $0.status == .pending || $0.status == .delayed }
         guard !openTaskGroup.isEmpty else {
-            notificationService.cancelReminder(for: task.id)
+            notificationService.beginApplyCommittedReminderState(in: modelContext)
             await liveActivityService.end(for: task.id)
             return
         }
 
         let medications = (try? modelContext.fetch(FetchDescriptor<StoredMedication>())) ?? []
         let medication = medications.first { $0.id == task.medicationID }
-        let plans = (try? modelContext.fetch(FetchDescriptor<StoredMedicationPlan>())) ?? []
-        let plan = plans.first { $0.id == task.planID }
         guard medication?.lifecycleStatus == .active else {
+            let reminderSync = notificationService.beginApplyCommittedReminderState(in: modelContext)
+            _ = await reminderSync.value
             for groupTask in openTaskGroup {
-                notificationService.cancelReminder(for: groupTask.id)
                 await liveActivityService.end(for: groupTask.id)
             }
             return
@@ -220,16 +205,14 @@ struct MedicationReminderLiveActivityActionService {
             let outcome = command.execute(request, occurredAt: occurredAt, in: modelContext)
             guard outcome.isCommitted else {
                 if outcome == .saveFailed {
-                    UserDefaults.standard.set(
-                        DoseActionPersistenceError.saveFailed.userMessage,
-                        forKey: DoseActionPersistence.failureMessageDefaultsKey
-                    )
+                    DoseActionFailureNotice.recordSaveFailure()
                 }
                 return
             }
-            UserDefaults.standard.removeObject(forKey: DoseActionPersistence.failureMessageDefaultsKey)
+            DoseActionFailureNotice.clear()
+            let reminderSync = notificationService.beginApplyCommittedReminderState(in: modelContext)
+            _ = await reminderSync.value
             for groupTask in openTaskGroup {
-                notificationService.cancelReminder(for: groupTask.id)
                 await liveActivityService.end(for: groupTask.id)
             }
         case .delay:
@@ -238,20 +221,8 @@ struct MedicationReminderLiveActivityActionService {
                 reportSaveFailureIfNeeded(outcome)
                 return
             }
-            UserDefaults.standard.removeObject(forKey: DoseActionPersistence.failureMessageDefaultsKey)
-            if let medication {
-                for groupTask in openTaskGroup {
-                    if groupTask.id == task.id {
-                        await notificationService.scheduleReminder(
-                            for: groupTask,
-                            medication: medication,
-                            deliveryMethod: plan?.reminderDeliveryMethod ?? .notification
-                        )
-                    } else {
-                        notificationService.cancelReminder(for: groupTask.id)
-                    }
-                }
-            }
+            DoseActionFailureNotice.clear()
+            _ = await notificationService.beginApplyCommittedReminderState(in: modelContext).value
             for groupTask in openTaskGroup {
                 await liveActivityService.end(for: groupTask.id)
             }
@@ -261,9 +232,10 @@ struct MedicationReminderLiveActivityActionService {
                 reportSaveFailureIfNeeded(outcome)
                 return
             }
-            UserDefaults.standard.removeObject(forKey: DoseActionPersistence.failureMessageDefaultsKey)
+            DoseActionFailureNotice.clear()
+            let reminderSync = notificationService.beginApplyCommittedReminderState(in: modelContext)
+            _ = await reminderSync.value
             for groupTask in openTaskGroup {
-                notificationService.cancelReminder(for: groupTask.id)
                 await liveActivityService.end(for: groupTask.id)
             }
         }
@@ -275,10 +247,7 @@ struct MedicationReminderLiveActivityActionService {
         _ outcome: MedicationReminderLiveActivityActionCommandOutcome
     ) {
         if outcome == .saveFailed {
-            UserDefaults.standard.set(
-                DoseActionPersistenceError.saveFailed.userMessage,
-                forKey: DoseActionPersistence.failureMessageDefaultsKey
-            )
+            DoseActionFailureNotice.recordSaveFailure()
         }
     }
 
@@ -298,13 +267,9 @@ struct MedicationReminderLiveActivityActionService {
         }
     }
 
-    private func synchronizeCommittedIntentAction(
-        taskIDs: [UUID],
-        in modelContext: ModelContext
-    ) async {
-        for taskID in taskIDs {
-            notificationService.cancelReminder(for: taskID)
-        }
+    private func synchronizeCommittedIntentAction(in modelContext: ModelContext) async {
+        let reminderSync = notificationService.beginApplyCommittedReminderState(in: modelContext)
+        _ = await reminderSync.value
         let tasks = (try? modelContext.fetch(FetchDescriptor<StoredDoseTask>())) ?? []
         let medications = (try? modelContext.fetch(FetchDescriptor<StoredMedication>())) ?? []
         MedicationWatchSnapshotPublisher().publish(tasks: tasks, medications: medications)

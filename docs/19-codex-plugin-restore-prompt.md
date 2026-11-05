@@ -12,7 +12,7 @@ Xcode 约定：不要恢复旧 Build iOS Apps/XcodeBuildMCP。Xcode 项目、构
 请在当前项目中快速恢复 Codex 插件，不要删除、清理、归档、重置任何文件或线程历史。
 
 项目路径：
-/Users/Admin/Developer/MedCue/appcontest-2026-prep
+$MEDCUE_WORKSPACE
 
 目标：
 1. 恢复 Codex App 插件列表。
@@ -24,7 +24,7 @@ Xcode 约定：不要恢复旧 Build iOS Apps/XcodeBuildMCP。Xcode 项目、构
 
 请依次执行并检查：
 
-cd /Users/Admin/Developer/MedCue/appcontest-2026-prep
+cd $MEDCUE_WORKSPACE
 
 codex plugin marketplace add $HOME/.codex/.tmp/bundled-marketplaces/openai-bundled
 codex plugin marketplace add $HOME/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime

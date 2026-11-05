@@ -8,7 +8,7 @@
 
 项目路径：
 
-`/Users/Admin/Developer/MedCue/appcontest-2026-prep`
+`$MEDCUE_WORKSPACE`
 
 背景：
 
@@ -73,12 +73,12 @@ struct LocalFoundationMedicalAIClient: MedicalAIClient {
 验证命令：
 
 ```zsh
-cd /Users/Admin/Developer/MedCue/appcontest-2026-prep/swift-core
+cd $MEDCUE_WORKSPACE/swift-core
 swift test
 ```
 
 ```zsh
-cd /Users/Admin/Developer/MedCue/appcontest-2026-prep
+cd $MEDCUE_WORKSPACE
 ./tools/ios-preflight-check.sh
 ```
 

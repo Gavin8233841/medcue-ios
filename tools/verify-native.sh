@@ -9,18 +9,22 @@ XCODE_PROJECT="$ROOT_DIR/ios-app/MedicationAdherenceApp/MedicationAdherenceApp.x
 SWIFT_CORE_DIR="$ROOT_DIR/swift-core"
 PREFLIGHT_SCRIPT="$ROOT_DIR/tools/ios-preflight-check.sh"
 SOURCE_SIZE_SCRIPT="$ROOT_DIR/tools/swift-source-size-check.sh"
+SOURCE_PACKAGE_BUILDER="$ROOT_DIR/tools/build-source-package.py"
+SOURCE_PACKAGE_TESTS="$ROOT_DIR/tools/test-source-package.py"
+SOURCE_PACKAGE_VERIFIER="$ROOT_DIR/tools/verify-source-package.py"
 
 MAIN_APP_TARGET="MedicationAdherenceApp"
 IOS_TEST_SCHEME="MedicationAdherenceApp"
 IOS_TEST_TARGET="MedicationAdherenceAppTests"
 IOS_UI_TEST_TARGET="MedicationAdherenceAppUITests"
 WATCH_APP_TARGET="MedicationAdherenceWatchApp"
-WATCH_SIMULATOR_SDK="${VERIFY_NATIVE_WATCH_SIMULATOR_SDK:-watchsimulator26.5}"
-WATCH_DEVICE_SDK="${VERIFY_NATIVE_WATCH_DEVICE_SDK:-watchos26.5}"
+WATCH_SIMULATOR_SDK="${VERIFY_NATIVE_WATCH_SIMULATOR_SDK:-watchsimulator}"
+WATCH_DEVICE_SDK="${VERIFY_NATIVE_WATCH_DEVICE_SDK:-watchos}"
 IOS_TEST_DESTINATION="${VERIFY_NATIVE_IOS_TEST_DESTINATION:-platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5}"
 
 CURRENT_STEP="startup"
 CHECKS_ONLY="${VERIFY_NATIVE_CHECKS_ONLY:-0}"
+TEST_SUITE="${VERIFY_NATIVE_TEST_SUITE:-all}"
 VERIFICATION_ROOT=""
 
 usage() {
@@ -36,6 +40,10 @@ Options:
 Environment:
   VERIFY_NATIVE_CHECKS_ONLY=1
              Run non-build checks only (the same behavior as --quick).
+  VERIFY_NATIVE_TEST_SUITE=<suite>
+             Run only a specific test suite. Valid values: swift-core, ios-unit,
+             ios-ui, builds, all. Default is all. This allows parallel test
+             execution in CI.
   VERIFY_NATIVE_DIFF_BASE=<full-commit-sha>
              Also check the complete committed tree difference from this exact
              40-character commit through HEAD. CI sets this to the Pull Request
@@ -51,10 +59,11 @@ Environment:
              Override the iOS Simulator used for hosted unit tests. The default
              is platform=iOS Simulator,name=iPhone 17 Pro,OS=26.5.
   VERIFY_NATIVE_WATCH_SIMULATOR_SDK=<sdk>
-             Override the Watch Simulator SDK name. The default is
-             watchsimulator26.5.
+             Override the Watch Simulator SDK name. The default is the
+             installed watchsimulator SDK selected by Xcode.
   VERIFY_NATIVE_WATCH_DEVICE_SDK=<sdk>
-             Override the Watch device SDK name. The default is watchos26.5.
+             Override the Watch device SDK name. The default is the
+             installed watchos SDK selected by Xcode.
 USAGE
 }
 
@@ -336,6 +345,29 @@ run_swift_core_tests() {
     assert_verification_tree_safe
 }
 
+run_source_package_gate() {
+    local revision
+    local output_dir
+    local package_path
+    local digest_path
+    local temp_parent="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+
+    [[ -d "$temp_parent" ]] || fail "source-package temporary parent not found: $temp_parent"
+    output_dir="$(mktemp -d "${temp_parent%/}/medcue-source-package.XXXXXX")"
+    revision="$(git rev-parse --verify HEAD)"
+
+    PYTHONDONTWRITEBYTECODE=1 python3 "$SOURCE_PACKAGE_TESTS"
+    PYTHONDONTWRITEBYTECODE=1 python3 "$SOURCE_PACKAGE_BUILDER" \
+        --revision "$revision" \
+        --output-dir "$output_dir" \
+        --repository "$ROOT_DIR"
+    package_path="$output_dir/MedCue-source-${revision:0:12}.zip"
+    digest_path="$package_path.sha256"
+    PYTHONDONTWRITEBYTECODE=1 python3 "$SOURCE_PACKAGE_VERIFIER" "$package_path" "$digest_path"
+    unzip -t "$package_path"
+    printf 'Source-package evidence retained at: %s\n' "$output_dir"
+}
+
 run_xcode_build() {
     local target="$1"
     local configuration="$2"
@@ -461,16 +493,23 @@ main() {
     cd "$ROOT_DIR"
 
     require_command git
+    require_command mktemp
     require_command plutil
+    require_command python3
     require_command realpath
     require_command swift
+    require_command unzip
     require_command xcodebuild
     require_file "$PROJECT_FILE"
     require_file "$SWIFT_CORE_DIR/Package.swift"
     require_file "$PREFLIGHT_SCRIPT"
+    require_file "$SOURCE_PACKAGE_BUILDER"
+    require_file "$SOURCE_PACKAGE_TESTS"
+    require_file "$SOURCE_PACKAGE_VERIFIER"
     require_file "$SOURCE_SIZE_SCRIPT"
 
     run_step "Git diff check" verify_git_diff
+    run_step "Exact source-package gate" run_source_package_gate
     run_step "Xcode project plist lint" plutil -lint "$PROJECT_FILE"
     run_step "Swift source size limit" bash "$SOURCE_SIZE_SCRIPT"
     run_step "iOS preflight" bash "$PREFLIGHT_SCRIPT"
@@ -482,16 +521,42 @@ main() {
 
     prepare_verification_root
 
-    run_step "Swift Core tests" run_swift_core_tests
-    run_step "iOS hosted unit tests" run_ios_unit_tests
-    run_step "iOS unit-test artifact assertions" verify_ios_unit_test_artifacts
-    run_step "iOS UI tests" run_ios_ui_tests
-    run_step "Main App unsigned Release" run_xcode_build "$MAIN_APP_TARGET" Release main-app-release
-    run_step "Main App Release artifact assertions" verify_main_app_release_artifacts
-    run_step "Watch Simulator Debug" run_xcode_build "$WATCH_APP_TARGET" Debug watch-simulator-debug "$WATCH_SIMULATOR_SDK"
-    run_step "watchOS device SDK Release" run_xcode_build "$WATCH_APP_TARGET" Release watch-device-release "$WATCH_DEVICE_SDK"
-
-    printf '\n[PASS] Route A native verification completed.\n'
+    case "$TEST_SUITE" in
+        swift-core)
+            run_step "Swift Core tests" run_swift_core_tests
+            printf '\n[PASS] Swift Core test suite completed.\n'
+            ;;
+        ios-unit)
+            run_step "iOS hosted unit tests" run_ios_unit_tests
+            run_step "iOS unit-test artifact assertions" verify_ios_unit_test_artifacts
+            printf '\n[PASS] iOS unit test suite completed.\n'
+            ;;
+        ios-ui)
+            run_step "iOS UI tests" run_ios_ui_tests
+            printf '\n[PASS] iOS UI test suite completed.\n'
+            ;;
+        builds)
+            run_step "Main App unsigned Release" run_xcode_build "$MAIN_APP_TARGET" Release main-app-release
+            run_step "Main App Release artifact assertions" verify_main_app_release_artifacts
+            run_step "Watch Simulator Debug" run_xcode_build "$WATCH_APP_TARGET" Debug watch-simulator-debug "$WATCH_SIMULATOR_SDK"
+            run_step "watchOS device SDK Release" run_xcode_build "$WATCH_APP_TARGET" Release watch-device-release "$WATCH_DEVICE_SDK"
+            printf '\n[PASS] Build suite completed.\n'
+            ;;
+        all)
+            run_step "Swift Core tests" run_swift_core_tests
+            run_step "iOS hosted unit tests" run_ios_unit_tests
+            run_step "iOS unit-test artifact assertions" verify_ios_unit_test_artifacts
+            run_step "iOS UI tests" run_ios_ui_tests
+            run_step "Main App unsigned Release" run_xcode_build "$MAIN_APP_TARGET" Release main-app-release
+            run_step "Main App Release artifact assertions" verify_main_app_release_artifacts
+            run_step "Watch Simulator Debug" run_xcode_build "$WATCH_APP_TARGET" Debug watch-simulator-debug "$WATCH_SIMULATOR_SDK"
+            run_step "watchOS device SDK Release" run_xcode_build "$WATCH_APP_TARGET" Release watch-device-release "$WATCH_DEVICE_SDK"
+            printf '\n[PASS] Route A native verification completed.\n'
+            ;;
+        *)
+            fail "Unknown test suite: $TEST_SUITE (valid: swift-core, ios-unit, ios-ui, builds, all)"
+            ;;
+    esac
 }
 
 main "$@"

@@ -24,6 +24,52 @@ struct MedicalAIEndpointPolicyTests {
     }
 
     @Test
+    func stableProviderCodeKeepsKeySelectionAndTransportIndependentOfDisplayName() throws {
+        let selection = MedicalAIConfigurationSelection.resolve(
+            providerName: "Localized cloud provider",
+            modelName: MedicalAIConfiguration.doubaoDefaultModelName,
+            endpointURLString: MedicalAIConfiguration.doubaoResponsesEndpoint,
+            providerKindRaw: MedicalAIProviderKind.doubao.rawValue
+        )
+        let configuration = MedicalAIConfiguration(
+            providerName: selection.providerName,
+            modelName: selection.modelName,
+            endpointURLString: selection.endpointURLString,
+            hasAPIKey: true,
+            providerKindRaw: selection.providerKindRaw
+        )
+
+        #expect(selection.providerKind == .doubao)
+        #expect(configuration.providerKind == .doubao)
+        #expect(try MedicalAIEndpointPolicy.validatedURL(for: configuration, enforcement: .release).absoluteString == MedicalAIConfiguration.doubaoResponsesEndpoint)
+    }
+
+    @Test
+    func stableProviderCodeRejectsMismatchedOrInvalidIdentity() {
+        let mismatch = MedicalAIConfiguration(
+            providerName: MedicalAIConfiguration.doubaoProviderName,
+            modelName: "test-model",
+            endpointURLString: MedicalAIConfiguration.doubaoResponsesEndpoint,
+            hasAPIKey: true,
+            providerKindRaw: MedicalAIProviderKind.broker.rawValue
+        )
+        let invalid = MedicalAIConfiguration(
+            providerName: MedicalAIConfiguration.doubaoProviderName,
+            modelName: "test-model",
+            endpointURLString: MedicalAIConfiguration.doubaoResponsesEndpoint,
+            hasAPIKey: true,
+            providerKindRaw: "unknown-provider"
+        )
+
+        #expect(throws: MedicalAIEndpointPolicyError.providerEndpointMismatch) {
+            try MedicalAIEndpointPolicy.validatedURL(for: mismatch, enforcement: .release)
+        }
+        #expect(throws: MedicalAIEndpointPolicyError.unsupportedProvider) {
+            try MedicalAIEndpointPolicy.validatedURL(for: invalid, enforcement: .release)
+        }
+    }
+
+    @Test
     func releaseAcceptsCanonicalProviderEndpoints() throws {
         let doubao = configuration(
             providerName: MedicalAIConfiguration.doubaoProviderName,

@@ -26,7 +26,7 @@ struct MedicalAIContextBuilder {
                 now: now,
                 calendar: calendar
             ),
-            environmentInsights: environmentInsights,
+            environmentInsights: consent.sharesMedicationProfile ? environmentInsights : [],
             localeIdentifier: localeIdentifier
         )
     }

@@ -5,6 +5,7 @@ import UIKit
 
 #if DEBUG || MEDCUE_DEMO
 import Darwin
+import UIKit
 #endif
 
 #if DEBUG || MEDCUE_DEMO
@@ -20,7 +21,7 @@ enum DemoModeLauncher {
 
 enum DemoDataSeeder {
     static func seedIfNeeded(in modelContext: ModelContext) {
-        #if DEBUG
+        #if DEBUG || MEDCUE_DEMO
         let arguments = ProcessInfo.processInfo.arguments
         guard arguments.contains("--seed-demo-data")
                 || arguments.contains("--reminder-live-activity-smoke-test") else {
@@ -44,7 +45,10 @@ enum DemoDataSeeder {
     private static func seed(in modelContext: ModelContext, preservingPhotos: [UUID: Data] = [:]) throws {
         let existing = try modelContext.fetch(FetchDescriptor<StoredMedication>())
         let demoMedications = resolveDemoMedications(from: existing, context: modelContext)
-        for medication in demoMedications where medication.displayName != "人工泪液" {
+        // Explicit demo restart adopts the owner's current packaging artwork.
+        // Other locally selected demo photos keep the established preservation behavior.
+        let refreshedPackaging = Set(["人工泪液", "布洛芬", "对乙酰氨基酚", "维生素 D3"])
+        for medication in demoMedications where !refreshedPackaging.contains(medication.displayName) {
             if let photo = preservingPhotos[medication.id] { medication.photoData = photo }
         }
         migrateUserVisibleSeedText(for: demoMedications, in: modelContext)
@@ -129,6 +133,7 @@ enum DemoDataSeeder {
             form: "片剂",
             strength: "200 mg",
             photoSymbolName: "pills.fill",
+            photoAssetName: nil,
             notes: "按药盒或说明书核对后使用；如有胃部不适、过敏或合并用药疑问，请咨询医生或药师。",
             doseUnit: "片",
             reminderTimeRaw: "08:00",
@@ -146,6 +151,7 @@ enum DemoDataSeeder {
             form: "片剂",
             strength: "500 mg",
             photoSymbolName: "cross.case.fill",
+            photoAssetName: nil,
             notes: "按药盒或说明书核对后使用；饮酒、肝功能异常或合并用药时请咨询医生或药师。",
             doseUnit: "片",
             reminderTimeRaw: "13:00",
@@ -163,6 +169,7 @@ enum DemoDataSeeder {
             form: "滴眼液",
             strength: "1 滴",
             photoSymbolName: "eye.fill",
+            photoAssetName: nil,
             notes: "提醒时可通过药品图片辅助识别；请按说明书或医生、药师建议核对使用间隔。",
             doseUnit: "滴",
             reminderTimeRaw: "21:00",
@@ -180,6 +187,7 @@ enum DemoDataSeeder {
             form: "片剂",
             strength: "10 mg",
             photoSymbolName: "wind",
+            photoAssetName: nil,
             notes: "用于长期提醒管理；如症状持续、加重或合并其他药物，请咨询医生或药师。",
             doseUnit: "片",
             reminderTimeRaw: "18:30",
@@ -197,6 +205,7 @@ enum DemoDataSeeder {
             form: "软胶囊",
             strength: "400 IU",
             photoSymbolName: "sun.max.fill",
+            photoAssetName: nil,
             notes: "用于长期健康管理提醒；请按说明书、医嘱或药师建议核对剂量和疗程。",
             doseUnit: "粒",
             reminderTimeRaw: "22:00",
@@ -681,7 +690,7 @@ enum DemoDataSeeder {
         storedCard.sourceExcerpt = card.evidence?.excerpt ?? ""
         storedCard.requiresProfessionalReview = card.requiresProfessionalReview
         storedCard.safetyNote = card.safetyNote
-        storedCard.detectionSignature = StoredRiskCard.makeDetectionSignature(
+        storedCard.detectionSignature = StoredRiskCard.makeLegacyDetectionSignature(
             medicationID: medicationID,
             kindRaw: card.kind.rawValue,
             title: card.title,
@@ -840,7 +849,7 @@ enum DemoDataSeeder {
         card.safetyNote = sanitizedRequiredRiskText(card.safetyNote, fallback: defaultSafetyNote)
         card.reviewNote = sanitizedOptionalRiskText(card.reviewNote, fallback: "用户已复核并归档。")
         card.resolutionNote = sanitizedOptionalRiskText(card.resolutionNote, fallback: "相关风险已更新，请以当前说明书和医生或药师意见为准。")
-        card.detectionSignature = StoredRiskCard.makeDetectionSignature(
+        card.detectionSignature = StoredRiskCard.makeLegacyDetectionSignature(
             medicationID: card.medicationID,
             kindRaw: card.kindRaw,
             title: card.title,
@@ -983,6 +992,7 @@ private struct DemoMedicationSeed {
     let form: String
     let strength: String
     let photoSymbolName: String
+    let photoAssetName: String?
     let notes: String
     let doseUnit: String
     let reminderTimeRaw: String

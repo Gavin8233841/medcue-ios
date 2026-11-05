@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "policy": {
+    "description": "Checks staged content only; no automatic source rewriting.",
+    "absolutePathPatterns": [
+      "posix-users-root",
+      "posix-home-root",
+      "posix-private-root",
+      "posix-volumes-root",
+      "windows-drive-root"
+    ],
+    "syntaxExtensions": [
+      ".js",
+      ".mjs",
+      ".cjs",
+      ".json"
+    ],
+    "sourcePackageAllowlist": {
+      "rootFiles": [
+        ".gitignore",
+        "AGENTS.md",
+        "CONTEXT.md",
+        "design-qa.md",
+        "README.md",
+        "README.zh-CN.md",
+        "CHANGELOG.md",
+        "LICENSE",
+        "LICENSE.md",
+        "LICENSE.txt",
+        "NOTICE",
+        "NOTICE.md",
+        "NOTICE.txt",
+        "ATTRIBUTION.md"
+      ],
+      "prefixes": [
+        ".github/",
+        "checklists/",
+        "cloudfunctions/medcue-ai-broker/",
+        "coreai/",
+        "docs/",
+        "ios-app/",
+        "Packages/",
+        "swift-core/",
+        "templates/",
+        "tools/"
+      ]
+    }
+  }
+}

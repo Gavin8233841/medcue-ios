@@ -149,34 +149,20 @@ struct DoseRecordCorrectionView: View {
         )) ?? [task]
         let shouldKeepReminder = (task.status == .pending || task.status == .delayed) && task.dueAt > Date()
         guard shouldKeepReminder, let medication else {
+            let reminderSync = notificationService.beginApplyCommittedReminderState(in: modelContext)
             Task { @MainActor in
+                _ = await reminderSync.value
                 for groupTask in group {
-                    notificationService.cancelReminder(for: groupTask.id)
                     await liveActivityService.end(for: groupTask.id)
                 }
             }
             return
         }
 
-        let planID = task.planID
-        var planDescriptor = FetchDescriptor<StoredMedicationPlan>(
-            predicate: #Predicate<StoredMedicationPlan> { plan in
-                plan.id == planID
-            }
-        )
-        planDescriptor.fetchLimit = 1
-        let deliveryMethod = (try? modelContext.fetch(planDescriptor).first)?.reminderDeliveryMethod ?? .notification
+        let reminderSync = notificationService.beginApplyCommittedReminderState(in: modelContext)
         Task { @MainActor in
+            _ = await reminderSync.value
             for groupTask in group {
-                if groupTask.id == task.id {
-                    await notificationService.scheduleReminder(
-                        for: groupTask,
-                        medication: medication,
-                        deliveryMethod: deliveryMethod
-                    )
-                } else {
-                    notificationService.cancelReminder(for: groupTask.id)
-                }
                 await liveActivityService.end(for: groupTask.id)
             }
             await liveActivityService.startIfNeeded(for: task, medication: medication)

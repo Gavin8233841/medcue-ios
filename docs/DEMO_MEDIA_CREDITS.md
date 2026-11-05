@@ -1,20 +1,18 @@
 # Demo media credits
 
-Demo resets retain locally selected photos for existing demo medicines. For a
-fresh demo library, the following previously used resized photographs provide
-fallback packaging images; inclusion does not imply brand endorsement.
+Demo restarts adopt the current owner-approved ibuprofen, paracetamol, eye-drop
+and vitamin D packaging. Other locally selected demo photos are retained.
+The images below illustrate packaging only; inclusion does not imply brand endorsement.
 
-- `DemoAdvil.jpg`: “Advil 200mg Caplets” by Geographer, CC BY 2.5.
-  https://commons.wikimedia.org/wiki/File:Advil_200mg_Caplets.jpg
-  https://creativecommons.org/licenses/by/2.5/
-- `DemoTylenol.jpg`: “Tylenol bottle closeup” by Colin (TheTruthAbout), CC BY-SA 2.0.
-  https://commons.wikimedia.org/wiki/File:Tylenol_bottle_closeup_(loose_crop).jpg
-  https://creativecommons.org/licenses/by-sa/2.0/
+- `DemoAdvil.jpg`: owner-supplied Chinese ibuprofen packaging, authorized
+  2026-11-05; replaces the former Advil photograph. Internal asset name retained.
+- `DemoTylenol.jpg`: owner-supplied Chinese paracetamol packaging, authorized
+  2026-11-05; replaces the former Tylenol photograph. Internal asset name retained.
 - `DemoFortuneLoratadine.jpg`: “Fortune NT-Alergi tablet” by Malcolm Koo, CC BY-SA 4.0.
   https://commons.wikimedia.org/wiki/File:Fortune_NT-Alergi_tablet_(contains_Loratadine_10mg).jpg
   https://creativecommons.org/licenses/by-sa/4.0/
 
-The resized share-alike photographs remain available under those same licenses.
+The retained loratadine photograph remains available under that same license.
 `DemoArtificialTears.png` is the sodium-hyaluronate eye-drop photograph supplied
 and authorized by the product owner on 2026-11-03; it replaces the old eye-drop
 image for demo rebuilding. No generated concept packaging is used in the app.

@@ -7,8 +7,8 @@
 
 ## 工作区硬边界
 
-- 唯一活动仓库：`/Users/Admin/Developer/MedCue/appcontest-2026-prep`；
-- `/Users/Admin/Desktop/appcontest-2026-prep` 及迁移目录只读；
+- 唯一活动仓库：`$MEDCUE_WORKSPACE`；
+- `$MEDCUE_READ_ONLY_DESKTOP_COPY` 及迁移目录只读；
 - 不在只读目录创建分支、worktree、构建产物或修改；
 - 恢复任务先运行 `git rev-parse --show-toplevel`，路径不一致就停止。
 

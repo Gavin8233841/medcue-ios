@@ -58,6 +58,9 @@ func medicalAIScopeDisplayName(_ scope: MedicalAIDataScope) -> String {
 }
 
 struct AgentRuntimeSelectorBar: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var isAccessibilitySize: Bool { dynamicTypeSize.isAccessibilitySize }
+
     let onlineConfiguration: MedicalAIConfiguration
     let onlineReadiness: MedicalAITransportReadiness
     let status: LocalMedicalModelStatus
@@ -80,7 +83,7 @@ struct AgentRuntimeSelectorBar: View {
         case .downloading:
             return "正在下载"
         case .ready:
-            return "使用离线模型"
+            return status.canUseForResponses ? "使用离线模型" : "暂不可用"
         case .failed:
             return "重新下载"
         }
@@ -99,118 +102,70 @@ struct AgentRuntimeSelectorBar: View {
         }
     }
 
-    private var activeTitle: String {
-        prefersLocalResponses ? "设备端模型 Beta" : "云端智能体"
-    }
-
-    private var activeSubtitle: String {
-        prefersLocalResponses ? "在 iPhone 上本地推理" : "连接云端能力，适合复杂任务"
-    }
-
-    private var activeTint: Color {
-        prefersLocalResponses ? Color(red: 0.28, green: 0.56, blue: 0.48) : Color(red: 0.28, green: 0.48, blue: 0.62)
-    }
-
-    private var shouldUseCompactChip: Bool {
-        hasUserSelectedRuntime && !isExpanded
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                Button(action: toggleExpanded) {
-                    HStack(spacing: 8) {
-                        Image(systemName: prefersLocalResponses ? "iphone.gen3.radiowaves.left.and.right" : "network")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(activeTint)
-                            .frame(width: shouldUseCompactChip ? 24 : 28, height: shouldUseCompactChip ? 24 : 28)
-                            .background(activeTint.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        if shouldUseCompactChip {
-                            Text(prefersLocalResponses ? "端侧" : "云端")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                        } else {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(activeTitle)
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(.primary)
-                                Text(activeSubtitle)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
-                        Image(systemName: "chevron.down")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(.secondary)
-                            .rotationEffect(.degrees(isExpanded ? 180 : 0))
-                    }
-                    .padding(.horizontal, shouldUseCompactChip ? 9 : 10)
-                    .padding(.vertical, shouldUseCompactChip ? 7 : 8)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .overlay(
-                        Capsule()
-                            .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("切换智能体模式")
-
-                Spacer(minLength: 8)
-
-                if !shouldUseCompactChip {
-                    Text(prefersLocalResponses ? "Beta" : onlineStatusText)
+        VStack(alignment: .leading, spacing: 12) {
+            Button(action: toggleExpanded) {
+                HStack(spacing: 8) {
+                    Image(systemName: prefersLocalResponses ? "sparkles" : "cloud")
+                        .foregroundStyle(AIAssistantPalette.accent)
+                    Text(prefersLocalResponses ? "本机模型" : "云端模型")
+                        .foregroundStyle(.primary)
+                    Image(systemName: "chevron.down")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(prefersLocalResponses ? Color.secondary : activeTint)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color(.secondarySystemGroupedBackground), in: Capsule())
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
                 }
+                .font(.subheadline.weight(.medium))
+                .padding(.horizontal, 16)
+                .frame(minHeight: 44)
+                .modifier(RuntimeGlassCapsule())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("切换智能体模式")
+            .accessibilityIdentifier("assistant.runtime.toggle")
 
             if isExpanded {
-                VStack(spacing: 8) {
+                VStack(spacing: 6) {
                     RuntimeChoiceRow(
-                        title: "云端智能体",
-                        subtitle: "连接云端能力，适合复杂问题和更长文本",
+                        title: "云端模型",
+                        subtitle: "联网回答 · 授权后使用",
                         status: onlineStatusText,
                         progress: nil,
                         progressText: nil,
-                        iconName: "network",
-                        tint: .blue,
+                        iconName: "cloud",
+                        tint: AIAssistantPalette.accent,
+                        statusBackgroundTint: AIAssistantPalette.accent,
                         isSelected: !prefersLocalResponses,
                         isEnabled: true,
-                        actionTitle: onlineReadiness.canSend ? "使用" : "开启",
+                        isActionAvailable: onlineReadiness.canSend,
+                        actionTitle: onlineReadiness.canSend ? "选择" : "未开启",
                         action: selectOnline
                     )
-
                     RuntimeChoiceRow(
-                        title: "设备端模型 Beta",
-                        subtitle: status.canUseForResponses
-                            ? "模型在这台 iPhone 上运行，数据留在设备上"
-                            : "下载约 265MB 后启用本地推理，当前为 Beta 版本",
+                        title: "本机模型",
+                        subtitle: "离线回答 · 数据留在本机",
                         status: offlineStatusText,
-                        progress: status.availability == .downloading ? (status.downloadProgress ?? 0.01) : status.downloadProgress,
-                        progressText: status.fileSizeText ?? (status.availability == .downloading ? "正在连接下载源" : nil),
-                        iconName: "iphone.gen3.radiowaves.left.and.right",
-                        tint: .green,
+                        progress: status.availability == .downloading ? (status.downloadProgress ?? 0.01) : nil,
+                        progressText: status.availability == .downloading ? status.fileSizeText : nil,
+                        iconName: "sparkles",
+                        tint: AIAssistantPalette.accent,
+                        statusBackgroundTint: AIAssistantPalette.accent,
                         isSelected: prefersLocalResponses,
                         isEnabled: status.canUseForResponses,
-                        actionTitle: status.canUseForResponses ? "使用" : offlineButtonTitle,
+                        isActionAvailable: status.canUseForResponses || status.canStartDownload,
+                        actionTitle: status.canUseForResponses ? "选择" : offlineButtonTitle,
                         action: {
-                            if status.canUseForResponses {
-                                selectLocal()
-                            } else if status.canStartDownload {
-                                requestLocalDownload()
-                            }
+                            if status.canUseForResponses { selectLocal() }
+                            else if status.canStartDownload { requestLocalDownload() }
                         }
                     )
-
-                    Text("设备端模型会在这台 iPhone 上运行，本次输入默认留在设备上；Beta 版本回答可能不如云端智能体稳定。云端模式只有在你主动选择并开启后才会调用外部服务。")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    }
+                }
+                .padding(8)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                }
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
@@ -218,7 +173,20 @@ struct AgentRuntimeSelectorBar: View {
     }
 }
 
+private struct RuntimeGlassCapsule: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular.interactive(), in: .capsule)
+        } else {
+            content.background(.regularMaterial, in: Capsule())
+        }
+    }
+}
+
 struct RuntimeChoiceRow: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var isAccessibilitySize: Bool { dynamicTypeSize.isAccessibilitySize }
+
     let title: String
     let subtitle: String
     let status: String
@@ -226,76 +194,63 @@ struct RuntimeChoiceRow: View {
     let progressText: String?
     let iconName: String
     let tint: Color
+    let statusBackgroundTint: Color
     let isSelected: Bool
     let isEnabled: Bool
+    let isActionAvailable: Bool
     let actionTitle: String
     let action: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        (isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))) {
             Image(systemName: iconName)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(isEnabled ? tint : .secondary)
-                .frame(width: 32, height: 32)
-                .background((isEnabled ? tint : Color.secondary).opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(isEnabled ? .primary : .secondary)
-                    Text(status)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(isEnabled ? tint : .secondary)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background((isEnabled ? tint : Color.secondary).opacity(0.12), in: Capsule())
-                }
+                .font(.system(size: 21, weight: .medium))
+                .foregroundStyle(tint)
+                .frame(width: 42, height: 42)
+                .background(tint.opacity(0.09), in: RoundedRectangle(cornerRadius: 14))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(title)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.primary)
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                if let progress {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ProgressView(value: progress)
-                            .tint(tint)
-                        if let progressText {
-                            Text("\(Int((progress * 100).rounded()))% · \(progressText)")
-                                .font(.caption2.weight(.medium))
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                        }
-                    }
-                    .padding(.top, 2)
-                } else if let progressText {
-                    Text(progressText)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !isEnabled || progress != nil {
+                    Text(status)
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(.secondary)
-                        .monospacedDigit()
+                }
+                if let progress {
+                    ProgressView(value: progress).tint(tint)
+                    if let progressText {
+                        Text(progressText)
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
             }
-
-            Spacer(minLength: 8)
-
-            if isSelected {
-                Button(actionTitle, action: action)
-                    .font(.caption.weight(.semibold))
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-            } else {
-                Button(actionTitle, action: action)
-                    .font(.caption.weight(.semibold))
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+            if !isAccessibilitySize { Spacer(minLength: 0) }
+            Button(action: action) {
+                Group {
+                    if isSelected && isActionAvailable {
+                        Image(systemName: "checkmark")
+                            .font(.subheadline.weight(.semibold))
+                    } else {
+                        Text(actionTitle).font(.caption.weight(.semibold))
+                    }
+                }
+                .foregroundStyle(isSelected ? tint : Color.primary)
+                .padding(.horizontal, 14)
+                .frame(minWidth: 44, minHeight: 44)
+                .background(isSelected ? tint.opacity(0.10) : Color.primary.opacity(0.045), in: Capsule())
             }
+            .buttonStyle(.plain)
+            .disabled(!isActionAvailable)
+            .accessibilityLabel(isSelected ? "已选择\(title)" : "\(actionTitle)\(title)")
         }
-        .padding(10)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isSelected ? tint.opacity(0.45) : Color.clear, lineWidth: 1)
-        )
-        .opacity(isEnabled || !isSelected ? 1 : 0.62)
+        .padding(12)
+        .background(isSelected ? tint.opacity(0.055) : Color.clear, in: RoundedRectangle(cornerRadius: 20))
     }
 }
 

@@ -1,8 +1,14 @@
+import Combine
 import MedicationAdherenceCore
 import PhotosUI
 import SwiftData
 import SwiftUI
 import UIKit
+
+enum AIAssistantPalette {
+    static let accent = Color(red: 0.28, green: 0.48, blue: 0.62)
+    static let userBubble = accent.opacity(0.14)
+}
 
 struct AIConversationVisibilityProjection {
     let messages: [StoredAIChatMessage]
@@ -39,6 +45,7 @@ struct AIConversationVisibilityProjection {
 }
 
 struct AIQuickActionsSection: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let isDisabled: Bool
     let prefersLocalResponses: Bool
     let send: (AIOutgoingMessage?) -> Void
@@ -50,23 +57,15 @@ struct AIQuickActionsSection: View {
             title: "忽略与稍后趋势",
             subtitle: "近期服药节奏",
             iconName: "chart.xyaxis.line",
-            tint: .indigo,
+            tint: AIAssistantPalette.accent,
             displayText: "看看近期忽略或稍后趋势",
             requestText: "请只基于 App 内授权共享的服药记录，说明近期忽略或稍后趋势，并给出提醒建议。"
-        ),
-        AIQuickAction(
-            title: "天气与不适",
-            subtitle: "环境、症状、提醒",
-            iconName: "cloud.sun",
-            tint: .teal,
-            displayText: "看看今天环境变化需要注意什么",
-            requestText: "请只基于 App 内授权共享的今日天气或环境提示，以及今天服药记录，用两三句说明环境变化下记录用药时应留意什么。若没有天气或环境事实，请直接说明本地记录不足。"
         ),
         AIQuickAction(
             title: "药盒与库存",
             subtitle: "编号、余量、提醒",
             iconName: "shippingbox.fill",
-            tint: .brown,
+            tint: AIAssistantPalette.accent,
             displayText: "帮我检查药盒和库存有什么要注意",
             requestText: "请只基于 App 内授权共享的药品信息、药盒编号、库存和提醒计划，说明药盒与库存管理上需要注意的事项。"
         ),
@@ -74,7 +73,7 @@ struct AIQuickActionsSection: View {
             title: "复诊沟通重点",
             subtitle: "便于和医生说明",
             iconName: "stethoscope",
-            tint: .green,
+            tint: AIAssistantPalette.accent,
             displayText: "帮我整理复诊时要说明的重点",
             requestText: "请只基于 App 内授权共享的服药记录、剂量变化、风险提醒和药品信息，整理复诊时可以说明的重点。"
         ),
@@ -82,7 +81,7 @@ struct AIQuickActionsSection: View {
             title: "今日重点核对",
             subtitle: "提醒、风险、记录",
             iconName: "exclamationmark.triangle",
-            tint: .orange,
+            tint: AIAssistantPalette.accent,
             displayText: "帮我核对今日用药注意事项",
             requestText: "请只基于 App 内授权共享的今日提醒药品、今日记录状态和风险提醒，用两三句说明今天应该先核对什么。不要诊断，不要建议停药、暂停使用、换药或调整剂量。"
         ),
@@ -90,7 +89,7 @@ struct AIQuickActionsSection: View {
             title: "说明书重点",
             subtitle: "把复杂内容说清楚",
             iconName: "doc.text.magnifyingglass",
-            tint: .blue,
+            tint: AIAssistantPalette.accent,
             displayText: "解释今天最需要注意的说明书内容",
             requestText: "请只基于 App 内授权共享的说明书摘要卡片，用两三句整理今天需要复核的说明书栏目。不要推断最终风险结论，不要建议停药、暂停使用、换药或调整剂量。"
         ),
@@ -98,7 +97,7 @@ struct AIQuickActionsSection: View {
             title: "风险复核",
             subtitle: "按药物整理",
             iconName: "shield.lefthalf.filled",
-            tint: .purple,
+            tint: AIAssistantPalette.accent,
             displayText: "整理目前最需要复核的用药风险",
             requestText: "请只基于 App 内授权共享的风险提醒、药品信息和说明书摘要，整理目前最需要复核的用药风险。"
         ),
@@ -106,7 +105,7 @@ struct AIQuickActionsSection: View {
             title: "服药记录摘要",
             subtitle: "近期执行情况",
             iconName: "doc.text",
-            tint: .mint,
+            tint: AIAssistantPalette.accent,
             displayText: "生成一段近期服药记录摘要",
             requestText: "请只基于 App 内授权共享的药品、服药记录和风险提醒，生成一段适合复诊沟通的简短服药记录摘要。"
         ),
@@ -114,7 +113,7 @@ struct AIQuickActionsSection: View {
             title: "剂量变化回顾",
             subtitle: "时间段与记录",
             iconName: "arrow.triangle.2.circlepath",
-            tint: .cyan,
+            tint: AIAssistantPalette.accent,
             displayText: "回顾近期剂量变化和服药记录",
             requestText: "请只基于 App 内授权共享的剂量变化和服药记录，回顾近期剂量调整前后的记录变化。"
         ),
@@ -122,14 +121,14 @@ struct AIQuickActionsSection: View {
             title: "图片录入建议",
             subtitle: "药盒、药品、说明书",
             iconName: "photo.on.rectangle",
-            tint: .pink,
+            tint: AIAssistantPalette.accent,
             displayText: "告诉我如何整理药品图片信息",
             requestText: "我准备上传药盒、药品或说明书图片。请只回答如何在本 App 内识别、录入、核对或整理这些信息。"
         )
     ]
 
     private var compactActions: [AIQuickAction] {
-        ["忽略与稍后趋势", "天气与不适", "药盒与库存", "复诊沟通重点"].compactMap { title in
+        ["忽略与稍后趋势", "药盒与库存", "复诊沟通重点"].compactMap { title in
             Self.actions.first { $0.title == title }
         }
     }
@@ -164,6 +163,7 @@ struct AIQuickActionsSection: View {
                         .rotationEffect(.degrees(isExpanded ? 0 : -90))
                     }
                 }
+                .frame(minHeight: 44)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -198,7 +198,7 @@ struct AIQuickActionsSection: View {
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
                 .accessibilityLabel("快捷咨询问题")
-            } else {
+            } else if !dynamicTypeSize.isAccessibilitySize {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(compactActions) { action in
@@ -211,19 +211,6 @@ struct AIQuickActionsSection: View {
                             .disabled(isDisabled)
                             .opacity(isDisabled ? 0.55 : 1)
                         }
-
-                        Button {
-                            withAnimation(.snappy(duration: 0.24, extraBounce: 0.02)) {
-                                isExpanded = true
-                            }
-                        } label: {
-                            Label("更多", systemImage: "ellipsis")
-                                .font(.subheadline.weight(.semibold))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 9)
-                                .background(Color(.secondarySystemGroupedBackground), in: Capsule())
-                        }
-                        .buttonStyle(.plain)
                     }
                     .padding(.vertical, 2)
                     .padding(.trailing, 2)
@@ -231,6 +218,17 @@ struct AIQuickActionsSection: View {
                 .transition(.opacity)
             }
         }
+    }
+
+    private var expansionLabel: some View {
+        HStack(spacing: 10) {
+            Text(isExpanded ? "收起" : "查看全部")
+                .font(.caption.weight(.semibold))
+            Image(systemName: "chevron.down")
+                .font(.caption.weight(.bold))
+                .rotationEffect(.degrees(isExpanded ? 0 : -90))
+        }
+        .foregroundStyle(.secondary)
     }
 }
 
@@ -251,12 +249,17 @@ struct AIQuickActionChip: View {
 
     var body: some View {
         Button(action: send) {
-            Label(action.title, systemImage: action.iconName)
+            HStack(spacing: 8) {
+                Image(systemName: action.iconName)
+                    .foregroundStyle(action.tint)
+                Text(action.title)
+                    .foregroundStyle(.primary)
+            }
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(action.tint)
                 .lineLimit(1)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
+                .frame(minHeight: 44)
                 .background(action.tint.opacity(0.10), in: Capsule())
                 .overlay(
                     Capsule()
@@ -269,6 +272,7 @@ struct AIQuickActionChip: View {
 }
 
 struct AIQuickActionButton: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let action: AIQuickAction
     let send: () -> Void
 
@@ -293,14 +297,16 @@ struct AIQuickActionButton: View {
                     Text(action.title)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
-                        .lineLimit(2)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(action.subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(2)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .frame(width: 168, alignment: .topLeading)
+            .frame(width: dynamicTypeSize.isAccessibilitySize ? 280 : 168, alignment: .topLeading)
             .frame(minHeight: 112, alignment: .topLeading)
             .padding(12)
             .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -318,13 +324,23 @@ struct AIQuickActionButton: View {
 
 struct AIEmptyConversationView: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("开始一次用药咨询", systemImage: "bubble.left.and.bubble.right")
+        VStack(alignment: .center, spacing: 12) {
+            Image(systemName: "bubble.left.and.text.bubble.right")
+                .font(.title2.weight(.regular))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+
+            Text("开始一次用药咨询")
                 .font(.headline)
+            Text("可以询问已授权的用药记录、风险提醒或说明书摘要。重要用药决定请咨询医生或药师。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background, in: RoundedRectangle(cornerRadius: 8))
+        .padding(.horizontal, 22)
+        .padding(.vertical, 44)
+        .frame(maxWidth: .infinity)
     }
 }
 

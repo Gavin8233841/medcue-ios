@@ -21,7 +21,7 @@ struct MedicationReminderLiveActivity: Widget {
                                 .font(.title2.weight(.semibold))
                                 .symbolEffect(.bounce, value: context.state.completedAt)
                                 .foregroundStyle(.green)
-                            Text("已记录")
+                            Text("已结束")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.green)
                         }
@@ -44,20 +44,12 @@ struct MedicationReminderLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     if context.state.isCompleted {
-                        MedicationReminderCompletionStrip(
-                            doseText: context.attributes.doseText,
-                            completedAt: context.state.completedAt
-                        )
+                        MedicationReminderCompletionStrip(completedAt: context.state.completedAt)
                         .padding(.horizontal, 8)
                         .padding(.top, 4)
                         .padding(.bottom, 4)
                     } else {
-                        MedicationReminderIslandActionCard(
-                            taskID: context.attributes.taskID,
-                            operationID: context.attributes.actionOperationID ?? context.attributes.taskID,
-                            doseText: context.attributes.doseText,
-                            dueAt: context.state.dueAt
-                        )
+                        MedicationReminderIslandActionCard(dueAt: context.state.dueAt)
                         .padding(.horizontal, 8)
                         .padding(.top, 4)
                         .padding(.bottom, 4)
@@ -68,7 +60,7 @@ struct MedicationReminderLiveActivity: Widget {
                     .foregroundStyle(context.state.isCompleted ? .green : .blue)
             } compactTrailing: {
                 if context.state.isCompleted {
-                    Text("完成")
+                    Text("结束")
                         .font(.caption2.weight(.bold))
                         .foregroundStyle(.green)
                 } else {
@@ -100,10 +92,10 @@ private struct MedicationReminderIslandHeader: View {
                 )
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(context.state.isCompleted ? "已完成" : "用药提醒")
+                Text(context.state.isCompleted ? MedicationSystemSurfacePrivacyPolicy.completedTitle : MedicationSystemSurfacePrivacyPolicy.reminderTitle)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(context.state.isCompleted ? .green : .blue)
-                Text(context.attributes.medicationName)
+                Text("打开 App 查看")
                     .font(.headline.weight(.bold))
                     .lineLimit(2)
                     .minimumScaleFactor(0.74)
@@ -134,22 +126,19 @@ private struct MedicationReminderLockScreenView: View {
                     Text(context.state.statusText)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    Text(context.attributes.medicationName)
+                    Text(MedicationSystemSurfacePrivacyPolicy.reminderTitle)
                         .font(.headline.weight(.bold))
                         .lineLimit(1)
-                    Text("\(context.attributes.doseText) · \(context.state.dueAt.formatted(date: .omitted, time: .shortened))")
+                    Text(context.state.dueAt, style: .time)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer()
 
-                MedicationReminderLiveActivityActions(
-                    taskID: context.attributes.taskID,
-                    operationID: context.attributes.actionOperationID ?? context.attributes.taskID,
-                    expiresAt: context.state.dueAt.addingTimeInterval(10 * 60),
-                    compact: false
-                )
+                Text("打开 App 查看")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.blue)
             }
             .padding(16)
         }
@@ -168,12 +157,9 @@ private struct MedicationReminderCompletedLockScreenView: View {
                 .background(Color.green.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("已完成本次提醒")
+                Text(MedicationSystemSurfacePrivacyPolicy.completedTitle)
                     .font(.headline.weight(.bold))
-                Text(context.attributes.medicationName)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                Text("\(context.attributes.doseText) · \(context.state.completedAt?.formatted(date: .omitted, time: .shortened) ?? "刚刚")")
+                Text("打开 App 查看")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -184,150 +170,27 @@ private struct MedicationReminderCompletedLockScreenView: View {
     }
 }
 
-private struct MedicationReminderLiveActivityActions: View {
-    let taskID: UUID
-    let operationID: UUID
-    let expiresAt: Date
-    let compact: Bool
-
-    var body: some View {
-        if compact {
-            VStack(alignment: .leading, spacing: 6) {
-                actionButtons
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            VStack(alignment: .trailing, spacing: 7) {
-                actionButtons
-            }
-        }
-    }
-
-    private var actionButtons: some View {
-        HStack(spacing: 7) {
-            markTakenButton
-            actionLink(title: "稍后", action: .delay, tint: .blue, compactWidth: 62, regularWidth: 66)
-        }
-        .frame(maxWidth: .infinity, alignment: compact ? .center : .trailing)
-    }
-
-    @ViewBuilder
-    private var markTakenButton: some View {
-        if #available(iOSApplicationExtension 17.0, *) {
-            Button(intent: MarkMedicationReminderTakenIntent(
-                taskID: taskID,
-                operationID: operationID,
-                expiresAt: expiresAt
-            )) {
-                actionButtonLabel(title: "已服用", tint: .green, width: compact ? 82 : 70)
-            }
-            .buttonStyle(.plain)
-        } else {
-            actionLink(title: "已服用", action: .markTaken, tint: .green, compactWidth: 74, regularWidth: 70)
-        }
-    }
-
-    private func actionLink(
-        title: String,
-        action: MedicationReminderLiveActivityAction,
-        tint: Color,
-        compactWidth: CGFloat,
-        regularWidth: CGFloat
-    ) -> some View {
-        Link(destination: MedicationReminderLiveActivityActionURL.url(
-            for: taskID,
-            action: action,
-            operationID: operationID,
-            expiresAt: expiresAt
-        )) {
-            actionButtonLabel(title: title, tint: tint, width: compact ? compactWidth : regularWidth)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func actionButtonLabel(title: String, tint: Color, width: CGFloat) -> some View {
-        Text(title)
-            .font((compact ? Font.caption2 : Font.caption).weight(.bold))
-            .lineLimit(1)
-            .minimumScaleFactor(0.78)
-            .foregroundStyle(tint)
-            .frame(minWidth: width, minHeight: compact ? 28 : 30)
-            .padding(.horizontal, compact ? 8 : 10)
-            .background(tint.opacity(compact ? 0.20 : 0.14), in: Capsule())
-    }
-}
-
 private struct MedicationReminderIslandActionCard: View {
-    let taskID: UUID
-    let operationID: UUID
-    let doseText: String
     let dueAt: Date
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
-                MedicationReminderIslandDetailPill(
-                    title: "剂量",
-                    value: doseText,
-                    symbolName: "pills.fill",
-                    tint: .blue
-                )
-                MedicationReminderIslandDetailPill(
-                    title: "计划",
-                    value: dueAt.formatted(date: .omitted, time: .shortened),
-                    symbolName: "clock.fill",
-                    tint: .cyan
-                )
-            }
-
-            MedicationReminderLiveActivityActions(
-                taskID: taskID,
-                operationID: operationID,
-                expiresAt: dueAt.addingTimeInterval(10 * 60),
-                compact: true
-            )
-            .frame(maxWidth: .infinity, alignment: .center)
+        HStack(spacing: 10) {
+            Image(systemName: "clock.fill")
+                .foregroundStyle(.blue)
+            Text(dueAt, style: .time)
+                .font(.caption.weight(.semibold))
+            Spacer(minLength: 0)
+            Text("打开 App 查看")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.blue)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
         .background(Color.blue.opacity(0.10), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
     }
 }
 
-private struct MedicationReminderIslandDetailPill: View {
-    let title: String
-    let value: String
-    let symbolName: String
-    let tint: Color
-
-    var body: some View {
-        HStack(spacing: 7) {
-            Image(systemName: symbolName)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(tint)
-                .frame(width: 20, height: 20)
-                .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Text(value)
-                    .font(.caption2.weight(.bold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.76)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
-        .background(Color.primary.opacity(0.052), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-    }
-}
-
 private struct MedicationReminderCompletionStrip: View {
-    let doseText: String
     let completedAt: Date?
 
     var body: some View {
@@ -337,9 +200,9 @@ private struct MedicationReminderCompletionStrip: View {
                 .symbolEffect(.bounce, value: completedAt)
                 .foregroundStyle(.green)
             VStack(alignment: .leading, spacing: 2) {
-                Text("本次提醒已完成")
+                Text(MedicationSystemSurfacePrivacyPolicy.completedTitle)
                     .font(.subheadline.weight(.bold))
-                Text("\(doseText) · \(completedAt?.formatted(date: .omitted, time: .shortened) ?? "刚刚")")
+                Text("打开 App 查看")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

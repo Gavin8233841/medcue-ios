@@ -298,6 +298,7 @@ private func healthMetricTint(_ kind: HealthSignalKind) -> Color {
 struct MedicalAIPrivacyView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \StoredAIConsent.grantedAt, order: .reverse) private var consents: [StoredAIConsent]
+    @State private var revocationErrorMessage: String?
 
     private var activeConsent: StoredAIConsent? {
         consents.first { $0.id == "medical-ai-consent" && $0.isActive }
@@ -323,7 +324,7 @@ struct MedicalAIPrivacyView: View {
                     ConsentScopeRow(title: "说明书摘要", isEnabled: activeConsent.sharesDrugLabels)
                     ConsentScopeRow(title: "导入识别内容", isEnabled: activeConsent.sharesImportDraft)
                 } else {
-                    Text("设备端模型会在本机整理授权数据；云端智能体只有在你主动选择并确认授权后才会连接外部服务。")
+                    Text("设备端模型会在本机整理授权数据；云端智能体仅在你确认授权并主动发送咨询后才会连接外部服务。")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -340,11 +341,31 @@ struct MedicalAIPrivacyView: View {
         }
         .navigationTitle("医疗智能体")
         .toolbar(.hidden, for: .tabBar)
+        .alert("撤销失败", isPresented: .constant(revocationErrorMessage != nil)) {
+            Button("好") {
+                revocationErrorMessage = nil
+            }
+        } message: {
+            if let errorMessage = revocationErrorMessage {
+                Text(errorMessage)
+            }
+        }
     }
 
     private func revokeAIConsent() {
-        activeConsent?.revokedAt = Date()
-        _ = AppPersistenceCommitter.save(modelContext, operation: "settings-data-reset")
+        let command = AIConsentRevocationCommand(modelContext: modelContext)
+        let outcome = command.execute()
+
+        switch outcome {
+        case .revoked:
+            break
+        case .alreadyRevoked:
+            break
+        case .saveFailed:
+            revocationErrorMessage = "撤销未能保存，授权仍然有效。请重试。"
+        case .consentNotFound:
+            revocationErrorMessage = "未找到有效授权。"
+        }
     }
 }
 
@@ -364,31 +385,27 @@ struct ConsentScopeRow: View {
 }
 
 struct AccountHeaderRow: View {
-    @AppStorage("wantsICloudBackup") private var wantsICloudBackup = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var isAccessibilitySize: Bool { dynamicTypeSize.isAccessibilitySize }
 
     var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: wantsICloudBackup ? "externaldrive.badge.checkmark" : "externaldrive.fill")
-                .font(.largeTitle)
+        (isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 14)) : AnyLayout(HStackLayout(spacing: 14))) {
+            Image(systemName: "iphone")
+                .font(.system(size: 28))
                 .foregroundStyle(.blue)
                 .frame(width: 48, height: 48)
             VStack(alignment: .leading, spacing: 4) {
                 Text("本机数据")
                     .font(.headline)
-                Text(statusText)
+                Text("提醒、记录和药品资料保存在这台 iPhone")
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("profile.local-data.summary")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
-            Spacer()
+            if !isAccessibilitySize { Spacer() }
         }
         .padding(.vertical, 8)
-    }
-
-    private var statusText: String {
-        if wantsICloudBackup {
-            return "已记录备份偏好，数据仍由你主动管理"
-        }
-        return "提醒、记录和药品资料保存在这台 iPhone"
     }
 }
 

@@ -1,8 +1,29 @@
 import Foundation
 import Testing
+import UserNotifications
 @testable import MedicationAdherenceApp
 
 struct PlatformBehaviorTests {
+    @Test @MainActor
+    func systemReminderActionsRequireUnlockBeforeAnyDoseMutation() {
+        let actions = MedicationNotificationDelegate.reminderCategory().actions
+
+        #expect(actions.count == 3)
+        for action in actions {
+            #expect(action.options.contains(.authenticationRequired))
+        }
+    }
+
+    @Test
+    func liveActivityAttributesNeverContainMedicationDetails() {
+        let taskID = UUID()
+        let attributes = MedicationSystemSurfacePrivacyPolicy.activityAttributes(taskID: taskID)
+
+        #expect(attributes.taskID == taskID)
+        #expect(attributes.medicationName == MedicationSystemSurfacePrivacyPolicy.reminderTitle)
+        #expect(attributes.doseText.isEmpty)
+    }
+
     @Test
     func notificationPolicyRejectsDeniedAuthorization() {
         let disposition = MedicationNotificationPolicy.default.authorizationDisposition(
@@ -16,16 +37,31 @@ struct PlatformBehaviorTests {
     }
 
     @Test
-    func notificationPolicyDeduplicatesBeforeApplyingSystemLimit() {
-        struct Entry: Equatable {
-            let id: Int
-        }
-        let entries = [Entry(id: 1), Entry(id: 1), Entry(id: 2), Entry(id: 3)]
-        let policy = MedicationNotificationPolicy(maximumScheduledEntries: 2)
+    func notificationPolicyDeduplicatesCandidatesBeforeApplyingRequestBudget() {
+        let firstID = UUID()
+        let secondID = UUID()
+        let first = MedicationReminderRequestCandidate(
+            taskID: firstID,
+            dueAt: Date(timeIntervalSince1970: 2_000),
+            wantsAlarm: false,
+            wantsEscalation: false
+        )
+        let second = MedicationReminderRequestCandidate(
+            taskID: secondID,
+            dueAt: Date(timeIntervalSince1970: 3_000),
+            wantsAlarm: false,
+            wantsEscalation: false
+        )
+        let policy = MedicationNotificationPolicy(maximumScheduledRequests: 2)
+        let plan = policy.requestPlan(
+            candidates: [first, first, second],
+            occupiedRequestCount: 0,
+            notificationAvailable: true,
+            alarmAvailable: false
+        )
 
-        let result = policy.boundedUniqueEntries(from: entries, identifiedBy: \.id)
-
-        #expect(result == [Entry(id: 1), Entry(id: 2)])
+        #expect(plan.assignments.map(\.taskID) == [firstID, secondID])
+        #expect(plan.deferredTaskIDs.isEmpty)
     }
 
     @Test

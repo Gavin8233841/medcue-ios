@@ -444,6 +444,9 @@ struct RecordsCalendarModuleNavigationTile<Destination: View>: View {
 }
 
 struct RecordsModuleTileChrome<Preview: View>: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var isAccessibilitySize: Bool { dynamicTypeSize.isAccessibilitySize }
+
     let title: String
     let value: String
     let detail: String
@@ -488,35 +491,38 @@ struct RecordsModuleTileChrome<Preview: View>: View {
                 Text(title)
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(.primary)
-                    .lineLimit(1)
+                    .lineLimit(isAccessibilitySize ? nil : 1)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Spacer(minLength: 8)
 
                 Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.tertiary)
             }
 
-            HStack(alignment: .lastTextBaseline, spacing: 10) {
+            (isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10)) : AnyLayout(HStackLayout(alignment: .lastTextBaseline, spacing: 10))) {
                 Text(value)
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .font(isAccessibilitySize ? .title2.weight(.bold) : .system(size: 28, weight: .bold, design: .rounded))
                     .foregroundStyle(tint)
                     .monospacedDigit()
                     .contentTransition(.numericText())
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.78)
+                    .lineLimit(isAccessibilitySize ? nil : 1)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .minimumScaleFactor(isAccessibilitySize ? 1 : 0.78)
 
                 Text(detail)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.82)
+                    .lineLimit(isAccessibilitySize ? nil : 1)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .minimumScaleFactor(isAccessibilitySize ? 1 : 0.82)
 
-                Spacer(minLength: 0)
+                if !isAccessibilitySize { Spacer(minLength: 0) }
             }
 
             preview
-                .frame(height: 42, alignment: .bottom)
+                .frame(height: isAccessibilitySize ? nil : 42, alignment: .bottom)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 15)
@@ -560,6 +566,9 @@ extension RecordsModuleTileChrome where Preview == EmptyView {
 }
 
 struct RecordsModuleProgressPreview: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var isAccessibilitySize: Bool { dynamicTypeSize.isAccessibilitySize }
+
     let progress: Double
     let leadingText: String
     let trailingText: String
@@ -588,9 +597,9 @@ struct RecordsModuleProgressPreview: View {
             }
             .frame(height: 5)
 
-            HStack(spacing: 8) {
+            (isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))) {
                 Text(leadingText)
-                Spacer(minLength: 8)
+                if !isAccessibilitySize { Spacer(minLength: 8) }
                 Text(trailingText)
                     .monospacedDigit()
             }
@@ -634,14 +643,17 @@ struct RecordsModuleTrendPreview: View {
 }
 
 struct RecordsModuleHistoryPreview: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var isAccessibilitySize: Bool { dynamicTypeSize.isAccessibilitySize }
+
     let latestTask: StoredDoseTask?
     let tint: Color
 
     var body: some View {
-        HStack(spacing: 8) {
+        (isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))) {
             statusCapsule(text: latestStatusText, emphasized: latestTask != nil)
             statusCapsule(text: "可修正", emphasized: false)
-            Spacer(minLength: 0)
+            if !isAccessibilitySize { Spacer(minLength: 0) }
         }
         .padding(.top, 1)
     }
@@ -668,7 +680,8 @@ struct RecordsModuleHistoryPreview: View {
         Text(text)
             .font(.caption.weight(.semibold))
             .foregroundStyle(emphasized ? tint : Color.secondary)
-            .lineLimit(1)
+            .lineLimit(isAccessibilitySize ? nil : 1)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(
@@ -708,6 +721,9 @@ struct RecordsCalendarProgressRing: View {
 }
 
 struct RecordsIndexWeekStrip: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private var isAccessibilitySize: Bool { dynamicTypeSize.isAccessibilitySize }
+
     let days: [Date]
     let tasksForDay: (Date) -> [StoredDoseTask]
     let doseChangesForDay: (Date) -> [StoredMedicationDoseChange]
@@ -716,6 +732,37 @@ struct RecordsIndexWeekStrip: View {
     private let calendar = Calendar.current
 
     var body: some View {
+        if isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(days, id: \.self) { day in
+                    let tasks = tasksForDay(day)
+                    let completed = tasks.filter { $0.status == .taken || $0.status == .corrected }.count
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("周\(weekdayText(for: day)) · \(dayNumberText(for: day))日")
+                            .font(.caption.weight(.semibold))
+                        Text(tasks.isEmpty ? "暂无用药任务" : "\(completed)/\(tasks.count) 项完成")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        if !doseChangesForDay(day).isEmpty {
+                            Text("有剂量变更")
+                                .font(.caption2)
+                                .foregroundStyle(.purple)
+                        }
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                    .background(tint.opacity(calendar.isDateInToday(day) ? 0.12 : 0.035), in: RoundedRectangle(cornerRadius: 10))
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("records.week.day.\(dayNumberText(for: day))")
+                }
+            }
+        } else {
+            compactWeek
+        }
+    }
+
+    private var compactWeek: some View {
         HStack(spacing: 5) {
             ForEach(days, id: \.self) { day in
                 let tasks = tasksForDay(day)
