@@ -82,6 +82,16 @@ struct AIAssistantScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(isChatInputFocused.wrappedValue ? .hidden : .automatic, for: .tabBar)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    dismissChatKeyboard()
+                    showingConsentSheet = true
+                } label: {
+                    Image(systemName: "externaldrive")
+                        .accessibilityLabel("本机数据与共享设置")
+                }
+                .accessibilityIdentifier("assistant.data-settings")
+            }
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 2) {
                     Text("医疗智能体").font(.headline)

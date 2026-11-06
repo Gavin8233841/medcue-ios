@@ -1315,3 +1315,10 @@ This is the app's text-tool protocol, not native Foundation Models Tool support.
 regressions. Fresh independent source review found no remaining Blocker/Required.
 Physical installation is tracked separately; performance/UI acceptance is owned
 by the product owner for this change.
+
+## 2026-11-06 Final-candidate data settings entry
+
+Restored a permanent leading data-settings icon in the assistant toolbar. It
+opens the existing consent sheet for medication, inventory and HealthKit summary
+sharing after first authorization. This closes the missing re-entry control;
+the accepted elder layout and preceding fixes are included in this candidate.
