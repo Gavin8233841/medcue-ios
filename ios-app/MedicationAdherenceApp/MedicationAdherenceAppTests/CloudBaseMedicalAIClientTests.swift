@@ -7,44 +7,52 @@ import os
 @Suite(.serialized)
 struct CloudBaseMedicalAIClientTests {
     @Test
-    func toolSelectionRejectsUnknownToolsAndDates() {
-        #expect(MedicalAIReadOnlyToolSelection.parse("{\"tool\":\"delete_records\",\"period\":\"today\"}") == nil)
-        #expect(MedicalAIReadOnlyToolSelection.parse("{\"tool\":\"health_summary\",\"period\":\"forever\"}") == nil)
-        #expect(MedicalAIReadOnlyToolSelection.parse("{\"answer\":\"你好\"}")?.answer == "你好")
+    func personalDataRoutingPreservesDateAndGeneralQuestions() {
+        func request(_ text: String, previous: String? = nil) -> MedicalAIRequest {
+            MedicalAIRequest(kind: .chat, userMessage: text,
+                conversation: previous.map { [.init(role: "user", text: $0)] },
+                authorization: .init(grantedScopes: []))
+        }
+        #expect(MedicalAIReadOnlyToolSelection.query(for: request("你好")) == nil)
+        for question in ["什么是心率", "血压计怎么用", "如何测量心率", "心率是什么意思", "告诉我心率是什么", "我想了解血压计怎么用"] {
+            #expect(MedicalAIReadOnlyToolSelection.query(for: request(question)) == nil)
+        }
+        #expect(MedicalAIReadOnlyToolSelection.query(for: request("把昨天的健康数据列个表给我看看"))?.period == "yesterday")
+        #expect(MedicalAIReadOnlyToolSelection.query(for: request("那昨天呢", previous: "今天心率多少"))?.tool == "health_summary")
+        #expect(MedicalAIReadOnlyToolSelection.query(for: request("药还剩多少库存"))?.tool == "inventory")
     }
 
     @Test @MainActor
-    func cloudQueryCallsReadOnlyLookupAndReturnsFinalAnswer() async throws {
-        let request = MedicalAIRequest(kind: .chat, userMessage: "今天心率多少", authorization: .init(grantedScopes: []))
-        let calls = OSAllocatedUnfairLock(initialState: 0)
-        let lookups = OSAllocatedUnfairLock(initialState: 0)
-        let identifiers = OSAllocatedUnfairLock(initialState: Set<String>())
-        BrokerTestURLProtocol.handler = { urlRequest in
-            let body = try #require(try requestBodyData(from: urlRequest))
-            let object = try JSONSerialization.jsonObject(with: body) as! [String: String]
-            let transportID = try #require(object["request_id"])
-            #expect(identifiers.withLock { $0.insert(transportID).inserted })
-            let index = calls.withLock { value in value += 1; return value }
-            if index == 1 { #expect(!(object["prompt"] ?? "").contains("72")) }
-            else { #expect((object["prompt"] ?? "").contains("72")) }
-            let response = HTTPURLResponse(url: urlRequest.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
-            let answer = index == 1 ? "{\"tool\":\"health_summary\",\"period\":\"today\"}" : "今天登记心率为72次/分钟。"
-            return (response, try JSONSerialization.data(withJSONObject: ["request_id": transportID, "answer": answer]))
-        }
-        defer { BrokerTestURLProtocol.handler = nil }
-        let client = MedicalAIReadOnlyToolClient(
-            broker: .init(configuration: brokerConfiguration(), clientToken: "test", session: brokerTestSession()),
-            lookup: { selection in
-                #expect(selection.tool == "health_summary")
-                lookups.withLock { $0 += 1 }
-                return "合成测试记录：心率72次/分钟"
+    func greetingAndHealthQueryEachNeedOnlyOneCloudRequest() async throws {
+        for question in ["你好", "今天心率多少"] {
+            let request = MedicalAIRequest(kind: .chat, userMessage: question, authorization: .init(grantedScopes: []))
+            let calls = OSAllocatedUnfairLock(initialState: 0)
+            let lookups = OSAllocatedUnfairLock(initialState: 0)
+            BrokerTestURLProtocol.handler = { urlRequest in
+                let body = try #require(try requestBodyData(from: urlRequest))
+                let object = try JSONSerialization.jsonObject(with: body) as! [String: String]
+                #expect(object["request_id"] == request.id.uuidString.lowercased())
+                calls.withLock { $0 += 1 }
+                if question == "你好" { #expect(!(object["prompt"] ?? "").contains("72")) }
+                else { #expect((object["prompt"] ?? "").contains("72")) }
+                let response = HTTPURLResponse(url: urlRequest.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                let answer = question == "你好" ? "你好，有什么健康问题想聊吗？" : "今天登记心率为72次/分钟。"
+                return (response, try JSONSerialization.data(withJSONObject: ["request_id": request.id.uuidString, "answer": answer]))
             }
-        )
-        let result = try await client.respond(to: request)
-        #expect(result.requestID == request.id)
-        #expect(result.message == "今天登记心率为72次/分钟。")
-        #expect(calls.withLock { $0 } == 2)
-        #expect(lookups.withLock { $0 } == 1)
+            defer { BrokerTestURLProtocol.handler = nil }
+            let client = MedicalAIReadOnlyToolClient(
+                broker: .init(configuration: brokerConfiguration(), clientToken: "test", session: brokerTestSession()),
+                lookup: { selection in
+                    #expect(selection.tool == "health_summary")
+                    lookups.withLock { $0 += 1 }
+                    return "合成测试记录：心率72次/分钟"
+                }
+            )
+            let result = try await client.respond(to: request)
+            #expect(result.requestID == request.id)
+            #expect(calls.withLock { $0 } == 1)
+            #expect(lookups.withLock { $0 } == (question == "你好" ? 0 : 1))
+        }
     }
 
     @Test

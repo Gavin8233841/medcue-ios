@@ -726,7 +726,7 @@ struct AIAssistantView: View {
                 return "尚未开启健康摘要共享。请在智能体授权中开启‘按需查询 Apple 健康摘要’，并在个人页完成 Apple 健康授权。"
             }
             let service = HealthKitService()
-            await service.refreshRecentTrendSamples(days: selection.period == "recent" ? 14 : 2)
+            await service.refreshRecentTrendSamples(days: selection.period == "recent" ? 14 : 2, useRecentCache: true)
             try Task.checkCancellation()
             guard activeConsent?.authorization == request.authorization,
                   UserDefaults.standard.bool(forKey: "aiSharesHealthSummary") else { return "健康摘要共享已关闭。" }

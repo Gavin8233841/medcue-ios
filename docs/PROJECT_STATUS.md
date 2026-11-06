@@ -1333,3 +1333,17 @@ fallback uses the same corrected path. The round-trip regression checks unique
 IDs and final logical-ID association. Independent source review found no
 Required findings. A live broker probe with synthetic yesterday health values
 returned HTTP 200 for both selection and final Markdown-table generation.
+
+## 2026-11-06 Single-request cloud fallback
+
+The cloud tool-selection round increased latency and shared the existing
+20-second end-to-end budget with HealthKit and final generation. The candidate
+now selects explicit health/inventory reads locally and issues one cloud request.
+Ordinary conversation uses the original prompt builder and one request. General
+health-definition/device-use questions do not trigger personal health reads.
+Health lookups can reuse a 60-second in-memory HealthKit cache after availability
+and authorization checks, requiring cached time coverage to include the query.
+This candidate uses application-directed retrieval rather than autonomous tool
+selection. All 351 hosted tests passed on the change; the final routing refinement
+passed all 7 broker-client tests. Independent source review has no Required
+findings. Device responsiveness/health results remain owner acceptance evidence.

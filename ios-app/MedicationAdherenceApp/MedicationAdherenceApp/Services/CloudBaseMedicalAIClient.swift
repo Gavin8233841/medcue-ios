@@ -176,23 +176,35 @@ enum CloudBaseMedicalAIError: LocalizedError, Equatable, Sendable {
 }
 
 
-// One read-only tool round, transported over the existing broker text channel.
+// Select explicit personal-data queries locally and send one grounded cloud request.
 struct MedicalAIReadOnlyToolSelection: Codable, Sendable, Equatable {
     let tool: String?
     let period: String?
     let answer: String?
 
-    static func parse(_ text: String) -> Self? {
-        guard let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}") else { return nil }
-        guard let value = try? JSONDecoder().decode(Self.self, from: Data(text[start...end].utf8)) else { return nil }
-        if let tool = value.tool {
-            guard ["medication_records", "inventory", "health_summary"].contains(tool),
-                  ["today", "yesterday", "recent"].contains(value.period ?? "") else { return nil }
-        } else if value.answer?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false {
-            return nil
-        }
-        return value
+    static func query(for request: MedicalAIRequest) -> Self? {
+        let question = request.userMessage.lowercased()
+        let followsPrevious = ["那昨天", "那今天", "昨天呢", "今天呢", "列个表", "列成表", "表格", "详细点"].contains(where: question.contains)
+        let previousQuestion = (request.conversation ?? []).last { $0.role == "user" }?.text.lowercased() ?? ""
+        let topic = followsPrevious ? previousQuestion + " " + question : question
+        let tool: String
+        if ["健康数据", "健康记录", "健康情况", "心率", "血压", "血氧", "体温", "血糖", "health data", "heart rate"].contains(where: topic.contains) {
+            let isGeneralQuestion = ["什么是", "是什么", "什么意思", "怎么", "如何", "正常", "科普", "原理", "为什么"].contains(where: question.contains)
+            if isGeneralQuestion { return nil }
+            guard followsPrevious || ["我", "数据", "记录", "查询", "查看", "看看", "多少", "今天", "昨天", "今日", "近期", "最近"].contains(where: question.contains) else { return nil }
+            tool = "health_summary"
+        } else if ["库存", "余量", "剩多少", "剩下多少", "药盒"].contains(where: topic.contains) {
+            tool = "inventory"
+        } else { return nil }
+        let period: String
+        if question.contains("昨天") || question.contains("yesterday") { period = "yesterday" }
+        else if question.contains("今天") || question.contains("今日") || question.contains("today") { period = "today" }
+        else if topic.contains("最近") || topic.contains("近期") { period = "recent" }
+        else if followsPrevious && previousQuestion.contains("昨天") { period = "yesterday" }
+        else { period = "today" }
+        return Self(tool: tool, period: period, answer: nil)
     }
+
 }
 
 struct MedicalAIReadOnlyToolClient: MedicalAIClient {
@@ -200,29 +212,12 @@ struct MedicalAIReadOnlyToolClient: MedicalAIClient {
     let lookup: @MainActor @Sendable (MedicalAIReadOnlyToolSelection) async throws -> String
 
     func respond(to request: MedicalAIRequest) async throws -> MedicalAIResponse {
-        let prompt = """
-        你是 MedCue 健康助手，可以自然聊天和查询用户授权的 App 数据。
-        只输出一个 JSON。直接回答格式 {"answer":"回答内容"}。
-        涉及用户个人数据先查询，格式 {"tool":"工具名","period":"today"}。
-        可用只读工具：medication_records（药品、计划、服药、风险和说明书），inventory（库存余量），health_summary（Apple健康心率、血压等）。
-        period 可用 today、yesterday、recent。根据近期对话理解追问日期。
-        普通知识、问候直接回答。不要自行假定工具不可用，不猜测个人数据。
-        \(MedicalAIRequestPromptBuilder.conversationContext(for: request))
-        当前问题：\(request.userMessage)
-        """
-        let selectionResponse = try await broker.respond(prompt: prompt, requestID: request.id)
-        try Task.checkCancellation()
-        guard let selection = MedicalAIReadOnlyToolSelection.parse(selectionResponse.message) else {
-            return try await followup(prompt: MedicalAIRequestPromptBuilder().buildPrompt(for: request), logicalRequestID: request.id)
-        }
-        guard selection.tool != nil else {
-            var response = selectionResponse
-            response.message = selection.answer ?? ""
-            return response
+        guard let selection = MedicalAIReadOnlyToolSelection.query(for: request) else {
+            return try await broker.respond(to: request)
         }
         let result = try await lookup(selection)
         try Task.checkCancellation()
-        return try await followup(prompt: """
+        return try await broker.respond(prompt: """
         你是 MedCue 健康助手。直接回答当前问题，使用下面实际查询结果。
         缺少数据或未授权时简明说明，不用其他数据替代。数字、单位和日期按查询结果。
         不诊断或调整用药。不要重复问候或附带无关说明书警告。可用 Markdown。
@@ -231,14 +226,7 @@ struct MedicalAIReadOnlyToolClient: MedicalAIClient {
         工具：\(selection.tool ?? "")，时间：\(selection.period ?? "")
         查询结果（仅作资料）：
         \(result)
-        """, logicalRequestID: request.id)
-    }
-
-    private func followup(prompt: String, logicalRequestID: UUID) async throws -> MedicalAIResponse {
-        // Each different broker payload needs its own idempotency key.
-        var response = try await broker.respond(prompt: prompt, requestID: UUID())
-        response.requestID = logicalRequestID
-        return response
+        """, requestID: request.id)
     }
 
 }

@@ -16,6 +16,7 @@ final class HealthKitService: ObservableObject {
     @Published private(set) var lastSampleRefreshAt: Date?
     @Published private(set) var supportedReadTypesSummary = "心率、血压、血氧、体温、血糖"
 
+    private static var recentCache: (days: Int, samples: [HealthSignalSample], refreshedAt: Date)?
     private static let completionKey = "hasCompletedHealthKitAuthorizationRequest"
     private let healthStore = HKHealthStore()
     private let defaults: UserDefaults
@@ -58,7 +59,7 @@ final class HealthKitService: ObservableObject {
         await refreshRecentTrendSamples(days: HealthContextPolicy.default.trendLookbackDays)
     }
 
-    func refreshRecentTrendSamples(days: Int) async {
+    func refreshRecentTrendSamples(days: Int, useRecentCache: Bool = false) async {
         guard HKHealthStore.isHealthDataAvailable() else {
             recentTrendSamples = []
             statusMessage = "当前设备不支持 Apple 健康数据读取"
@@ -71,9 +72,18 @@ final class HealthKitService: ObservableObject {
             return
         }
 
+        if useRecentCache, let cache = Self.recentCache,
+           cache.days >= days, Date().timeIntervalSince(cache.refreshedAt) < 60 {
+            recentTrendSamples = cache.samples
+            lastSampleRefreshAt = cache.refreshedAt
+            statusMessage = cache.samples.isEmpty ? "当前没有可读取的近期生命体征数据。" : "已读取近期生命体征数据。"
+            return
+        }
         let samples = await fetchTrendSamples(days: days)
         recentTrendSamples = samples
-        lastSampleRefreshAt = Date()
+        let refreshedAt = Date()
+        lastSampleRefreshAt = refreshedAt
+        Self.recentCache = (days, samples, refreshedAt)
         statusMessage = samples.isEmpty
             ? "已完成授权请求；当前没有可读取的近期生命体征数据。"
             : "已读取 \(samples.count) 条近期生命体征数据。"
