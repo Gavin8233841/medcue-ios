@@ -226,17 +226,6 @@ struct ProfileView: View {
 
     var body: some View {
         List {
-            Section {
-                NavigationLink {
-                    AccountBackupView()
-                } label: {
-                    AccountHeaderRow()
-                }
-                .background(alignment: .top) {
-                    AppTopGradientScrollReader(tab: .profile, coordinateSpaceName: "ProfileTopGradientList")
-                }
-            }
-
             Section("复诊") {
                 NavigationLink {
                     VisitSummaryView()
@@ -248,6 +237,9 @@ struct ProfileView: View {
                         subtitle: "整理近期记录、风险和健康信号",
                         trailingText: nil
                     )
+                }
+                .background(alignment: .top) {
+                    AppTopGradientScrollReader(tab: .profile, coordinateSpaceName: "ProfileTopGradientList")
                 }
             }
 
