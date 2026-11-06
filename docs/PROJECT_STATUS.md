@@ -1322,3 +1322,14 @@ Restored a permanent leading data-settings icon in the assistant toolbar. It
 opens the existing consent sheet for medication, inventory and HealthKit summary
 sharing after first authorization. This closes the missing re-entry control;
 the accepted elder layout and preceding fixes are included in this candidate.
+
+## 2026-11-06 Cloud query transport ID correction
+
+The two-step query reused a request ID with different prompts. The broker's
+existing idempotency contract rejects this with HTTP 409. Each follow-up now
+uses a distinct transport ID, validates the echoed transport ID, then maps the
+result to the original logical conversation request. Malformed-selection
+fallback uses the same corrected path. The round-trip regression checks unique
+IDs and final logical-ID association. Independent source review found no
+Required findings. A live broker probe with synthetic yesterday health values
+returned HTTP 200 for both selection and final Markdown-table generation.

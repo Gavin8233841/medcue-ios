@@ -18,15 +18,18 @@ struct CloudBaseMedicalAIClientTests {
         let request = MedicalAIRequest(kind: .chat, userMessage: "今天心率多少", authorization: .init(grantedScopes: []))
         let calls = OSAllocatedUnfairLock(initialState: 0)
         let lookups = OSAllocatedUnfairLock(initialState: 0)
+        let identifiers = OSAllocatedUnfairLock(initialState: Set<String>())
         BrokerTestURLProtocol.handler = { urlRequest in
             let body = try #require(try requestBodyData(from: urlRequest))
             let object = try JSONSerialization.jsonObject(with: body) as! [String: String]
+            let transportID = try #require(object["request_id"])
+            #expect(identifiers.withLock { $0.insert(transportID).inserted })
             let index = calls.withLock { value in value += 1; return value }
             if index == 1 { #expect(!(object["prompt"] ?? "").contains("72")) }
             else { #expect((object["prompt"] ?? "").contains("72")) }
             let response = HTTPURLResponse(url: urlRequest.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
             let answer = index == 1 ? "{\"tool\":\"health_summary\",\"period\":\"today\"}" : "今天登记心率为72次/分钟。"
-            return (response, try JSONSerialization.data(withJSONObject: ["request_id": request.id.uuidString, "answer": answer]))
+            return (response, try JSONSerialization.data(withJSONObject: ["request_id": transportID, "answer": answer]))
         }
         defer { BrokerTestURLProtocol.handler = nil }
         let client = MedicalAIReadOnlyToolClient(
@@ -38,6 +41,7 @@ struct CloudBaseMedicalAIClientTests {
             }
         )
         let result = try await client.respond(to: request)
+        #expect(result.requestID == request.id)
         #expect(result.message == "今天登记心率为72次/分钟。")
         #expect(calls.withLock { $0 } == 2)
         #expect(lookups.withLock { $0 } == 1)

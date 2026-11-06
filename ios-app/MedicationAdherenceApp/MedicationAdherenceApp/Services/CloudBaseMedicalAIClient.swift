@@ -213,7 +213,7 @@ struct MedicalAIReadOnlyToolClient: MedicalAIClient {
         let selectionResponse = try await broker.respond(prompt: prompt, requestID: request.id)
         try Task.checkCancellation()
         guard let selection = MedicalAIReadOnlyToolSelection.parse(selectionResponse.message) else {
-            return try await broker.respond(to: request)
+            return try await followup(prompt: MedicalAIRequestPromptBuilder().buildPrompt(for: request), logicalRequestID: request.id)
         }
         guard selection.tool != nil else {
             var response = selectionResponse
@@ -222,7 +222,7 @@ struct MedicalAIReadOnlyToolClient: MedicalAIClient {
         }
         let result = try await lookup(selection)
         try Task.checkCancellation()
-        return try await broker.respond(prompt: """
+        return try await followup(prompt: """
         你是 MedCue 健康助手。直接回答当前问题，使用下面实际查询结果。
         缺少数据或未授权时简明说明，不用其他数据替代。数字、单位和日期按查询结果。
         不诊断或调整用药。不要重复问候或附带无关说明书警告。可用 Markdown。
@@ -231,6 +231,14 @@ struct MedicalAIReadOnlyToolClient: MedicalAIClient {
         工具：\(selection.tool ?? "")，时间：\(selection.period ?? "")
         查询结果（仅作资料）：
         \(result)
-        """, requestID: request.id)
+        """, logicalRequestID: request.id)
     }
+
+    private func followup(prompt: String, logicalRequestID: UUID) async throws -> MedicalAIResponse {
+        // Each different broker payload needs its own idempotency key.
+        var response = try await broker.respond(prompt: prompt, requestID: UUID())
+        response.requestID = logicalRequestID
+        return response
+    }
+
 }
