@@ -160,3 +160,7 @@ health charts include a linked sleep/medication review. The same day-by-day proj
 For the controlled competition demo, cloud answers retain the model's original
 text with content-check flags recorded instead of keyword-based replacement.
 Model answers remain fallible and should be checked against the source records.
+
+On-device personal health queries now include system-authorized health facts.
+The Sleep and Medication shortcut uses a compact local day-by-day summary; the
+review page and authorized cloud analysis retain detailed medication timing.

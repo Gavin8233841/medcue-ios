@@ -1441,3 +1441,34 @@ review has no remaining Required findings. Two live synthetic cloud probes with
 opposite sleep changes returned their respective values; these are transport
 and data-use evidence, not physical-device acceptance. The broad hosted run
 stalled and was stopped; the targeted rerun succeeded.
+
+## 2026-11-06 Local health-context correction and sleep shortcut
+
+The preceding sleep change enriched only broker cloud requests. On-device health
+questions therefore still reached the model without HealthKit facts. The
+user-visible unstable-output message indicates that the initial and repaired
+answers failed local quality checks; the original device answer was not
+captured, so the precise historical rule hit is unverified.
+
+Explicit personal health queries now read system-authorized samples before local
+generation, rechecking cancellation, execution identity and consent after the
+read. Local-only context supplies actual recent metric values or explicit
+missing-record information. Sleep review uses a compact 14/30-day sleep/count
+projection plus authorized medication names/current plans to fit the 2048-token
+on-device context. Counts aggregate authorized medications and cannot isolate a
+single medicine's effect. Full medication timing remains in the review page and
+cloud projection. No HealthKit context is added to cloud requests through this
+local-only request field.
+
+For health-context requests, factual dose/count heuristics no longer reject the
+model answer. Empty/obvious machine output/prompt leakage still use the existing
+repair path. Other local questions retain their previous policy. The compact
+quick-consultation row now includes Sleep and Medication.
+
+42 focused tests passed across local-client and health-review suites, including
+health facts reaching the local prompt, factual output accepted without a second
+generation, prompt leakage handling, and local-context exclusion from the cloud
+prompt. Independent source review found no remaining Required findings. No
+synthetic HealthKit data was written; write authorization and a removable demo
+import remain a separately assessed option. Actual device/model acceptance is
+separate from these stub-runtime tests.

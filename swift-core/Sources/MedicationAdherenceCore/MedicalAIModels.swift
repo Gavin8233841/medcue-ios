@@ -143,6 +143,8 @@ public struct MedicalAIRequest: Codable, Identifiable, Sendable, Equatable {
     public var kind: MedicalAIRequestKind
     public var userMessage: String
     public var conversation: [MedicalAIConversationTurn]?
+    /// Filled only for on-device generation; never included in the cloud prompt.
+    public var localHealthContext: String? = nil
     public var authorization: MedicalAIUserAuthorization
     public var medicationSnapshots: [MedicalAIMedicationSnapshot]
     public var environmentInsights: [MedicalAIEnvironmentInsight]

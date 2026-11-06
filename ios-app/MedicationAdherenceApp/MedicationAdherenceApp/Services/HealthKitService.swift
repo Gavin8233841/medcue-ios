@@ -615,6 +615,15 @@ struct MedicationSleepReview: Sendable {
         return "睡眠有记录 \(days.compactMap(\.sleepHours).count)/\(days.count) 天；前半段中位数 \(label(first))，后半段中位数 \(label(second))。\(change)"
     }
 
+    var localContext: String {
+        let rows = days.map { day in
+            let sleep = day.sleepHours.map { $0.formatted(.number.precision(.fractionLength(1))) + "h" } ?? "缺记录"
+            return "\(day.date.formatted(.dateTime.month(.twoDigits).day(.twoDigits))) 睡眠\(sleep)，实际服用记录\(day.actualDoseCount)次"
+        }
+        return sleepSummary + "\n按睡眠结束日对齐的端侧汇总：\n" + rows.joined(separator: "\n")
+            + "\n服用次数是所有已授权药品的合计，不能据此归因到某一种药；单药具体时序见用药与睡眠页。"
+    }
+
     var context: String {
         let rows = days.map { day in
             let sleep = day.sleepHours.map { $0.formatted(.number.precision(.fractionLength(1))) + "小时" } ?? "未读取到睡眠记录"

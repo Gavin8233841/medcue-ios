@@ -543,10 +543,37 @@ struct AIAssistantView: View {
         ) else { return }
 
         do {
+            var localRequest = request
+            if let selection = MedicalAIReadOnlyToolSelection.query(for: request), selection.tool == "health_summary" {
+                updateLocalStreamingStatus("读取已授权健康记录")
+                let service = HealthKitService()
+                let sleepReview = MedicationSleepAnalysisIntent.matches(request.userMessage)
+                let count = sleepReview ? (request.userMessage.contains("30") ? 30 : 14) : (selection.period == "recent" ? 14 : 2)
+                await service.refreshRecentTrendSamples(days: count, useRecentCache: true)
+                try Task.checkCancellation()
+                guard activeAIRequestID == executionID, activeConsent?.authorization == request.authorization else { return }
+                if sleepReview {
+                    let ids = Set(request.medicationSnapshots.map { $0.medication.id })
+                    localRequest.localHealthContext = MedicationSleepReview(samples: service.recentTrendSamples,
+                        tasks: request.authorization.allows(.doseEvents) ? tasks.filter { ids.contains($0.medicationID) } : [],
+                        medications: medications.filter { ids.contains($0.id) }, dayCount: count).localContext
+                    localRequest.localHealthContext = (localRequest.localHealthContext ?? "") + "\n已授权药品：" + request.medicationSnapshots.map { snapshot in
+                        let doses = snapshot.plans.map { "\($0.dose.value)\($0.dose.unit)" }.joined(separator: "、")
+                        return snapshot.medication.displayName + (doses.isEmpty ? "" : "（当前计划\(doses)）")
+                    }.joined(separator: "、")
+                } else {
+                    let calendar = Calendar.current
+                    let date = calendar.date(byAdding: .day, value: selection.period == "yesterday" ? -1 : 0, to: Date()) ?? Date()
+                    let samples = service.recentTrendSamples.filter { selection.period == "recent" || calendar.isDate($0.measuredAt, inSameDayAs: date) }
+                    let summary = HealthKitRecentSummary(samples: samples, refreshedAt: service.lastSampleRefreshAt)
+                    localRequest.localHealthContext = summary.metricSummaries.isEmpty ? "本时段暂无可读取的健康记录。\(service.statusMessage)" :
+                        summary.metricSummaries.map { "\($0.title)：\($0.latestValueText)，最近记录 \(AppFormatters.day.string(from: $0.latestMeasuredAt)) \(AppFormatters.time.string(from: $0.latestMeasuredAt))" }.joined(separator: "\n")
+                }
+            }
             let client = LocalMedicalAIClient(modelURL: modelURL)
             var finalAnswer = ""
             var finalThinking = ""
-            for try await event in client.streamResponse(to: request) {
+            for try await event in client.streamResponse(to: localRequest) {
                 try Task.checkCancellation()
                 guard activeAIRequestID == executionID else { return }
                 switch event {
@@ -577,7 +604,8 @@ struct AIAssistantView: View {
             guard activeAIRequestID == executionID else { return }
             let finalized = try MedicalAIResponseFinalizer().finalize(
                 answer: finalAnswer,
-                thinking: finalThinking
+                thinking: finalThinking,
+                blocksActionableInstructions: localRequest.localHealthContext == nil
             )
             let outcome = AIChatResponseCommand(modelContext: modelContext).commit(
                 AIChatResponseDraft(

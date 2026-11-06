@@ -54,6 +54,14 @@ struct AIQuickActionsSection: View {
 
     private static let actions: [AIQuickAction] = [
         AIQuickAction(
+            title: "睡眠与服药",
+            subtitle: "近两周变化对照",
+            iconName: "bed.double.fill",
+            tint: .indigo,
+            displayText: "看看最近14天睡眠与服药的变化",
+            requestText: "请分析最近14天睡眠与实际用药记录的同期变化，引用日期和数值，结合已提供的说明书指出值得继续观察的问题。"
+        ),
+        AIQuickAction(
             title: "忽略与稍后趋势",
             subtitle: "近期服药节奏",
             iconName: "chart.xyaxis.line",
@@ -128,7 +136,7 @@ struct AIQuickActionsSection: View {
     ]
 
     private var compactActions: [AIQuickAction] {
-        ["忽略与稍后趋势", "药盒与库存", "复诊沟通重点"].compactMap { title in
+        ["睡眠与服药", "忽略与稍后趋势", "复诊沟通重点"].compactMap { title in
             Self.actions.first { $0.title == title }
         }
     }

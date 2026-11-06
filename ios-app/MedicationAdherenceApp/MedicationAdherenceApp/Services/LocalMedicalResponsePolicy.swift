@@ -104,7 +104,9 @@ struct LocalMedicalResponsePolicy: Sendable {
 
     func buildLocalPrompt(for request: MedicalAIRequest, answerPlan: LocalMedicalAnswerPlan) -> String {
         let facts: String
-        if isEnglishSwitchOnly(request.userMessage) {
+        if let health = request.localHealthContext {
+            facts = health
+        } else if isEnglishSwitchOnly(request.userMessage) {
             facts = "本轮仅切换对话语言，不需要个人资料。"
         } else if isDiscomfortMessage(request.userMessage) {
             facts = "本次没有提供具体症状，不能从药品资料推断用户患病或出现某种反应。"
@@ -280,6 +282,7 @@ struct LocalMedicalResponsePolicy: Sendable {
         if garbagePatterns.contains(where: { trimmed.range(of: $0, options: .regularExpression) != nil }) {
             return true
         }
+        if request.localHealthContext != nil { return false }
         // Preserve the existing narrow record-count checks without imposing
         // keywords, a language, a prose template or a Markdown restriction.
         if trimmed.range(of: #"已完成\s*\d{3,}\s*次"#, options: .regularExpression) != nil {

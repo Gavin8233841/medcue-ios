@@ -4,6 +4,22 @@ import Testing
 @testable import MedicationAdherenceApp
 
 struct LocalMedicalAIClientTests {
+    @Test func actualHealthFactsReachPromptAndAvoidDoseKeywordRepair() async throws {
+        var request = Self.request()
+        request.userMessage = "列出我的健康数据"
+        request.localHealthContext = "合成测试：心率72次/分；睡眠7小时；已记录用药1片。"
+        let policy = LocalMedicalResponsePolicy()
+        let prompt = policy.start(for: request).prompt
+        #expect(prompt.contains("心率72次/分"))
+        let answer = "心率72次/分，睡眠7小时，已记录用药1片。"
+        let runtime = StubLocalMedicalRuntime(outputs: [answer])
+        let result = try await LocalMedicalAIClient(modelURL: URL(fileURLWithPath: "/tmp/test-model.gguf"), runtime: runtime).respond(to: request)
+        #expect(result.message == answer)
+        #expect(await runtime.callCount == 1)
+        #expect(policy.isLowQualityLocalResponse("用户问题：重复提示词", request: request))
+        #expect(!MedicalAIRequestPromptBuilder().buildPrompt(for: request).contains("合成测试"))
+    }
+
     @Test
     func lowQualityInitialOutputIsRepairedExactlyOnce() async throws {
         let runtime = StubLocalMedicalRuntime(outputs: [
