@@ -688,20 +688,10 @@ struct AIAssistantView: View {
         configuration: MedicalAIConfiguration,
         apiKey: String
     ) async throws -> MedicalAIExecutionResult {
-        let sentToolScopes = toolScopeSuffix
-        let client: any MedicalAIClient
-        if configuration.providerKind == .broker {
-            client = MedicalAIReadOnlyToolClient(
-                broker: CloudBaseMedicalAIClient(configuration: configuration, clientToken: apiKey),
-                lookup: { selection in
-                    guard sentToolScopes == toolScopeSuffix else { throw CancellationError() }
-                    return try await readAssistantTool(selection, request: request)
-                }
-            )
-        } else {
-            client = MedicalAIClientFactory.make(configuration: configuration, credential: apiKey)
-        }
-
+        let client = MedicalAIClientFactory.make(
+            configuration: configuration,
+            credential: apiKey
+        )
         return try await MedicalAIRequestOrchestrator(timeout: MedicalAIExecutionPolicy.default.cloudTimeout).execute(
             request: request,
             client: client

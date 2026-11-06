@@ -1395,3 +1395,18 @@ Focused client/orchestration and core AI regressions validate preserved output,
 local guard behavior, consent-safe source selection, and one cloud round trip.
 Fresh independent review has no remaining Required findings. No broker
 deployment or private device-health probe was performed.
+
+## 2026-11-06 Demo rollback to direct cloud context
+
+At the owner's request, restored `performMedicalAIRequest` from `65a10f5`,
+the revision before the read-only tool experiment. The actual cloud entry point
+again uses MedicalAIClientFactory directly, sending the existing authorized
+medication snapshots and conversation context through the original prompt
+builder in one request. The tool-selection wrapper and on-demand HealthKit/stock
+lookup are no longer used by the chat entry point. UI, HealthKit charts and
+permissions, local model, and the approved cloud output-display policy remain
+in the candidate. This rollback does not provide cloud HealthKit/stock lookup.
+
+Verified that the restored dispatch function matches the baseline and passes
+Swift syntax parsing and staged checks. No build/device test was performed for
+this rollback; the owner requested to build it themselves.
