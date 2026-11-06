@@ -113,7 +113,7 @@ import Testing
     #expect(prompt.contains("来源章节：药物相互作用"))
     #expect(prompt.contains("依据片段：与华法林等抗凝药同用时应咨询医生或药师。"))
     #expect(prompt.contains("不能替代医生或药师判断"))
-    #expect(prompt.contains("100字以内"))
+    #expect(prompt.contains("按问题需要简明回答"))
     #expect(prompt.contains("用户要求表格时使用 Markdown 表格"))
     #expect(prompt.contains("请在回答末尾保留一句边界提示"))
     #expect(prompt.contains("帮我把风险提醒说清楚"))
@@ -440,4 +440,21 @@ func cloudSocialPromptExcludesUnrelatedAuthorizedMedication(question: String) {
     #expect(prompt.contains("上一个问题"))
     #expect(prompt.contains("上一个回答"))
     #expect(prompt.contains("不是当前用药事实"))
+}
+
+@Test func medicalAIResponseBoundaryKeepsMedicationFactsAndTables() {
+    for message in [
+        "今日已服用布洛芬 1 片，今日用药已记录 2 次。",
+        "布洛芬：每日 1 次，每次 1 片；状态：已服用。",
+        "| 药品 | 每次剂量 | 今日记录 |\n| --- | --- | --- |\n| 布洛芬 | 1 片 | 已服用 1 次 |",
+        "昨日心率 86 次/分钟，血氧 97%。",
+        "不要服用超过说明书规定的剂量。"
+    ] {
+        let review = MedicalAIResponseBoundaryGuard().review(message, preservingMarkdown: true, blocksActionableInstructions: false)
+        #expect(!review.blockedActionableInstruction)
+        #expect(review.displayMessage.contains(message))
+    }
+    for message in ["请服用布洛芬 2 片。", "Take 2 tablets now."] {
+        #expect(MedicalAIResponseBoundaryGuard().review(message).blockedActionableInstruction)
+    }
 }

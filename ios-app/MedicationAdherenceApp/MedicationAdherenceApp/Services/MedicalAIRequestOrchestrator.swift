@@ -9,7 +9,7 @@ struct MedicalAIExecutionPolicy: Equatable, Sendable {
     let repairTokenLimit: Int
 
     static let `default` = MedicalAIExecutionPolicy(
-        cloudTimeout: .seconds(20),
+        cloudTimeout: .seconds(50),
         trendLookbackDays: 14,
         singleResponseTokenLimit: 220,
         streamingResponseTokenLimit: 640,
@@ -51,7 +51,8 @@ struct MedicalAIResponseFinalizer: Sendable {
 
     func finalize(
         answer: String,
-        thinking: String = ""
+        thinking: String = "",
+        blocksActionableInstructions: Bool = true
     ) throws -> MedicalAIFinalizedResponse {
         let trimmedAnswer = answer.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedAnswer.isEmpty else {
@@ -59,7 +60,7 @@ struct MedicalAIResponseFinalizer: Sendable {
         }
 
         let boundaryGuard = MedicalAIResponseBoundaryGuard()
-        let answerReview = boundaryGuard.review(trimmedAnswer, preservingMarkdown: true)
+        let answerReview = boundaryGuard.review(trimmedAnswer, preservingMarkdown: true, blocksActionableInstructions: blocksActionableInstructions)
         let displayMessage = answerReview.displayMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !displayMessage.isEmpty else {
             throw MedicalAIOrchestrationError.emptyResponse
@@ -126,7 +127,7 @@ struct MedicalAIRequestOrchestrator: Sendable {
         guard response.requestID == request.id else {
             throw MedicalAIOrchestrationError.mismatchedRequestID
         }
-        let finalized = try MedicalAIResponseFinalizer().finalize(answer: response.message)
+        let finalized = try MedicalAIResponseFinalizer().finalize(answer: response.message, blocksActionableInstructions: false)
         return MedicalAIExecutionResult(response: response, finalized: finalized)
     }
 }

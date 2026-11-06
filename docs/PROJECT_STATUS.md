@@ -1371,3 +1371,27 @@ checks but its exact-source-package step rejected existing dirty/untracked
 workspace content. That gate is not reported as passed. Device build and visual
 acceptance are owner-run per the latest instruction; no device installation was
 performed for this candidate.
+
+## 2026-11-06 Cloud demo response display correction
+
+Factual dose/frequency text could trigger the legacy treatment-instruction
+heuristics and replace a complete cloud answer. With the owner's explicit
+authorization, cloud finalization now preserves non-empty model answers and
+records boundary flags without keyword-based replacement. Local model behavior
+and its existing guard remain unchanged. Consent, endpoint validation, request
+identity, cancellation and persistence checks still apply. This is a display
+policy change, not a claim of improved medical answer accuracy.
+
+Mixed health/medication questions now collect both authorized local summaries
+for the same selected period before one cloud request. Medication query data
+contains compact factual dose/event rows instead of a nested instruction prompt.
+The cloud prompt no longer imposes a 100-character cap. A live synthetic broker
+probe returned both requested datasets as Markdown tables (HTTP 200, 21.4 s).
+Since this exceeded the old client budget, broker transport timeout is now
+45 seconds and the overall cloud request budget is 50 seconds. This avoids
+premature timeout; it does not accelerate server generation.
+
+Focused client/orchestration and core AI regressions validate preserved output,
+local guard behavior, consent-safe source selection, and one cloud round trip.
+Fresh independent review has no remaining Required findings. No broker
+deployment or private device-health probe was performed.

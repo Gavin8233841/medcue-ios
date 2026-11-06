@@ -6,6 +6,34 @@ import os
 
 @Suite(.serialized)
 struct CloudBaseMedicalAIClientTests {
+    @Test @MainActor
+    func mixedHealthAndMedicationQueryUsesBothSourcesAndOneCloudRequest() async throws {
+        let request = MedicalAIRequest(kind: .chat, userMessage: "请用表格告诉我昨天的健康数据和用药数据",
+            authorization: .init(grantedScopes: []))
+        let lookups = OSAllocatedUnfairLock(initialState: [String]())
+        let calls = OSAllocatedUnfairLock(initialState: 0)
+        BrokerTestURLProtocol.handler = { urlRequest in
+            calls.withLock { $0 += 1 }
+            let body = try #require(try requestBodyData(from: urlRequest))
+            let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: String])
+            let prompt = try #require(object["prompt"])
+            #expect(prompt.contains("合成心率72"))
+            #expect(prompt.contains("合成用药已记录"))
+            let response = HTTPURLResponse(url: urlRequest.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, try JSONSerialization.data(withJSONObject: ["request_id": request.id.uuidString, "answer": "合成汇总"]))
+        }
+        defer { BrokerTestURLProtocol.handler = nil }
+        let broker = CloudBaseMedicalAIClient(configuration: brokerConfiguration(), clientToken: "test-token", session: brokerTestSession())
+        let client = MedicalAIReadOnlyToolClient(broker: broker) { selection in
+            #expect(selection.period == "yesterday")
+            lookups.withLock { $0.append(selection.tool ?? "") }
+            return selection.tool == "health_summary" ? "合成心率72" : "合成用药已记录"
+        }
+        _ = try await client.respond(to: request)
+        #expect(lookups.withLock { $0 } == ["health_summary", "medication_records"])
+        #expect(calls.withLock { $0 } == 1)
+    }
+
     @Test
     func personalDataRoutingPreservesDateAndGeneralQuestions() {
         func request(_ text: String, previous: String? = nil) -> MedicalAIRequest {

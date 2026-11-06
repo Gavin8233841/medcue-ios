@@ -63,7 +63,7 @@ struct CloudBaseMedicalAIClient: MedicalAIClient {
 
         var urlRequest = URLRequest(url: endpoint)
         urlRequest.httpMethod = "POST"
-        urlRequest.timeoutInterval = 20
+        urlRequest.timeoutInterval = 45
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         urlRequest.httpBody = try JSONEncoder().encode(CloudBaseBrokerRequest(
@@ -215,7 +215,14 @@ struct MedicalAIReadOnlyToolClient: MedicalAIClient {
         guard let selection = MedicalAIReadOnlyToolSelection.query(for: request) else {
             return try await broker.respond(to: request)
         }
-        let result = try await lookup(selection)
+        var result = try await lookup(selection)
+        if selection.tool == "health_summary",
+           ["用药", "服药", "服用", "药品", "medication"].contains(where: request.userMessage.lowercased().contains) {
+            let medicationSelection = MedicalAIReadOnlyToolSelection(tool: "medication_records",
+                period: selection.period, answer: nil)
+            let medicationRecords = try await lookup(medicationSelection)
+            result += "\n同一时间段的已授权用药记录：\n" + medicationRecords
+        }
         try Task.checkCancellation()
         return try await broker.respond(prompt: """
         你是 MedCue 健康助手。直接回答当前问题，使用下面实际查询结果。

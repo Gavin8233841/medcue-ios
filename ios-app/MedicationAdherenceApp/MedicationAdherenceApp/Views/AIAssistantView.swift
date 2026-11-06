@@ -748,13 +748,23 @@ struct AIAssistantView: View {
             }
             return rows.isEmpty ? "暂无已登记库存余量。" : rows.joined(separator: "\n")
         case "medication_records":
+            guard consent.sharesMedicationProfile, consent.sharesDoseEvents else {
+                return "尚未授权读取用药记录，请在智能体数据设置中开启药品资料和服药记录共享。"
+            }
             let selectedTasks = tasks.filter {
                 selection.period == "recent" ? $0.dueAt >= Date().addingTimeInterval(-14 * 86400) : calendar.isDate($0.dueAt, inSameDayAs: date)
             }
             let builder = MedicalAIContextBuilder(medications: medications, plans: plans, tasks: selectedTasks, riskCards: riskCards, labels: labels)
             let filtered = builder.makeRequest(userMessage: "查询指定时间段用药记录", consent: consent,
                 environmentInsights: request.environmentInsights, localeIdentifier: request.localeIdentifier)
-            return MedicalAIRequestPromptBuilder().buildPrompt(for: filtered)
+            let rows = filtered.medicationSnapshots.flatMap { snapshot in
+                snapshot.scheduledDoses.map { dose in
+                    let event = snapshot.doseEvents.last { $0.scheduledDoseID == dose.id }
+                    let status = event?.status.rawValue ?? "未确认"
+                    return "\(snapshot.medication.displayName) · 计划时间 \(AppFormatters.day.string(from: dose.dueAt)) \(AppFormatters.time.string(from: dose.dueAt)) · \(dose.dose.value.formatted()) \(dose.dose.unit) · 记录状态 \(status)"
+                }
+            }
+            return rows.isEmpty ? "该时间段暂无已授权的用药记录。" : rows.joined(separator: "\n")
         default:
             return "未识别的查询。"
         }

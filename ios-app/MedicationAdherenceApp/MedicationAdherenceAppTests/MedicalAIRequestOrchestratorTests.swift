@@ -5,6 +5,20 @@ import Testing
 
 struct MedicalAIRequestOrchestratorTests {
     @Test
+    func cloudFinalizerPreservesModelAnswerWithoutKeywordReplacement() async throws {
+        for answer in ["今日布洛芬每次 1 片，已服用 1 次。", "请核对是否需要调整剂量。", "建议停药，请咨询医生。"] {
+            let request = Self.request()
+            let result = try await MedicalAIRequestOrchestrator(timeout: .seconds(1)).execute(
+                request: request,
+                client: ImmediateMedicalAIClient(response: Self.response(for: request, message: answer))
+            )
+            let finalized = result.finalized
+            #expect(finalized.displayMessage.hasPrefix(answer))
+            #expect(!finalized.boundaryBlockedAction)
+        }
+    }
+
+    @Test
     func cloudExecutionTimesOutAndCancelsTheUnderlyingClient() async {
         let request = Self.request()
         let client = SlowMedicalAIClient(delay: .seconds(5), response: Self.response(for: request, message: "结果"))

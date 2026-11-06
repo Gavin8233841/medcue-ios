@@ -156,3 +156,7 @@ and available sleep stages, daily steps, active energy, and exercise minutes.
 Open an individual metric for a 7/30/56-day chart. Existing users can request
 these additional read permissions in the in-app Apple Health settings. The cloud
 assistant includes these summaries only when health-summary sharing is enabled.
+
+For the controlled competition demo, cloud answers retain the model's original
+text with content-check flags recorded instead of keyword-based replacement.
+Model answers remain fallible and should be checked against the source records.
