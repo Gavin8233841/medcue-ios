@@ -14,7 +14,7 @@ final class HealthKitService: ObservableObject {
     @Published private(set) var hasCompletedAuthorizationRequest: Bool
     @Published private(set) var recentTrendSamples: [HealthSignalSample] = []
     @Published private(set) var lastSampleRefreshAt: Date?
-    @Published private(set) var supportedReadTypesSummary = "心率、血压、血氧、体温、血糖"
+    @Published private(set) var supportedReadTypesSummary = "心率、静息心率、血压、血氧、体温、血糖、睡眠、步数、活动能量与运动时间"
 
     private static var recentCache: (days: Int, samples: [HealthSignalSample], refreshedAt: Date)?
     private static let completionKey = "hasCompletedHealthKitAuthorizationRequest"
@@ -26,7 +26,7 @@ final class HealthKitService: ObservableObject {
         let hasCompleted = defaults.bool(forKey: Self.completionKey)
         hasCompletedAuthorizationRequest = hasCompleted
         statusMessage = hasCompleted
-            ? "已完成 Apple 健康授权请求。仅在用户授权范围内读取生命体征。"
+            ? "已完成 Apple 健康授权请求。仅在用户授权范围内读取健康、睡眠和活动数据。"
             : "尚未完成 Apple 健康授权请求"
     }
 
@@ -46,7 +46,7 @@ final class HealthKitService: ObservableObject {
         do {
             try await requestAuthorization(readTypes: readTypes)
             markAuthorizationRequestCompleted()
-            statusMessage = "已完成 Apple 健康授权请求。仅在用户授权范围内读取生命体征，用于趋势和复诊资料。"
+            statusMessage = "已完成 Apple 健康授权请求。仅在用户授权范围内读取健康、睡眠和活动数据，用于趋势和复诊资料。"
             await refreshRecentTrendSamples()
             return true
         } catch {
@@ -76,7 +76,7 @@ final class HealthKitService: ObservableObject {
            cache.days >= days, Date().timeIntervalSince(cache.refreshedAt) < 60 {
             recentTrendSamples = cache.samples
             lastSampleRefreshAt = cache.refreshedAt
-            statusMessage = cache.samples.isEmpty ? "当前没有可读取的近期生命体征数据。" : "已读取近期生命体征数据。"
+            statusMessage = cache.samples.isEmpty ? "当前没有可读取的近期健康数据。" : "已读取近期健康数据。"
             return
         }
         let samples = await fetchTrendSamples(days: days)
@@ -85,8 +85,8 @@ final class HealthKitService: ObservableObject {
         lastSampleRefreshAt = refreshedAt
         Self.recentCache = (days, samples, refreshedAt)
         statusMessage = samples.isEmpty
-            ? "已完成授权请求；当前没有可读取的近期生命体征数据。"
-            : "已读取 \(samples.count) 条近期生命体征数据。"
+            ? "已完成授权请求；当前没有可读取的近期健康数据。"
+            : "已读取 \(samples.count) 条近期健康数据。"
     }
 
     var recentSummary: HealthKitRecentSummary {
@@ -153,6 +153,14 @@ final class HealthKitService: ObservableObject {
             }
         }
 
+        for descriptor in Self.dailyActivityDescriptors {
+            if let daily = try? await queryDailyTotals(descriptor, start: startDate, end: endDate) {
+                samples.append(contentsOf: daily)
+            }
+        }
+        if let sleep = try? await querySleep(start: startDate, end: endDate) {
+            samples.append(contentsOf: sleep)
+        }
         return samples.sorted { $0.measuredAt < $1.measuredAt }
     }
 
@@ -179,6 +187,57 @@ final class HealthKitService: ObservableObject {
         }
     }
 
+    private static var dailyActivityDescriptors: [HealthKitSignalDescriptor] {
+        [
+            .init(identifier: .stepCount, kind: .stepCount, unit: .count(), displayUnit: "步"),
+            .init(identifier: .activeEnergyBurned, kind: .activeEnergy, unit: .kilocalorie(), displayUnit: "千卡"),
+            .init(identifier: .appleExerciseTime, kind: .exerciseMinutes, unit: .minute(), displayUnit: "分钟")
+        ]
+    }
+
+    private func queryDailyTotals(_ descriptor: HealthKitSignalDescriptor, start: Date, end: Date) async throws -> [HealthSignalSample] {
+        guard let type = HKQuantityType.quantityType(forIdentifier: descriptor.identifier) else { return [] }
+        let calendar = Calendar.current
+        let anchor = calendar.startOfDay(for: start)
+        let predicate = HKQuery.predicateForSamples(withStart: anchor, end: end, options: [])
+        return try await withCheckedThrowingContinuation { continuation in
+            let query = HKStatisticsCollectionQuery(quantityType: type, quantitySamplePredicate: predicate,
+                options: .cumulativeSum, anchorDate: anchor, intervalComponents: DateComponents(day: 1))
+            query.initialResultsHandler = { _, collection, error in
+                if let error { continuation.resume(throwing: error); return }
+                var values: [HealthSignalSample] = []
+                collection?.enumerateStatistics(from: anchor, to: end) { statistic, _ in
+                    if let quantity = statistic.sumQuantity() {
+                        values.append(.init(kind: descriptor.kind,
+                            measuredAt: min(statistic.endDate.addingTimeInterval(-1), end),
+                            value: quantity.doubleValue(for: descriptor.unit), unit: descriptor.displayUnit))
+                    }
+                }
+                continuation.resume(returning: values)
+            }
+            healthStore.execute(query)
+        }
+    }
+
+    private func querySleep(start: Date, end: Date) async throws -> [HealthSignalSample] {
+        guard let type = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) else { return [] }
+        let queryStart = Calendar.current.date(byAdding: .day, value: -1, to: start) ?? start
+        let predicate = HKQuery.predicateForSamples(withStart: queryStart, end: end, options: [])
+        let records: [HealthKitSleepRecord] = try await withCheckedThrowingContinuation { continuation in
+            let query = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit,
+                sortDescriptors: nil) { _, values, error in
+                if let error { continuation.resume(throwing: error); return }
+                let records = (values as? [HKCategorySample] ?? []).map {
+                    HealthKitSleepRecord(start: $0.startDate, end: $0.endDate, stage: $0.value,
+                        source: $0.sourceRevision.source.bundleIdentifier)
+                }
+                continuation.resume(returning: records)
+            }
+            healthStore.execute(query)
+        }
+        return HealthKitSleepSummary.samples(from: records, start: start, end: end)
+    }
+
     private static func readTypes() -> Set<HKObjectType> {
         [
             HKQuantityType.quantityType(forIdentifier: .heartRate),
@@ -186,7 +245,12 @@ final class HealthKitService: ObservableObject {
             HKQuantityType.quantityType(forIdentifier: .bloodPressureDiastolic),
             HKQuantityType.quantityType(forIdentifier: .oxygenSaturation),
             HKQuantityType.quantityType(forIdentifier: .bodyTemperature),
-            HKQuantityType.quantityType(forIdentifier: .bloodGlucose)
+            HKQuantityType.quantityType(forIdentifier: .bloodGlucose),
+            HKQuantityType.quantityType(forIdentifier: .restingHeartRate),
+            HKQuantityType.quantityType(forIdentifier: .stepCount),
+            HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned),
+            HKQuantityType.quantityType(forIdentifier: .appleExerciseTime),
+            HKCategoryType.categoryType(forIdentifier: .sleepAnalysis)
         ]
         .compactMap { $0 }
         .reduce(into: Set<HKObjectType>()) { result, type in
@@ -202,6 +266,8 @@ final class HealthKitService: ObservableObject {
                 unit: HKUnit.count().unitDivided(by: .minute()),
                 displayUnit: "次/分"
             ),
+            HealthKitSignalDescriptor(identifier: .restingHeartRate, kind: .restingHeartRate,
+                unit: HKUnit.count().unitDivided(by: .minute()), displayUnit: "次/分钟"),
             HealthKitSignalDescriptor(
                 identifier: .bloodPressureSystolic,
                 kind: .bloodPressureSystolic,
@@ -312,6 +378,7 @@ struct HealthKitMetricSummary: Identifiable {
     let sampleCount: Int
     let coveredDayCount: Int
     let latestValueText: String
+    let unit: String
     let latestMeasuredAt: Date
 
     init(kind: HealthSignalKind, samples: [HealthSignalSample]) {
@@ -322,6 +389,7 @@ struct HealthKitMetricSummary: Identifiable {
         sampleCount = samples.count
         coveredDayCount = Set(samples.map { calendar.startOfDay(for: $0.measuredAt) }).count
         latestValueText = latestSample.map(HealthKitRecentSummary.valueText(for:)) ?? "暂无"
+        unit = latestSample?.unit ?? ""
         latestMeasuredAt = latestSample?.measuredAt ?? Date.distantPast
     }
 
@@ -339,6 +407,14 @@ extension HealthSignalKind {
         switch self {
         case .heartRate:
             "心率"
+        case .restingHeartRate: "静息心率"
+        case .stepCount: "每日步数"
+        case .activeEnergy: "每日活动能量"
+        case .exerciseMinutes: "每日运动时间"
+        case .sleepDuration: "睡眠总时长"
+        case .sleepCore: "核心睡眠"
+        case .sleepDeep: "深度睡眠"
+        case .sleepREM: "REM 睡眠"
         case .bloodPressureSystolic:
             "收缩压"
         case .bloodPressureDiastolic:
@@ -356,8 +432,12 @@ extension HealthSignalKind {
 
     var displaySymbolName: String {
         switch self {
-        case .heartRate:
+        case .heartRate, .restingHeartRate:
             "heart.fill"
+        case .stepCount: "figure.walk"
+        case .activeEnergy: "flame.fill"
+        case .exerciseMinutes: "figure.run"
+        case .sleepDuration, .sleepCore, .sleepDeep, .sleepREM: "bed.double.fill"
         case .bloodPressureSystolic, .bloodPressureDiastolic:
             "waveform.path.ecg"
         case .bloodOxygen:
@@ -371,4 +451,81 @@ extension HealthSignalKind {
         }
     }
 
+}
+
+struct HealthKitSleepRecord: Sendable {
+    let start: Date
+    let end: Date
+    let stage: Int
+    let source: String
+}
+
+enum HealthKitSleepSummary {
+    // Noon-to-noon assigns an overnight sleep to the day it ends.
+    static func samples(from records: [HealthKitSleepRecord], start: Date, end: Date,
+                        calendar: Calendar = .current) -> [HealthSignalSample] {
+        let asleep = Set([HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue,
+                          HKCategoryValueSleepAnalysis.asleepCore.rawValue,
+                          HKCategoryValueSleepAnalysis.asleepDeep.rawValue,
+                          HKCategoryValueSleepAnalysis.asleepREM.rawValue])
+        let stages: [(HealthSignalKind, Int?)] = [
+            (.sleepDuration, nil), (.sleepCore, HKCategoryValueSleepAnalysis.asleepCore.rawValue),
+            (.sleepDeep, HKCategoryValueSleepAnalysis.asleepDeep.rawValue),
+            (.sleepREM, HKCategoryValueSleepAnalysis.asleepREM.rawValue)
+        ]
+        var output: [HealthSignalSample] = []
+        var day = calendar.startOfDay(for: start)
+        while day <= end {
+            guard let noon = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: day),
+                  let previousNoon = calendar.date(byAdding: .day, value: -1, to: noon),
+                  let nextDay = calendar.date(byAdding: .day, value: 1, to: day) else { break }
+            let windowEnd = min(noon, end)
+            let matching = records.filter {
+                asleep.contains($0.stage) && $0.end > $0.start && $0.end > previousNoon && $0.start < windowEnd
+            }
+            let bySource = Dictionary(grouping: matching, by: \.source)
+            // Use one source per night, preferring stage-resolved data. Never add
+            // overlapping records from different devices as separate sleep.
+            let source = bySource.keys.sorted().max { left, right in
+                func score(_ key: String) -> Double {
+                    let values = bySource[key] ?? []
+                    let detailed = values.filter { $0.stage != HKCategoryValueSleepAnalysis.asleepUnspecified.rawValue }
+                    return mergedSeconds(detailed.isEmpty ? values : detailed, start: previousNoon, end: windowEnd)
+                        + (detailed.isEmpty ? 0 : 86400)
+                }
+                return score(left) < score(right)
+            }
+            if let source, let selected = bySource[source] {
+                for (kind, stage) in stages {
+                    let values = stage.map { value in selected.filter { $0.stage == value } } ?? selected
+                    let seconds = mergedSeconds(values, start: previousNoon, end: windowEnd)
+                    if seconds > 0 {
+                        output.append(.init(kind: kind, measuredAt: windowEnd, value: seconds / 3600, unit: "小时"))
+                    }
+                }
+            }
+            day = nextDay
+        }
+        return output
+    }
+
+    private static func mergedSeconds(_ records: [HealthKitSleepRecord], start: Date, end: Date) -> Double {
+        let intervals = records.compactMap { record -> DateInterval? in
+            let lower = max(record.start, start), upper = min(record.end, end)
+            return upper > lower ? DateInterval(start: lower, end: upper) : nil
+        }.sorted { $0.start < $1.start }
+        var current: DateInterval?
+        var total: Double = 0
+        for interval in intervals {
+            if let previous = current {
+                if interval.start <= previous.end {
+                    current = DateInterval(start: previous.start, end: max(previous.end, interval.end))
+                } else {
+                    total += previous.duration
+                    current = interval
+                }
+            } else { current = interval }
+        }
+        return total + (current?.duration ?? 0)
+    }
 }

@@ -1,4 +1,5 @@
 import AuthenticationServices
+import Charts
 import MedicationAdherenceCore
 import OSLog
 import QuickLook
@@ -36,11 +37,15 @@ struct HealthDataSettingsView: View {
                         iconName: "waveform.path.ecg",
                         tint: .secondary,
                         title: "暂无近期样本",
-                        subtitle: healthKitService.hasCompletedAuthorizationRequest ? "授权范围内还没有可读取的生命体征" : "完成授权请求后显示最近 56 天的生命体征"
+                        subtitle: healthKitService.hasCompletedAuthorizationRequest ? "授权范围内还没有可读取的健康、睡眠和活动数据" : "完成授权请求后显示最近 56 天的健康、睡眠和活动数据"
                     )
                 } else {
                     ForEach(summary.metricSummaries) { metric in
-                        HealthKitMetricSummaryRow(metric: metric)
+                        NavigationLink {
+                            HealthMetricHistoryView(metric: metric, samples: healthKitService.recentTrendSamples)
+                        } label: {
+                            HealthKitMetricSummaryRow(metric: metric)
+                        }
                     }
                 }
             }
@@ -91,6 +96,11 @@ struct HealthDataSettingsView: View {
                         startHealthPermissionFlow()
                     } label: {
                         Text("请求读取健康数据授权")
+                    }
+                }
+                if healthKitService.hasCompletedAuthorizationRequest {
+                    Button("更新读取授权（含睡眠与活动）") {
+                        Task { await healthKitService.requestAuthorizationEntry() }
                     }
                 }
                 Button {
@@ -245,6 +255,110 @@ struct HealthKitMetricSummaryRow: View {
     }
 }
 
+
+// Reuses the daily bar/line presentation from HealthMetricReviewCard in the
+// visit-prep integration, adapted to the current health-signal model.
+private struct HealthMetricHistoryView: View {
+    let metric: HealthKitMetricSummary
+    let samples: [HealthSignalSample]
+    @State private var selectedDate: Date?
+    @State private var lookbackDays = 7
+
+    private struct DailyPoint: Identifiable {
+        var id: Date { date }
+        let date: Date
+        let value: Double
+        let segment: Date
+    }
+
+    private var points: [DailyPoint] {
+        let calendar = Calendar.current
+        let start = calendar.date(byAdding: .day, value: 1 - lookbackDays,
+                                  to: calendar.startOfDay(for: Date())) ?? Date()
+        let groups = Dictionary(grouping: samples.filter {
+            $0.kind == metric.kind && $0.measuredAt >= start
+        }, by: { calendar.startOfDay(for: $0.measuredAt) })
+        var result: [DailyPoint] = []
+        var segment = start
+        for date in groups.keys.sorted() {
+            let values = (groups[date] ?? []).map(\.value).sorted()
+            guard !values.isEmpty else { continue }
+            if let previous = result.last,
+               calendar.date(byAdding: .day, value: 1, to: previous.date) != date {
+                segment = date
+            }
+            let middle = values.count / 2
+            let median = values.count.isMultiple(of: 2)
+                ? (values[middle - 1] + values[middle]) / 2 : values[middle]
+            result.append(DailyPoint(date: date, value: median, segment: segment))
+        }
+        return result
+    }
+
+    private var usesBars: Bool {
+        switch metric.kind {
+        case .stepCount, .activeEnergy, .exerciseMinutes, .sleepDuration, .sleepCore, .sleepDeep, .sleepREM: true
+        default: false
+        }
+    }
+
+    var body: some View {
+        let daily = points
+        List {
+            Section {
+                Picker("回顾范围", selection: $lookbackDays) {
+                    Text("近 7 天").tag(7)
+                    Text("近 30 天").tag(30)
+                    Text("近 56 天").tag(56)
+                }
+                .pickerStyle(.segmented)
+                HealthKitMetricSummaryRow(metric: metric)
+                if daily.isEmpty {
+                    Text("这段时间暂无可读取的记录").foregroundStyle(.secondary)
+                } else {
+                    Chart(daily) { point in
+                        if usesBars {
+                            BarMark(x: .value("日期", point.date, unit: .day),
+                                    y: .value(metric.title, point.value), width: .ratio(0.65))
+                                .cornerRadius(3)
+                                .foregroundStyle(healthMetricTint(metric.kind))
+                        } else {
+                            LineMark(x: .value("日期", point.date), y: .value(metric.title, point.value),
+                                     series: .value("连续记录", point.segment))
+                                .interpolationMethod(.linear)
+                                .lineStyle(StrokeStyle(lineWidth: 2, lineJoin: .round))
+                                .foregroundStyle(healthMetricTint(metric.kind))
+                            PointMark(x: .value("日期", point.date), y: .value(metric.title, point.value))
+                                .foregroundStyle(healthMetricTint(metric.kind))
+                        }
+                    }
+                    .chartYScale(domain: .automatic(includesZero: usesBars))
+                    .chartXSelection(value: $selectedDate)
+                    .chartGesture { proxy in
+                        SpatialTapGesture(coordinateSpace: .local).onEnded { event in
+                            proxy.selectXValue(at: event.location.x)
+                        }
+                    }
+                    .chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) }
+                    .chartLegend(.hidden)
+                    .frame(height: 220)
+                    if let selectedDate,
+                       let point = daily.first(where: { Calendar.current.isDate($0.date, inSameDayAs: selectedDate) }) {
+                        Text("\(point.date.formatted(date: .abbreviated, time: .omitted)) · \(point.value.formatted(.number.precision(.fractionLength(0...1)))) \(metric.unit)")
+                            .monospacedDigit()
+                    }
+                }
+            }
+            Section {
+                Text(usesBars ? "按日汇总已记录的数据。睡眠归到结束日，重叠时段去重；缺失日期不补值。"
+                              : "曲线显示每日记录中位数，缺失日期不连线。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle(metric.title)
+    }
+}
+
 struct HealthKitContributionRow: View {
     let iconName: String
     let tint: Color
@@ -280,8 +394,11 @@ struct HealthKitContributionRow: View {
 
 private func healthMetricTint(_ kind: HealthSignalKind) -> Color {
     switch kind {
-    case .heartRate:
+    case .heartRate, .restingHeartRate:
         .red
+    case .stepCount, .exerciseMinutes: .green
+    case .activeEnergy: .orange
+    case .sleepDuration, .sleepCore, .sleepDeep, .sleepREM: .indigo
     case .bloodPressureSystolic, .bloodPressureDiastolic:
         .indigo
     case .bloodOxygen:

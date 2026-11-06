@@ -1347,3 +1347,27 @@ This candidate uses application-directed retrieval rather than autonomous tool
 selection. All 351 hosted tests passed on the change; the final routing refinement
 passed all 7 broker-client tests. Independent source review has no Required
 findings. Device responsiveness/health results remain owner acceptance evidence.
+
+## 2026-11-06 HealthKit B final candidate
+
+Added resting heart rate, daily step count, active energy, exercise minutes, and
+sleep duration/core/deep/REM summaries to the existing HealthKit read adapter.
+Activity totals use HealthKit statistics collections. Sleep uses one source per
+noon-to-noon window, merges overlapping intervals, and labels the ending day.
+Lifestyle totals do not enter the existing vital-sign stability calculation.
+Previously authorized users can request the newly added types from Apple Health
+settings inside the app. System authorization and assistant health-sharing
+consent remain required for cloud queries. Existing single-request cloud routing
+now recognizes sleep and activity questions.
+
+Recovered the daily bar/line chart presentation from the visit-prep integration
+branch, adapted to the current signal model. Metric rows open a selectable
+7/30/56-day history. No old branch-wide integration or persistence migration.
+
+All 353 hosted tests in 51 suites passed, including overnight overlap/source
+selection and cross-noon date regressions. Fresh independent source review has
+no remaining Required findings. The quick native gate passed its preceding
+checks but its exact-source-package step rejected existing dirty/untracked
+workspace content. That gate is not reported as passed. Device build and visual
+acceptance are owner-run per the latest instruction; no device installation was
+performed for this candidate.

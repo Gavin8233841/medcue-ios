@@ -150,3 +150,9 @@ MedCue is a medication organization and education tool. Its reminders, risk summ
 展位演示：药品页以实物照片浏览，宽窗口将分组摘要与图库分栏。Demo 入口只恢复预置演示内容并重新进入引导，保留手动导入药品、离线模型和系统授权；已有演示实拍照片会保留，人工泪液采用本轮提供的新图。
 
 The cloud assistant can query authorized medication records on demand. Optional inventory and Apple Health summary sharing are separately disabled by default and managed in assistant consent settings. HealthKit reads remain subject to system authorization; selected summaries are sent to the cloud model for the answer.
+
+HealthKit summaries also include authorized resting heart rate, sleep duration
+and available sleep stages, daily steps, active energy, and exercise minutes.
+Open an individual metric for a 7/30/56-day chart. Existing users can request
+these additional read permissions in the in-app Apple Health settings. The cloud
+assistant includes these summaries only when health-summary sharing is enabled.

@@ -188,17 +188,17 @@ struct MedicalAIReadOnlyToolSelection: Codable, Sendable, Equatable {
         let previousQuestion = (request.conversation ?? []).last { $0.role == "user" }?.text.lowercased() ?? ""
         let topic = followsPrevious ? previousQuestion + " " + question : question
         let tool: String
-        if ["健康数据", "健康记录", "健康情况", "心率", "血压", "血氧", "体温", "血糖", "health data", "heart rate"].contains(where: topic.contains) {
+        if ["健康数据", "健康记录", "健康情况", "心率", "血压", "血氧", "体温", "血糖", "health data", "heart rate", "睡眠", "睡了", "睡得", "步数", "走了", "活动量", "活动能量", "运动时间", "运动了", "sleep", "steps"].contains(where: topic.contains) {
             let isGeneralQuestion = ["什么是", "是什么", "什么意思", "怎么", "如何", "正常", "科普", "原理", "为什么"].contains(where: question.contains)
-            if isGeneralQuestion { return nil }
-            guard followsPrevious || ["我", "数据", "记录", "查询", "查看", "看看", "多少", "今天", "昨天", "今日", "近期", "最近"].contains(where: question.contains) else { return nil }
+            if isGeneralQuestion && !question.contains("睡得怎么样") { return nil }
+            guard followsPrevious || ["我", "数据", "记录", "查询", "查看", "看看", "多少", "多久", "今天", "昨天", "昨晚", "今晚", "今日", "近期", "最近"].contains(where: question.contains) else { return nil }
             tool = "health_summary"
         } else if ["库存", "余量", "剩多少", "剩下多少", "药盒"].contains(where: topic.contains) {
             tool = "inventory"
         } else { return nil }
         let period: String
         if question.contains("昨天") || question.contains("yesterday") { period = "yesterday" }
-        else if question.contains("今天") || question.contains("今日") || question.contains("today") { period = "today" }
+        else if question.contains("昨晚") || question.contains("今天") || question.contains("今日") || question.contains("today") { period = "today" }
         else if topic.contains("最近") || topic.contains("近期") { period = "recent" }
         else if followsPrevious && previousQuestion.contains("昨天") { period = "yesterday" }
         else { period = "today" }

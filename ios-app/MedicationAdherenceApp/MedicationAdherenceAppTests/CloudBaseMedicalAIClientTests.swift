@@ -20,6 +20,9 @@ struct CloudBaseMedicalAIClientTests {
         #expect(MedicalAIReadOnlyToolSelection.query(for: request("把昨天的健康数据列个表给我看看"))?.period == "yesterday")
         #expect(MedicalAIReadOnlyToolSelection.query(for: request("那昨天呢", previous: "今天心率多少"))?.tool == "health_summary")
         #expect(MedicalAIReadOnlyToolSelection.query(for: request("药还剩多少库存"))?.tool == "inventory")
+        #expect(MedicalAIReadOnlyToolSelection.query(for: request("昨晚睡了多久"))?.period == "today")
+        #expect(MedicalAIReadOnlyToolSelection.query(for: request("我昨晚睡得怎么样"))?.tool == "health_summary")
+        #expect(MedicalAIReadOnlyToolSelection.query(for: request("昨天走了多少步数"))?.period == "yesterday")
     }
 
     @Test @MainActor
