@@ -33,6 +33,7 @@ enum MedicalAIClientFactory {
 struct CloudBaseMedicalAIClient: MedicalAIClient {
     let configuration: MedicalAIConfiguration
     let clientToken: String
+    var additionalContext: String = ""
     var session: URLSession = MedicalAIURLSessionFactory.make()
 
     private var provider: MedicalAIProviderProfile {
@@ -48,7 +49,19 @@ struct CloudBaseMedicalAIClient: MedicalAIClient {
     }
 
     func respond(to request: MedicalAIRequest) async throws -> MedicalAIResponse {
-        try await respond(prompt: MedicalAIRequestPromptBuilder().buildPrompt(for: request), requestID: request.id)
+        var promptRequest = request
+        if !additionalContext.isEmpty {
+            // The shared day-by-day projection already contains dose records.
+            promptRequest.medicationSnapshots = request.medicationSnapshots.map { snapshot in
+                var value = snapshot
+                value.scheduledDoses = []
+                value.doseEvents = []
+                value.riskCards = []
+                return value
+            }
+        }
+        return try await respond(prompt: MedicalAIRequestPromptBuilder().buildPrompt(for: promptRequest)
+            + (additionalContext.isEmpty ? "" : "\n" + additionalContext), requestID: request.id)
     }
 
     func respond(prompt: String, requestID: UUID) async throws -> MedicalAIResponse {
@@ -175,6 +188,16 @@ enum CloudBaseMedicalAIError: LocalizedError, Equatable, Sendable {
     }
 }
 
+
+enum MedicationSleepAnalysisIntent {
+    static func matches(_ question: String) -> Bool {
+        let text = question.lowercased()
+        let sleep = ["睡眠", "睡了", "睡得", "sleep"].contains(where: text.contains)
+        let definition = ["什么是", "是什么", "什么意思", "如何改善", "怎么改善", "如何提高", "科普", "原理"].contains(where: text.contains)
+        let personal = ["我", "最近", "近期", "昨天", "今天", "昨晚", "近14", "近30", "变化", "数据", "记录", "my ", "last night"].contains(where: text.contains)
+        return sleep && personal && !definition
+    }
+}
 
 // Select explicit personal-data queries locally and send one grounded cloud request.
 struct MedicalAIReadOnlyToolSelection: Codable, Sendable, Equatable {

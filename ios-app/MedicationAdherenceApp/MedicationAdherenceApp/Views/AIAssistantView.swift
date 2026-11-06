@@ -688,10 +688,31 @@ struct AIAssistantView: View {
         configuration: MedicalAIConfiguration,
         apiKey: String
     ) async throws -> MedicalAIExecutionResult {
-        let client = MedicalAIClientFactory.make(
-            configuration: configuration,
-            credential: apiKey
-        )
+        let client: any MedicalAIClient
+        let question = request.userMessage
+        let needsSleepReview = MedicationSleepAnalysisIntent.matches(question)
+        if configuration.providerKind == .broker && needsSleepReview {
+            let scope = toolScopeSuffix
+            var context = "尚未开启健康摘要共享。可在智能体数据设置开启后分析实际睡眠记录。"
+            if UserDefaults.standard.bool(forKey: "aiSharesHealthSummary") {
+                let service = HealthKitService()
+                let count = question.contains("30") ? 30 : 14
+                await service.refreshRecentTrendSamples(days: count, useRecentCache: true)
+                try Task.checkCancellation()
+                guard scope == toolScopeSuffix, activeConsent?.authorization == request.authorization else { throw CancellationError() }
+                let allowedIDs = Set(request.medicationSnapshots.map { $0.medication.id })
+                let reviewTasks = request.authorization.allows(.doseEvents)
+                    ? tasks.filter { allowedIDs.contains($0.medicationID) } : []
+                let review = MedicationSleepReview(samples: service.recentTrendSamples,
+                    tasks: reviewTasks, medications: medications.filter { allowedIDs.contains($0.id) }, dayCount: count)
+                context = review.context
+            }
+            client = CloudBaseMedicalAIClient(configuration: configuration, clientToken: apiKey,
+                additionalContext: "睡眠与用药同期统计（本次授权数据）\n" + context +
+                "\n分成观察到的变化、同期用药事实、接下来值得观察的问题三段，避免只复述表格。结合逐日记录和已授权说明书，引用实际日期与数值并说明记录覆盖。区分已服用、计划、忽略及未知；同期变化不能证明药物造成变化。缺失数据直接说明。")
+        } else {
+            client = MedicalAIClientFactory.make(configuration: configuration, credential: apiKey)
+        }
         return try await MedicalAIRequestOrchestrator(timeout: MedicalAIExecutionPolicy.default.cloudTimeout).execute(
             request: request,
             client: client
@@ -937,15 +958,7 @@ struct AIAssistantView: View {
             environmentInsights: environmentInsightsForAI(userMessage: userMessage),
             localeIdentifier: Locale.current.identifier
         )
-        let provider = prefersLocalMedicalModel ? "离线智能体" : configurationStore.configuration.providerName
-        request.conversation = visibleMessages.filter {
-            ($0.role == .user || $0.role == .assistant)
-                && $0.providerName == provider
-                && ($0.sharedScopesSummary == consent.scopeSummary + (prefersLocalMedicalModel ? "" : toolScopeSuffix) || ($0.role == .user && $0.sharedScopesSummary == consent.scopeSummary))
-        }.suffix(4).map {
-            MedicalAIConversationTurn(role: $0.role == .user ? "user" : "assistant",
-                text: String($0.text.components(separatedBy: LocalMedicalAIClient.localReasoningSeparator)[0].prefix(240)))
-        }
+        request.conversation = nil
         let scheduledDoseCount = request.medicationSnapshots.reduce(0) { $0 + $1.scheduledDoses.count }
         let doseEventCount = request.medicationSnapshots.reduce(0) { $0 + $1.doseEvents.count }
         logAIEvent("context requestID=\(request.id.uuidString) medications=\(request.medicationSnapshots.count) scheduledDoses=\(scheduledDoseCount) doseEvents=\(doseEventCount) todayMode=\(contextBuilder.isTodayQuestion(userMessage))")

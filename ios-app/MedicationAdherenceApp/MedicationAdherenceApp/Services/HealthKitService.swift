@@ -529,3 +529,97 @@ enum HealthKitSleepSummary {
         return total + (current?.duration ?? 0)
     }
 }
+
+/// One shared projection for the chart and AI. Each day ends a noon-to-noon window.
+struct MedicationSleepDay: Identifiable, Sendable {
+    var id: Date { date }
+    let date: Date
+    let sleepHours: Double?
+    let medicationRecords: [String]
+    let medicationContext: [String]
+    let actualDoseCount: Int
+}
+
+struct MedicationSleepReview: Sendable {
+    let days: [MedicationSleepDay]
+    let timeZoneIdentifier: String
+
+    @MainActor
+    init(samples: [HealthSignalSample], tasks: [StoredDoseTask], medications: [StoredMedication],
+         dayCount: Int, now: Date = Date(), calendar: Calendar = .current) {
+        timeZoneIdentifier = calendar.timeZone.identifier
+        let names = Dictionary(medications.map { ($0.id, $0.displayName) }, uniquingKeysWith: { first, _ in first })
+        let logical = Dictionary(grouping: tasks.adherenceMeasurableTasks, by: DoseLogicalGroup.key(for:))
+        let uniqueTasks = logical.values.compactMap { group in
+            group.max { ($0.recordedAt ?? .distantPast) < ($1.recordedAt ?? .distantPast) }
+        }
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "MM-dd HH:mm"
+        let today = calendar.startOfDay(for: now)
+        days = (0..<dayCount).compactMap { index in
+            guard let date = calendar.date(byAdding: .day, value: index + 1 - dayCount, to: today),
+                  let noon = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: date),
+                  let start = calendar.date(byAdding: .day, value: -1, to: noon) else { return nil }
+            let sleep = samples.filter { $0.kind == .sleepDuration && calendar.isDate($0.measuredAt, inSameDayAs: date) }
+                .max { $0.measuredAt < $1.measuredAt }?.value
+            let matching = uniqueTasks.filter { task in
+                let time = task.status == .taken ? (task.recordedAt ?? task.dueAt) : task.dueAt
+                return time >= start && time < min(noon, now)
+            }.sorted { ($0.recordedAt ?? $0.dueAt) < ($1.recordedAt ?? $1.dueAt) }
+            let records = matching.map { task in
+                let name = names[task.medicationID] ?? "未命名药品"
+                let planTime = task.dueAt.formatted(date: .abbreviated, time: .shortened)
+                let actual = task.recordedAt.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "未记录时间"
+                switch task.status {
+                case .taken:
+                    let recorded = task.recordedAt == nil ? "实际时间未知，按计划窗口展示" : actual
+                    return "\(name) \(task.doseValue.formatted())\(task.doseUnit)，已记录服用 \(recorded)（计划 \(planTime)）"
+                case .skipped: return "\(name)，已忽略（计划 \(planTime)）"
+                case .delayed: return "\(name)，稍后/待确认（计划 \(planTime)）"
+                default: return "\(name)，未确认（计划 \(planTime)）"
+                }
+            }
+            let compact = matching.map { task in
+                let name = names[task.medicationID] ?? "未命名药品"
+                let referenceTime = task.status == .taken ? (task.recordedAt ?? task.dueAt) : task.dueAt
+                let time = formatter.string(from: referenceTime)
+                let state = task.status == .taken ? (task.recordedAt == nil ? "已服/实际时间未知/计划" : "已服/实际") : "\(task.status.rawValue)/计划"
+                return "\(name)\(task.doseValue.formatted())\(task.doseUnit) \(state)\(time)"
+            }
+            return MedicationSleepDay(date: date, sleepHours: sleep, medicationRecords: records, medicationContext: compact,
+                actualDoseCount: matching.filter { $0.status == .taken && $0.recordedAt != nil }.count)
+        }
+    }
+
+    var sleepSummary: String {
+        let middle = days.count / 2
+        func median(_ values: [Double]) -> Double? {
+            let sorted = values.sorted()
+            guard !sorted.isEmpty else { return nil }
+            let center = sorted.count / 2
+            return sorted.count.isMultiple(of: 2) ? (sorted[center - 1] + sorted[center]) / 2 : sorted[center]
+        }
+        func label(_ value: Double?) -> String {
+            value.map { $0.formatted(.number.precision(.fractionLength(1))) + "小时" } ?? "暂无记录"
+        }
+        let first = median(days.prefix(middle).compactMap(\.sleepHours))
+        let second = median(days.dropFirst(middle).compactMap(\.sleepHours))
+        var change = "两段记录不足，暂不能比较。"
+        if let first, let second {
+            let difference = second - first
+            change = abs(difference) < 0.05 ? "两段中位数基本相同。"
+                : "后半段较前半段\(difference > 0 ? "增加" : "减少") \(abs(difference).formatted(.number.precision(.fractionLength(1)))) 小时。"
+        }
+        return "睡眠有记录 \(days.compactMap(\.sleepHours).count)/\(days.count) 天；前半段中位数 \(label(first))，后半段中位数 \(label(second))。\(change)"
+    }
+
+    var context: String {
+        let rows = days.map { day in
+            let sleep = day.sleepHours.map { $0.formatted(.number.precision(.fractionLength(1))) + "小时" } ?? "未读取到睡眠记录"
+            return "\(day.date.formatted(date: .numeric, time: .omitted))：睡眠 \(sleep)；同期用药：\(day.medicationContext.isEmpty ? "暂无已授权记录" : day.medicationContext.joined(separator: "；"))"
+        }
+        return "时区 \(timeZoneIdentifier)。按结束日归属，每个观察窗口为前日中午到当日中午。未确认/忽略不能视为已服药。\n\(sleepSummary)\n" + rows.joined(separator: "\n")
+    }
+}

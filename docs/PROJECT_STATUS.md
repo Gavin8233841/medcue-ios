@@ -1410,3 +1410,34 @@ in the candidate. This rollback does not provide cloud HealthKit/stock lookup.
 Verified that the restored dispatch function matches the baseline and passes
 Swift syntax parsing and staged checks. No build/device test was performed for
 this rollback; the owner requested to build it themselves.
+
+## 2026-11-06 Independent questions and dynamic sleep/medication review
+
+Chat requests now omit previous conversation turns. Existing messages remain
+visible, while each question supplies its own authorized medication context.
+
+The Apple Health page now links to a 14/30-day medication/sleep review. It uses
+actual HealthKit sleep summaries and committed medication-task records, with
+shared date selection across sleep and recorded-dose charts. Actual taken time
+is used when available. Unknown actual times are explicitly shown using the
+planned window and excluded from the actual-time chart. Ignored and pending
+records remain distinct. Missing sleep stays missing. First/second-half sleep
+medians and their difference are computed from available samples.
+
+Explicit personal sleep-review questions in broker cloud mode attach this same
+projection to the existing single context-based request after health-summary
+sharing consent and authorization/cancellation rechecks. General sleep knowledge
+questions use the ordinary path. Authorized medication plans and label summaries
+remain available to the model; duplicated dose/risk rows are omitted in this
+enriched prompt. The local 2B path uses independent questions but does not
+receive the new sleep projection. New-drug proactive review and daily proactive
+reports are deferred. No synthetic records were written to Apple Health.
+
+13 focused tests across three suites passed, including real/unknown medication
+times, changing sleep inputs, missing data, knowledge-question routing and the
+cloud contract. Three projection regressions passed again after correcting
+non-taken confirmation time versus planned time. Fresh independent source
+review has no remaining Required findings. Two live synthetic cloud probes with
+opposite sleep changes returned their respective values; these are transport
+and data-use evidence, not physical-device acceptance. The broad hosted run
+stalled and was stopped; the targeted rerun succeeded.
