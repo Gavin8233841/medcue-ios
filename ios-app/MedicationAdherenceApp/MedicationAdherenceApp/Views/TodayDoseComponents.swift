@@ -10,6 +10,7 @@ struct ElderMedicationPhotoView: View {
     let photoData: Data?
     let medicationName: String?
     let width: CGFloat
+    var usesDemoVitaminPhoto = false
     @State private var decodedPhoto: DecodedPhoto?
 
     private struct PhotoRequest: Equatable, Sendable {
@@ -23,7 +24,7 @@ struct ElderMedicationPhotoView: View {
     }
 
     private var height: CGFloat {
-        width / ElderTaskLayoutMetrics.photoContainerAspectRatio
+        width / 1.25
     }
 
     private var request: PhotoRequest {
@@ -42,6 +43,8 @@ struct ElderMedicationPhotoView: View {
         let description: String
         if currentImage != nil {
             description = "药品实物照片"
+        } else if photoData == nil && usesDemoVitaminPhoto {
+            description = "演示药品实物照片"
         } else if photoData == nil {
             description = "未添加药品照片，药品图示"
         } else if decodedPhoto?.request == request {
@@ -54,9 +57,13 @@ struct ElderMedicationPhotoView: View {
 
     var body: some View {
         ZStack {
-            Color(.tertiarySystemGroupedBackground)
             if let image = currentImage {
                 Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(8)
+            } else if photoData == nil && usesDemoVitaminPhoto {
+                Image("DemoVitaminD3")
                     .resizable()
                     .scaledToFit()
                     .padding(8)
@@ -68,10 +75,6 @@ struct ElderMedicationPhotoView: View {
         }
         .frame(width: width, height: height)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color(.separator), lineWidth: 1)
-        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(photoAccessibilityLabel)
         .accessibilityAddTraits(.isImage)
@@ -174,10 +177,13 @@ struct PendingDoseFeedback: Equatable {
 struct PendingDoseConfirmation: Equatable {
     enum Kind: Equatable {
         case earlyTaken
+        case takenConfirmation
         case plannedDelay
 
         var iconName: String {
             switch self {
+            case .takenConfirmation:
+                return "checkmark.circle.fill"
             case .earlyTaken:
                 return "exclamationmark.triangle.fill"
             case .plannedDelay:
@@ -187,6 +193,8 @@ struct PendingDoseConfirmation: Equatable {
 
         var title: String {
             switch self {
+            case .takenConfirmation:
+                return "确认已服用或使用？"
             case .earlyTaken:
                 return "确认提前服用？"
             case .plannedDelay:
@@ -196,6 +204,8 @@ struct PendingDoseConfirmation: Equatable {
 
         func message(delayDurationText: String) -> String {
             switch self {
+            case .takenConfirmation:
+                return "请确认本次用药已经完成。"
             case .earlyTaken:
                 return "距离计划时间较久。请确认已按医嘱、说明书或医生或药师建议服用。"
             case .plannedDelay:
@@ -205,6 +215,8 @@ struct PendingDoseConfirmation: Equatable {
 
         var confirmTitle: String {
             switch self {
+            case .takenConfirmation:
+                return "确认已完成"
             case .earlyTaken:
                 return "确认已服用"
             case .plannedDelay:
@@ -214,6 +226,8 @@ struct PendingDoseConfirmation: Equatable {
 
         func elderTitle(completionVerb: String) -> String {
             switch self {
+            case .takenConfirmation:
+                "确认已服用或使用？"
             case .earlyTaken:
                 completionVerb == "已使用" ? "确认提前使用？" : "确认提前服用？"
             case .plannedDelay:
@@ -223,6 +237,8 @@ struct PendingDoseConfirmation: Equatable {
 
         func elderConfirmTitle(completionVerb: String) -> String {
             switch self {
+            case .takenConfirmation:
+                "确认\(completionVerb)"
             case .earlyTaken: "确认\(completionVerb)"
             case .plannedDelay: "确认延后"
             }
@@ -230,6 +246,8 @@ struct PendingDoseConfirmation: Equatable {
 
         var tint: Color {
             switch self {
+            case .takenConfirmation:
+                return .green
             case .earlyTaken:
                 return .orange
             case .plannedDelay:
@@ -470,6 +488,78 @@ struct CompletionRateGlassSurface: ViewModifier {
             content
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
+    }
+}
+
+struct TodaySettledCard: View {
+    let snapshot: TodayRenderSnapshot
+    let reduceMotion: Bool
+    @State private var appeared = false
+
+    private var complete: Bool { snapshot.completionRateSnapshot.isComplete }
+    private var tint: Color { complete ? .green : .blue }
+    private var skippedCount: Int { snapshot.displayTodayTasks.filter { $0.status == .skipped }.count }
+
+    var body: some View {
+        VStack(spacing: 22) {
+            ZStack {
+                Circle().fill(tint.opacity(0.08))
+                Circle()
+                    .trim(from: 0, to: appeared || reduceMotion ? 1 : 0)
+                    .stroke(tint.opacity(0.55), style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Image(systemName: complete ? "checkmark" : "list.bullet")
+                    .font(.system(size: 36, weight: .medium))
+                    .foregroundStyle(tint)
+                    .scaleEffect(appeared || reduceMotion ? 1 : 0.75)
+                    .opacity(appeared || reduceMotion ? 1 : 0)
+            }
+            .frame(width: 96, height: 96)
+            .accessibilityHidden(true)
+
+            VStack(spacing: 8) {
+                Text(complete ? "今日用药已完成" : "今日暂无待处理")
+                    .font(.title2.bold())
+                    .multilineTextAlignment(.center)
+                Text(snapshot.displayTodayTasks.isEmpty ? "新的用药计划会显示在这里" : "每一次记录，都可以回看")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            if !snapshot.displayTodayTasks.isEmpty {
+                HStack(spacing: 14) {
+                    summary("已服用", count: snapshot.completionRateSnapshot.completedCount, color: .green)
+                    summary("已忽略", count: skippedCount, color: skippedCount > 0 ? .orange : .blue)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 22)
+        .padding(.vertical, 32)
+        .background {
+            RoundedRectangle(cornerRadius: 28)
+                .fill(Color(.secondarySystemGroupedBackground))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 28)
+                        .stroke(tint.opacity(0.12), lineWidth: 1)
+                }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("today.settled")
+        .task(id: complete) {
+            appeared = false
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.65)) { appeared = true }
+        }
+    }
+
+    private func summary(_ title: String, count: Int, color: Color) -> some View {
+        HStack(spacing: 8) {
+            Text(title).foregroundStyle(.secondary)
+            Text(count.formatted()).fontWeight(.semibold).foregroundStyle(color)
+        }
+        .font(.subheadline)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 13)
+        .background(color.opacity(0.07), in: RoundedRectangle(cornerRadius: 16))
     }
 }
 

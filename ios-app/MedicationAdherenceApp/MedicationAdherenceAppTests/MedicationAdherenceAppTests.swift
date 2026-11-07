@@ -68,12 +68,19 @@ struct MedicationAdherenceAppTests {
 
         let demoMedications = try context.fetch(FetchDescriptor<StoredMedication>())
             .filter(\.isDemoContent)
+        for medication in demoMedications {
+            #expect(medication.photoData?.isEmpty == false)
+        }
         let demoMedicationIDs = Set(demoMedications.map(\.id))
         let demoTasks = try context.fetch(FetchDescriptor<StoredDoseTask>())
             .filter { demoMedicationIDs.contains($0.medicationID) }
         let demoStocks = try context.fetch(FetchDescriptor<StoredMedicationStock>())
             .filter { demoMedicationIDs.contains($0.medicationID) }
 
+        let customPhotoMedication = try #require(demoMedications.first { $0.displayName == "氯雷他定" })
+        let customPhotoID = customPhotoMedication.id
+        let customPhoto = Data([1, 2, 3])
+        customPhotoMedication.photoData = customPhoto
         demoMedications[0].displayName = "已被修改的演示药品"
         demoTasks[0].status = .taken
         demoTasks[0].recordedAt = Date()
@@ -85,6 +92,47 @@ struct MedicationAdherenceAppTests {
 
         try DemoDataSeeder.rebuildForExplicitDemoMode(in: context)
         try verifyStandardDemoContent(in: context, preserving: userMedicationID)
+        let rebuilt = try context.fetch(FetchDescriptor<StoredMedication>())
+        #expect(rebuilt.first { $0.id == customPhotoID }?.photoData == customPhoto)
+        for name in ["布洛芬", "对乙酰氨基酚", "维生素 D3"] {
+            #expect(rebuilt.first { $0.displayName == name }?.photoData == DemoDataSeeder.bundledPhotoData(for: name))
+        }
+    }
+
+    @Test
+    @MainActor
+    func artworkRefreshUpgradesExistingDemoPhotosWithoutRebuildingRecords() throws {
+        let container = try MedicationAdherenceModelContainer.make(isStoredInMemoryOnly: true)
+        let context = ModelContext(container)
+        try DemoDataSeeder.rebuildForExplicitDemoMode(in: context)
+        let medications = try context.fetch(FetchDescriptor<StoredMedication>())
+        let oldPhoto = Data([1, 2, 3])
+        for medication in medications {
+            medication.photoData = medication.displayName == "维生素 D3" ? nil : oldPhoto
+        }
+        let userMedication = StoredMedication(displayName: "布洛芬", kind: .overTheCounter,
+            inputSource: .manual, photoData: oldPhoto, isDemoContent: false)
+        context.insert(userMedication)
+        let tasks = try context.fetch(FetchDescriptor<StoredDoseTask>())
+        let task = try #require(tasks.first)
+        task.status = .taken
+        let taskIDs = Set(tasks.map(\.id))
+        try context.save()
+        let suite = "MedCue-artwork-test-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        #expect(DemoDataSeeder.refreshExistingDemoArtworkIfNeeded(in: context, defaults: defaults))
+        for name in ["布洛芬", "对乙酰氨基酚", "维生素 D3"] {
+            let medication = try #require(medications.first { $0.displayName == name })
+            #expect(medication.photoData == DemoDataSeeder.bundledPhotoData(for: name))
+            #expect(medication.photoData?.isEmpty == false)
+        }
+        #expect(userMedication.photoData == oldPhoto)
+        #expect(medications.first { $0.displayName == "氯雷他定" }?.photoData == oldPhoto)
+        #expect(Set(try context.fetch(FetchDescriptor<StoredDoseTask>()).map(\.id)) == taskIDs)
+        #expect(task.status == .taken)
+        #expect(!DemoDataSeeder.refreshExistingDemoArtworkIfNeeded(in: context, defaults: defaults))
     }
 
     @Test

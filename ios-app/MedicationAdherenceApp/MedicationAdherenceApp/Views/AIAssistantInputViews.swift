@@ -13,6 +13,10 @@ struct AIChatInputBar: View {
     let isEnabled: Bool
     let showDisclaimer: () -> Void
     let send: () -> Void
+    let capturedImage: (UIImage) -> Void
+    @State private var showingCamera = false
+    @State private var showingPhotoLibrary = false
+    @State private var showingCameraDenied = false
 
     private var trimmedText: String {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -23,107 +27,101 @@ struct AIChatInputBar: View {
     }
 
     private var accentTint: Color {
-        AIAssistantPalette.accent
-    }
-
-    private var isExpanded: Bool {
-        isFocused.wrappedValue || !text.isEmpty || !isEnabled
+        Color(red: 0.28, green: 0.48, blue: 0.62)
     }
 
     var body: some View {
         let inputTint = accentTint
 
-        VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 8) {
-                if !isExpanded {
-                    imagePicker(tint: inputTint)
-                }
-
-                // Keep one TextField at the same place in the tree as the composer grows.
-                TextField(isEnabled ? "询问用药记录、风险提示或说明书摘要" : "确认使用说明后开启咨询", text: $text, axis: .vertical)
-                    .lineLimit(1...5)
-                    .textInputAutocapitalization(.never)
-                    .focused(isFocused)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .frame(minHeight: 44)
-                    .disabled(!isEnabled || isSending)
-                    .accessibilityIdentifier(AppAccessibilityID.assistantInput)
-                    .toolbar {
-                        ToolbarItemGroup(placement: .keyboard) {
-                            Spacer()
-                            Button("收起") {
-                                dismissKeyboard()
-                            }
-                            .disabled(!isFocused.wrappedValue)
+        HStack(alignment: .center, spacing: 8) {
+            Menu {
+                Button {
+                    dismissKeyboard()
+                    Task { @MainActor in
+                        if await AppPermissionGate.requestCameraAccess() {
+                            showingCamera = true
+                        } else {
+                            showingCameraDenied = true
                         }
                     }
-
-                if !isExpanded {
-                    sendButton(tint: inputTint)
+                } label: {
+                    Label("拍照", systemImage: "camera")
                 }
-            }
-            .padding(.horizontal, 6)
-            .frame(minHeight: 56)
-
-            if isExpanded {
-                HStack(spacing: 10) {
-                    imagePicker(tint: inputTint)
-
-                    Text(isEnabled ? "原图本机识别；文字填入输入框，云端发送时会随提问提交" : "请先查看使用说明")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Spacer(minLength: 4)
-                    sendButton(tint: inputTint)
+                .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
+                Button {
+                    dismissKeyboard()
+                    showingPhotoLibrary = true
+                } label: {
+                    Label("从相册选择", systemImage: "photo")
                 }
-                .padding(.leading, 6)
-                .padding(.trailing, 6)
-                .padding(.bottom, 5)
+            } label: {
+                AIChatAccessoryIcon(
+                    systemName: isReadingImage ? "hourglass" : "photo.badge.plus",
+                    accessibilityLabel: "添加图片或拍照",
+                    tint: inputTint,
+                    isEnabled: isEnabled && !isSending && !isReadingImage
+                )
             }
+            .buttonStyle(.plain)
+            .disabled(!isEnabled || isSending || isReadingImage)
+
+            TextField(isEnabled ? "聊聊健康、用药或记录…" : "确认使用说明后开启咨询", text: $text, axis: .vertical)
+                .lineLimit(isFocused.wrappedValue ? 1...5 : 1...1)
+                .textInputAutocapitalization(.never)
+                .focused(isFocused)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 10)
+                .frame(minHeight: 44)
+                .disabled(!isEnabled || isSending)
+                .accessibilityIdentifier(AppAccessibilityID.assistantInput)
+                .submitLabel(.send)
+                .onSubmit { if canSend { send() } }
+
+
+            Button {
+                isEnabled ? send() : showDisclaimer()
+            } label: {
+                AIChatAccessoryIcon(
+                    systemName: isSending ? "hourglass" : "arrow.up",
+                    accessibilityLabel: isEnabled ? "发送" : "查看使用说明",
+                    tint: inputTint,
+                    isEnabled: isEnabled ? canSend : true,
+                    isProminent: true
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(isSending || isReadingImage || (isEnabled && trimmedText.isEmpty))
+            .accessibilityIdentifier(AppAccessibilityID.assistantSend)
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: isExpanded ? 22 : 28, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: isExpanded ? 22 : 28, style: .continuous)
-                .stroke(accentTint.opacity(isFocused.wrappedValue ? 0.30 : 0.14), lineWidth: 1)
-        )
-        .shadow(color: accentTint.opacity(0.09), radius: 12, x: 0, y: 5)
         .padding(.horizontal, 12)
-        .padding(.top, 8)
-        .padding(.bottom, 10)
-        .animation(.easeOut(duration: 0.18), value: isExpanded)
-    }
-
-    private func imagePicker(tint: Color) -> some View {
-        PhotosPicker(selection: $selectedImageItem, matching: .images) {
-            AIChatAccessoryIcon(
-                systemName: isReadingImage ? "hourglass" : "photo.badge.plus",
-                accessibilityLabel: "识别药品图片文字",
-                tint: tint,
-                isEnabled: isEnabled && !isSending && !isReadingImage
-            )
+        .padding(.vertical, 10)
+        .background {
+            if #available(iOS 26.0, *) {
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .fill(.clear)
+                    .glassEffect(.regular.tint(Color.primary.opacity(0.035)), in: .rect(cornerRadius: 26))
+            } else {
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .fill(.regularMaterial)
+            }
         }
-        .buttonStyle(.plain)
-        .disabled(!isEnabled || isSending || isReadingImage)
-        .accessibilityHint("原图仅在本机识别。识别文字会填入输入框；选择云端并发送时，文字会作为提问内容提交")
-    }
-
-    private func sendButton(tint: Color) -> some View {
-        Button {
-            isEnabled ? send() : showDisclaimer()
-        } label: {
-            AIChatAccessoryIcon(
-                systemName: isSending ? "hourglass" : "arrow.up",
-                accessibilityLabel: isEnabled ? "发送" : "查看使用说明",
-                tint: tint,
-                isEnabled: isEnabled ? canSend : true,
-                isProminent: true
-            )
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .photosPicker(isPresented: $showingPhotoLibrary, selection: $selectedImageItem, matching: .images)
+        .fullScreenCover(isPresented: $showingCamera) {
+            CameraPhotoCaptureSheet(onImage: capturedImage)
+                .ignoresSafeArea()
         }
-        .buttonStyle(.plain)
-        .disabled(isSending || isReadingImage || (isEnabled && trimmedText.isEmpty))
-        .accessibilityIdentifier(AppAccessibilityID.assistantSend)
+        .alert("无法使用相机", isPresented: $showingCameraDenied) {
+            Button("打开设置") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("请在系统设置中允许 MedCue 使用相机，或从相册选择图片。")
+        }
     }
 
     private func dismissKeyboard() {
@@ -169,7 +167,7 @@ struct AIChatAccessoryIcon: View {
         if !isEnabled {
             return Color(.secondarySystemGroupedBackground).opacity(0.62)
         }
-        return isProminent ? tint : Color(.systemBackground).opacity(0.90)
+        return isProminent ? tint : Color(.tertiarySystemFill)
     }
 }
 
@@ -177,7 +175,7 @@ struct ThirdPartyMedicalAgentNoticeSheet: View {
     let accept: () -> Void
 
     private var responseSourceText: String {
-        "设备端模型在本机运行；云端智能体仅在你确认授权并主动发送咨询后才会连接外部服务。"
+        "设备端模型在本机运行；云端智能体只有在你主动选择并开启后才会连接外部服务。"
     }
 
     var body: some View {
@@ -226,15 +224,19 @@ struct ThirdPartyMedicalAgentNoticeSheet: View {
 struct AIConsentSheet: View {
     @Environment(\.dismiss) private var dismiss
     let consent: StoredAIConsent?
-    let save: (AIConsentDraft) -> Void
+    let save: (AIConsentDraft) -> Bool
     let revoke: () -> Void
+    @State private var saveFailed = false
     @State private var sharesMedicationProfile: Bool
     @State private var sharesMedicationPlans: Bool
     @State private var sharesDoseEvents: Bool
     @State private var sharesRiskCards: Bool
     @State private var sharesDrugLabels: Bool
+    @State private var sharesHealthSummary = UserDefaults.standard.bool(forKey: "aiSharesHealthSummary")
+    @State private var sharesInventory = UserDefaults.standard.bool(forKey: "aiSharesInventory")
+    @State private var sharesImportDraft: Bool
 
-    init(consent: StoredAIConsent?, save: @escaping (AIConsentDraft) -> Void, revoke: @escaping () -> Void) {
+    init(consent: StoredAIConsent?, save: @escaping (AIConsentDraft) -> Bool, revoke: @escaping () -> Void) {
         self.consent = consent
         self.save = save
         self.revoke = revoke
@@ -243,26 +245,25 @@ struct AIConsentSheet: View {
         _sharesDoseEvents = State(initialValue: consent?.sharesDoseEvents ?? true)
         _sharesRiskCards = State(initialValue: consent?.sharesRiskCards ?? true)
         _sharesDrugLabels = State(initialValue: consent?.sharesDrugLabels ?? true)
+        _sharesImportDraft = State(initialValue: consent?.sharesImportDraft ?? false)
     }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("自动附加的 App 资料") {
+                Section("共享范围") {
                     Toggle("药品名称、规格和来源", isOn: $sharesMedicationProfile)
                     Toggle("提醒计划", isOn: $sharesMedicationPlans)
                     Toggle("服药记录", isOn: $sharesDoseEvents)
                     Toggle("风险提醒", isOn: $sharesRiskCards)
                     Toggle("说明书摘要", isOn: $sharesDrugLabels)
+                    Toggle("按需查询库存余量", isOn: $sharesInventory)
+                    Toggle("按需查询 Apple 健康摘要", isOn: $sharesHealthSummary)
                 }
 
                 Section("授权说明") {
-                    Text("勾选项只控制自动附加的 App 资料。你编辑并发送的提问文字，包括从图片识别后填入的文字，会提交给所选运行方式；关闭上方选项不会过滤提问文字。撤销后不会继续自动共享 App 资料。")
+                    Text("勾选项控制自动附加的 App 资料。主动发送的提问（含输入框中的识别文字）会交给所选模型。")
                         .foregroundStyle(.secondary)
-                    if consent?.isActive == true && consent?.sharesImportDraft == true {
-                        Text("此前开启的导入识别草稿授权仍保留；当前聊天不会自动附加该草稿。")
-                            .foregroundStyle(.secondary)
-                    }
                 }
 
                 if consent?.isActive == true {
@@ -276,6 +277,7 @@ struct AIConsentSheet: View {
                     }
                 }
             }
+            .alert("授权未保存", isPresented: $saveFailed) { Button("好", role: .cancel) {} } message: { Text("请重试保存共享范围。") }
             .navigationTitle("智能体授权")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -286,15 +288,17 @@ struct AIConsentSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
-                        save(AIConsentDraft(
+                        let saved = save(AIConsentDraft(
                             sharesMedicationProfile: sharesMedicationProfile,
                             sharesMedicationPlans: sharesMedicationPlans,
                             sharesDoseEvents: sharesDoseEvents,
                             sharesRiskCards: sharesRiskCards,
                             sharesDrugLabels: sharesDrugLabels,
-                            sharesImportDraft: consent?.isActive == true && consent?.sharesImportDraft == true
+                            sharesImportDraft: sharesImportDraft,
+                            sharesHealthSummary: sharesHealthSummary,
+                            sharesInventory: sharesInventory
                         ))
-                        dismiss()
+                        if saved { dismiss() } else { saveFailed = true }
                     }
                 }
             }

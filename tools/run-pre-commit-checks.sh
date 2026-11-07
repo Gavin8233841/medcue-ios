@@ -263,22 +263,14 @@ failures=0
 
 printf '%s\n' 'MedCue staged pre-commit checks'
 
-whitespace_failed=0
-if git diff --cached --check --text --no-ext-diff --no-textconv >/dev/null 2>&1; then
-    printf '%s\n' '[PASS] staged whitespace check'
-else
-    printf '%s\n' '[FAIL] staged whitespace check' >&2
-    printf '%s\n' 'Rule staged-whitespace: fix whitespace errors in the index; source context is not printed.' >&2
-    whitespace_failed=1
-    failures=$((failures + 1))
-fi
-
 # Only post-image paths need allowlist and content checks. Treat renames as a
 # deletion and an addition so Git's rename threshold cannot change coverage.
 if ! git diff --cached --name-only --diff-filter=ACMRT --no-renames -z -- >"$files_file" 2>/dev/null; then
     fail "cannot enumerate staged paths"
 fi
-if "$PYTHON_BIN" - "$patterns_file" "$files_file" "$whitespace_failed" <<'PY'
+if "$PYTHON_BIN" - "$patterns_file" "$files_file" "$source_policy_file" <<'PY'
+import ast
+import hashlib
 import json
 import os
 import re
@@ -286,7 +278,18 @@ import subprocess
 import sys
 
 patterns_path, files_path = sys.argv[1:3]
-whitespace_failed = sys.argv[3] == "1"
+with open(sys.argv[3], encoding="utf-8") as handle:
+    builder = ast.parse(handle.read())
+assignments = [node.value for node in builder.body if isinstance(node, ast.Assign)
+               and any(isinstance(target, ast.Name) and target.id == "APPROVED_DEMO_PHOTOS" for target in node.targets)]
+if len(assignments) != 1:
+    raise SystemExit("staged photo policy must have one literal allowlist")
+photos = ast.literal_eval(assignments[0])
+if not isinstance(photos, dict) or any(not isinstance(path, str) or not isinstance(digest, str)
+    or not re.fullmatch(r"[0-9a-f]{64}", digest)
+    or not re.fullmatch(r"ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets\.xcassets/Demo[A-Za-z0-9]+\.imageset/Demo[A-Za-z0-9]+\.(?:png|jpg)", path)
+    for path, digest in photos.items()):
+    raise SystemExit("invalid staged photo allowlist")
 try:
     with open(patterns_path, "rb") as handle:
         patterns = []
@@ -298,6 +301,15 @@ try:
     hunk_header = re.compile(rb"^@@ -[0-9]+(?:,[0-9]+)? \+([0-9]+)(?:,[0-9]+)? @@")
     matched = False
     for path in paths:
+        safe_path = json.dumps(os.fsdecode(path), ensure_ascii=True)
+        if os.fsdecode(path) in photos:
+            blob = subprocess.run(["git", "show", ":" + os.fsdecode(path)],
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            if blob.returncode or hashlib.sha256(blob.stdout).hexdigest() != photos[os.fsdecode(path)]:
+                matched = True
+                print(f"[FAIL] path={safe_path} rule=approved-photo-sha256", file=sys.stderr)
+            # Only exact approved image bytes are exempt from plaintext scans.
+            continue
         # Read one literal path at a time, keeping its bytes separate from the
         # patch headers. Neither unusual names nor staged text reach diagnostics.
         result = subprocess.run(
@@ -309,14 +321,15 @@ try:
         if result.returncode:
             raise ValueError("diff failed")
         safe_path = json.dumps(os.fsdecode(path), ensure_ascii=True)
-        if whitespace_failed:
-            whitespace = subprocess.run(
-                ["git", "--literal-pathspecs", "diff", "--cached", "--check",
-                 "--text", "--no-ext-diff", "--no-textconv", "--", os.fsdecode(path)],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
-            )
-            if whitespace.returncode:
-                print(f"[FAIL] path={safe_path} rule=staged-whitespace", file=sys.stderr)
+        whitespace = subprocess.run(
+            ["git", "--literal-pathspecs", "diff", "--cached", "--check",
+             "--text", "--no-ext-diff", "--no-textconv", "--", os.fsdecode(path)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+        )
+        if whitespace.returncode:
+            matched = True
+            print(f"[FAIL] path={safe_path} rule=staged-whitespace", file=sys.stderr)
+            print("Rule staged-whitespace: fix whitespace errors in the index; source context is not printed.", file=sys.stderr)
         new_line = None
         for line in result.stdout.split(b"\n"):
             if line.startswith(b"diff --git "):
@@ -352,7 +365,7 @@ except (OSError, ValueError, re.error):
     raise SystemExit(2)
 PY
 then
-    printf '%s\n' '[PASS] absolute local path check'
+    printf '%s\n' '[PASS] staged whitespace and absolute local path checks'
 else
     scan_status=$?
     if [[ "$scan_status" == 1 ]]; then

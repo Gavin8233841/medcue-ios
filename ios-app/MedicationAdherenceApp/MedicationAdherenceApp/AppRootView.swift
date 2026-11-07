@@ -14,8 +14,9 @@ struct AppRootView: View {
     @AppStorage("hasCompletedFirstLaunchSetup") private var hasCompletedFirstLaunchSetup = false
     @AppStorage(AppPersistenceCommitter.failureMessageDefaultsKey) private var persistenceFailureMessage = ""
     @StateObject private var notificationService = NotificationService()
-    @State private var selectedTab: AppTab = .today
-    @State private var loadedTabs: Set<AppTab> = [.today]
+    @State private var demoExperienceGeneration = 0
+    @State private var selectedTab: AppTab = Self.initialTab
+    @State private var loadedTabs: Set<AppTab> = [Self.initialTab]
     @State private var pendingAIQuestion = ""
     @State private var didSeedStartupData = false
     @State private var didRepairLegacyAutoSkips = false
@@ -27,6 +28,16 @@ struct AppRootView: View {
     @State private var isShowingElderSettings = false
     @State private var topGradientState = AppTabTopGradientState()
     @State private var persistenceIntegrityStartupCheck = PersistenceIntegrityStartupCheck()
+
+    private static var isGalleryPreview: Bool {
+        #if DEBUG && targetEnvironment(simulator)
+        ProcessInfo.processInfo.arguments.contains("--medication-gallery-preview")
+        #else
+        false
+        #endif
+    }
+
+    private static var initialTab: AppTab { isGalleryPreview ? .medications : .today }
 
     private var shouldShowFirstLaunchSetup: Bool {
         (!hasCompletedFirstLaunchSetup || ProcessInfo.processInfo.arguments.contains("-showFirstLaunch")) && !didDismissForcedFirstLaunch
@@ -72,6 +83,7 @@ struct AppRootView: View {
     private var applicationContent: some View {
         ZStack {
             experienceContent
+                .id(demoExperienceGeneration)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .allowsHitTesting(!isFirstLaunchOverlayActive)
                 .accessibilityHidden(isFirstLaunchOverlayActive)
@@ -86,7 +98,7 @@ struct AppRootView: View {
                 .zIndex(1)
             }
 
-            if shouldShowFirstLaunchSetup && !isCompletingFirstLaunch {
+            if shouldShowFirstLaunchSetup {
                 FirstLaunchSetupView(
                     finish: { shouldOpenAccountSettings in
                         Task {
@@ -99,19 +111,14 @@ struct AppRootView: View {
                         }
                     }
                 )
-                .transition(.opacity.combined(with: .scale(scale: 1.02)))
+                .id(demoExperienceGeneration)
+                .disabled(isCompletingFirstLaunch)
+                .transition(.opacity)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .zIndex(10)
             }
 
-            if isCompletingFirstLaunch {
-                FirstLaunchCompletionBridgeView()
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .zIndex(12)
-            }
-
-            if !shouldShowFirstLaunchSetup && !isRunningElderUIFixture {
+            if !shouldShowFirstLaunchSetup && !Self.isGalleryPreview && !isRunningElderUIFixture {
                 MedicationWatchSnapshotSyncHost()
                     .frame(width: 1, height: 1)
                     .opacity(0.001)
@@ -120,6 +127,7 @@ struct AppRootView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .environment(\.prepareNextDemoExperience, startNextDemoExperience)
         .task {
             await runStartupMaintenance()
         }
@@ -137,6 +145,19 @@ struct AppRootView: View {
                 return
             }
             await reconcileStartupReminders(after: .milliseconds(700))
+        }
+        .onChange(of: appExperienceModeRaw) { _, _ in activateTab(.today) }
+        .onOpenURL { url in
+            guard !Self.isGalleryPreview && !isRunningElderUIFixture else { return }
+            guard let request = MedicationReminderLiveActivityActionURL.request(from: url) else {
+                return
+            }
+            activateTab(.today)
+            Task {
+                await MedicationReminderLiveActivityActionService(notificationService: notificationService)
+                    .handle(request, in: modelContext)
+                await consumeCompletedLiveActivityActions()
+            }
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active, !shouldShowFirstLaunchSetup else {
@@ -321,24 +342,31 @@ struct AppRootView: View {
             return
         }
         activateTab(shouldOpenAccountSettings ? .profile : .today)
-        withAnimation(.smooth(duration: 0.30)) {
-            isCompletingFirstLaunch = true
+        hasCompletedFirstLaunchSetup = true
+        didDismissForcedFirstLaunch = true
+        isCompletingFirstLaunch = false
+    }
+
+    @MainActor
+    private func startNextDemoExperience() async throws {
+        #if DEBUG || MEDCUE_DEMO
+        do {
+            try DemoModeLauncher.prepareNextExperience(in: modelContext)
+        } catch {
+            modelContext.rollback()
+            throw error
         }
-        try? await Task.sleep(for: .milliseconds(260))
-        guard !Task.isCancelled else {
-            return
-        }
-        withAnimation(.smooth(duration: 0.24)) {
-            hasCompletedFirstLaunchSetup = true
-            didDismissForcedFirstLaunch = true
-        }
-        try? await Task.sleep(for: .milliseconds(840))
-        guard !Task.isCancelled else {
-            return
-        }
-        withAnimation(.smooth(duration: 0.55)) {
-            isCompletingFirstLaunch = false
-        }
+        MedicationListSnapshotCache.store(snapshot: .empty, token: "")
+        appExperienceModeRaw = AppExperienceMode.complete.rawValue
+        activateTab(.today)
+        loadedTabs = [.today]
+        pendingAIQuestion = ""
+        isCompletingFirstLaunch = false
+        didDismissForcedFirstLaunch = false
+        hasCompletedFirstLaunchSetup = false
+        didScheduleStartupReminderReconcile = false
+        demoExperienceGeneration += 1
+        #endif
     }
 
     @MainActor
@@ -348,9 +376,8 @@ struct AppRootView: View {
             return
         }
         isCompletingFirstLaunch = true
-        hasCompletedFirstLaunchSetup = false
         do {
-            try await DemoModeLauncher.rebuildAndExit(in: modelContext)
+            try await startNextDemoExperience()
         } catch {
             isCompletingFirstLaunch = false
             isShowingDemoModeError = true
@@ -363,17 +390,18 @@ struct AppRootView: View {
         #if DEBUG || MEDCUE_DEMO
         if !didSeedStartupData {
             didSeedStartupData = true
+            if Self.isGalleryPreview { appExperienceModeRaw = AppExperienceMode.complete.rawValue }
             DemoDataSeeder.seedIfNeeded(in: modelContext)
         }
         #endif
 
+        DemoDataSeeder.refreshExistingDemoArtworkIfNeeded(in: modelContext)
+
         guard !shouldShowFirstLaunchSetup else {
             return
         }
-        _ = persistenceIntegrityStartupCheck.run(modelContext: modelContext)
-        guard repairLegacyAutoSkipsIfNeeded() else {
-            return
-        }
+        _ = await persistenceIntegrityStartupCheck.runInBackground(modelContainer: modelContext.container)
+        guard repairLegacyAutoSkipsIfNeeded() else { return }
         await reconcileStartupReminders(after: .milliseconds(1_400))
     }
 
@@ -394,17 +422,15 @@ struct AppRootView: View {
 
     @MainActor
     private func consumeCompletedLiveActivityActions() async {
-        guard !isRunningElderUIFixture else { return }
-        guard repairLegacyAutoSkipsIfNeeded() else {
-            return
-        }
+        guard !Self.isGalleryPreview && !isRunningElderUIFixture else { return }
+        guard repairLegacyAutoSkipsIfNeeded() else { return }
         await MedicationReminderLiveActivityActionService(notificationService: notificationService)
             .consumeCompletedLiveActivities(in: modelContext)
     }
 
     @MainActor
     private func reconcileStartupReminders(after delay: Duration) async {
-        guard !isRunningElderUIFixture else { return }
+        guard !Self.isGalleryPreview && !isRunningElderUIFixture else { return }
         guard !didScheduleStartupReminderReconcile else {
             return
         }

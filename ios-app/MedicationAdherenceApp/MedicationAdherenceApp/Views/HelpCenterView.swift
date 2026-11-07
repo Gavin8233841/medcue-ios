@@ -2,6 +2,7 @@ import SwiftData
 import SwiftUI
 
 struct HelpCenterView: View {
+    @Environment(\.prepareNextDemoExperience) private var prepareNextDemoExperience
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @State private var searchText = ""
@@ -192,7 +193,8 @@ struct HelpCenterView: View {
     private func startDemoMode() async {
         #if DEBUG || MEDCUE_DEMO
         do {
-            try await DemoModeLauncher.rebuildAndExit(in: modelContext)
+            guard let prepareNextDemoExperience else { return }
+            try await prepareNextDemoExperience()
         } catch {
             showingProductTour = false
             isShowingDemoModeError = true

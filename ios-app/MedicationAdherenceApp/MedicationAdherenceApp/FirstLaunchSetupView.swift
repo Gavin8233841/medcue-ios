@@ -23,15 +23,15 @@ struct FirstLaunchSetupView: View {
         [
             FirstLaunchPage(
                 eyebrow: "今日",
-                title: "今天要处理的用药",
-                subtitle: "避免忘记、重复或误触造成记录混乱。",
+                title: "每一次用药，都有记录",
+                subtitle: "看清今天要做什么，服用、延后，一步记录。",
                 iconName: "bell.badge.fill",
                 tint: Color(red: 0.42, green: 0.58, blue: 0.78)
             ),
             FirstLaunchPage(
                 eyebrow: "添加",
-                title: "把药品资料填完整",
-                subtitle: "把药名、时间和药盒编号整理成可核对资料。",
+                title: "拍下说明书，核对后添加",
+                subtitle: "识别药品资料，确认药名和计划，再加入药盒。",
                 iconName: "pills.fill",
                 tint: Color(red: 0.42, green: 0.64, blue: 0.50)
             ),
@@ -44,15 +44,15 @@ struct FirstLaunchSetupView: View {
             ),
             FirstLaunchPage(
                 eyebrow: "趋势",
-                title: "看见用药趋势",
-                subtitle: "依靠完成率、延迟和剂量变化的数学模型，展示规律变化。",
+                title: "记录与健康，一起回看",
+                subtitle: "把近期用药与已授权的健康信号放在同一时间线上。",
                 iconName: "chart.line.uptrend.xyaxis",
                 tint: Color(red: 0.38, green: 0.65, blue: 0.66)
             ),
             FirstLaunchPage(
                 eyebrow: "智能体",
-                title: "支持双端智能体",
-                subtitle: "设备端模型可在本机整理记录；云端模式由你主动选择后再使用。",
+                title: "有疑问，接着聊",
+                subtitle: "离线整理、在线交流。由你选择，带着记录提问。",
                 iconName: "lock.shield.fill",
                 tint: Color(red: 0.38, green: 0.58, blue: 0.66)
             ),

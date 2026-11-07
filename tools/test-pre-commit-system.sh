@@ -306,6 +306,21 @@ PY
         printf '[PASS] fixture acceptance: %s\n' "$label"
     }
 
+    local demo_photo_relative='ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/DemoTylenol.imageset/DemoTylenol.jpg'
+    mkdir -p "$fixture/$(dirname "$demo_photo_relative")"
+    cp -p "$ROOT_DIR/$demo_photo_relative" "$fixture/$demo_photo_relative"
+    fixture_stage "$demo_photo_relative"
+    fixture_expect_success 'owner-approved staged JPEG bypasses plaintext scans'
+    printf '%s\n' 'not the staged image' >"$fixture/$demo_photo_relative"
+    fixture_expect_success 'approved image uses staged bytes, not working copy'
+    fixture_stage "$demo_photo_relative"
+    fixture_expect_failure 'modified approved image is rejected' 'approved-photo-sha256'
+    fixture_reset_index
+    printf '%s\n' "$synthetic_marker $(printf '%s%s' C ":\\\\Users\\\\example")" >"$fixture/tools/fixture-binary.txt"
+    fixture_stage tools/fixture-binary.txt
+    fixture_expect_failure 'arbitrary binary attribute does not bypass path scan' 'windows-drive-root'
+    fixture_reset_index
+
     scope_expect_rejection() {
         local label="$1"
         shift

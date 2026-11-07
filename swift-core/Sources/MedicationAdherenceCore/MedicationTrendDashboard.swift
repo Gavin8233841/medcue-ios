@@ -248,7 +248,13 @@ public struct MedicationTrendDashboardBuilder: Sendable {
 
     private func healthPoints(from context: MedicationTrendAnalysisContext) -> [MedicationTrendPoint] {
         context.dates.map { date in
-            let samples = context.healthByDate[date] ?? []
+            // Sleep and activity totals are context, not vital-sign stability inputs.
+            let samples = (context.healthByDate[date] ?? []).filter {
+                switch $0.kind {
+                case .stepCount, .activeEnergy, .exerciseMinutes, .sleepDuration, .sleepCore, .sleepDeep, .sleepREM: false
+                default: true
+                }
+            }
             let components = healthSignalComponents(samples: samples)
             return point(
                 date: date,
@@ -611,7 +617,9 @@ public struct MedicationTrendDashboardBuilder: Sendable {
             return 1.2
         case .bloodGlucose:
             return 45
-        case .unknown:
+        case .restingHeartRate:
+            return 20
+        case .stepCount, .activeEnergy, .exerciseMinutes, .sleepDuration, .sleepCore, .sleepDeep, .sleepREM, .unknown:
             return max(1, abs(medianValue) * 0.2)
         }
     }

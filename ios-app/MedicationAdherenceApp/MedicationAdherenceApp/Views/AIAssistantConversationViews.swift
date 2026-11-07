@@ -49,9 +49,18 @@ struct AIQuickActionsSection: View {
     let isDisabled: Bool
     let prefersLocalResponses: Bool
     let send: (AIOutgoingMessage?) -> Void
+    var usesVerticalLayout: Bool = false
     @AppStorage("isAIQuickActionsExpandedV3") private var isExpanded = false
 
     private static let actions: [AIQuickAction] = [
+        AIQuickAction(
+            title: "睡眠与服药",
+            subtitle: "近两周变化对照",
+            iconName: "bed.double.fill",
+            tint: .indigo,
+            displayText: "看看最近14天睡眠与服药的变化",
+            requestText: "请分析最近14天睡眠与实际用药记录的同期变化，引用日期和数值，结合已提供的说明书指出值得继续观察的问题。"
+        ),
         AIQuickAction(
             title: "忽略与稍后趋势",
             subtitle: "近期服药节奏",
@@ -127,7 +136,7 @@ struct AIQuickActionsSection: View {
     ]
 
     private var compactActions: [AIQuickAction] {
-        ["忽略与稍后趋势", "药盒与库存", "复诊沟通重点"].compactMap { title in
+        ["睡眠与服药", "忽略与稍后趋势", "复诊沟通重点"].compactMap { title in
             Self.actions.first { $0.title == title }
         }
     }
@@ -139,35 +148,46 @@ struct AIQuickActionsSection: View {
                     isExpanded.toggle()
                 }
             } label: {
-                Group {
-                    if dynamicTypeSize.isAccessibilitySize {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("快捷咨询")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("快捷咨询")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                        Text(usesVerticalLayout ? "选择一个主题继续咨询" : (isExpanded ? "向左滑动查看更多" : "常用问题"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
 
-                            HStack(spacing: 10) {
-                                Spacer(minLength: 0)
-                                expansionLabel
-                            }
-                        }
-                    } else {
-                        HStack(spacing: 10) {
-                            Text("快捷咨询")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
 
-                            Spacer(minLength: 8)
-                            expansionLabel
-                        }
+                    if !usesVerticalLayout {
+                    Text(isExpanded ? "收起" : "全部")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    Image(systemName: "chevron.down")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 0 : -90))
                     }
                 }
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(usesVerticalLayout)
 
-            if isExpanded {
+            if usesVerticalLayout {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(Self.actions) { action in
+                        AIQuickActionButton(action: action) {
+                            send(AIOutgoingMessage(displayText: action.displayText, requestText: action.requestText))
+                        }
+                        .disabled(isDisabled)
+                        .opacity(isDisabled ? 0.55 : 1)
+                    }
+                }
+            } else if isExpanded {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 10) {
                         ForEach(Self.actions) { action in
@@ -334,56 +354,11 @@ struct AIEmptyConversationView: View {
 
 struct LocalStreamingResponseView: View {
     let response: LocalStreamingAIResponse
-    @State private var isExpanded = true
-    @State private var now = Date()
-
-    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-
-    private var thinkingText: String {
-        let text = response.thinkingText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return text.isEmpty ? "本地端模型正在整理上下文。" : text
-    }
-
-    private var elapsedSeconds: Int {
-        let end = response.completedAt ?? now
-        return max(0, Int(end.timeIntervalSince(response.startedAt).rounded()))
-    }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            VStack(alignment: .leading, spacing: 8) {
-                LocalModelReasoningDisclosure(
-                    reasoningText: thinkingText,
-                    statusText: response.isCompleted ? "已完成思考" : response.statusText,
-                    elapsedSeconds: elapsedSeconds,
-                    defaultExpanded: !response.isCompleted
-                )
-
-                let answer = response.answerText.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !answer.isEmpty {
-                    Text(answer)
-                        .font(.body)
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 13)
-                        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                }
-            }
-            Spacer(minLength: 42)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onChange(of: response.isCompleted) { _, isCompleted in
-            if isCompleted {
-                withAnimation(.snappy(duration: 0.2, extraBounce: 0.02)) {
-                    isExpanded = false
-                }
-            }
-        }
-        .onReceive(timer) { date in
-            guard !response.isCompleted else {
-                return
-            }
-            now = date
+        TimelineView(.periodic(from: response.startedAt, by: 1)) { context in
+            AIResponseActivityView(statusText: response.statusText,
+                elapsedSeconds: max(0, Int(context.date.timeIntervalSince(response.startedAt))))
         }
     }
 }
@@ -391,145 +366,111 @@ struct LocalStreamingResponseView: View {
 struct AIMessageBubble: View {
     let message: StoredAIChatMessage
     let archive: () -> Void
+    var quote: ((String) -> Void)? = nil
+    @State private var showingTextSelection = false
+    @State private var didCopy = false
 
-    private static let assistantSafetyNote = "模型可能出现遗漏、误解或幻觉；请结合自身情况甄别，重要用药决定以医生或药师意见为准。"
-
-    private var tint: Color {
-        switch message.role {
-        case .user:
-            AIAssistantPalette.accent
-        case .assistant:
-            AIAssistantPalette.accent
-        case .system:
-            .secondary
-        }
-    }
-
-    private var accessibilityLabelText: String {
-        var parts = [
-            messageDisplayName(for: message),
-            AppFormatters.time.string(from: message.createdAt),
-            messageDisplayText(for: message)
-        ]
-        if message.role == .assistant {
-            parts.append(Self.assistantSafetyNote)
-        }
-        return parts.joined(separator: "，")
-    }
-
-    private var copyText: String {
-        let displayedText = messageDisplayText(for: message)
-        guard message.role == .assistant else { return displayedText }
-        return displayedText + "\n\n" + Self.assistantSafetyNote
+    private var isUser: Bool { message.role == .user }
+    private var displayText: String { messageDisplayText(for: message) }
+    private var bubbleShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 22, style: .continuous)
     }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            if message.role == .user {
-                Spacer(minLength: 42)
-            }
-
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 7) {
-                HStack(spacing: 6) {
-                    if message.role != .user {
-                        Image(systemName: iconName)
-                    }
-                    Text(messageDisplayName(for: message))
-                    Text(AppFormatters.time.string(from: message.createdAt))
-                        .foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: 0) {
+            if isUser { Spacer(minLength: 48) }
+            VStack(alignment: isUser ? .trailing : .leading, spacing: 8) {
+                if let reasoning = messageReasoningText(for: message) {
+                    LocalModelReasoningDisclosure(reasoningText: reasoning)
                 }
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(tint)
-                .accessibilityHidden(true)
-
-                if let reasoningText = messageReasoningText(for: message) {
-                    LocalModelReasoningDisclosure(reasoningText: reasoningText)
-                }
-
-                Text(messageDisplayText(for: message))
+                messageContent
                     .font(.body)
-                    .foregroundStyle(.primary)
-                    .lineSpacing(3)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 16)
+                    .lineSpacing(4)
+                    .foregroundStyle(message.role == .system ? .secondary : .primary)
+                    .padding(.horizontal, 17)
                     .padding(.vertical, 13)
-                    .background(bubbleBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(message.role == .user ? AIAssistantPalette.accent.opacity(0.12) : Color.primary.opacity(0.06), lineWidth: 1)
-                    )
-                    .accessibilityHidden(true)
-
-                if message.role == .assistant {
-                    Text(Self.assistantSafetyNote)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 4)
-                        .accessibilityHidden(true)
-
-                    Button {
-                        UIPasteboard.general.string = copyText
-                    } label: {
-                        Label("复制回答及提示", systemImage: "doc.on.doc")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .frame(minHeight: 44)
+                    .background(.regularMaterial, in: bubbleShape)
+                    .overlay {
+                        bubbleShape.fill(isUser ? Color.accentColor.opacity(0.14) : Color.clear)
+                            .allowsHitTesting(false)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityHidden(true)
+                    .overlay {
+                        bubbleShape.strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+                            .allowsHitTesting(false)
+                    }
+                    .contextMenu {
+                        Button(action: copyMessage) { Label("复制", systemImage: "doc.on.doc") }
+                        Button { showingTextSelection = true } label: {
+                            Label("选取文字", systemImage: "text.cursor")
+                        }
+                        if let quote {
+                            Button { quote("> " + displayText.replacingOccurrences(of: "\n", with: "\n> ") + "\n\n") } label: {
+                                Label("引用到输入框", systemImage: "quote.bubble")
+                            }
+                        }
+                        ShareLink(item: displayText) { Label("分享", systemImage: "square.and.arrow.up") }
+                        Button(action: archive) { Label("归档此前对话", systemImage: "archivebox") }
+                    }
+                    .accessibilityLabel("\(messageDisplayName(for: message))，\(displayText)")
+                    .accessibilityHint("长按可复制、选取文字、引用或分享")
+                    .accessibilityAction(named: "复制", copyMessage)
+                    .accessibilityAction(named: "选取文字") { showingTextSelection = true }
+
+                HStack(spacing: 6) {
+                    if !isUser {
+                        Image(systemName: message.role == .system ? "info.circle" : "sparkle")
+                        Text(messageDisplayName(for: message))
+                    }
+                    Text(message.createdAt, style: .time)
+                    if didCopy { Text("已复制") }
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 5)
+                .accessibilityHidden(true)
+            }
+            if !isUser { Spacer(minLength: 24) }
+        }
+        .frame(maxWidth: .infinity, alignment: isUser ? .trailing : .leading)
+        .sheet(isPresented: $showingTextSelection) {
+            NavigationStack {
+                ScrollView {
+                    Text(displayText)
+                        .font(.body)
+                        .lineSpacing(5)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(24)
+                }
+                .navigationTitle("选取文字")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(didCopy ? "已复制" : "复制全部", action: copyMessage)
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("完成") { showingTextSelection = false }
+                    }
                 }
             }
-            .frame(maxWidth: message.role == .user ? 480 : 560, alignment: message.role == .user ? .trailing : .leading)
-
-            if message.role != .user {
-                Spacer(minLength: 42)
-            }
         }
-        .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
-        .contentShape(Rectangle())
-        .contextMenu {
-            Button {
-                UIPasteboard.general.string = copyText
-            } label: {
-                Label("复制消息", systemImage: "doc.on.doc")
-            }
-            Button {
-                archive()
-            } label: {
-                Label("归档此前对话", systemImage: "archivebox")
-            }
-        }
-        .accessibilityRepresentation {
-            Text(accessibilityLabelText)
-        }
-        .accessibilityHint("长按可归档此前对话")
-        .accessibilityAction(named: "复制消息") {
-            UIPasteboard.general.string = copyText
-        }
-        .accessibilityAction(named: "归档此前对话", archive)
-    }
-
-    private var iconName: String {
-        switch message.role {
-        case .user:
-            "person.fill"
-        case .assistant:
-            "stethoscope"
-        case .system:
-            "checkmark.seal"
+        .task(id: didCopy) {
+            guard didCopy else { return }
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            didCopy = false
         }
     }
 
-    private var bubbleBackground: Color {
-        switch message.role {
-        case .user:
-            AIAssistantPalette.userBubble
-        case .assistant:
-            Color(.secondarySystemGroupedBackground)
-        case .system:
-            Color(.tertiarySystemGroupedBackground)
-        }
+    @ViewBuilder
+    private var messageContent: some View {
+        if isUser { Text(displayText) }
+        else { MarkdownContent(markdown: displayText) }
+    }
+
+    private func copyMessage() {
+        UIPasteboard.general.string = displayText
+        didCopy = true
     }
 }
 
@@ -537,10 +478,10 @@ private func messageDisplayName(for message: StoredAIChatMessage) -> String {
     if message.role == .assistant {
         let providerName = message.providerName.trimmingCharacters(in: .whitespacesAndNewlines)
         if providerName.contains("离线") || providerName.contains("端侧") || providerName.contains("设备端") {
-            return "设备端智能体"
+            return "本机"
         }
         if !providerName.isEmpty {
-            return "云端智能体"
+            return "云端"
         }
         return "医疗智能体"
     }
@@ -659,13 +600,13 @@ struct LocalModelReasoningDisclosure: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .background(Color(red: 0.91, green: 0.96, blue: 0.98).opacity(0.72), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Color.accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color(red: 0.66, green: 0.78, blue: 0.86).opacity(0.42), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         )
-        .frame(maxWidth: 316, alignment: .leading)
-        .accessibilityLabel("端侧模型已完成思考")
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityLabel(statusText)
     }
 }
 
@@ -673,30 +614,81 @@ struct AIThinkingBubble: View {
     let isLocalRuntime: Bool
 
     var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(isLocalRuntime ? "端侧模型正在推理" : "在线智能体正在生成")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                Text(isLocalRuntime ? "正在整理本机记录，稍后给出正式回答。" : "正在等待服务返回正式回答。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        AIResponseActivityView(statusText: isLocalRuntime ? "正在生成回答" : "云端正在回复")
+    }
+}
+
+// CatPaw's compact dots and text-highlight pattern, using lifecycle-owned
+// SwiftUI phase animations instead of a scheduled repeating timer.
+private struct AIResponseActivityView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("prefersReducedAppMotion") private var prefersReducedAppMotion = false
+    let statusText: String
+    var elapsedSeconds: Int?
+
+    private var animates: Bool { !reduceMotion && !prefersReducedAppMotion }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if animates {
+                Color.clear.frame(width: 28, height: 12)
+                    .phaseAnimator([0, 1, 2]) { _, phase in
+                        dots(active: phase)
+                    } animation: { _ in .easeInOut(duration: 0.45) }
+            } else {
+                dots(active: nil)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
-            )
-            Spacer(minLength: 42)
+            if animates {
+                statusLabel.phaseAnimator([-1.0, 1.0]) { content, phase in
+                    content.overlay {
+                        GeometryReader { geometry in
+                            LinearGradient(colors: [.clear, Color.primary.opacity(0.65), .clear],
+                                startPoint: .leading, endPoint: .trailing)
+                                .frame(width: 48)
+                                .offset(x: phase * (geometry.size.width + 48))
+                        }
+                        .mask(statusLabel)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                    }
+                } animation: { phase in .linear(duration: phase > 0 ? 2 : 0) }
+            } else {
+                statusLabel
+            }
+            if let elapsedSeconds {
+                Text("\(elapsedSeconds) 秒")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.tertiary)
+            }
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22).strokeBorder(Color.primary.opacity(0.05), lineWidth: 0.5)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.easeInOut(duration: 0.2), value: statusText)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(isLocalRuntime ? "端侧模型正在推理" : "在线智能体正在生成")
+        .accessibilityIdentifier("assistant.response-activity")
+    }
+
+    private var statusLabel: some View {
+        Text(statusText).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+            .contentTransition(.opacity)
+    }
+
+    private func dots(active: Int?) -> some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3) { index in
+                Circle().fill(Color.secondary)
+                    .frame(width: 6, height: 6)
+                    .opacity(active == nil || active == index ? 0.85 : 0.3)
+                    .scaleEffect(active == index ? 1 : 0.8)
+            }
+        }
+        .frame(width: 28, height: 12)
+        .accessibilityHidden(true)
     }
 }
 

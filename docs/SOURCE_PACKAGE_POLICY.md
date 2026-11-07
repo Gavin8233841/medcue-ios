@@ -42,7 +42,13 @@ models, databases, archives, audio/video, and unapproved media. Historical
 `IMG_*.png` delivery evidence is excluded; PNGs under tracked Asset Catalogs
 remain allowed only in the two approved `AppIcon.appiconset` directories when
 their catalog metadata references them and their PNG structure is valid. SVGs
-and other Asset Catalog media are excluded. Archive paths must already be in
+and other Asset Catalog media are excluded, with one narrowly defined exception:
+the five owner-supplied DemoAdvil, DemoArtificialTears, DemoFortuneLoratadine,
+DemoTylenol and DemoVitaminD3 photographs. Their exact catalog paths and SHA-256
+hashes are pinned in both builder and verifier; changed bytes, alternate names
+and missing catalog references are rejected. The manifest lists these resources
+as owner-approved demo photos. These are product demo assets, not patient data.
+Replacing one requires updating and reviewing this explicit allowlist. Archive paths must already be in
 canonical POSIX form; redundant separators, dot components, Windows-reserved
 names, trailing dots/spaces, and alternate-data-stream colons fail closed.
 

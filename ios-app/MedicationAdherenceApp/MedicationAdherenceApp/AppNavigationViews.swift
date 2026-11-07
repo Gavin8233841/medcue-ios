@@ -53,6 +53,7 @@ enum AppExperienceMode: String, CaseIterable, Identifiable {
     }
 }
 
+
 struct AppTabContentView: View, Equatable {
     let tab: AppTab
     let isLoaded: Bool
@@ -402,4 +403,8 @@ struct AppTabTopGradientPalette {
     let leading: Color
     let trailing: Color
     let background: Color
+}
+
+extension EnvironmentValues {
+    @Entry var prepareNextDemoExperience: (@MainActor () async throws -> Void)? = nil
 }

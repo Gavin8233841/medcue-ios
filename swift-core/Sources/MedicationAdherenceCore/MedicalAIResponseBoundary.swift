@@ -27,7 +27,7 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
 
     public init() {}
 
-    public func review(_ message: String) -> MedicalAIResponseBoundaryReview {
+    public func review(_ message: String, preservingMarkdown: Bool = false, blocksActionableInstructions: Bool = true) -> MedicalAIResponseBoundaryReview {
         let normalized = plainText(from: message)
         let trimmed = normalized.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -39,8 +39,12 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
             )
         }
 
-        let actionableFlags = actionableInstructionFlags(in: trimmed)
-        if !actionableFlags.isEmpty {
+        let visibleForScan = trimmed
+            .replacingOccurrences(of: #"\[([^\]]+)\]\([^)]*\)"#, with: "$1", options: .regularExpression)
+            .replacingOccurrences(of: "*", with: "")
+            .replacingOccurrences(of: "_", with: "")
+        let actionableFlags = actionableInstructionFlags(in: visibleForScan)
+        if blocksActionableInstructions && !actionableFlags.isEmpty {
             let safeMessage = "这条回复涉及诊断、处方或用药调整等治疗决策，不能作为操作依据。请联系医生或药师核对。"
             return MedicalAIResponseBoundaryReview(
                 originalMessage: message,
@@ -55,11 +59,11 @@ public struct MedicalAIResponseBoundaryGuard: Sendable {
 
         return MedicalAIResponseBoundaryReview(
             originalMessage: message,
-            displayMessage: messageWithSafetyNote(trimmed),
+            displayMessage: messageWithSafetyNote(preservingMarkdown ? message.trimmingCharacters(in: .whitespacesAndNewlines) : trimmed),
             flags: displayFlags(
                 normalizedFormatting: normalized.didNormalize,
                 hasSafetyNote: alreadyHasExactSafetyNote
-            ),
+            ) + actionableFlags,
             appendedSafetyNote: !alreadyHasExactSafetyNote,
             blockedActionableInstruction: false
         )

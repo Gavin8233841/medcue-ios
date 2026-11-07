@@ -102,12 +102,15 @@ struct AIAssistantView: View {
 
     var body: some View {
         let configuration = configurationStore.configuration
+        let visible = conversationVisibility.visibleMessages
+        let visibleIDs = Set(visible.map(\.id))
+        let archived = messages.filter { !visibleIDs.contains($0.id) }
         AIAssistantScreen(
             configuration: configuration,
             onlineReadiness: configurationStore.readiness(for: configuration),
             localModelStatus: localModelStore.status,
-            visibleMessages: visibleMessages,
-            archivedMessages: archivedMessages,
+            visibleMessages: visible,
+            archivedMessages: archived,
             localStreamingResponse: localStreamingResponse,
             isSending: isSending,
             isReadingImage: isReadingImage,
@@ -131,6 +134,7 @@ struct AIAssistantView: View {
             prepareSession: prepareAssistantSessionIfVisible,
             handleActiveTabChange: handleActiveTabChange,
             beginImageRecognition: beginImageRecognition,
+            capturedImage: beginCameraImageRecognition,
             applyPendingQuestion: applyPendingQuestionIfNeeded,
             refreshEnvironment: {},
             acceptThirdPartyNotice: acceptThirdPartyNotice,
@@ -401,6 +405,28 @@ struct AIAssistantView: View {
                 finishImageRecognition()
                 return
             }
+            await prepareImageQuestion(data: data, recognitionID: recognitionID)
+        } catch {
+            guard imageRecognitionGate.finish(recognitionID) else { return }
+            finishImageRecognition()
+        }
+    }
+
+    @MainActor
+    private func beginCameraImageRecognition(_ image: UIImage) {
+        guard let data = image.jpegData(compressionQuality: 0.85) else { return }
+        cancelImageRecognition()
+        dismissChatKeyboard()
+        isReadingImage = true
+        let recognitionID = imageRecognitionGate.begin()
+        imageRecognitionTask = Task { @MainActor in
+            await prepareImageQuestion(data: data, recognitionID: recognitionID)
+        }
+    }
+
+    @MainActor
+    private func prepareImageQuestion(data: Data, recognitionID: UUID) async {
+        do {
             let output = try await VisionImportPipeline().analyze(data, purpose: .labelText)
             guard case let .labelText(result) = output else {
                 return
@@ -517,24 +543,51 @@ struct AIAssistantView: View {
         ) else { return }
 
         do {
+            var localRequest = request
+            if let selection = MedicalAIReadOnlyToolSelection.query(for: request), selection.tool == "health_summary" {
+                updateLocalStreamingStatus("读取已授权健康记录")
+                let service = HealthKitService()
+                let sleepReview = MedicationSleepAnalysisIntent.matches(request.userMessage)
+                let count = sleepReview ? (request.userMessage.contains("30") ? 30 : 14) : (selection.period == "recent" ? 14 : 2)
+                await service.refreshRecentTrendSamples(days: count, useRecentCache: true)
+                try Task.checkCancellation()
+                guard activeAIRequestID == executionID, activeConsent?.authorization == request.authorization else { return }
+                if sleepReview {
+                    let ids = Set(request.medicationSnapshots.map { $0.medication.id })
+                    localRequest.localHealthContext = MedicationSleepReview(samples: service.recentTrendSamples,
+                        tasks: request.authorization.allows(.doseEvents) ? tasks.filter { ids.contains($0.medicationID) } : [],
+                        medications: medications.filter { ids.contains($0.id) }, dayCount: count).localContext
+                    localRequest.localHealthContext = (localRequest.localHealthContext ?? "") + "\n已授权药品：" + request.medicationSnapshots.map { snapshot in
+                        let doses = snapshot.plans.map { "\($0.dose.value)\($0.dose.unit)" }.joined(separator: "、")
+                        return snapshot.medication.displayName + (doses.isEmpty ? "" : "（当前计划\(doses)）")
+                    }.joined(separator: "、")
+                } else {
+                    let calendar = Calendar.current
+                    let date = calendar.date(byAdding: .day, value: selection.period == "yesterday" ? -1 : 0, to: Date()) ?? Date()
+                    let samples = service.recentTrendSamples.filter { selection.period == "recent" || calendar.isDate($0.measuredAt, inSameDayAs: date) }
+                    let summary = HealthKitRecentSummary(samples: samples, refreshedAt: service.lastSampleRefreshAt)
+                    localRequest.localHealthContext = summary.metricSummaries.isEmpty ? "本时段暂无可读取的健康记录。\(service.statusMessage)" :
+                        summary.metricSummaries.map { "\($0.title)：\($0.latestValueText)，最近记录 \(AppFormatters.day.string(from: $0.latestMeasuredAt)) \(AppFormatters.time.string(from: $0.latestMeasuredAt))" }.joined(separator: "\n")
+                }
+            }
             let client = LocalMedicalAIClient(modelURL: modelURL)
             var finalAnswer = ""
             var finalThinking = ""
-            for try await event in client.streamResponse(to: request) {
+            for try await event in client.streamResponse(to: localRequest) {
                 try Task.checkCancellation()
                 guard activeAIRequestID == executionID else { return }
                 switch event {
                 case .generationStarted:
-                    updateLocalStreamingStatus("正在思考")
+                    updateLocalStreamingStatus("准备本机回答")
                 case .modelLoading:
                     updateLocalStreamingStatus("正在加载本地端模型")
                 case .prefillStarted:
-                    updateLocalStreamingStatus("深度思考中")
+                    updateLocalStreamingStatus("正在生成回答 · 直接模式")
                 case .thinkingStarted:
-                    updateLocalStreamingStatus("深度思考中")
+                    updateLocalStreamingStatus("正在思考")
                     localStreamingResponse?.isThinkingExpanded = true
                 case .thinkingDelta:
-                    updateLocalStreamingStatus("深度思考中")
+                    updateLocalStreamingStatus("正在思考")
                 case .answerStarted:
                     updateLocalStreamingStatus("正在整理正式回答")
                 case .answerDelta:
@@ -551,7 +604,8 @@ struct AIAssistantView: View {
             guard activeAIRequestID == executionID else { return }
             let finalized = try MedicalAIResponseFinalizer().finalize(
                 answer: finalAnswer,
-                thinking: finalThinking
+                thinking: finalThinking,
+                blocksActionableInstructions: localRequest.localHealthContext == nil
             )
             let outcome = AIChatResponseCommand(modelContext: modelContext).commit(
                 AIChatResponseDraft(
@@ -610,6 +664,7 @@ struct AIAssistantView: View {
         apiKey: String,
         executionID: UUID
     ) async {
+        let sentToolScopes = toolScopeSuffix
         defer {
             finishAIRequestIfCurrent(executionID)
         }
@@ -621,7 +676,7 @@ struct AIAssistantView: View {
                 apiKey: apiKey
             )
             try Task.checkCancellation()
-            guard activeAIRequestID == executionID else { return }
+            guard activeAIRequestID == executionID, sentToolScopes == toolScopeSuffix else { return }
             let response = result.response
             let finalized = result.finalized
             logAIEvent("success provider=\(response.provider.providerName) rawLength=\(response.message.count) displayLength=\(finalized.displayMessage.count) appendedSafetyNote=\(finalized.appendedSafetyNote) blocked=\(finalized.boundaryBlockedAction) flags=\(finalized.boundaryFlags.joined(separator: ","))")
@@ -631,7 +686,7 @@ struct AIAssistantView: View {
                     text: finalized.persistedMessage,
                     providerName: response.provider.providerName,
                     modelName: response.provider.modelName,
-                    sharedScopesSummary: sharedScopesSummary
+                    sharedScopesSummary: sharedScopesSummary + sentToolScopes
                 )
             ) else { return }
             archiveOlderVisibleConversationIfNeeded()
@@ -648,7 +703,7 @@ struct AIAssistantView: View {
                     text: message,
                     providerName: configuration.providerName,
                     modelName: configuration.modelName,
-                    sharedScopesSummary: sharedScopesSummary
+                    sharedScopesSummary: sharedScopesSummary + sentToolScopes
                 )
             ) {
                 archiveOlderVisibleConversationIfNeeded()
@@ -661,14 +716,97 @@ struct AIAssistantView: View {
         configuration: MedicalAIConfiguration,
         apiKey: String
     ) async throws -> MedicalAIExecutionResult {
-        let client = MedicalAIClientFactory.make(
-            configuration: configuration,
-            credential: apiKey
-        )
+        let client: any MedicalAIClient
+        let question = request.userMessage
+        let needsSleepReview = MedicationSleepAnalysisIntent.matches(question)
+        if configuration.providerKind == .broker && needsSleepReview {
+            let scope = toolScopeSuffix
+            var context = "尚未开启健康摘要共享。可在智能体数据设置开启后分析实际睡眠记录。"
+            if UserDefaults.standard.bool(forKey: "aiSharesHealthSummary") {
+                let service = HealthKitService()
+                let count = question.contains("30") ? 30 : 14
+                await service.refreshRecentTrendSamples(days: count, useRecentCache: true)
+                try Task.checkCancellation()
+                guard scope == toolScopeSuffix, activeConsent?.authorization == request.authorization else { throw CancellationError() }
+                let allowedIDs = Set(request.medicationSnapshots.map { $0.medication.id })
+                let reviewTasks = request.authorization.allows(.doseEvents)
+                    ? tasks.filter { allowedIDs.contains($0.medicationID) } : []
+                let review = MedicationSleepReview(samples: service.recentTrendSamples,
+                    tasks: reviewTasks, medications: medications.filter { allowedIDs.contains($0.id) }, dayCount: count)
+                context = review.context
+            }
+            client = CloudBaseMedicalAIClient(configuration: configuration, clientToken: apiKey,
+                additionalContext: "睡眠与用药同期统计（本次授权数据）\n" + context +
+                "\n分成观察到的变化、同期用药事实、接下来值得观察的问题三段，避免只复述表格。结合逐日记录和已授权说明书，引用实际日期与数值并说明记录覆盖。区分已服用、计划、忽略及未知；同期变化不能证明药物造成变化。缺失数据直接说明。")
+        } else {
+            client = MedicalAIClientFactory.make(configuration: configuration, credential: apiKey)
+        }
         return try await MedicalAIRequestOrchestrator(timeout: MedicalAIExecutionPolicy.default.cloudTimeout).execute(
             request: request,
             client: client
         )
+    }
+
+    private var toolScopeSuffix: String {
+        "|health=\(UserDefaults.standard.bool(forKey: "aiSharesHealthSummary"))|inventory=\(UserDefaults.standard.bool(forKey: "aiSharesInventory"))"
+    }
+
+    @MainActor
+    private func readAssistantTool(_ selection: MedicalAIReadOnlyToolSelection, request: MedicalAIRequest) async throws -> String {
+        try Task.checkCancellation()
+        guard let consent = activeConsent, consent.authorization == request.authorization else {
+            return "本次授权已变更，请重新提问并确认共享范围。"
+        }
+        let calendar = Calendar.current
+        let date = calendar.date(byAdding: .day, value: selection.period == "yesterday" ? -1 : 0, to: Date()) ?? Date()
+        switch selection.tool {
+        case "health_summary":
+            guard UserDefaults.standard.bool(forKey: "aiSharesHealthSummary") else {
+                return "尚未开启健康摘要共享。请在智能体授权中开启‘按需查询 Apple 健康摘要’，并在个人页完成 Apple 健康授权。"
+            }
+            let service = HealthKitService()
+            await service.refreshRecentTrendSamples(days: selection.period == "recent" ? 14 : 2, useRecentCache: true)
+            try Task.checkCancellation()
+            guard activeConsent?.authorization == request.authorization,
+                  UserDefaults.standard.bool(forKey: "aiSharesHealthSummary") else { return "健康摘要共享已关闭。" }
+            let samples = service.recentTrendSamples.filter { selection.period == "recent" || calendar.isDate($0.measuredAt, inSameDayAs: date) }
+            let summary = HealthKitRecentSummary(samples: samples, refreshedAt: service.lastSampleRefreshAt)
+            guard !samples.isEmpty else { return "该时间段没有可读取的健康记录。\(service.statusMessage)" }
+            return summary.metricSummaries.map {
+                "\($0.kind.displayTitle)：最近值 \($0.latestValueText)，测量时间 \(AppFormatters.day.string(from: $0.latestMeasuredAt)) \(AppFormatters.time.string(from: $0.latestMeasuredAt))，\($0.sampleCount) 条记录"
+            }.joined(separator: "\n")
+        case "inventory":
+            guard consent.sharesMedicationProfile, UserDefaults.standard.bool(forKey: "aiSharesInventory") else {
+                return "尚未授权库存查询，请在智能体授权中开启药品资料和‘按需查询库存余量’。"
+            }
+            let stocks = try modelContext.fetch(FetchDescriptor<StoredMedicationStock>())
+            let allowed = Dictionary(uniqueKeysWithValues: request.medicationSnapshots.map { ($0.medication.id, $0.medication.displayName) })
+            let rows = stocks.compactMap { stock -> String? in
+                guard let name = allowed[stock.medicationID] else { return nil }
+                return "\(name)：登记余量 \(stock.remainingQuantity.formatted()) \(stock.unit)，低量阈值 \(stock.lowStockThreshold.formatted())，登记时间 \(AppFormatters.day.string(from: stock.lastUpdated))"
+            }
+            return rows.isEmpty ? "暂无已登记库存余量。" : rows.joined(separator: "\n")
+        case "medication_records":
+            guard consent.sharesMedicationProfile, consent.sharesDoseEvents else {
+                return "尚未授权读取用药记录，请在智能体数据设置中开启药品资料和服药记录共享。"
+            }
+            let selectedTasks = tasks.filter {
+                selection.period == "recent" ? $0.dueAt >= Date().addingTimeInterval(-14 * 86400) : calendar.isDate($0.dueAt, inSameDayAs: date)
+            }
+            let builder = MedicalAIContextBuilder(medications: medications, plans: plans, tasks: selectedTasks, riskCards: riskCards, labels: labels)
+            let filtered = builder.makeRequest(userMessage: "查询指定时间段用药记录", consent: consent,
+                environmentInsights: request.environmentInsights, localeIdentifier: request.localeIdentifier)
+            let rows = filtered.medicationSnapshots.flatMap { snapshot in
+                snapshot.scheduledDoses.map { dose in
+                    let event = snapshot.doseEvents.last { $0.scheduledDoseID == dose.id }
+                    let status = event?.status.rawValue ?? "未确认"
+                    return "\(snapshot.medication.displayName) · 计划时间 \(AppFormatters.day.string(from: dose.dueAt)) \(AppFormatters.time.string(from: dose.dueAt)) · \(dose.dose.value.formatted()) \(dose.dose.unit) · 记录状态 \(status)"
+                }
+            }
+            return rows.isEmpty ? "该时间段暂无已授权的用药记录。" : rows.joined(separator: "\n")
+        default:
+            return "未识别的查询。"
+        }
     }
 
     @MainActor
@@ -842,12 +980,13 @@ struct AIAssistantView: View {
             riskCards: riskCards,
             labels: labels
         )
-        let request = contextBuilder.makeRequest(
+        var request = contextBuilder.makeRequest(
             userMessage: userMessage,
             consent: consent,
             environmentInsights: environmentInsightsForAI(userMessage: userMessage),
             localeIdentifier: Locale.current.identifier
         )
+        request.conversation = nil
         let scheduledDoseCount = request.medicationSnapshots.reduce(0) { $0 + $1.scheduledDoses.count }
         let doseEventCount = request.medicationSnapshots.reduce(0) { $0 + $1.doseEvents.count }
         logAIEvent("context requestID=\(request.id.uuidString) medications=\(request.medicationSnapshots.count) scheduledDoses=\(scheduledDoseCount) doseEvents=\(doseEventCount) todayMode=\(contextBuilder.isTodayQuestion(userMessage))")
@@ -923,15 +1062,23 @@ struct AIAssistantView: View {
         )
     }
 
-    private func saveConsent(_ draft: AIConsentDraft) {
-        _ = AIConversationPersistenceCommand(modelContext: modelContext).saveConsent(
+    private func saveConsent(_ draft: AIConsentDraft) -> Bool {
+        cancelActiveAIRequest()
+        let outcome = AIConversationPersistenceCommand(modelContext: modelContext).saveConsent(
             existing: storedConsent,
             draft: draft,
             grantedAt: Date()
         )
+        guard outcome == .consentSaved else { return false }
+        UserDefaults.standard.set(draft.sharesHealthSummary, forKey: "aiSharesHealthSummary")
+        UserDefaults.standard.set(draft.sharesInventory, forKey: "aiSharesInventory")
+        return true
     }
 
     private func revokeConsent() {
+        cancelActiveAIRequest()
+        UserDefaults.standard.set(false, forKey: "aiSharesHealthSummary")
+        UserDefaults.standard.set(false, forKey: "aiSharesInventory")
         let command = AIConsentRevocationCommand(modelContext: modelContext)
         _ = command.execute()
     }

@@ -2,6 +2,142 @@ import XCTest
 
 @MainActor
 final class MedicationAdherenceAppUITests: XCTestCase {
+    func testTodaySettledRecordsDoNotClaimSkippedDosesWereTaken() {
+        let app = launchIsolatedToday()
+        for _ in 0..<5 {
+            let skip = app.buttons["忽略"].firstMatch
+            XCTAssertTrue(skip.waitForExistence(timeout: 5))
+            skip.tap()
+            // Allow the existing committed row-migration animation to finish.
+            RunLoop.current.run(until: Date().addingTimeInterval(0.7))
+        }
+        XCTAssertTrue(app.staticTexts["今日暂无待处理"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["今日用药已完成"].exists)
+        XCTAssertFalse(app.staticTexts["下一次提醒"].exists)
+        XCTAssertFalse(app.staticTexts["天气与用药关注"].exists)
+        let records = app.buttons["今日记录"]
+        XCTAssertTrue(records.exists)
+        records.tap()
+        XCTAssertTrue((records.value as? String)?.contains("已展开") == true)
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "Today-skipped-records-expanded"
+        shot.lifetime = .keepAlways
+        add(shot)
+        records.tap()
+        XCTAssertTrue((records.value as? String)?.contains("已折叠") == true)
+    }
+
+    func testElderHoldCancellationAndModeConfirmation() {
+        let app = launchElderFixture(scenario: "future", mode: "complete")
+        app.buttons["today.enter-elder"].tap()
+        app.alerts.buttons["取消"].tap()
+        XCTAssertTrue(app.buttons["today.enter-elder"].exists)
+        app.buttons["today.enter-elder"].tap()
+        app.alerts.buttons["进入适老模式"].tap()
+        let taken = app.buttons["elder.action.taken"]
+        XCTAssertTrue(taken.waitForExistence(timeout: 5))
+        taken.tap()
+        XCTAssertFalse(app.buttons["elder.confirmation.confirm"].exists)
+        taken.press(forDuration: 0.35)
+        XCTAssertFalse(app.buttons["elder.confirmation.confirm"].exists)
+        taken.press(forDuration: 1.4)
+        XCTAssertTrue(app.buttons["elder.confirmation.confirm"].waitForExistence(timeout: 3))
+        app.buttons["elder.confirmation.cancel"].tap()
+        XCTAssertTrue(taken.exists)
+        XCTAssertFalse(app.buttons["elder.action.skip"].exists)
+        XCTAssertFalse(app.staticTexts["长按确认"].exists)
+        app.buttons["elder.action.help"].tap()
+        let closeHelp = app.buttons["完成"].firstMatch
+        XCTAssertTrue(closeHelp.waitForExistence(timeout: 3))
+        closeHelp.tap()
+        assertCurrentTask("布洛芬", status: "待服用", in: app)
+        app.buttons["elder.switch-to-complete"].tap()
+        app.alerts.buttons["取消"].tap()
+        XCTAssertTrue(taken.exists)
+        app.buttons["elder.switch-to-complete"].tap()
+        app.alerts.buttons["退出"].tap()
+        XCTAssertTrue(app.buttons["today.enter-elder"].waitForExistence(timeout: 5))
+    }
+
+    private func launchIsolatedToday() -> XCUIApplication {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--medication-gallery-preview", "--seed-demo-data",
+            "--recording-hide-reminder-banner", "-hasCompletedFirstLaunchSetup", "YES"]
+        app.launch()
+        let today = app.tabBars.buttons.element(boundBy: 0)
+        XCTAssertTrue(today.waitForExistence(timeout: 15))
+        today.tap()
+        XCTAssertTrue(app.buttons["today.enter-elder"].waitForExistence(timeout: 8))
+        return app
+    }
+
+    func testAssistantComposerAvoidsKeyboardAndRestoresAtBottom() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--assistant-ui-preview", "-appColorSchemePreference", "dark"]
+        app.launch()
+        // The scroll container's identifier is inherited by the native field on
+        // current Simulator runtimes. The fixture contains one actual text field.
+        let input = app.textFields.firstMatch
+        XCTAssertTrue(input.waitForExistence(timeout: 15))
+        input.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        let send = app.buttons.matching(NSPredicate(format: "label == %@ AND identifier != %@", "发送", "Send")).firstMatch
+        XCTAssertLessThanOrEqual(send.frame.maxY, app.keyboards.firstMatch.frame.minY + 2)
+        input.typeText("draft preserved")
+        // Drag inside the vertical transcript, away from nested shortcut strips.
+        let upper = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.28))
+        let lower = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
+        upper.press(forDuration: 0.05, thenDragTo: lower)
+        upper.press(forDuration: 0.05, thenDragTo: lower)
+        let historyShot = XCTAttachment(screenshot: app.screenshot())
+        historyShot.name = "assistant-history"
+        historyShot.lifetime = .keepAlways
+        add(historyShot)
+        XCTAssertFalse(input.isHittable)
+        for _ in 0..<6 { lower.press(forDuration: 0.05, thenDragTo: upper) }
+        XCTAssertTrue(input.isHittable)
+        XCTAssertEqual(input.value as? String, "draft preserved")
+        XCTAssertFalse(app.buttons["展开聊天输入框"].exists)
+        input.tap()
+        send.tap()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "draft preserved")).firstMatch.waitForExistence(timeout: 3))
+    }
+
+    func testAssistantMessageLongPressOffersTextActions() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["--assistant-ui-preview"]
+        app.launch()
+        let text = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "仅用于界面验证")).firstMatch
+        XCTAssertTrue(text.waitForExistence(timeout: 15))
+        text.press(forDuration: 1)
+        XCTAssertTrue(app.buttons["复制"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["选取文字"].exists)
+        XCTAssertTrue(app.buttons["引用到输入框"].exists)
+        app.buttons["选取文字"].tap()
+        XCTAssertTrue(app.navigationBars["选取文字"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["复制全部"].exists)
+    }
+
+    func testAssistantWaitingStateUsesCompactActivity() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        for appearance in ["light", "dark"] {
+            app.launchArguments = ["--assistant-ui-preview", "--assistant-waiting-preview",
+                "-appColorSchemePreference", appearance]
+            app.launch()
+            let status = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "正在准备本机回答")).firstMatch
+            XCTAssertTrue(status.waitForExistence(timeout: 15))
+            XCTAssertTrue(status.isHittable)
+            let shot = XCTAttachment(screenshot: app.screenshot())
+            shot.name = "Assistant-compact-waiting-\(appearance)"
+            shot.lifetime = .keepAlways
+            add(shot)
+        }
+    }
+
     func testRecoveryRetryResumesOriginalPersistentStore() {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -179,28 +315,39 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         XCTAssertFalse(cancel.exists)
 
         app.tabBars.buttons.element(boundBy: 1).tap()
-        let metric = app.buttons["medications.metric.title.药品"]
-        scrollToHittable(metric, in: app)
-        XCTAssertTrue(metric.label.contains("查看详情"))
-        let metricTitle = metric.staticTexts["medications.metric.title.药品"]
-        XCTAssertGreaterThan(metricTitle.frame.width, 75)
-        XCTAssertGreaterThanOrEqual(metric.frame.width, 300, "AX overview must use the available column")
-        addScreenshot(named: "complete-ax5-medication-metric", from: app)
-        metric.tap()
+        // This fixture's course is fixed in September. The gallery correctly
+        // uses today's real date and groups its ended course under interrupted.
+        let interrupted = app.segmentedControls.buttons["服用中断 1"]
+        scrollToHittable(interrupted, in: app)
+        interrupted.tap()
+        let medicationCard = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "布洛芬")).firstMatch
+        scrollToHittable(medicationCard, in: app)
+        XCTAssertGreaterThanOrEqual(medicationCard.frame.width, 300, "AX medication gallery must use one full-width column")
+        XCTAssertTrue(medicationCard.label.contains("布洛芬"))
+        addScreenshot(named: "complete-ax5-medication-gallery", from: app)
+        medicationCard.tap()
+        XCTAssertTrue(app.navigationBars["药品详情"].waitForExistence(timeout: 5))
+        app.navigationBars.buttons.firstMatch.tap()
+        let moreInformation = app.buttons["更多用药信息"]
+        scrollToHittable(moreInformation, in: app)
+        moreInformation.tap()
+        app.buttons["用药概览"].tap()
         XCTAssertTrue(app.navigationBars["药品总览"].waitForExistence(timeout: 5))
         app.navigationBars.buttons.firstMatch.tap()
-        XCTAssertTrue(app.buttons["medications.metric.title.药品"].waitForExistence(timeout: 5))
-        let risk = app.buttons["medications.metric.title.风险复核"]
+        let risk = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "风险复核")).firstMatch
         scrollToHittable(risk, in: app)
-        XCTAssertGreaterThan(risk.staticTexts["medications.metric.title.风险复核"].frame.width, 150)
+        XCTAssertGreaterThanOrEqual(risk.frame.width, 300)
         addScreenshot(named: "complete-ax5-medication-risk-entry", from: app)
+        risk.tap()
+        XCTAssertTrue(app.navigationBars["风险复核"].waitForExistence(timeout: 5))
+        app.navigationBars.buttons.firstMatch.tap()
 
         app.tabBars.buttons.element(boundBy: 2).tap()
         dismissAssistantGatesIfPresented(in: app)
-        let runtime = app.buttons["assistant.runtime.toggle"]
+        let runtime = app.buttons["切换智能体模式"]
         XCTAssertTrue(runtime.waitForExistence(timeout: 5))
         runtime.tap()
-        let cloudDescription = app.staticTexts["连接云端能力，适合复杂问题和更长文本"]
+        let cloudDescription = app.staticTexts["联网回答 · 授权后使用"]
         scrollToHittable(cloudDescription, in: app)
         XCTAssertGreaterThan(cloudDescription.frame.width, 240)
         addScreenshot(named: "complete-ax5-runtime-expanded", from: app)
@@ -260,9 +407,10 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         continueAfterFailure = false
         let app = launchElderFixture(mode: "complete")
 
-        let elderModeEntry = app.buttons["today.elder-mode-entry"]
+        let elderModeEntry = app.buttons["today.enter-elder"]
         XCTAssertTrue(elderModeEntry.waitForExistence(timeout: 10))
         elderModeEntry.tap()
+        app.alerts.buttons["进入适老模式"].tap()
 
         XCTAssertTrue(
             app.buttons["elder.switch-to-complete"].waitForExistence(timeout: 5),
@@ -299,6 +447,7 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         addScreenshot(named: "elder-default-actions", from: app)
 
         app.buttons["elder.switch-to-complete"].tap()
+        app.alerts.buttons["退出"].tap()
         XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 5))
         XCTAssertTrue(elderModeEntry.waitForExistence(timeout: 5))
         restartElderFixture(app)
@@ -315,7 +464,7 @@ final class MedicationAdherenceAppUITests: XCTestCase {
 
         completionButton
             .coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.5))
-            .tap()
+            .press(forDuration: 1.4)
 
         let confirmation = app.buttons["elder.confirmation.confirm"]
         XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
@@ -343,7 +492,7 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         continueAfterFailure = false
         let app = launchElderFixture(scenario: "future", contentSizeArguments: accessibilityXXXLContentSizeArguments)
         assertElderActionsVisible(in: app)
-        app.buttons["elder.action.taken"].tap()
+        app.buttons["elder.action.taken"].press(forDuration: 1.4)
         assertElderActionsVisible(in: app, identifiers: ["elder.confirmation.confirm", "elder.confirmation.cancel"])
         addScreenshot(named: "elder-axxxl-confirmation-no-scroll", from: app)
         app.buttons["elder.confirmation.cancel"].tap()
@@ -458,16 +607,16 @@ final class MedicationAdherenceAppUITests: XCTestCase {
 
         let delayButton = app.buttons["elder.action.delay"]
         scrollToHittable(delayButton, in: app)
-        delayButton.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.5)).tap()
+        delayButton.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.5)).press(forDuration: 1.4)
         assertCurrentTask("布洛芬", status: "稍后提醒", in: app)
         XCTAssertTrue(delayButton.waitForExistence(timeout: 5))
 
         let helpButton = app.buttons["elder.action.help"]
         scrollToHittable(helpButton, in: app)
         helpButton.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.5)).tap()
-        let missingCancel = app.alerts["还没有帮助号码"].buttons["elder.help.missing.cancel"].firstMatch
-        XCTAssertTrue(missingCancel.waitForExistence(timeout: 5))
-        missingCancel.tap()
+        let closeHelp = app.buttons["完成"].firstMatch
+        XCTAssertTrue(closeHelp.waitForExistence(timeout: 5))
+        closeHelp.tap()
         XCTAssertTrue(helpButton.waitForExistence(timeout: 5))
         assertStoredState(in: app, statuses: ["delayed"], logCount: 1, saveAttempts: 1)
         XCTAssertEqual(app.staticTexts["elder.test.store.task.0.due-offset"].label, "1800")
@@ -497,26 +646,17 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         assertStoredState(in: app, statuses: ["taken", "taken"], logCount: 2, saveAttempts: 2)
     }
 
-    func testElderMoreActionsRequiresConfirmationAndSuccessCanUndo() {
+    func testElderHasNoSkipAndCompletedActionCanUndo() {
         continueAfterFailure = false
         let app = launchElderFixture()
-
-        let moreActions = app.buttons["elder.moreActions"]
-        XCTAssertTrue(moreActions.waitForExistence(timeout: 5))
-        moreActions.tap()
-        app.buttons["这次不吃"].tap()
-        assertCurrentTask("布洛芬", status: "未确认", in: app)
-        XCTAssertFalse(app.descendants(matching: .any)["elder.feedback.success"].exists)
-
-        app.buttons["确认这次不吃"].tap()
-        XCTAssertTrue(app.staticTexts["没有待处理用药"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "已跳过")).firstMatch.exists)
-
+        XCTAssertFalse(app.buttons["elder.moreActions"].exists)
+        XCTAssertFalse(app.buttons["elder.action.skip"].exists)
+        tapElderAction("elder.action.taken", in: app)
+        assertCompleted(in: app)
         let undo = app.buttons["elder.feedback.undo"]
         XCTAssertTrue(undo.waitForExistence(timeout: 5))
         undo.tap()
         assertCurrentTask("布洛芬", status: "未确认", in: app)
-        XCTAssertFalse(app.descendants(matching: .any)["elder.feedback.success"].exists)
         assertStoredState(in: app, statuses: ["pending"], logCount: 1, saveAttempts: 1)
     }
 
@@ -541,13 +681,13 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         continueAfterFailure = false
         let app = launchElderFixture(scenario: "future")
         assertCurrentTask("布洛芬", status: "待服用", in: app)
-        tapElderAction("elder.action.taken", in: app)
+        tapElderAction("elder.action.taken", in: app, confirmCompletion: false)
         XCTAssertTrue(app.buttons["elder.confirmation.confirm"].waitForExistence(timeout: 5))
         tapElderAction("elder.confirmation.cancel", in: app)
         assertCurrentTask("布洛芬", status: "待服用", in: app)
         XCTAssertFalse(app.descendants(matching: .any)["elder.feedback.success"].exists)
 
-        tapElderAction("elder.action.taken", in: app)
+        tapElderAction("elder.action.taken", in: app, confirmCompletion: false)
         tapElderAction("elder.confirmation.confirm", in: app)
         assertCompleted(in: app)
         assertStoredState(in: app, statuses: ["taken"], logCount: 1, saveAttempts: 1)
@@ -644,12 +784,22 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["elder.feedback.success"].exists)
     }
 
-    func testElderRapidDoubleTapCommitsOnlyCurrentTask() {
+    func testElderRapidDoubleTapDoesNotCommitAndHoldCommitsOnlyCurrentTask() {
         continueAfterFailure = false
         let app = launchElderFixture(scenario: "multiple")
         let completion = app.buttons["elder.action.taken"]
         scrollToHittable(completion, in: app)
         completion.doubleTap()
+        assertStoredState(in: app, statuses: ["pending", "pending"], logCount: 0, saveAttempts: 0)
+        restartElderFixture(app)
+        scrollToHittable(completion, in: app)
+        completion.press(forDuration: 1.4)
+        XCTAssertTrue(app.buttons["elder.confirmation.confirm"].waitForExistence(timeout: 5))
+        assertStoredState(in: app, statuses: ["pending", "pending"], logCount: 0, saveAttempts: 0)
+        restartElderFixture(app)
+        scrollToHittable(completion, in: app)
+        completion.press(forDuration: 1.4)
+        tapElderAction("elder.confirmation.confirm", in: app)
         assertCurrentTask("人工泪液", status: "未确认", in: app)
         restartElderFixture(app)
         assertCurrentTask("人工泪液", status: "未确认", in: app)
@@ -721,53 +871,25 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         assertStoredState(in: app, statuses: [], logCount: 0, saveAttempts: 0)
     }
 
-    func testElderMissingHelpNumberCanCancelWithoutCalling() {
-        continueAfterFailure = false
-        let app = launchElderFixture(scenario: "help-missing")
-        tapElderAction("elder.action.help", in: app)
-        XCTAssertTrue(app.alerts["还没有帮助号码"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["elder.help.missing.settings"].exists)
-        addScreenshot(named: "elder-help-missing", from: app)
-        app.alerts["还没有帮助号码"].buttons["elder.help.missing.cancel"].firstMatch.tap()
-        assertCurrentTask("布洛芬", status: "未确认", in: app)
-        assertStoredState(in: app, statuses: ["pending"], logCount: 0, saveAttempts: 0)
-    }
 
-    func testElderUnavailableHelpStoreShowsErrorWithoutCalling() {
-        continueAfterFailure = false
-        let app = launchElderFixture(scenario: "help-unavailable")
-        tapElderAction("elder.action.help", in: app)
-        let dismiss = app.alerts["帮助暂不可用"].buttons["elder.help.error.dismiss"].firstMatch
-        XCTAssertTrue(dismiss.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["帮助号码暂时无法在本机存取，请稍后重试。"].exists)
-        dismiss.tap()
-        assertCurrentTask("布洛芬", status: "未确认", in: app)
-        assertStoredState(in: app, statuses: ["pending"], logCount: 0, saveAttempts: 0)
-    }
 
-    func testElderHelpConfirmationCancelDoesNotOpenPhone() {
-        continueAfterFailure = false
-        let app = launchElderFixture(scenario: "help-confirmation")
-        tapElderAction("elder.action.help", in: app)
-        let cancel = app.alerts["联系帮助？"].buttons["elder.help.cancel"].firstMatch
-        XCTAssertTrue(cancel.waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["拨打 +12025550123"].exists)
-        addScreenshot(named: "elder-help-confirmation", from: app)
-        cancel.tap()
-        assertCurrentTask("布洛芬", status: "未确认", in: app)
-        assertStoredState(in: app, statuses: ["pending"], logCount: 0, saveAttempts: 0)
-    }
 
-    func testElderHelpOpenerFailureIsHonest() {
+
+
+
+
+
+    func testElderUsageHelpOpensWithSingleTapWithoutChangingRecordsOrCalling() {
         continueAfterFailure = false
-        let app = launchElderFixture(scenario: "help-confirmation")
-        tapElderAction("elder.action.help", in: app)
-        let confirm = app.alerts["联系帮助？"].buttons["拨打 +12025550123"].firstMatch
-        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
-        confirm.tap()
-        XCTAssertTrue(app.buttons["elder.help.error.dismiss"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.descendants(matching: .any)["elder.feedback.success"].exists)
-        assertStoredState(in: app, statuses: ["pending"], logCount: 0, saveAttempts: 0, helpAttempts: 1)
+        for scenario in ["help-missing", "help-unavailable", "help-confirmation"] {
+            let app = launchElderFixture(scenario: scenario)
+            tapElderAction("elder.action.help", in: app)
+            let close = app.buttons["完成"].firstMatch
+            XCTAssertTrue(close.waitForExistence(timeout: 5))
+            close.tap()
+            assertCurrentTask("布洛芬", status: "未确认", in: app)
+            assertStoredState(in: app, statuses: ["pending"], logCount: 0, saveAttempts: 0, helpAttempts: 0)
+        }
     }
 
     private func assertElderActionsVisible(
@@ -846,10 +968,20 @@ final class MedicationAdherenceAppUITests: XCTestCase {
         XCTAssertFalse(app.buttons["elder.action.taken"].exists, file: file, line: line)
     }
 
-    private func tapElderAction(_ identifier: String, in app: XCUIApplication) {
+    private func tapElderAction(_ identifier: String, in app: XCUIApplication, confirmCompletion: Bool = true) {
         let button = app.buttons[identifier]
         scrollToHittable(button, in: app)
-        button.tap()
+        if identifier == "elder.action.taken" || identifier == "elder.action.delay" {
+            button.press(forDuration: 1.4)
+            if identifier == "elder.action.taken" && confirmCompletion {
+                let confirm = app.buttons["elder.confirmation.confirm"]
+                XCTAssertTrue(confirm.waitForExistence(timeout: 5))
+                scrollToHittable(confirm, in: app)
+                confirm.tap()
+            }
+        } else {
+            button.tap()
+        }
     }
 
     private func assertStoredState(

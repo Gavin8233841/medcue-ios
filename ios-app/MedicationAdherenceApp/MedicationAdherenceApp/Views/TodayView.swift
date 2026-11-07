@@ -270,12 +270,7 @@ private struct TodayContentView: View {
                 reopeningHandledDoseKeys: doseInteraction.reopeningHandledDoseKeys,
                 recentlyReopenedDoseKeys: doseInteraction.recentlyReopenedDoseKeys,
                 doseMigrationSnapshot: doseInteraction.doseMigrationSnapshot,
-                weatherHints: [],
-                weatherStatusText: "",
-                isWeatherLoading: false,
-                shouldShowWeatherAuthorization: false,
                 doseUndoBanner: doseUndoBanner,
-                weatherMedicationSignature: "beta-disabled",
                 showingHandledTasks: $showingHandledTasks,
                 taskPendingArchive: $taskPendingArchive,
                 showingArchiveConfirmation: $showingArchiveConfirmation,
@@ -309,7 +304,6 @@ private struct TodayContentView: View {
                     switchToElderMode: {
                         appExperienceModeRaw = AppExperienceMode.elder.rawValue
                     },
-                    requestWeatherRefresh: { _ in false },
                     initialLoad: initialTodayLoad,
                     timerTick: refreshTodayTimer,
                     becameActive: todayBecameActive,
@@ -576,6 +570,10 @@ private struct TodayContentView: View {
               presentation != .elder || (!elderActionInProgress && !elderReminderSyncInProgress) else {
             return
         }
+        if presentation == .elder, !reminderPolicy.requiresEarlyTakenConfirmation(plannedDueAt: task.dueAt, now: now()) {
+            showPendingDoseConfirmation(for: task, kind: .takenConfirmation)
+            return
+        }
         guard reminderPolicy.requiresEarlyTakenConfirmation(plannedDueAt: task.dueAt, now: now()) else {
             performMarkTaken(task, reason: "")
             return
@@ -643,6 +641,8 @@ private struct TodayContentView: View {
         }
         clearPendingDoseConfirmation(for: task)
         switch kind {
+        case .takenConfirmation:
+            performMarkTaken(task, reason: "用户确认本次用药。")
         case .earlyTaken:
             performMarkTaken(task, reason: "用户确认提前服用。")
         case .plannedDelay:

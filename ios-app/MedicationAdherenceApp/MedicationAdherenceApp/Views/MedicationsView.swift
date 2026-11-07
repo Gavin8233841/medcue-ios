@@ -6,6 +6,7 @@ import SwiftUI
 import UIKit
 
 struct MedicationsView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.activeAppTab) private var activeAppTab
     @Query(sort: \StoredMedication.displayName) private var medications: [StoredMedication]
     @Query(sort: \StoredMedicationPlan.createdAt) private var plans: [StoredMedicationPlan]
@@ -13,11 +14,9 @@ struct MedicationsView: View {
     @Query(sort: \StoredMedicationDoseChange.effectiveFrom, order: .reverse) private var doseChanges: [StoredMedicationDoseChange]
     @Query(sort: \StoredMedicationStock.lastUpdated, order: .reverse) private var stocks: [StoredMedicationStock]
     @Query(sort: \StoredRiskCard.displayPriority) private var riskCards: [StoredRiskCard]
-    @State private var showingAddOptions = false
-    @State private var pendingAddSelection: MedicationAddSelection?
     @State private var selectedAddSelection: MedicationAddSelection?
     @State private var selectedLifecycleStatus: StoredMedicationLifecycleStatus = .active
-    @State private var showingMedicationList = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var listSnapshot = MedicationListSnapshot.empty
     @State private var lastSnapshotRefreshToken = ""
     @State private var lastSnapshotRefreshAt = Date(timeIntervalSinceReferenceDate: 0)
@@ -64,87 +63,89 @@ struct MedicationsView: View {
     var body: some View {
         let snapshot = listSnapshot
         let activeRiskCards = activeRiskCards
-        List {
-            Section {
-                MedicationDashboardSummary(
-                    medicationCount: snapshot.medications.count,
-                    activeTaskCount: snapshot.activeTaskCount,
-                    stockCount: snapshot.stockSummaries.count,
-                    lowStockCount: snapshot.lowStockCount,
-                    activeRiskCount: activeRiskCards.count,
-                    priorityRiskCount: activeRiskCards.filter(\.requiresProfessionalReview).count
-                )
+        let layout = horizontalSizeClass == .regular
+            ? AnyLayout(HStackLayout(alignment: .top, spacing: 24))
+            : AnyLayout(VStackLayout(alignment: .leading, spacing: 20))
+        ScrollView {
+            layout {
+                VStack(alignment: .leading, spacing: 18) {
+                    if horizontalSizeClass == .regular {
+                        Text("我的药盒").font(.title2.bold())
+                    }
+                HStack {
+                    Text("\(snapshot.medications.count) 种药品 · \(snapshot.activeTaskCount) 项待处理")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    Spacer()
+                    Menu {
+                        NavigationLink("用药概览") { MedicationOverviewDetailView() }
+                        NavigationLink("待处理任务") { MedicationPendingTasksDetailView() }
+                        NavigationLink("药盒与余量") { MedicationStockOverviewView() }
+                    } label: { Image(systemName: "ellipsis").padding(10) }
+                    .accessibilityLabel("更多用药信息")
+                    .medicationGlassButtonStyle()
+                }
                 .background(alignment: .top) {
                     AppTopGradientScrollReader(tab: .medications, coordinateSpaceName: "MedicationsTopGradientList")
                 }
-            }
-
-            Section("药品分组") {
-                MedicationLifecycleSelector(
-                    selectedStatus: $selectedLifecycleStatus,
-                    count: { snapshot.count(for: $0) }
-                )
-            }
-
-            Section(selectedLifecycleStatus.displayName) {
-                let visibleMedications = snapshot.visibleMedications(for: selectedLifecycleStatus)
-                let firstMedication = visibleMedications.first
-                let nextTask = firstMedication.flatMap { snapshot.nextTask(for: $0) }
-                if snapshot.isPlaceholder && !medications.isEmpty {
-                    Label("正在整理药品", systemImage: "hourglass")
-                        .foregroundStyle(.secondary)
-                } else if visibleMedications.isEmpty {
-                    Text("还没有添加药品。")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Button {
-                        withAnimation(.snappy(duration: 0.24, extraBounce: 0.01)) {
-                            showingMedicationList.toggle()
-                        }
-                    } label: {
-                        HStack(spacing: 8) {
-                            MedicationLifecycleGroupSummaryRow(
-                                status: selectedLifecycleStatus,
-                                count: visibleMedications.count,
-                                firstMedication: firstMedication,
-                                nextTask: nextTask
-                            )
-                            Image(systemName: showingMedicationList ? "chevron.up" : "chevron.down")
-                                .font(.footnote.weight(.bold))
-                                .foregroundStyle(.secondary)
-                                .accessibilityHidden(true)
-                        }
-                        .contentShape(Rectangle())
+                NavigationLink { RisksView() } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "shield.lefthalf.filled")
+                        Text("风险复核").fontWeight(.semibold)
+                        Text(activeRiskCards.isEmpty ? "暂无活跃" : "\(activeRiskCards.count) 项可查看")
+                            .font(.subheadline)
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.caption.bold())
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(
-                        medicationLifecycleGroupAccessibilityLabel(
-                            status: selectedLifecycleStatus,
-                            count: visibleMedications.count,
-                            firstMedication: firstMedication,
-                            nextTask: nextTask
-                        )
-                    )
-                    .accessibilityValue(showingMedicationList ? "已展开" : "已折叠")
-
-                    if showingMedicationList {
+                    .foregroundStyle(activeRiskCards.isEmpty ? Color.secondary : Color.orange)
+                    .padding(16)
+                    .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 20))
+                }
+                .buttonStyle(.plain)
+                if horizontalSizeClass == .regular {
+                    ForEach(StoredMedicationLifecycleStatus.allCases) { status in
+                        Button { selectedLifecycleStatus = status } label: {
+                            HStack {
+                                Text(status.displayName)
+                                Spacer()
+                                Text("\(snapshot.count(for: status))").monospacedDigit()
+                            }.padding(12).frame(maxWidth: .infinity)
+                        }
+                        .medicationGlassButtonStyle(prominent: selectedLifecycleStatus == status)
+                    }
+                    NavigationLink { MedicationStockOverviewView() } label: {
+                        Label("药盒与余量", systemImage: "shippingbox")
+                    }.padding(.top, 8)
+                } else {
+                    Picker("药品分组", selection: $selectedLifecycleStatus) {
+                        ForEach(StoredMedicationLifecycleStatus.allCases) { status in
+                            Text("\(status.displayName) \(snapshot.count(for: status))").tag(status)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                }
+                .frame(maxWidth: horizontalSizeClass == .regular ? 240 : .infinity, alignment: .leading)
+                let visibleMedications = snapshot.visibleMedications(for: selectedLifecycleStatus)
+                if snapshot.isPlaceholder && !medications.isEmpty {
+                    ProgressView("正在整理药品").frame(maxWidth: .infinity)
+                } else if visibleMedications.isEmpty {
+                    ContentUnavailableView("暂无\(selectedLifecycleStatus.displayName)药品", systemImage: "pills")
+                } else {
+                    LazyVGrid(columns: dynamicTypeSize.isAccessibilitySize ? [GridItem(.flexible())] : (horizontalSizeClass == .regular ? [GridItem(.flexible()), GridItem(.flexible())] : [GridItem(.adaptive(minimum: 160), spacing: 16)]), spacing: 16) {
                         ForEach(visibleMedications) { medication in
                             NavigationLink(value: MedicationDetailRoute(medicationID: medication.id)) {
-                                MedicationCardRow(
-                                    medication: medication,
-                                    plan: snapshot.plan(for: medication),
-                                    taskCount: snapshot.taskCount(for: medication),
-                                    nextTask: snapshot.nextTask(for: medication),
-                                    stockProjection: snapshot.stockProjection(for: medication),
-                                    lifecycleClassification: snapshot.lifecycleClassification(for: medication)
-                                )
+                                MedicationGalleryCard(medication: medication, nextTask: snapshot.nextTask(for: medication))
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
             }
+            .frame(maxWidth: 1100)
+            .padding(.horizontal, 20).padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
         }
+        .background(Color(.systemGroupedBackground))
         .coordinateSpace(name: "MedicationsTopGradientList")
         .safeAreaInset(edge: .bottom) {
             Color.clear.frame(height: 96)
@@ -153,30 +154,12 @@ struct MedicationsView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    showingAddOptions = true
+                    selectedAddSelection = MedicationAddSelection(option: MedicationAddWorkflow.manualOption)
                 } label: {
                     Image(systemName: "plus")
                         .accessibilityLabel("添加药品")
                 }
                 .accessibilityIdentifier(AppAccessibilityID.medicationAdd)
-            }
-        }
-        .sheet(isPresented: $showingAddOptions) {
-            MedicationAddOptionsSheet { option in
-                pendingAddSelection = MedicationAddSelection(option: option)
-                showingAddOptions = false
-            }
-            .presentationDetents([.height(360)])
-            .presentationDragIndicator(.visible)
-        }
-        .onChange(of: showingAddOptions) { _, isPresented in
-            guard !isPresented, let pendingAddSelection else {
-                return
-            }
-            self.pendingAddSelection = nil
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(180))
-                selectedAddSelection = pendingAddSelection
             }
         }
         .sheet(item: $selectedAddSelection) { selection in
@@ -187,11 +170,6 @@ struct MedicationsView: View {
         }
         .onAppear {
             restoreMedicationSnapshotFromCacheIfAvailable()
-        }
-        .onChange(of: selectedLifecycleStatus) { _, _ in
-            withAnimation(.snappy(duration: 0.24, extraBounce: 0.01)) {
-                showingMedicationList = false
-            }
         }
         .task(id: refreshTaskID) {
             guard shouldPrepareSnapshot else {

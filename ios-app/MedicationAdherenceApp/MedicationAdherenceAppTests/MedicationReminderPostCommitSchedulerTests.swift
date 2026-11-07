@@ -496,7 +496,7 @@ struct MedicationReminderPostCommitSchedulerTests {
             wantsAlarm: false,
             wantsEscalationAlarm: true,
             plannedKinds: [.baseNotification]
-        ).failureMessage?.contains("升级提醒因本机排程预算未安排") == true)
+        ) == .escalationBudgetDeferred)
     }
 
     @Test
@@ -622,6 +622,43 @@ struct MedicationReminderPostCommitSchedulerTests {
             schedulingNow: escalationAt.addingTimeInterval(-1),
             wantsEscalation: true
         ))
+    }
+
+    @Test
+    func rollingWindowDeferralDoesNotReportFailureButRealFailuresRemain() {
+        let near = UUID(), far = UUID()
+        let deferred: MedicationReminderSchedulingResult = .budgetDeferred
+        let results: [UUID: MedicationReminderSchedulingResult] = [near: .scheduled, far: deferred]
+        let visible = MedicationReminderRequestTiming.reportableResults(
+            results, deferredTaskIDs: [far], hasAssignments: true
+        )
+        #expect(visible == [near: .scheduled])
+        #expect(!MedicationReminderRequestTiming.hasIncompleteResult(visible))
+        var warnings = MedicationReminderSyncWarningState(messagesByTaskID: [far.uuidString: "旧预算提示"])
+        warnings.replace(affectedTaskIDs: [near, far], results: visible)
+        #expect(warnings.displayMessage == nil)
+        let failed = MedicationReminderRequestTiming.reportableResults(
+            [near: .unavailable(message: "基础提醒未能安排"), far: deferred],
+            deferredTaskIDs: [far], hasAssignments: true
+        )
+        #expect(MedicationReminderRequestTiming.hasIncompleteResult(failed))
+        let full = MedicationReminderRequestTiming.reportableResults(
+            [far: deferred], deferredTaskIDs: [far], hasAssignments: false
+        )
+        #expect(MedicationReminderRequestTiming.hasIncompleteResult(full))
+        let expired = MedicationReminderRequestTiming.reportExpiredBase(deferred, expired: true)
+        let expiredResults = MedicationReminderRequestTiming.reportableResults(
+            [near: .scheduled, far: expired], deferredTaskIDs: [far], hasAssignments: true
+        )
+        #expect(MedicationReminderRequestTiming.hasIncompleteResult(expiredResults))
+        let partial = MedicationReminderRequestExecutionOutcome(
+            baseScheduled: true, escalationScheduled: true, failedKinds: [],
+            usedEscalationNotificationFallback: false
+        ).schedulingResult(wantsAlarm: false, wantsEscalationAlarm: true, plannedKinds: [.baseNotification])
+        #expect(partial == .escalationBudgetDeferred)
+        #expect(MedicationReminderRequestTiming.reportableResults(
+            [near: partial], deferredTaskIDs: [], hasAssignments: true
+        ).isEmpty)
     }
 
     @Test

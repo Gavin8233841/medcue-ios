@@ -1,6 +1,7 @@
 import Foundation
 import MedicationAdherenceCore
 import SwiftData
+import UIKit
 
 #if DEBUG || MEDCUE_DEMO
 import Darwin
@@ -12,12 +13,8 @@ import UIKit
 enum DemoModeLauncher {
     private static let firstLaunchCompletionKey = "hasCompletedFirstLaunchSetup"
 
-    static func rebuildAndExit(in modelContext: ModelContext) async throws -> Never {
-        UserDefaults.standard.set(false, forKey: firstLaunchCompletionKey)
+    static func prepareNextExperience(in modelContext: ModelContext) throws {
         try DemoDataSeeder.rebuildForExplicitDemoMode(in: modelContext)
-        try await Task.sleep(for: .milliseconds(300))
-        UserDefaults.standard.set(false, forKey: firstLaunchCompletionKey)
-        exit(EXIT_SUCCESS)
     }
 }
 #endif
@@ -34,16 +31,59 @@ enum DemoDataSeeder {
         #endif
     }
 
+    /// Refresh only existing synthetic artwork; never rebuild records or plans.
+    @MainActor
+    @discardableResult
+    static func refreshExistingDemoArtworkIfNeeded(
+        in modelContext: ModelContext,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        let revision = 20261105
+        let key = "medcue.demoArtworkRevision"
+        guard defaults.integer(forKey: key) < revision, !modelContext.hasChanges else { return false }
+        do {
+            let medications = try modelContext.fetch(FetchDescriptor<StoredMedication>(
+                predicate: #Predicate { $0.isDemoContent }
+            ))
+            guard !medications.isEmpty else { return false }
+            let refreshedNames = Set(["布洛芬", "对乙酰氨基酚", "维生素 D3"])
+            var changed = false
+            for medication in medications {
+                guard refreshedNames.contains(medication.displayName) || medication.photoData == nil,
+                      let photo = bundledPhotoData(for: medication.displayName),
+                      medication.photoData != photo else { continue }
+                medication.photoData = photo
+                changed = true
+            }
+            if changed && !AppPersistenceCommitter.save(modelContext, operation: "demo-artwork-refresh") { return false }
+            defaults.set(revision, forKey: key)
+            return changed
+        } catch {
+            AppPersistenceCommitter.reportFailure(operation: "demo-artwork-refresh")
+            return false
+        }
+    }
+
     static func rebuildForExplicitDemoMode(in modelContext: ModelContext) throws {
         #if DEBUG || MEDCUE_DEMO
+        let existing = try modelContext.fetch(FetchDescriptor<StoredMedication>())
+        let photos = Dictionary(uniqueKeysWithValues: existing.filter(\.isDemoContent).compactMap { medication in
+            medication.photoData.map { (medication.id, $0) }
+        })
         try removeExistingDemoContent(in: modelContext)
-        try seed(in: modelContext)
+        try seed(in: modelContext, preservingPhotos: photos)
         #endif
     }
 
-    private static func seed(in modelContext: ModelContext) throws {
+    private static func seed(in modelContext: ModelContext, preservingPhotos: [UUID: Data] = [:]) throws {
         let existing = try modelContext.fetch(FetchDescriptor<StoredMedication>())
         let demoMedications = resolveDemoMedications(from: existing, context: modelContext)
+        // Explicit demo restart adopts the owner's current packaging artwork.
+        // Other locally selected demo photos keep the established preservation behavior.
+        let refreshedPackaging = Set(["人工泪液", "布洛芬", "对乙酰氨基酚", "维生素 D3"])
+        for medication in demoMedications where !refreshedPackaging.contains(medication.displayName) {
+            if let photo = preservingPhotos[medication.id] { medication.photoData = photo }
+        }
         migrateUserVisibleSeedText(for: demoMedications, in: modelContext)
 
         seedMissingPlansAndTodayTasks(for: demoMedications, context: modelContext)
@@ -107,7 +147,7 @@ enum DemoDataSeeder {
         for medication in demoMedications {
             modelContext.delete(medication)
         }
-        try modelContext.save()
+        // Commit deletions and replacement content together in seed(in:).
     }
 
     private static func demoUUID(_ rawValue: String) -> UUID {
@@ -274,17 +314,21 @@ enum DemoDataSeeder {
         medication.form = seed.form
         medication.strength = seed.strength
         medication.photoSymbolName = seed.photoSymbolName
-        #if DEBUG || MEDCUE_DEMO
-        if medication.photoData == nil,
-           let photoAssetName = seed.photoAssetName,
-           let photo = UIImage(named: photoAssetName) {
-            medication.photoData = photo.jpegData(compressionQuality: 0.82)
+        if medication.photoData == nil {
+            medication.photoData = bundledPhotoData(for: seed.displayName)
         }
-        #endif
         if medication.boxNumber.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             medication.boxNumber = seed.boxNumber
         }
         medication.notes = userFacingNotes(from: medication.notes, fallback: seed.notes)
+    }
+
+    static func bundledPhotoData(for displayName: String) -> Data? {
+        guard let asset = ["布洛芬": "DemoAdvil", "对乙酰氨基酚": "DemoTylenol",
+                           "氯雷他定": "DemoFortuneLoratadine", "人工泪液": "DemoArtificialTears",
+                           "维生素 D3": "DemoVitaminD3"][displayName]
+        else { return nil }
+        return UIImage(named: asset)?.jpegData(compressionQuality: 0.8)
     }
 
     private static func migrateUserVisibleSeedText(

@@ -100,6 +100,14 @@ public enum HealthSignalKind: String, Codable, Sendable, Equatable {
     case bloodOxygen
     case bodyTemperature
     case bloodGlucose
+    case restingHeartRate
+    case stepCount
+    case activeEnergy
+    case exerciseMinutes
+    case sleepDuration
+    case sleepCore
+    case sleepDeep
+    case sleepREM
     case unknown
 }
 

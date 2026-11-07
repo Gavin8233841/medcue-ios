@@ -7,7 +7,7 @@ struct DomainPolicyTests {
     func medicalAIDefaultsPreserveTimeoutTrendAndTokenBudgets() {
         let policy = MedicalAIExecutionPolicy.default
 
-        #expect(policy.cloudTimeout == .seconds(20))
+        #expect(policy.cloudTimeout == .seconds(50))
         #expect(policy.trendLookbackDays == 14)
         #expect(policy.singleResponseTokenLimit == 220)
         #expect(policy.streamingResponseTokenLimit == 640)

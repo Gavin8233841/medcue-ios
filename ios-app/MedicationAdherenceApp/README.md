@@ -91,3 +91,14 @@ VERIFY_NATIVE_IOS_TEST_DESTINATION='platform=iOS Simulator,name=iPhone 17 Pro,OS
 4. 连接 iPhone，在 Xcode 顶部设备菜单选择你的 iPhone。
 5. 点击运行。首次安装后按 iPhone 提示信任开发者，并在 App 首启第一页开启通知权限。
 6. 测试灵动岛/实况状态时，把某个今日任务时间调到当前时间前后 5 分钟内，回到今日页等待触发；标记已服用或忽略后，实况状态应自动结束。
+
+### Foundation Models custom provider
+
+iOS 27+ local chat routes through `LanguageModelSession` and a custom
+`LanguageModel`/`LanguageModelExecutor` backed by the existing MiniCPM5-2B
+llama runtime. Earlier iOS versions use the existing runtime directly.
+The adapter accepts the app's preassembled text prompt, including authorized
+context and history, and forwards streaming output and cancellation. This is
+Foundation Models API integration with the app's own model; Apple system-model
+access, Core AI/ANE acceleration, tool calling and structured generation are
+not part of this implementation.

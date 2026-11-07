@@ -11,6 +11,9 @@ enum MedicationReminderSchedulingResult: Sendable, Equatable {
     case scheduled
     case unavailable(message: String)
 
+    static let budgetDeferred: Self = .unavailable(message: "远期提醒将在后续打开 App 时继续安排。")
+    static let escalationBudgetDeferred: Self = .unavailable(message: "基础提醒已安排，远期升级提醒将在后续打开 App 时继续安排。")
+
     var failureMessage: String? {
         guard case let .unavailable(message) = self else { return nil }
         return message
@@ -111,6 +114,7 @@ struct MedicationReminderRequestExecutionOutcome: Equatable {
         } else if usedEscalationNotificationFallback {
             degradations.append("升级闹钟未安排，已改用普通通知")
         } else if wantsEscalationAlarm && !plannedKinds.contains(.escalationAlarm) {
+            if degradations.isEmpty { return .escalationBudgetDeferred }
             degradations.append("升级提醒因本机排程预算未安排，基础提醒仍已安排")
         }
         if !degradations.isEmpty {
@@ -168,6 +172,21 @@ enum MedicationReminderCancellationReadback {
 }
 
 enum MedicationReminderRequestTiming {
+    // A finite rolling window defers distant tasks normally. Keep failures for
+    // requests actually attempted, and report a full queue if nothing fits.
+    static func reportableResults(
+        _ results: [UUID: MedicationReminderSchedulingResult],
+        deferredTaskIDs: [UUID],
+        hasAssignments: Bool
+    ) -> [UUID: MedicationReminderSchedulingResult] {
+        guard hasAssignments else { return results }
+        let deferred = Set(deferredTaskIDs)
+        return results.filter {
+            !(deferred.contains($0.key) && $0.value == .budgetDeferred)
+                && $0.value != .escalationBudgetDeferred
+        }
+    }
+
     static func hasIncompleteResult(
         _ results: [UUID: MedicationReminderSchedulingResult]
     ) -> Bool {
@@ -701,7 +720,7 @@ final class NotificationService: ObservableObject {
         results.merge(scheduled.results) { _, new in new }
         lastSystemOperationFailed = lastSystemOperationFailed || scheduled.systemFailed
         for taskID in plan.deferredTaskIDs {
-            results[taskID] = .unavailable(message: "近期提醒已达到本机排程预算，请稍后刷新。")
+            results[taskID] = .budgetDeferred
         }
         for taskID in plan.unavailableTaskIDs {
             results[taskID] = .unavailable(message: "提醒未安排，请检查通知或闹钟权限。")
@@ -721,9 +740,14 @@ final class NotificationService: ObservableObject {
             )
             lastSystemOperationFailed = true
         }
+        let reportableResults = MedicationReminderRequestTiming.reportableResults(
+            results,
+            deferredTaskIDs: plan.deferredTaskIDs,
+            hasAssignments: !plan.assignments.isEmpty
+        )
         lastSystemOperationFailed = lastSystemOperationFailed
-            || MedicationReminderRequestTiming.hasIncompleteResult(results)
-        warningState.replace(affectedTaskIDs: affectedTaskIDs, results: results)
+            || MedicationReminderRequestTiming.hasIncompleteResult(reportableResults)
+        warningState.replace(affectedTaskIDs: affectedTaskIDs, results: reportableResults)
         if cleanup.hasUnattributedFailure {
             warningState.globalMessage = "部分旧提醒未能从系统取消，请稍后重试。"
         }

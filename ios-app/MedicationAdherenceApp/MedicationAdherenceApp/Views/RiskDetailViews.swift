@@ -86,9 +86,7 @@ struct RiskCardDetailView: View {
 
             Section("关联操作") {
                 if let medication {
-                    NavigationLink {
-                        MedicationDetailView(medication: medication)
-                    } label: {
+                    NavigationLink(value: MedicationDetailRoute(medicationID: medication.id)) {
                         Label("查看相关药品", systemImage: "pills.fill")
                     }
                 }

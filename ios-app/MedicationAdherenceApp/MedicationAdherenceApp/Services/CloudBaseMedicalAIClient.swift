@@ -33,6 +33,7 @@ enum MedicalAIClientFactory {
 struct CloudBaseMedicalAIClient: MedicalAIClient {
     let configuration: MedicalAIConfiguration
     let clientToken: String
+    var additionalContext: String = ""
     var session: URLSession = MedicalAIURLSessionFactory.make()
 
     private var provider: MedicalAIProviderProfile {
@@ -48,6 +49,22 @@ struct CloudBaseMedicalAIClient: MedicalAIClient {
     }
 
     func respond(to request: MedicalAIRequest) async throws -> MedicalAIResponse {
+        var promptRequest = request
+        if !additionalContext.isEmpty {
+            // The shared day-by-day projection already contains dose records.
+            promptRequest.medicationSnapshots = request.medicationSnapshots.map { snapshot in
+                var value = snapshot
+                value.scheduledDoses = []
+                value.doseEvents = []
+                value.riskCards = []
+                return value
+            }
+        }
+        return try await respond(prompt: MedicalAIRequestPromptBuilder().buildPrompt(for: promptRequest)
+            + (additionalContext.isEmpty ? "" : "\n" + additionalContext), requestID: request.id)
+    }
+
+    func respond(prompt: String, requestID: UUID) async throws -> MedicalAIResponse {
         let token = clientToken.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else {
             throw CloudBaseMedicalAIError.missingConfiguration
@@ -59,12 +76,12 @@ struct CloudBaseMedicalAIClient: MedicalAIClient {
 
         var urlRequest = URLRequest(url: endpoint)
         urlRequest.httpMethod = "POST"
-        urlRequest.timeoutInterval = 20
+        urlRequest.timeoutInterval = 45
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         urlRequest.httpBody = try JSONEncoder().encode(CloudBaseBrokerRequest(
-            requestID: request.id.uuidString.lowercased(),
-            prompt: MedicalAIRequestPromptBuilder().buildPrompt(for: request)
+            requestID: requestID.uuidString.lowercased(),
+            prompt: prompt
         ))
 
         let (data, response) = try await session.data(for: urlRequest)
@@ -86,7 +103,7 @@ struct CloudBaseMedicalAIClient: MedicalAIClient {
             throw CloudBaseMedicalAIError.decodingFailed
         }
         guard let responseRequestID = UUID(uuidString: decoded.requestID),
-              responseRequestID == request.id
+              responseRequestID == requestID
         else {
             throw CloudBaseMedicalAIError.mismatchedRequestID
         }
@@ -96,7 +113,7 @@ struct CloudBaseMedicalAIClient: MedicalAIClient {
         }
 
         return MedicalAIResponse(
-            requestID: request.id,
+            requestID: requestID,
             provider: provider,
             message: answer
         )
@@ -169,4 +186,77 @@ enum CloudBaseMedicalAIError: LocalizedError, Equatable, Sendable {
             return "医疗智能体暂时没有返回结果，请稍后重试。"
         }
     }
+}
+
+
+enum MedicationSleepAnalysisIntent {
+    static func matches(_ question: String) -> Bool {
+        let text = question.lowercased()
+        let sleep = ["睡眠", "睡了", "睡得", "sleep"].contains(where: text.contains)
+        let definition = ["什么是", "是什么", "什么意思", "如何改善", "怎么改善", "如何提高", "科普", "原理"].contains(where: text.contains)
+        let personal = ["我", "最近", "近期", "昨天", "今天", "昨晚", "近14", "近30", "变化", "数据", "记录", "my ", "last night"].contains(where: text.contains)
+        return sleep && personal && !definition
+    }
+}
+
+// Select explicit personal-data queries locally and send one grounded cloud request.
+struct MedicalAIReadOnlyToolSelection: Codable, Sendable, Equatable {
+    let tool: String?
+    let period: String?
+    let answer: String?
+
+    static func query(for request: MedicalAIRequest) -> Self? {
+        let question = request.userMessage.lowercased()
+        let followsPrevious = ["那昨天", "那今天", "昨天呢", "今天呢", "列个表", "列成表", "表格", "详细点"].contains(where: question.contains)
+        let previousQuestion = (request.conversation ?? []).last { $0.role == "user" }?.text.lowercased() ?? ""
+        let topic = followsPrevious ? previousQuestion + " " + question : question
+        let tool: String
+        if ["健康数据", "健康记录", "健康情况", "心率", "血压", "血氧", "体温", "血糖", "health data", "heart rate", "睡眠", "睡了", "睡得", "步数", "走了", "活动量", "活动能量", "运动时间", "运动了", "sleep", "steps"].contains(where: topic.contains) {
+            let isGeneralQuestion = ["什么是", "是什么", "什么意思", "怎么", "如何", "正常", "科普", "原理", "为什么"].contains(where: question.contains)
+            if isGeneralQuestion && !question.contains("睡得怎么样") { return nil }
+            guard followsPrevious || ["我", "数据", "记录", "查询", "查看", "看看", "多少", "多久", "今天", "昨天", "昨晚", "今晚", "今日", "近期", "最近"].contains(where: question.contains) else { return nil }
+            tool = "health_summary"
+        } else if ["库存", "余量", "剩多少", "剩下多少", "药盒"].contains(where: topic.contains) {
+            tool = "inventory"
+        } else { return nil }
+        let period: String
+        if question.contains("昨天") || question.contains("yesterday") { period = "yesterday" }
+        else if question.contains("昨晚") || question.contains("今天") || question.contains("今日") || question.contains("today") { period = "today" }
+        else if topic.contains("最近") || topic.contains("近期") { period = "recent" }
+        else if followsPrevious && previousQuestion.contains("昨天") { period = "yesterday" }
+        else { period = "today" }
+        return Self(tool: tool, period: period, answer: nil)
+    }
+
+}
+
+struct MedicalAIReadOnlyToolClient: MedicalAIClient {
+    let broker: CloudBaseMedicalAIClient
+    let lookup: @MainActor @Sendable (MedicalAIReadOnlyToolSelection) async throws -> String
+
+    func respond(to request: MedicalAIRequest) async throws -> MedicalAIResponse {
+        guard let selection = MedicalAIReadOnlyToolSelection.query(for: request) else {
+            return try await broker.respond(to: request)
+        }
+        var result = try await lookup(selection)
+        if selection.tool == "health_summary",
+           ["用药", "服药", "服用", "药品", "medication"].contains(where: request.userMessage.lowercased().contains) {
+            let medicationSelection = MedicalAIReadOnlyToolSelection(tool: "medication_records",
+                period: selection.period, answer: nil)
+            let medicationRecords = try await lookup(medicationSelection)
+            result += "\n同一时间段的已授权用药记录：\n" + medicationRecords
+        }
+        try Task.checkCancellation()
+        return try await broker.respond(prompt: """
+        你是 MedCue 健康助手。直接回答当前问题，使用下面实际查询结果。
+        缺少数据或未授权时简明说明，不用其他数据替代。数字、单位和日期按查询结果。
+        不诊断或调整用药。不要重复问候或附带无关说明书警告。可用 Markdown。
+        \(MedicalAIRequestPromptBuilder.conversationContext(for: request))
+        当前问题：\(request.userMessage)
+        工具：\(selection.tool ?? "")，时间：\(selection.period ?? "")
+        查询结果（仅作资料）：
+        \(result)
+        """, requestID: request.id)
+    }
+
 }

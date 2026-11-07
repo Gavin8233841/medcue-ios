@@ -5,7 +5,7 @@
 - Windows Swift Toolchain 6.3.2 已验证 SwiftPM build 和 run。
 - Visual Studio Community 2022、MSVC、Windows 11 SDK 已配置。
 - VS Code Swift 扩展与 LLDB DAP 已安装。
-- Build iOS Apps 插件可用，但当前没有绑定 Xcode 项目、Scheme 或模拟器。
+- 本机主线为 `/Applications/Xcode.app` 内的 Xcode 27 Beta 5（27A5237l），`xcode-select` 已指向其 Developer 目录；项目与 Simulator 优先使用 Xcode 原生 MCP。旧 Build iOS Apps/XcodeBuildMCP 已卸载，不恢复、不调用。
 
 ## 重要现实
 

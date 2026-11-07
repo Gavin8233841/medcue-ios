@@ -4,6 +4,7 @@ import QuickLook
 import SwiftData
 import SwiftUI
 import UIKit
+import UserNotifications
 
 struct ElderHelpPhoneNumber: Equatable {
     let storageValue: String
@@ -225,17 +226,6 @@ struct ProfileView: View {
 
     var body: some View {
         List {
-            Section {
-                NavigationLink {
-                    AccountBackupView()
-                } label: {
-                    AccountHeaderRow()
-                }
-                .background(alignment: .top) {
-                    AppTopGradientScrollReader(tab: .profile, coordinateSpaceName: "ProfileTopGradientList")
-                }
-            }
-
             Section("复诊") {
                 NavigationLink {
                     VisitSummaryView()
@@ -248,9 +238,18 @@ struct ProfileView: View {
                         trailingText: nil
                     )
                 }
+                .background(alignment: .top) {
+                    AppTopGradientScrollReader(tab: .profile, coordinateSpaceName: "ProfileTopGradientList")
+                }
             }
 
             Section("健康与智能体") {
+                NavigationLink {
+                    WeatherMedicationSettingsView()
+                } label: {
+                    ProfileActionRow(iconName: "cloud.sun.fill", tint: .cyan,
+                        title: "天气与用药关注", subtitle: "结合环境查看日常关注", trailingText: nil)
+                }
                 NavigationLink {
                     HealthDataSettingsView()
                 } label: {
@@ -516,7 +515,44 @@ private struct ProfileActionRow: View {
     }
 }
 
+private struct WeatherMedicationSettingsView: View {
+    @Query(sort: \StoredMedication.displayName) private var medications: [StoredMedication]
+    @StateObject private var service = WeatherMedicationService()
+    @State private var pendingPermissionGate: AppPermissionGate?
+
+    var body: some View {
+        List {
+            Section {
+                if service.isLoading && service.hints.isEmpty {
+                    ProgressView("正在读取环境关注")
+                }
+                ForEach(service.hints.filter(\.isActionableForToday)) { hint in
+                    WeatherMedicationHintCard(hint: hint)
+                }
+                if !service.statusText.isEmpty {
+                    Text(service.statusText).font(.footnote).foregroundStyle(.secondary)
+                }
+                if service.shouldShowAuthorizationButton {
+                    Button("允许天气提醒") { pendingPermissionGate = .location }
+                        .disabled(service.isLoading)
+                }
+            }
+        }
+        .navigationTitle("天气与用药关注")
+        .task { _ = await service.refresh(medications: medications) }
+        .appPermissionPrimer(pendingGate: $pendingPermissionGate) { gate in
+            guard gate == .location else { return }
+            Task {
+                if await service.refresh(medications: medications, requestAuthorization: true) {
+                    AppPermissionGate.markAuthorizationCompleted(for: .location)
+                }
+            }
+        }
+    }
+}
+
 struct SettingsView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.modelContext) private var modelContext
     @AppStorage("appColorSchemePreference") private var appColorSchemePreference = AppColorSchemePreference.system.rawValue
     @AppStorage(AppExperienceMode.storageKey) private var appExperienceModeRaw = AppExperienceMode.complete.rawValue
@@ -528,6 +564,8 @@ struct SettingsView: View {
     @StateObject private var notificationService = NotificationService()
     @State private var pendingPermissionGate: AppPermissionGate?
     @State private var isUpdatingNotificationPermission = false
+    @State private var notificationPermissionIsUndetermined = false
+    @State private var pendingExperienceMode: AppExperienceMode?
     @State private var elderHelpPhoneInput = ""
     @State private var hasSavedElderHelpContact = false
     @State private var elderHelpContactStatus = ""
@@ -556,17 +594,38 @@ struct SettingsView: View {
         ScrollViewReader { scrollProxy in
             List {
                 Section("使用模式") {
-                    Toggle("使用适老模式", isOn: elderModeBinding)
-                        .accessibilityHint("打开后首页只显示一个当前任务和三个大按钮")
+                    Picker("使用模式", selection: Binding(
+                        get: { appExperienceModeRaw },
+                        set: { if $0 != appExperienceModeRaw { pendingExperienceMode = AppExperienceMode(rawValue: $0) } }
+                    )) {
+                        ForEach(AppExperienceMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode.rawValue)
+                        }
+                    }
+                    .accessibilityIdentifier("settings.experience-mode")
                 }
 
                 Section("同机帮助") {
-                    TextField("帮助电话号码", text: $elderHelpPhoneInput)
+                    TextField("帮助电话号码", text: Binding(
+                        get: { elderHelpPhoneInput },
+                        set: { value in
+                            guard value != elderHelpPhoneInput else { return }
+                            elderHelpPhoneInput = value
+                            elderHelpContactStatus = ""
+                        }
+                    ))
                         .textContentType(.telephoneNumber)
                         .keyboardType(.phonePad)
                         .focused($isElderHelpPhoneFocused)
                         .accessibilityHint("请输入帮助电话号码")
                         .accessibilityIdentifier("settings.elder-help.phone")
+
+                    if !elderHelpContactStatus.isEmpty {
+                        Text(elderHelpContactStatus)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
 
                     if !isElderHelpPhoneFocused {
                         Button("保存帮助号码") {
@@ -583,12 +642,6 @@ struct SettingsView: View {
                         .accessibilityIdentifier("settings.elder-help.remove")
                     }
 
-                    if !elderHelpContactStatus.isEmpty {
-                        Text(elderHelpContactStatus)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
                 }
                 .id("settings.elder-help")
 
@@ -619,16 +672,15 @@ struct SettingsView: View {
                         subtitle: notificationStatusText
                     )
                     Button {
-                        startNotificationPermissionFlow()
+                        if notificationPermissionIsUndetermined {
+                            startNotificationPermissionFlow()
+                        } else {
+                            openSystemSettings()
+                        }
                     } label: {
-                        Text(isUpdatingNotificationPermission ? "正在检查通知权限" : "开启或更新通知权限")
+                        Text(notificationPermissionIsUndetermined ? "开启通知" : "管理通知设置")
                     }
                     .disabled(isUpdatingNotificationPermission)
-                    Button {
-                        openSystemSettings()
-                    } label: {
-                        Text("打开系统通知设置")
-                    }
                 }
 
                 Section("隐私") {
@@ -665,9 +717,6 @@ struct SettingsView: View {
                     Button("收起键盘") { isElderHelpPhoneFocused = false }
                 }
             }
-            .onChange(of: elderHelpPhoneInput) { _, _ in
-                if isElderHelpPhoneFocused { elderHelpContactStatus = "" }
-            }
             .navigationTitle("应用设置")
             .appPermissionPrimer(pendingGate: $pendingPermissionGate) { gate in
                 guard gate == .notifications else {
@@ -683,8 +732,10 @@ struct SettingsView: View {
                     await Task.yield()
                     scrollProxy.scrollTo("settings.elder-help", anchor: .top)
                 }
-                await notificationService.refreshAuthorizationStatus()
-                await notificationService.refreshPendingReminderCount()
+                await refreshNotificationSettings()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { Task { await refreshNotificationSettings() } }
             }
             .alert(
                 "帮助号码未保存",
@@ -704,17 +755,18 @@ struct SettingsView: View {
                 Text(elderHelpContactErrorMessage ?? "")
             }
         }
-    }
-
-    private var elderModeBinding: Binding<Bool> {
-        Binding(
-            get: { AppExperienceMode(rawValue: appExperienceModeRaw) == .elder },
-            set: { isEnabled in
-                appExperienceModeRaw = isEnabled
-                    ? AppExperienceMode.elder.rawValue
-                    : AppExperienceMode.complete.rawValue
+        .alert("切换使用模式？", isPresented: Binding(
+            get: { pendingExperienceMode != nil },
+            set: { if !$0 { pendingExperienceMode = nil } }
+        )) {
+            Button("取消", role: .cancel) { pendingExperienceMode = nil }
+            Button("确认切换") {
+                if let mode = pendingExperienceMode { appExperienceModeRaw = mode.rawValue }
+                pendingExperienceMode = nil
             }
-        )
+        } message: {
+            Text(pendingExperienceMode == .elder ? "进入适老模式，一次处理一项用药任务。" : "返回完整模式，查看全部功能。")
+        }
     }
 
     private func loadElderHelpContact() {
@@ -758,6 +810,13 @@ struct SettingsView: View {
         } catch {
             elderHelpContactErrorMessage = ElderHelpContactError.localStorageUnavailable.userMessage
         }
+    }
+
+    private func refreshNotificationSettings() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        notificationPermissionIsUndetermined = settings.authorizationStatus == .notDetermined
+        await notificationService.refreshAuthorizationStatus()
+        await notificationService.refreshPendingReminderCount()
     }
 
     private var notificationStatusText: String {
@@ -806,6 +865,7 @@ struct SettingsView: View {
 
     private func requestNotificationPermissionAndRefresh() async {
         let granted = await notificationService.requestAuthorization()
+        await refreshNotificationSettings()
         guard granted else {
             return
         }
@@ -814,7 +874,7 @@ struct SettingsView: View {
     }
 
     private func openSystemSettings() {
-        guard let url = URL(string: UIApplication.openSettingsURLString) else {
+        guard let url = URL(string: UIApplication.openNotificationSettingsURLString) else {
             return
         }
         UIApplication.shared.open(url)

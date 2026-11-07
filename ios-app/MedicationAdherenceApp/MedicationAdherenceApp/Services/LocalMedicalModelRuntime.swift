@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationModels) && compiler(>=6.4)
+import FoundationModels
+#endif
 #if canImport(llama)
 import llama
 #endif
@@ -31,8 +34,12 @@ struct LocalMedicalGenerationStream: Sendable {
 
 actor LocalMedicalModelRuntime: LocalMedicalGenerating {
     static let shared = LocalMedicalModelRuntime()
+    private let thinkingEnabled: Bool
 
-    private init() {}
+    init(thinkingEnabled: Bool = false) {
+        self.thinkingEnabled = thinkingEnabled
+    }
+
 
     static var isAvailable: Bool {
         #if canImport(llama)
@@ -136,7 +143,7 @@ actor LocalMedicalModelRuntime: LocalMedicalGenerating {
         guard !trimmedPrompt.isEmpty else {
             throw LocalMedicalAIError.emptyResponse
         }
-        let context = try LlamaCppContext(modelURL: modelURL, cancellationSignal: cancellationSignal)
+        let context = try LlamaCppContext(modelURL: modelURL, thinkingEnabled: thinkingEnabled, cancellationSignal: cancellationSignal)
         return try context.generate(prompt: trimmedPrompt, maxTokens: maxTokens, onToken: onToken)
         #else
         throw LocalMedicalAIError.runtimeUnavailable
@@ -188,9 +195,13 @@ private final class LlamaCppContext {
     private var sampler: UnsafeMutablePointer<llama_sampler>
     private var pendingUTF8Bytes: [CChar] = []
     private let contextLength = 2048
+    private let usesMiniCPM5: Bool
+    private let thinkingEnabled: Bool
     private let cancellationSignal: LlamaCancellationSignal
 
-    init(modelURL: URL, cancellationSignal: LlamaCancellationSignal) throws {
+    init(modelURL: URL, thinkingEnabled: Bool, cancellationSignal: LlamaCancellationSignal) throws {
+        usesMiniCPM5 = modelURL.lastPathComponent == "MiniCPM5-2B-Q4_K_M.gguf"
+        self.thinkingEnabled = thinkingEnabled
         self.cancellationSignal = cancellationSignal
         try cancellationSignal.checkCancellation()
         llama_backend_init()
@@ -252,8 +263,7 @@ private final class LlamaCppContext {
         sampler = llama_sampler_chain_init(samplerParameters)
         llama_sampler_chain_add(sampler, llama_sampler_init_top_k(40))
         llama_sampler_chain_add(sampler, llama_sampler_init_top_p(0.85, 1))
-        llama_sampler_chain_add(sampler, llama_sampler_init_penalties(128, 1.10, 0.02, 0.0))
-        llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.40))
+        llama_sampler_chain_add(sampler, llama_sampler_init_temp(0.0))
         llama_sampler_chain_add(sampler, llama_sampler_init_dist(42))
         initialized = true
     }
@@ -303,7 +313,11 @@ private final class LlamaCppContext {
         }
         try cancellationSignal.checkCancellation()
 
-        var output = ""
+        // The thinking opener belongs to the prompt; restore the marker for the
+        // existing stream parser so reasoning is never mistaken for the answer.
+        let opener = usesMiniCPM5 && thinkingEnabled ? "<think>\n" : ""
+        var output = opener
+        if !opener.isEmpty { onToken?(opener) }
         for _ in 0..<tokenLimit {
             try cancellationSignal.checkCancellation()
             let newToken = llama_sampler_sample(sampler, context, -1)
@@ -317,7 +331,7 @@ private final class LlamaCppContext {
             output += piece
             onToken?(piece)
             try cancellationSignal.checkCancellation()
-            llama_sampler_accept(sampler, newToken)
+            // llama_sampler_sample already accepts this token into sampler history.
             var tokenForDecode = newToken
             let tokenBatch = llama_batch_get_one(&tokenForDecode, 1)
 
@@ -338,29 +352,34 @@ private final class LlamaCppContext {
     }
 
     private func chatFormattedPrompt(for prompt: String) -> String {
-        guard let template = llama_model_chat_template(model, nil) else {
-            return prompt
-        }
-        return "user".withCString { rolePointer in
-            prompt.withCString { contentPointer in
-                var message = llama_chat_message(role: rolePointer, content: contentPointer)
-                let initialLength = max(4096, prompt.utf8.count * 3)
-                var buffer = [CChar](repeating: 0, count: initialLength)
-                let written = llama_chat_apply_template(template, &message, 1, true, &buffer, Int32(buffer.count))
-                if written <= 0 {
-                    return prompt
+        guard let template = llama_model_chat_template(model, nil) else { return prompt }
+        let system = "你是 MedCue 健康助手。仅当用户只是在打招呼时才简短问候；其他问题直接回答，不重复欢迎、自我介绍或邀请。不仿照历史回答中的寒暄。用户要求换语言时立即使用指定语言。用户说身体不适时回应不适并询问症状，不要回复通用欢迎语。一般健康知识可以直接回答，无需个人资料。涉及用户本人的数据才依据提供的资料，缺失时说明并帮助用户找到下一步，不编造个人数值，不诊断或开处方。简短回答，只回应当前问题，不主动展开无关药品、剂量或警告。能力介绍只谈能提供的帮助，不复述个人资料。回答完即结束。"
+            + (thinkingEnabled ? "先核对资料再回答。" : "不输出思考过程。")
+        let formatted = "system".withCString { systemRole in
+            system.withCString { systemContent in
+                "user".withCString { userRole in
+                    prompt.withCString { content in
+                        let messages = [
+                            llama_chat_message(role: systemRole, content: systemContent),
+                            llama_chat_message(role: userRole, content: content)
+                        ]
+                        return messages.withUnsafeBufferPointer { messageBuffer in
+                            var buffer = [CChar](repeating: 0, count: max(4096, (system.utf8.count + prompt.utf8.count) * 3))
+                            let written = llama_chat_apply_template(template, messageBuffer.baseAddress, messages.count, true, &buffer, Int32(buffer.count))
+                            guard written > 0 else { return prompt }
+                            if written < buffer.count { return decodeNullTerminatedUTF8(buffer) }
+                            buffer = [CChar](repeating: 0, count: Int(written) + 1)
+                            let largerWritten = llama_chat_apply_template(template, messageBuffer.baseAddress, messages.count, true, &buffer, Int32(buffer.count))
+                            guard largerWritten > 0, largerWritten < buffer.count else { return prompt }
+                            return decodeNullTerminatedUTF8(buffer)
+                        }
+                    }
                 }
-                if written < buffer.count {
-                    return decodeNullTerminatedUTF8(buffer)
-                }
-                var largerBuffer = [CChar](repeating: 0, count: Int(written) + 1)
-                let largerWritten = llama_chat_apply_template(template, &message, 1, true, &largerBuffer, Int32(largerBuffer.count))
-                guard largerWritten > 0, largerWritten < largerBuffer.count else {
-                    return prompt
-                }
-                return decodeNullTerminatedUTF8(largerBuffer)
             }
         }
+        // Matches the official MiniCPM5 template's enable_thinking=false suffix.
+        guard usesMiniCPM5 else { return formatted }
+        return formatted + (thinkingEnabled ? "<think>\n" : "<think>\n\n</think>\n\n")
     }
 
     private func truncatePromptTokens(_ tokens: [llama_token], maxPromptTokens: Int) -> [llama_token] {
@@ -386,7 +405,7 @@ private final class LlamaCppContext {
             tokens,
             Int32(tokenCapacity),
             addBOS,
-            false
+            true // Recognize the control tokens emitted by the model chat template.
         )
         guard tokenCount > 0 else {
             return []
@@ -447,5 +466,114 @@ private final class LlamaCppContext {
         return Array(UnsafeBufferPointer(start: largerBuffer, count: Int(largerCount)))
     }
 
+}
+#endif
+
+// The app builds authorized context and history before calling this runtime.
+// Each request uses a fresh text session, preserving that existing prompt exactly.
+enum LocalMedicalRuntimeFactory {
+    static func make(backing: any LocalMedicalGenerating = LocalMedicalModelRuntime.shared) -> any LocalMedicalGenerating {
+        #if canImport(FoundationModels) && compiler(>=6.4)
+        if #available(iOS 27.0, *) {
+            return FoundationModelsLocalRuntime(backing: backing)
+        }
+        #endif
+        return backing
+    }
+}
+
+#if canImport(FoundationModels) && compiler(>=6.4)
+@available(iOS 27.0, *)
+struct FoundationModelsLocalRuntime: LocalMedicalGenerating {
+    let backing: any LocalMedicalGenerating
+
+    func generateResponse(prompt: String, modelURL: URL, maxTokens: Int) async throws -> String {
+        let session = makeSession(modelURL: modelURL, maxTokens: maxTokens)
+        return try await session.respond(to: prompt, options: GenerationOptions(maximumResponseTokens: maxTokens)).content
+    }
+
+    func generateResponseStream(prompt: String, modelURL: URL, maxTokens: Int) -> LocalMedicalGenerationStream {
+        let (stream, continuation) = AsyncThrowingStream<String, Error>.makeStream()
+        let worker = Task {
+                do {
+                    let session = makeSession(modelURL: modelURL, maxTokens: maxTokens)
+                    var deliveredCount = 0
+                    for try await snapshot in session.streamResponse(to: prompt, options: GenerationOptions(maximumResponseTokens: maxTokens)) {
+                        try Task.checkCancellation()
+                        let delta = String(String.UnicodeScalarView(snapshot.content.unicodeScalars.dropFirst(deliveredCount)))
+                        deliveredCount = snapshot.content.unicodeScalars.count
+                        if !delta.isEmpty { continuation.yield(delta) }
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        continuation.onTermination = { @Sendable _ in worker.cancel() }
+        return LocalMedicalGenerationStream(stream: stream) {
+            worker.cancel()
+            continuation.finish(throwing: CancellationError())
+        }
+    }
+
+    private func makeSession(modelURL: URL, maxTokens: Int) -> LanguageModelSession {
+        LanguageModelSession(model: LocalFoundationLanguageModel(
+            backing: backing,
+            executorConfiguration: .init(modelURL: modelURL, maxTokens: maxTokens)
+        ))
+    }
+}
+
+@available(iOS 27.0, *)
+private struct LocalFoundationLanguageModel: LanguageModel {
+    typealias Executor = LocalFoundationExecutor
+    let backing: any LocalMedicalGenerating
+    let executorConfiguration: LocalFoundationExecutor.Configuration
+    let capabilities = LanguageModelCapabilities([])
+}
+
+@available(iOS 27.0, *)
+private struct LocalFoundationExecutor: LanguageModelExecutor {
+    typealias Model = LocalFoundationLanguageModel
+    struct Configuration: Hashable, Sendable {
+        let modelURL: URL
+        let maxTokens: Int
+    }
+    let configuration: Configuration
+
+    init(configuration: Configuration) { self.configuration = configuration }
+
+    func respond(to request: LanguageModelExecutorGenerationRequest, model: Model,
+                 streamingInto channel: LanguageModelExecutorGenerationChannel) async throws {
+        // This private adapter serves the app's fresh, single-prompt sessions only.
+        let entries = Array(request.transcript)
+        guard entries.count == 1, case let .prompt(input) = entries[0] else {
+            throw LanguageModelError.unsupportedTranscriptContent(.init(
+                unsupportedContent: entries, debugDescription: "Expected the app's preassembled text prompt."
+            ))
+        }
+        let prompt = try input.segments.map { segment in
+            guard case let .text(text) = segment else {
+                throw LanguageModelError.unsupportedTranscriptContent(.init(
+                    unsupportedContent: entries, debugDescription: "The local runtime accepts text."
+                ))
+            }
+            return text.content
+        }.joined()
+        let generation = model.backing.generateResponseStream(
+            prompt: prompt, modelURL: configuration.modelURL,
+            maxTokens: request.generationOptions.maximumResponseTokens ?? configuration.maxTokens
+        )
+        defer { generation.cancel() }
+        try await withTaskCancellationHandler(operation: {
+            for try await delta in generation.stream {
+                try Task.checkCancellation()
+                // The existing runtime exposes text deltas, without token usage counts.
+                await channel.send(.response(action: .appendText(delta, tokenCount: 0)))
+            }
+        }, onCancel: {
+            generation.cancel()
+        })
+    }
 }
 #endif

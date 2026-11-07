@@ -1,9 +1,16 @@
 # MedCue Agent Working Agreement
 
-This file defines how coding agents work in this repository. It is intentionally
-short. Product truth lives in `CONTEXT.md`; current verified engineering truth
-lives in `docs/PROJECT_STATUS.md`; the delivery process lives in
-`docs/DEVELOPMENT_WORKFLOW.md`.
+This file is the entry point for repository-specific working rules. Read the
+parts of the following sources relevant to the task; do not reload every
+operational document for an unrelated small change:
+
+- `CONTEXT.md`: product scope, domain language, and safety invariants.
+- `docs/FINALS_PRODUCT_PLAN.md`: accepted milestones and ownership boundaries.
+- `docs/PROJECT_STATUS.md`: revision-scoped engineering evidence.
+- `docs/DEVELOPMENT_WORKFLOW.md`: delivery process and the complete autonomous
+  merge gate; read it before a shared integration checkpoint.
+- `docs/TOOLING_AND_PLUGIN_PLAN.md`: tools, skill applicability, and build-cache
+  safety; read the relevant sections before tool setup or native validation.
 
 ## 1. Start With The Problem
 
@@ -14,9 +21,13 @@ work item containing:
 - the intended outcome;
 - in-scope and out-of-scope behavior;
 - observable acceptance criteria;
-- medical, privacy, data, performance, accessibility, platform, competition,
-  and intellectual-property/dependency-license risks;
+- applicable medical, privacy, data, performance, accessibility, platform,
+  competition, and intellectual-property/dependency-license risks;
 - the validation plan and any decision that only the product owner can make.
+
+Keep this proportional to the change and reuse the active milestone or Issue.
+A few sentences can be enough; do not create a new document or fill unrelated
+risk categories just to complete a template.
 
 Do not ask the product owner to rediscover facts that the repository, tests,
 logs, or platform documentation can answer. Ask concise questions only when a
@@ -50,6 +61,12 @@ first proposed implementation.
   follow established repository patterns, state consequential assumptions, and
   record adjacent work separately.
 
+When repository files do not answer a technical question, continue with
+relevant official documentation, safe diagnostics, or a focused experiment.
+Distinguish a hypothesis from a verified fact; do not invent an existing API,
+identifier, result, or product requirement. Ask the owner only when their
+judgment or unavailable access is actually needed, and continue independent work.
+
 The agent owns technical due diligence, implementation quality, and
 recommendations. The product owner retains final authority over product value,
 priority, intended experience, acceptable cost, privacy choices within the
@@ -57,12 +74,16 @@ product safety boundary, and release timing.
 
 ## 3. Use GitHub As The Work System
 
-- Track active requirements, bugs, and technical debt in GitHub Issues.
-- Use one focused branch and one Pull Request per coherent Issue.
-- Branch from the authoritative, up-to-date `main` as
-  `codex/<issue-number>-<short-name>`.
+- Keep one locally owned finals milestone on one focused branch and verify it in
+  small steps. Use GitHub Issues for remote ownership, durable/deferred backlog,
+  bugs or debt that must outlive the milestone, and integration coordination.
+- Use one focused branch per coherent local milestone and one Pull Request per
+  coherent Issue. Branch from the authoritative, up-to-date `main` as
+  `codex/<short-milestone>` before the GitHub checkpoint, or
+  `codex/<issue-number>-<short-name>` when an Issue already exists.
 - Do not push feature work directly to `main`.
-- Link the Pull Request to its Issue and keep scope changes visible.
+- Before pushing for shared integration or opening a Pull Request, create or
+  align one Issue, link the Pull Request to it, and keep scope changes visible.
 - Require green relevant CI, a completed review checklist, and the approved
   autonomous-merge gate before merge.
 - Record durable architecture decisions in `docs/adr/`; do not bury them in a
@@ -77,25 +98,29 @@ pre-normalization history, and never force-push over an active contributor.
 
 ## 4. Coordinate AI Work Deliberately
 
-- At the start of a task or after context recovery, confirm the linked Issue or
-  Pull Request, branch and upstream, exact HEAD, working-tree status, and the
-  applicable product and engineering truth documents.
-- One coordinating agent owns scope, integration, and final evidence. Delegate
-  only bounded work with explicit ownership; parallel writers may touch only
-  disjoint files or separate worktrees. The coordinator reviews every result and
-  the complete final diff, but does not provide a second approval when the
-  autonomous-merge gate below is satisfied.
+- At the start of a task or after context recovery, confirm the active local
+  milestone and any linked Issue or Pull Request, branch and upstream, exact
+  HEAD, working-tree status, and the applicable product and engineering truth
+  documents.
+- One coordinating agent owns scope, integration, and exceptions. Delegate only
+  bounded work with explicit ownership; parallel writers may touch only disjoint
+  files or separate worktrees. The author reviews delegated results and the
+  complete cumulative diff. Once the autonomous merge gate is satisfied, the
+  coordinator adds neither a routine second diff review nor a second approval.
 - Medication-record, medical-AI, privacy, migration, authorization, and other
   safety-critical changes require an independent fresh-context review before a
   Pull Request is ready. Routine changes do not require a review committee.
 - CI workflows, verification gates, release scans, and packaging scripts also
   require fresh-context security review because they define trusted evidence.
 - A handoff records the exact revision, dirty files, completed evidence,
-  blockers, and one next action. Durable state belongs in the Issue or Pull
-  Request, not in another permanent handoff log.
+  blockers, and one next action. Shared remote state belongs in the Issue or
+  Pull Request; accepted finals priority belongs in `docs/FINALS_PRODUCT_PLAN.md`,
+  not in another permanent handoff or daily progress log.
 - Skills, plugins, MCP results, model scores, and generated knowledge graphs are
   aids, not sources of truth. Verify consequential claims against the exact
   source revision, tests, official platform documentation, or external system.
+  Use only relevant skills with verified prerequisites, following
+  `docs/TOOLING_AND_PLUGIN_PLAN.md`; a skill cannot expand user authorization.
 - For Xcode-related control and inspection, use Xcode's native MCP capabilities
   first when they are exposed in the current session. Keep repository scripts,
   `xcodebuild`, and `simctl` for deterministic exact-revision build, test, and
@@ -141,8 +166,11 @@ longer applies.
   interface depth, observable behavior tests, and relevant measured performance.
 - Test externally observable behavior, failure paths, ordering, idempotency,
   cancellation, and rollback. Avoid tests that merely mirror implementation.
-- During iteration, run focused tests and `tools/verify-native.sh --quick` when
-  the local environment provides its prerequisites.
+- During native-code iteration, run focused tests and
+  `tools/verify-native.sh --quick` when prerequisites are available. For other
+  changes, use the relevant checks required by the delivery workflow. After
+  checks pass, repeat or broaden them only for a new change, failure, unresolved
+  concern, or required integration gate.
 - Before a Pull Request is ready, run every relevant lane check plus the full
   `tools/verify-native.sh` gate for native/full-lane changes and every `main`
   push. Broker changes also require `node --test` in
@@ -180,10 +208,12 @@ longer applies.
 
 ## 9. Definition Of Done
 
-Work is done only when acceptance criteria are met, relevant automated checks
-pass, required documentation is current, the Pull Request explains evidence and
-residual risk, CI is green, and any required physical-device or account-owner
-verification is explicitly recorded. A successful build alone is not done.
+Local work is complete when its requested outcome, relevant checks, and
+required documentation are complete and any limitations are explicit. Local
+completion does not claim a Pull Request is ready, merged, or released.
+Integration additionally requires the Pull Request evidence, successful current
+revision CI, and applicable device/account checks defined in
+`docs/DEVELOPMENT_WORKFLOW.md`. A successful build alone is not done.
 Applicable competition rules and intellectual-property/dependency-license
 obligations are current release gates; commercial-production controls are not
 unless the release scope changes.
@@ -194,31 +224,22 @@ product consequences.
 
 ## Autonomous Merge Gate
 
-After the last tracked-file change, the author must complete the cumulative
-base-to-HEAD self-review, obtain a fresh-context independent review using the
-Issue-specified model, and resolve every `Blocker` and `Required` finding. The
-current HEAD must have successful exact-head relevant CI, a clean current-main
-integration check, and all required device/account/external evidence (or a
-reasoned `N/A` where the change cannot affect that boundary). The author may
-mark the Pull Request Ready and squash merge without a second coordinator
-approval only when all of those conditions and the Issue acceptance criteria
-are satisfied. After merge, wait for and record the exact `main` CI result.
+The complete, mandatory gate is defined only in
+[`docs/DEVELOPMENT_WORKFLOW.md`](docs/DEVELOPMENT_WORKFLOW.md#autonomous-merge-gate).
+Read and satisfy it before marking a Pull Request Ready or merging. It retains
+cumulative self-review, Issue-specified fresh-context independent review,
+resolution of all Blocker/Required findings, current-revision CI, current-main
+integration, and required external evidence. A new tracked-file commit
+invalidates prior review, approval, and CI; the workflow defines the stop
+conditions and post-merge verification. This reference is not a waiver.
 
-Every tracked-file commit invalidates prior review, approval, and CI evidence;
-repeat the review and exact-head checks for the new SHA. Body-only Pull Request
-edits do not invalidate code CI, but all revision and evidence references must
-be rechecked.
+## Build-Cache Safety
 
-Stop and wake the coordinator or product owner instead of merging when a
-product, medical claim, privacy/consent, cost, account, credential, deployment,
-legal, or release-time decision is unresolved; a destructive or hard-to-reverse
-operation is requested; device, account, cloud, or other required external
-evidence is missing; files overlap, scope materially expands, conflicts or
-permissions block proof; a trusted CI, release-scan, packaging, permission, or
-workflow rule is changed without Issue authorization; the specified model or
-fresh-context review is unavailable; exact-head CI is not successful; or any
-`Blocker`/`Required` finding remains. High-risk medication, medical-AI,
-privacy, security, migration, authorization, and system-entry work is not
-automatically prohibited, but it needs the approved scope plus its failure,
-rollback, data-integrity, independent-review, and applicable device/account
-evidence before this gate can pass.
+Before native validation or cache operations, read the required prevention rules
+and the preserved 2026-09-01 incident in
+[`docs/TOOLING_AND_PLUGIN_PLAN.md`](docs/TOOLING_AND_PLUGIN_PLAN.md#agentic-coding-build-cache-safety-2026-09-01).
+Never put source worktrees under `.codex-build`. Reuse one governed build-output
+namespace per workline, retaining the existing `.codex-local` verification
+exception. Preserve source, user changes, and required evidence. Cache cleanup
+still requires explicit path-scoped owner confirmation; a model upgrade grants
+no exception to these rules.

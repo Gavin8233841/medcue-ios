@@ -7,9 +7,11 @@ remain in `PROJECT_STATUS.md`.
 ## System Shape
 
 ```text
-SwiftUI presentation
-        |
-application commands, sessions, and render projections
+complete experience       elder-friendly experience (planned)
+          \                 /
+           shared user intents and render projections
+                         |
+application commands and sessions
         |
 SwiftData persistence + Apple platform adapters
         |
@@ -27,6 +29,24 @@ MedicalAIClient seam
         +-- constrained cloud adapters, including the CloudBase Broker
 ```
 
+## Product Experience Boundary
+
+- The complete and elder-friendly experiences are two presentations of the
+  same committed medication state. They must not fork medication, plan,
+  dose-task, or action-log models into separate truth stores.
+- Both experiences invoke the same tested application command for the same
+  logical action. A different label, layout, or amount of detail cannot create
+  different persistence or idempotency semantics.
+- The elder-friendly experience is planned work, not a currently verified
+  runtime capability. Its initial action set is taken, remind later, and request
+  help. Intentional skip, reason entry, correction, and detailed review remain
+  available through the complete experience.
+- A missing action remains unconfirmed. Notification expiry, app termination,
+  or process restart cannot silently convert it to intentional skip or taken.
+- Same-device family-assisted setup may configure a phone number for an explicit
+  system call. There is no remote family identity, Contacts upload, remote plan
+  mutation, or clinician backend in the current architecture.
+
 ## Module Responsibilities
 
 - `swift-core/` owns portable medication scheduling, adherence, inventory,
@@ -34,8 +54,9 @@ MedicalAIClient seam
   It must not depend on SwiftUI, SwiftData, ActivityKit, WatchConnectivity, or
   network transport.
 - `ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Views/` owns rendering,
-  accessibility, navigation, and short-lived presentation state. A View should
-  express user intent, not own a multi-step persistence or transport protocol.
+  experience selection, accessibility, navigation, and short-lived presentation
+  state. A View should express user intent, not own a multi-step persistence or
+  transport protocol.
 - Application commands and session modules own validation, transaction order,
   idempotency, rollback, cancellation, and post-commit coordination.
 - SwiftData models and persistence adapters own durable iPhone state. Manual UUID
@@ -59,7 +80,9 @@ MedicalAIClient seam
 4. Success UI and external side effects occur only after a successful commit.
 5. Retries use stable idempotency semantics and must not append duplicate action
    logs or repeat a logical dose transition.
-6. External inputs are untrusted until a documented trust boundary validates
+6. Absence of a committed action preserves an unconfirmed task; expiry and
+   restart behavior must be explicit and testable.
+7. External inputs are untrusted until a documented trust boundary validates
    provenance, scope, expiry, action, and replay behavior.
 
 ## Dependency And Ownership Rules
@@ -87,6 +110,10 @@ MedicalAIClient seam
 - Custom URLs, App Intents, notifications, Live Activities, Watch messages, and
   web responses are external inputs. Each entry point must fail closed and reach
   the same validated command boundary.
+- A future child or clinician surface is a new identity and data-sharing trust
+  boundary. It requires an approved design for authentication, consent,
+  revocation, least-privilege projections, audit, retention, and conflict
+  handling before implementation.
 - Secrets remain outside source, logs, packages, model prompts, and health data.
   Provider master credentials must not become production client credentials.
 

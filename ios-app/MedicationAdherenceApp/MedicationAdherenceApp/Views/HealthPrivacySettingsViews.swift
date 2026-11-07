@@ -1,4 +1,5 @@
 import AuthenticationServices
+import Charts
 import MedicationAdherenceCore
 import OSLog
 import QuickLook
@@ -36,12 +37,24 @@ struct HealthDataSettingsView: View {
                         iconName: "waveform.path.ecg",
                         tint: .secondary,
                         title: "暂无近期样本",
-                        subtitle: healthKitService.hasCompletedAuthorizationRequest ? "授权范围内还没有可读取的生命体征" : "完成授权请求后显示最近 56 天的生命体征"
+                        subtitle: healthKitService.hasCompletedAuthorizationRequest ? "授权范围内还没有可读取的健康、睡眠和活动数据" : "完成授权请求后显示最近 56 天的健康、睡眠和活动数据"
                     )
                 } else {
                     ForEach(summary.metricSummaries) { metric in
-                        HealthKitMetricSummaryRow(metric: metric)
+                        NavigationLink {
+                            HealthMetricHistoryView(metric: metric, samples: healthKitService.recentTrendSamples)
+                        } label: {
+                            HealthKitMetricSummaryRow(metric: metric)
+                        }
                     }
+                }
+            }
+
+            Section("用药与睡眠") {
+                NavigationLink {
+                    MedicationSleepReviewView()
+                } label: {
+                    Label("对照睡眠与实际用药记录", systemImage: "bed.double.fill")
                 }
             }
 
@@ -91,6 +104,11 @@ struct HealthDataSettingsView: View {
                         startHealthPermissionFlow()
                     } label: {
                         Text("请求读取健康数据授权")
+                    }
+                }
+                if healthKitService.hasCompletedAuthorizationRequest {
+                    Button("更新读取授权（含睡眠与活动）") {
+                        Task { await healthKitService.requestAuthorizationEntry() }
                     }
                 }
                 Button {
@@ -245,6 +263,110 @@ struct HealthKitMetricSummaryRow: View {
     }
 }
 
+
+// Reuses the daily bar/line presentation from HealthMetricReviewCard in the
+// visit-prep integration, adapted to the current health-signal model.
+private struct HealthMetricHistoryView: View {
+    let metric: HealthKitMetricSummary
+    let samples: [HealthSignalSample]
+    @State private var selectedDate: Date?
+    @State private var lookbackDays = 7
+
+    private struct DailyPoint: Identifiable {
+        var id: Date { date }
+        let date: Date
+        let value: Double
+        let segment: Date
+    }
+
+    private var points: [DailyPoint] {
+        let calendar = Calendar.current
+        let start = calendar.date(byAdding: .day, value: 1 - lookbackDays,
+                                  to: calendar.startOfDay(for: Date())) ?? Date()
+        let groups = Dictionary(grouping: samples.filter {
+            $0.kind == metric.kind && $0.measuredAt >= start
+        }, by: { calendar.startOfDay(for: $0.measuredAt) })
+        var result: [DailyPoint] = []
+        var segment = start
+        for date in groups.keys.sorted() {
+            let values = (groups[date] ?? []).map(\.value).sorted()
+            guard !values.isEmpty else { continue }
+            if let previous = result.last,
+               calendar.date(byAdding: .day, value: 1, to: previous.date) != date {
+                segment = date
+            }
+            let middle = values.count / 2
+            let median = values.count.isMultiple(of: 2)
+                ? (values[middle - 1] + values[middle]) / 2 : values[middle]
+            result.append(DailyPoint(date: date, value: median, segment: segment))
+        }
+        return result
+    }
+
+    private var usesBars: Bool {
+        switch metric.kind {
+        case .stepCount, .activeEnergy, .exerciseMinutes, .sleepDuration, .sleepCore, .sleepDeep, .sleepREM: true
+        default: false
+        }
+    }
+
+    var body: some View {
+        let daily = points
+        List {
+            Section {
+                Picker("回顾范围", selection: $lookbackDays) {
+                    Text("近 7 天").tag(7)
+                    Text("近 30 天").tag(30)
+                    Text("近 56 天").tag(56)
+                }
+                .pickerStyle(.segmented)
+                HealthKitMetricSummaryRow(metric: metric)
+                if daily.isEmpty {
+                    Text("这段时间暂无可读取的记录").foregroundStyle(.secondary)
+                } else {
+                    Chart(daily) { point in
+                        if usesBars {
+                            BarMark(x: .value("日期", point.date, unit: .day),
+                                    y: .value(metric.title, point.value), width: .ratio(0.65))
+                                .cornerRadius(3)
+                                .foregroundStyle(healthMetricTint(metric.kind))
+                        } else {
+                            LineMark(x: .value("日期", point.date), y: .value(metric.title, point.value),
+                                     series: .value("连续记录", point.segment))
+                                .interpolationMethod(.linear)
+                                .lineStyle(StrokeStyle(lineWidth: 2, lineJoin: .round))
+                                .foregroundStyle(healthMetricTint(metric.kind))
+                            PointMark(x: .value("日期", point.date), y: .value(metric.title, point.value))
+                                .foregroundStyle(healthMetricTint(metric.kind))
+                        }
+                    }
+                    .chartYScale(domain: .automatic(includesZero: usesBars))
+                    .chartXSelection(value: $selectedDate)
+                    .chartGesture { proxy in
+                        SpatialTapGesture(coordinateSpace: .local).onEnded { event in
+                            proxy.selectXValue(at: event.location.x)
+                        }
+                    }
+                    .chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) }
+                    .chartLegend(.hidden)
+                    .frame(height: 220)
+                    if let selectedDate,
+                       let point = daily.first(where: { Calendar.current.isDate($0.date, inSameDayAs: selectedDate) }) {
+                        Text("\(point.date.formatted(date: .abbreviated, time: .omitted)) · \(point.value.formatted(.number.precision(.fractionLength(0...1)))) \(metric.unit)")
+                            .monospacedDigit()
+                    }
+                }
+            }
+            Section {
+                Text(usesBars ? "按日汇总已记录的数据。睡眠归到结束日，重叠时段去重；缺失日期不补值。"
+                              : "曲线显示每日记录中位数，缺失日期不连线。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle(metric.title)
+    }
+}
+
 struct HealthKitContributionRow: View {
     let iconName: String
     let tint: Color
@@ -280,8 +402,11 @@ struct HealthKitContributionRow: View {
 
 private func healthMetricTint(_ kind: HealthSignalKind) -> Color {
     switch kind {
-    case .heartRate:
+    case .heartRate, .restingHeartRate:
         .red
+    case .stepCount, .exerciseMinutes: .green
+    case .activeEnergy: .orange
+    case .sleepDuration, .sleepCore, .sleepDeep, .sleepREM: .indigo
     case .bloodPressureSystolic, .bloodPressureDiastolic:
         .indigo
     case .bloodOxygen:
@@ -474,5 +599,96 @@ struct SettingsSwitchVisual: View {
             }
             .animation(.snappy(duration: 0.18, extraBounce: 0), value: isOn)
             .accessibilityHidden(true)
+    }
+}
+
+
+private struct MedicationSleepReviewView: View {
+    @Query private var tasks: [StoredDoseTask]
+    @Query private var medications: [StoredMedication]
+    @StateObject private var service = HealthKitService()
+    @State private var dayCount = 14
+    @State private var selectedDate: Date?
+    @Environment(\.openMedicationAIQuestion) private var openQuestion
+
+    var body: some View {
+        let review = MedicationSleepReview(samples: service.recentTrendSamples,
+            tasks: tasks, medications: medications, dayCount: dayCount)
+        let selected = review.days.first { Calendar.current.isDate($0.date, inSameDayAs: selectedDate ?? Date()) }
+        List {
+            Section {
+                Picker("观察范围", selection: $dayCount) {
+                    Text("近 14 天").tag(14)
+                    Text("近 30 天").tag(30)
+                }.pickerStyle(.segmented)
+                Text(review.sleepSummary).font(.subheadline)
+                Text("点击图表日期，对照同一观察窗口的记录。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("睡眠时长 · 小时") {
+                if review.days.compactMap(\.sleepHours).isEmpty {
+                    Text("暂无可读取的睡眠记录，请在 Apple 健康页更新读取授权。")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Chart(review.days) { day in
+                        if let hours = day.sleepHours {
+                            BarMark(x: .value("日期", day.date, unit: .day), y: .value("小时", hours))
+                                .foregroundStyle(.indigo.gradient).cornerRadius(3)
+                        }
+                        if let selectedDate {
+                            RuleMark(x: .value("所选日期", selectedDate)).foregroundStyle(.secondary.opacity(0.4))
+                        }
+                    }
+                    .chartXScale(domain: (review.days.first?.date ?? Date())...Date())
+                    .chartXSelection(value: $selectedDate)
+                    .chartGesture { proxy in
+                        SpatialTapGesture().onEnded { proxy.selectXValue(at: $0.location.x) }
+                    }
+                    .chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) }
+                    .frame(height: 200)
+                }
+            }
+            Section("同窗口实际服用记录 · 次") {
+                Chart(review.days) { day in
+                    BarMark(x: .value("日期", day.date, unit: .day), y: .value("已记录次数", day.actualDoseCount))
+                        .foregroundStyle(.teal.gradient).cornerRadius(3)
+                    if let selectedDate {
+                        RuleMark(x: .value("所选日期", selectedDate)).foregroundStyle(.secondary.opacity(0.4))
+                    }
+                }
+                .chartXScale(domain: (review.days.first?.date ?? Date())...Date())
+                .chartXSelection(value: $selectedDate)
+                .chartGesture { proxy in
+                    SpatialTapGesture().onEnded { proxy.selectXValue(at: $0.location.x) }
+                }
+                .chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) }
+                .frame(height: 120)
+                Text("仅统计有实际时间的已服用记录，时间未知的记录见下方明细。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section(selected.map { $0.date.formatted(date: .abbreviated, time: .omitted) } ?? "所选日期") {
+                if let selected {
+                    Text(selected.sleepHours.map { "睡眠 \($0.formatted(.number.precision(.fractionLength(1)))) 小时" } ?? "缺少睡眠记录")
+                        .font(.headline)
+                    Text("前日中午至当日中午的用药记录")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if selected.medicationRecords.isEmpty { Text("暂无同期用药记录").foregroundStyle(.secondary) }
+                    ForEach(Array(selected.medicationRecords.enumerated()), id: \.offset) { _, record in
+                        Text(record).font(.body)
+                    }
+                }
+            }
+            Section {
+                Button("询问智能体，分析这 \(dayCount) 天的变化") {
+                    openQuestion("请分析最近\(dayCount)天睡眠与实际用药记录的同期变化，引用日期和数值，并结合已提供的药品说明书给出值得继续观察的问题。")
+                }
+                Text("选择云端模式并开启健康摘要共享后，可结合当前数据分析。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("睡眠按结束日归属。计划和未确认记录不能视为已服药；同期变化不代表药物导致变化。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("用药与睡眠")
+        .task(id: dayCount) { await service.refreshRecentTrendSamples(days: dayCount, useRecentCache: true) }
     }
 }

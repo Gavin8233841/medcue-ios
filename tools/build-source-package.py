@@ -242,6 +242,29 @@ def allowed_path(path: str) -> bool:
     return path in ROOT_FILES or path.startswith(ALLOWED_PREFIXES)
 
 
+# Owner-approved demo photos: exact bytes, not a general image allowance.
+APPROVED_DEMO_PHOTOS = {'ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/DemoAdvil.imageset/DemoAdvil.jpg': '6d5fc282cb6e8bdc161cd7beab3402803fad6b83098745f9c9d38fef421982a7',
+ 'ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/DemoArtificialTears.imageset/DemoArtificialTears.png': 'ae050fffd5d43f3df01fc552ffbe40024f5e3c07adb917a3a862ce926c80c90b',
+ 'ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/DemoFortuneLoratadine.imageset/DemoFortuneLoratadine.jpg': 'dbad4345bf4e266d2c32d3d2a8650d6154d33c67c46ead7038302a6f444d0a5a',
+ 'ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/DemoTylenol.imageset/DemoTylenol.jpg': '870bc09fbac772b5f19264cc60fea40b2695481eaa0a2a228b197f00dc60be46',
+ 'ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/DemoVitaminD3.imageset/DemoVitaminD3.png': '81355c8d3ff802d95e7121897617a6d47f1b62d9e1066dafd34645c228a3082a'}
+
+def validate_demo_photos(blobs: dict[str, bytes]) -> list[str]:
+    photos = sorted(path for path in blobs if path in APPROVED_DEMO_PHOTOS)
+    for path in photos:
+        if hashlib.sha256(blobs[path]).hexdigest() != APPROVED_DEMO_PHOTOS[path]:
+            fail(f"demo photo differs from the owner-approved bytes: {path}")
+        catalog = str(PurePosixPath(path).parent / "Contents.json")
+        try:
+            contents = json.loads(blobs[catalog].decode("utf-8"))
+            filenames = [image.get("filename") for image in contents["images"]]
+        except (KeyError, TypeError, AttributeError, UnicodeDecodeError, json.JSONDecodeError):
+            fail(f"demo photo has invalid or missing catalog metadata: {path}")
+        if PurePosixPath(path).name not in filenames:
+            fail(f"demo photo is not referenced by its catalog: {path}")
+    return photos
+
+
 def approved_app_icon(path: str) -> bool:
     return path.casefold().endswith(".png") and path.startswith(APP_ICON_PREFIXES)
 
@@ -302,6 +325,8 @@ def forbidden_path(path: str) -> str | None:
         return "generated application, framework, model, archive, or result bundle"
     if ".xcframework/" in lower:
         return "binary frameworks are external release inputs and are not bundled"
+    if path in APPROVED_DEMO_PHOTOS:
+        return None
     if lower.endswith(".png"):
         if approved_app_icon(path):
             return None
@@ -330,11 +355,11 @@ def read_blobs(repo: Path, entries: list[dict[str, object]]) -> dict[str, bytes]
         if reason:
             fail(f"{path}: {reason}")
         data = git(repo, "cat-file", "blob", sha)
-        if b"\0" in data and not approved_app_icon(path):
+        if b"\0" in data and not approved_app_icon(path) and path not in APPROVED_DEMO_PHOTOS:
             fail(f"binary content is not an approved Asset Catalog icon: {path}")
         if approved_app_icon(path):
             validate_png(path, data)
-        if not approved_app_icon(path) and (
+        if not approved_app_icon(path) and path not in APPROVED_DEMO_PHOTOS and (
             WINDOWS_LOCAL_PATH.search(data) or any(root in data for root in PRIVATE_POSIX_ROOTS)
         ):
             fail(f"absolute local path detected in tracked content: {path}")
@@ -349,6 +374,7 @@ def read_blobs(repo: Path, entries: list[dict[str, object]]) -> dict[str, bytes]
     notice = blobs["docs/THIRD_PARTY_NOTICES.md"]
     if b"llama.cpp" not in notice or b"MIT" not in notice:
         fail("third-party notice does not document the optional llama.cpp MIT boundary")
+    validate_demo_photos(blobs)
     return blobs
 
 
@@ -414,11 +440,15 @@ def dependency_inventory(blobs: dict[str, bytes]) -> list[dict[str, object]]:
 def asset_inventory(blobs: dict[str, bytes]) -> dict[str, object]:
     icons = sorted(path for path in blobs if approved_app_icon(path))
     fonts = sorted(path for path in blobs if path.casefold().endswith((".ttf", ".otf")))
+    approved_photos = validate_demo_photos(blobs)
     media = sorted(
         path
         for path in blobs
         if path.casefold().endswith((".jpg", ".jpeg", ".gif", ".webp", ".mp3", ".mp4", ".mov"))
     )
+    if any(path not in APPROVED_DEMO_PHOTOS for path in media):
+        fail("unapproved media inventory")
+    media = approved_photos
     required_icon_roots = (
         "ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/",
         "ios-app/MedicationAdherenceApp/MedicationAdherenceWatchApp/Assets.xcassets/",
@@ -466,7 +496,7 @@ def asset_inventory(blobs: dict[str, bytes]) -> dict[str, object]:
         "fonts": fonts,
         "fontsStatus": "none-tracked",
         "media": media,
-        "mediaStatus": "none-tracked",
+        "mediaStatus": "owner-approved-demo-photos" if media else "none-tracked",
     }
 
 

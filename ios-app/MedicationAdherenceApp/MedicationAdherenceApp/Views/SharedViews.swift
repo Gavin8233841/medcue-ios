@@ -151,7 +151,10 @@ private struct AppPermissionPrimerModifier: ViewModifier {
     let onContinue: (AppPermissionGate) -> Void
 
     func body(content: Content) -> some View {
-        content.alert(
+        // SwiftUI may clear the presentation Binding before invoking an alert
+        // action. Capture the displayed gate so consent still reaches its flow.
+        let presentedGate = pendingGate
+        return content.alert(
             pendingGate?.title ?? "开启权限",
             isPresented: Binding(
                 get: { pendingGate != nil },
@@ -166,7 +169,7 @@ private struct AppPermissionPrimerModifier: ViewModifier {
                 pendingGate = nil
             }
             Button(pendingGate?.continueTitle ?? "同意并继续") {
-                guard let gate = pendingGate else {
+                guard let gate = presentedGate else {
                     return
                 }
                 pendingGate = nil

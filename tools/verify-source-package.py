@@ -32,6 +32,29 @@ def fail(message: str) -> NoReturn:
     raise VerificationError(message)
 
 
+# Owner-approved demo photos: exact bytes, not a general image allowance.
+APPROVED_DEMO_PHOTOS = {'ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/DemoAdvil.imageset/DemoAdvil.jpg': '6d5fc282cb6e8bdc161cd7beab3402803fad6b83098745f9c9d38fef421982a7',
+ 'ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/DemoArtificialTears.imageset/DemoArtificialTears.png': 'ae050fffd5d43f3df01fc552ffbe40024f5e3c07adb917a3a862ce926c80c90b',
+ 'ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/DemoFortuneLoratadine.imageset/DemoFortuneLoratadine.jpg': 'dbad4345bf4e266d2c32d3d2a8650d6154d33c67c46ead7038302a6f444d0a5a',
+ 'ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/DemoTylenol.imageset/DemoTylenol.jpg': '870bc09fbac772b5f19264cc60fea40b2695481eaa0a2a228b197f00dc60be46',
+ 'ios-app/MedicationAdherenceApp/MedicationAdherenceApp/Assets.xcassets/DemoVitaminD3.imageset/DemoVitaminD3.png': '81355c8d3ff802d95e7121897617a6d47f1b62d9e1066dafd34645c228a3082a'}
+
+def validate_demo_photos(blobs: dict[str, bytes]) -> list[str]:
+    photos = sorted(path for path in blobs if path in APPROVED_DEMO_PHOTOS)
+    for path in photos:
+        if hashlib.sha256(blobs[path]).hexdigest() != APPROVED_DEMO_PHOTOS[path]:
+            fail(f"demo photo differs from the owner-approved bytes: {path}")
+        catalog = str(PurePosixPath(path).parent / "Contents.json")
+        try:
+            contents = json.loads(blobs[catalog].decode("utf-8"))
+            filenames = [image.get("filename") for image in contents["images"]]
+        except (KeyError, TypeError, AttributeError, UnicodeDecodeError, json.JSONDecodeError):
+            fail(f"demo photo has invalid or missing catalog metadata: {path}")
+        if PurePosixPath(path).name not in filenames:
+            fail(f"demo photo is not referenced by its catalog: {path}")
+    return photos
+
+
 def validate_path(path: str, folded: dict[str, str]) -> None:
     if CONTROL_CHAR.search(path) or "\\" in path:
         fail(f"unsafe control character or backslash in ZIP entry: {path!r}")
@@ -167,8 +190,10 @@ def verify(zip_path: Path, digest_path: Path) -> dict[str, object]:
             fail("manifest icon inventory entry is incomplete")
     if asset_inventory.get("fonts") != [] or asset_inventory.get("fontsStatus") != "none-tracked":
         fail("manifest font inventory is not the approved empty state")
-    if asset_inventory.get("media") != [] or asset_inventory.get("mediaStatus") != "none-tracked":
-        fail("manifest media inventory is not the approved empty state")
+    photos = validate_demo_photos(data_by_path)
+    expected_status = "owner-approved-demo-photos" if photos else "none-tracked"
+    if asset_inventory.get("media") != photos or asset_inventory.get("mediaStatus") != expected_status:
+        fail("manifest media inventory does not match approved demo photos")
     if not isinstance(revision, str) or not FULL_SHA.fullmatch(revision):
         fail("manifest sourceRevision is not a full lowercase SHA")
     if not isinstance(tree, str) or not FULL_SHA.fullmatch(tree):

@@ -120,6 +120,32 @@ class SourcePackageTests(unittest.TestCase):
             check=False,
         )
 
+    def test_approved_demo_photo_boundary(self) -> None:
+        self.assertEqual(SOURCE_PACKAGE.APPROVED_DEMO_PHOTOS, SOURCE_VERIFIER.APPROVED_DEMO_PHOTOS)
+        for relative in SOURCE_PACKAGE.APPROVED_DEMO_PHOTOS:
+            self.write(relative, (ROOT / relative).read_bytes())
+            catalog = str(Path(relative).parent / "Contents.json")
+            self.write(catalog, (ROOT / catalog).read_bytes())
+        revision = self.commit()
+        entries = SOURCE_PACKAGE.parse_tree(self.repo, revision)
+        blobs = SOURCE_PACKAGE.read_blobs(self.repo, entries)
+        self.assertEqual(len(SOURCE_PACKAGE.asset_inventory(blobs)["media"]), 5)
+        result = self.run_builder(revision, self.temp / "demo-package")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        package = self.temp / "demo-package" / f"MedCue-source-{revision[:12]}.zip"
+        SOURCE_VERIFIER.verify(package, Path(str(package) + ".sha256"))
+        photo = next(iter(SOURCE_PACKAGE.APPROVED_DEMO_PHOTOS))
+        tampered = dict(blobs)
+        tampered[photo] += b"unexpected"
+        for policy, error in [(SOURCE_PACKAGE, SOURCE_PACKAGE.PackageError), (SOURCE_VERIFIER, SOURCE_VERIFIER.VerificationError)]:
+            with self.assertRaises(error):
+                policy.validate_demo_photos(tampered)
+            missing_reference = dict(blobs)
+            missing_reference[str(Path(photo).parent / "Contents.json")] = b'{"images":[]}'
+            with self.assertRaises(error):
+                policy.validate_demo_photos(missing_reference)
+        self.assertIsNotNone(SOURCE_PACKAGE.forbidden_path(str(Path(photo).parent / "Other.png")))
+
     def test_reproducible_zip_manifest_and_non_overwrite(self) -> None:
         revision = command("git", "rev-parse", "HEAD", cwd=self.repo).stdout.strip()
         first = self.temp / "out-a"
